@@ -63,7 +63,9 @@ public:
     log_.Record("supervisor.RequestStop");
   }
 
-  void NotifyConnectionLost() override {}
+  void NotifyConnectionLost(
+      std::uint64_t,
+      dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) override {}
 
 private:
   CallLog &log_;

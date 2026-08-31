@@ -16,7 +16,6 @@
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
 #include "process/adapter_host_constants.hpp"
-#include "process/adapter_host_handshake_verifier.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
 #include "process/adapter_host_shutdown_requester.hpp"
@@ -174,15 +173,10 @@ SKSEPluginInfo(
 
   //  Process-lifecycle discovery: an adopt-from-rendezvous-or-launch-fresh
   //  supervisor keeps the connection's complete target snapshot pointed at a
-  //  verified host for this plugin's whole lifetime.
+  //  authenticated target for this plugin's whole lifetime.
   static auto *reader =
       new dovahlink::adapter::process::FileAdapterHostRendezvousReader(
           *rendezvousPath);
-  static auto *verifierSocket =
-      new dovahlink::adapter::ipc::WinsockAdapterIpcSocket(0);
-  static auto *verifier =
-      new dovahlink::adapter::process::AdapterHostHandshakeVerifier(
-          instanceId, ownerLifetimeId, *verifierSocket, *codec);
   static auto *launcher =
       new dovahlink::adapter::process::Win32AdapterHostProcessLauncher(
           *hostExecutablePath, ownerLifetimeId);
@@ -203,14 +197,14 @@ SKSEPluginInfo(
           .onDecodeFailure = [] { session->HandleDecodeFailure(); },
           .onDisconnected = [] { session->HandleDisconnected(); },
           .onAttemptFinished =
-              [](std::uint64_t,
-                 dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) {
-                supervisor->NotifyConnectionLost();
+              [](std::uint64_t targetGeneration,
+                 dovahlink::adapter::ipc::AdapterIpcAttemptOutcome outcome) {
+                supervisor->NotifyConnectionLost(targetGeneration, outcome);
               },
       });
   if (supervisor == nullptr) {
     supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(
-        *reader, *verifier, *verifierSocket, *launcher, *connection);
+        *reader, *launcher, *connection);
   }
   session->AttachConnection(*connection);
 

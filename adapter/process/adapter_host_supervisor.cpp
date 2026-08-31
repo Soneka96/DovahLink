@@ -1,21 +1,16 @@
 #include "process/adapter_host_supervisor.hpp"
 
 #include "ipc/adapter_ipc_connection.hpp"
-#include "process/adapter_host_handshake_verifier.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
 
 namespace dovahlink::adapter::process {
 
 AdapterHostSupervisor::AdapterHostSupervisor(
-    IAdapterHostRendezvousReader &reader,
-    IAdapterHostHandshakeVerifier &verifier,
-    ipc::WinsockAdapterIpcSocket &verifierSocket,
-    IAdapterHostProcessLauncher &launcher,
+    IAdapterHostRendezvousReader &reader, IAdapterHostProcessLauncher &launcher,
     ipc::IAdapterIpcConnection &connection,
     std::chrono::milliseconds failedRoundBackoff)
-    : reader_(reader), verifier_(verifier), verifierSocket_(verifierSocket),
-      launcher_(launcher), connection_(connection),
+    : reader_(reader), launcher_(launcher), connection_(connection),
       failedRoundBackoff_(failedRoundBackoff) {}
 
 AdapterHostSupervisor::~AdapterHostSupervisor() { RequestStop(); }
@@ -30,9 +25,16 @@ void AdapterHostSupervisor::Start() {
 
 void AdapterHostSupervisor::RequestStop() {
   cancellationSource_.request_stop();
-  verifierSocket_.RequestStop();
-  {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+  const bool calledFromWorker = [&] {
+    std::lock_guard<std::mutex> lock(lifecycleMutex_);
+    return worker_.joinable() && worker_.get_id() == std::this_thread::get_id();
+  }();
+  if (!calledFromWorker) {
+    std::lock_guard<std::mutex> operationLock(operationMutex_);
+    std::lock_guard<std::mutex> stateLock(stateMutex_);
+    stopping_ = true;
+  } else {
+    std::lock_guard<std::mutex> stateLock(stateMutex_);
     stopping_ = true;
   }
   stateCondition_.notify_all();
@@ -43,16 +45,29 @@ void AdapterHostSupervisor::RequestStop() {
   }
 }
 
-void AdapterHostSupervisor::NotifyConnectionLost() {
+void AdapterHostSupervisor::NotifyConnectionLost(
+    std::uint64_t targetGeneration, ipc::AdapterIpcAttemptOutcome outcome) {
   {
     std::lock_guard<std::mutex> lock(stateMutex_);
+    if (stopping_) {
+      return;
+    }
+    //  Only the currently configured target generation can complete the
+    //  supervisor's active wait. Unknown future generations and stale older
+    //  generations are ignored rather than poisoning that wait.
+    if (targetGeneration != 0 && targetGeneration != nextTargetGeneration_) {
+      return;
+    }
     connectionLost_ = true;
+    completedTargetGeneration_ = targetGeneration;
+    completedOutcome_ = outcome;
   }
   stateCondition_.notify_all();
 }
 
 void AdapterHostSupervisor::RunLoop() {
   std::stop_token cancellationToken = cancellationSource_.get_token();
+  bool preferFreshLaunch = false;
   while (true) {
     {
       std::lock_guard<std::mutex> lock(stateMutex_);
@@ -63,30 +78,47 @@ void AdapterHostSupervisor::RunLoop() {
 
     bool succeeded = false;
     try {
-      std::optional<AdapterHostEndpoint> endpoint =
-          RunOneDiscoveryRound(cancellationToken);
+      std::optional<AdapterHostEndpoint> endpoint;
+      std::uint64_t targetGeneration = 0;
+      {
+        std::lock_guard<std::mutex> operationLock(operationMutex_);
+        {
+          std::lock_guard<std::mutex> lock(stateMutex_);
+          if (stopping_ || cancellationToken.stop_requested()) {
+            return;
+          }
+        }
+        endpoint = RunOneDiscoveryRound(cancellationToken, preferFreshLaunch);
+        if (endpoint.has_value()) {
+          {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            if (stopping_ || cancellationToken.stop_requested()) {
+              return;
+            }
+          }
+          targetGeneration = ReconfigureLiveTarget(*endpoint);
+          connection_.Start();
+        }
+      }
       if (endpoint.has_value()) {
-        std::lock_guard<std::mutex> lock(stateMutex_);
-        if (stopping_ || cancellationToken.stop_requested()) {
+        std::optional<ipc::AdapterIpcAttemptOutcome> outcome =
+            WaitForConnectionLostOrStop(targetGeneration);
+        if (!outcome.has_value()) {
           return;
         }
-        ReconfigureLiveTarget(*endpoint);
-        connection_.Start();
+        preferFreshLaunch =
+            *outcome == ipc::AdapterIpcAttemptOutcome::kConnectFailed ||
+            *outcome == ipc::AdapterIpcAttemptOutcome::kAuthenticationFailed;
         succeeded = true;
       }
     } catch (...) {
-      //  No collaborator failure may escape this background thread; treat
-      //  it as a failed round, per ai/context/skse/cpp-style.md's
-      //  worker-thread exception-containment rule -- host failure must
-      //  never crash the adapter.
+      //  No collaborator failure may escape this background thread; treat it
+      //  as a failed round, per the worker-thread exception-containment rule.
       succeeded = false;
+      preferFreshLaunch = true;
     }
 
-    if (succeeded) {
-      if (!WaitForConnectionLostOrStop()) {
-        return;
-      }
-    } else {
+    if (!succeeded || preferFreshLaunch) {
       if (!WaitBackoffOrStop()) {
         return;
       }
@@ -95,61 +127,53 @@ void AdapterHostSupervisor::RunLoop() {
 }
 
 std::optional<AdapterHostEndpoint>
-AdapterHostSupervisor::RunOneDiscoveryRound(std::stop_token cancellationToken) {
-  std::optional<AdapterHostEndpoint> candidate = reader_.TryRead();
-  if (cancellationToken.stop_requested()) {
-    return std::nullopt;
-  }
-  if (!cancellationToken.stop_requested() && candidate.has_value() &&
-      VerifyCandidate(*candidate, cancellationToken)) {
-    return candidate;
-  }
-
-  {
-    //  A stop requested while adoption was in flight must still prevent a
-    //  fresh launch: no host relaunch is ever initiated once shutdown has
-    //  begun, even mid-round.
-    std::lock_guard<std::mutex> lock(stateMutex_);
-    if (stopping_ || cancellationToken.stop_requested()) {
+AdapterHostSupervisor::RunOneDiscoveryRound(std::stop_token cancellationToken,
+                                            bool preferFreshLaunch) {
+  if (!preferFreshLaunch) {
+    std::optional<AdapterHostEndpoint> candidate = reader_.TryRead();
+    if (cancellationToken.stop_requested()) {
       return std::nullopt;
+    }
+    if (candidate.has_value()) {
+      return candidate;
     }
   }
 
-  candidate = launcher_.Launch(cancellationToken);
   if (cancellationToken.stop_requested()) {
     return std::nullopt;
   }
-  if (!cancellationToken.stop_requested() && candidate.has_value() &&
-      VerifyCandidate(*candidate, cancellationToken)) {
-    return candidate;
-  }
-
-  return std::nullopt;
+  return launcher_.Launch(cancellationToken);
 }
 
-bool AdapterHostSupervisor::VerifyCandidate(
-    const AdapterHostEndpoint &candidate, std::stop_token cancellationToken) {
-  if (cancellationToken.stop_requested()) {
-    return false;
-  }
-  verifierSocket_.SetPort(candidate.port);
-  return verifier_.Verify(candidate, cancellationToken);
-}
-
-void AdapterHostSupervisor::ReconfigureLiveTarget(
+std::uint64_t AdapterHostSupervisor::ReconfigureLiveTarget(
     const AdapterHostEndpoint &endpoint) {
+  std::uint64_t targetGeneration;
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    targetGeneration = ++nextTargetGeneration_;
+  }
   connection_.ConfigureTarget(ipc::AdapterIpcTarget{
       .port = endpoint.port,
       .proofToken = endpoint.proofToken,
-      .targetGeneration = ++nextTargetGeneration_,
+      .targetGeneration = targetGeneration,
   });
+  return targetGeneration;
 }
 
-bool AdapterHostSupervisor::WaitForConnectionLostOrStop() {
+std::optional<ipc::AdapterIpcAttemptOutcome>
+AdapterHostSupervisor::WaitForConnectionLostOrStop(
+    std::uint64_t targetGeneration) {
   std::unique_lock<std::mutex> lock(stateMutex_);
-  stateCondition_.wait(lock, [this] { return stopping_ || connectionLost_; });
+  stateCondition_.wait(lock, [this, targetGeneration] {
+    return stopping_ ||
+           (connectionLost_ && completedTargetGeneration_ == targetGeneration);
+  });
+  if (stopping_) {
+    return std::nullopt;
+  }
   connectionLost_ = false;
-  return !stopping_;
+  completedTargetGeneration_ = 0;
+  return completedOutcome_;
 }
 
 bool AdapterHostSupervisor::WaitBackoffOrStop() {

@@ -187,8 +187,9 @@ TEST_CASE("the adapter plugin notifies the supervisor when the connection "
   std::size_t handleDisconnected =
       source.find("session->HandleDisconnected();", onDisconnected);
   std::size_t attemptFinished = source.find(".onAttemptFinished =");
-  std::size_t notifyConnectionLost =
-      source.find("supervisor->NotifyConnectionLost();", attemptFinished);
+  std::size_t notifyConnectionLost = source.find(
+      "supervisor->NotifyConnectionLost(targetGeneration, outcome);",
+      attemptFinished);
 
   REQUIRE(handleDisconnected != std::string::npos);
   REQUIRE(attemptFinished != std::string::npos);
@@ -208,11 +209,23 @@ TEST_CASE("the adapter plugin notifies the supervisor when a connection "
 
   std::size_t attemptFinished = source.find(".onAttemptFinished =");
   REQUIRE(attemptFinished != std::string::npos);
-  std::size_t notifyConnectionLost =
-      source.find("supervisor->NotifyConnectionLost();", attemptFinished);
+  std::size_t notifyConnectionLost = source.find(
+      "supervisor->NotifyConnectionLost(targetGeneration, outcome);",
+      attemptFinished);
 
   REQUIRE(notifyConnectionLost != std::string::npos);
   CHECK(attemptFinished < notifyConnectionLost);
+}
+
+TEST_CASE("the adapter plugin has no throwaway discovery verifier path",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  CHECK(source.find("AdapterHostHandshakeVerifier") == std::string::npos);
+  CHECK(source.find("verifierSocket") == std::string::npos);
+  CHECK(source.find("NotifyConnectionLost();") == std::string::npos);
+  CHECK(source.find("NotifyConnectionLost(targetGeneration, outcome);") !=
+        std::string::npos);
 }
 
 TEST_CASE("DllMain signals shutdown without calling the blocking ordered "

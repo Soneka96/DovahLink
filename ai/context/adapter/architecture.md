@@ -60,9 +60,11 @@ failed connection attempt before a session is established is also a host-loss si
 process-lifecycle supervisor, so discovery can re-run without waiting for a disconnect callback
 that an unconnected socket cannot produce. The adapter keeps the same long-lived IPC connection
 object, but each connect/serve attempt is requested and owned by the supervisor: the connection
-reports one target-generation outcome and performs no autonomous reconnect. The supervisor decides
-whether to retry the current target, rediscover, or launch a fresh host, without creating a second
-transport connection object or restarting the connection lifecycle.
+reports one target-generation outcome and performs no autonomous reconnect. The supervisor is the
+sole recovery coordinator: it chooses whether the next round adopts rendezvous, launches a fresh
+host, or waits through a bounded backoff, while the connection owns only transport execution and
+reports the outcome. No throwaway discovery probe or second transport connection participates in
+the host session state machine.
 
 ## Not in scope for Stage 1
 

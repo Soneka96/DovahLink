@@ -8,7 +8,6 @@
 #include "ipc/settable_adapter_ipc_peer_proof_provider.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "process/adapter_host_endpoint.hpp"
-#include "process/adapter_host_handshake_verifier.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
 #include "process/adapter_host_shutdown_requester.hpp"
@@ -32,6 +31,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -54,7 +54,6 @@ using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider;
 using dovahlink::adapter::ipc::WinsockAdapterIpcSocket;
 using dovahlink::adapter::process::AdapterHostEndpoint;
-using dovahlink::adapter::process::AdapterHostHandshakeVerifier;
 using dovahlink::adapter::process::AdapterHostSupervisor;
 using dovahlink::adapter::process::DeriveOwnerLifetimeId;
 using dovahlink::adapter::process::FileAdapterHostRendezvousReader;
@@ -323,8 +322,8 @@ private:
   std::uint16_t port_ = 0;
 };
 
-///  A test-only IPC connection that records the first verified target startup
-///  without opening a second real connection in this fallback test.
+///  A test-only IPC connection that records the target startup selected by the
+///  supervisor without opening a second real connection in this fallback test.
 class RecordingAdapterIpcConnection final
     : public dovahlink::adapter::ipc::IAdapterIpcConnection {
 public:
@@ -335,8 +334,24 @@ public:
     target_ = std::move(target);
   }
 
-  ///  Records a connection start request.
-  void Start() override { ++startCount_; }
+  ///  Records a connection start request and invokes the one-shot test hook.
+  void Start() override {
+    std::function<void()> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      ++startCount_;
+      callback = std::move(onStart_);
+    }
+    if (callback) {
+      callback();
+    }
+  }
+
+  ///  Invokes a test-controlled callback after a connection start is recorded.
+  void SetOnStartCallback(std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    onStart_ = std::move(callback);
+  }
 
   ///  The fallback test never sends through this connection.
   bool TrySend(const IpcMessage &) override { return true; }
@@ -364,43 +379,10 @@ private:
   mutable std::mutex mutex_;
   ///  The observed number of connection start requests.
   std::atomic<int> startCount_ = 0;
+  ///  A one-shot callback invoked after a start is recorded.
+  std::function<void()> onStart_;
   ///  The target snapshot most recently selected by the supervisor.
   std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> target_;
-};
-
-///  Records every candidate sent through a real handshake verifier while
-/// preserving the verifier's actual network and authentication behavior.
-class RecordingAdapterHostHandshakeVerifier final
-    : public dovahlink::adapter::process::IAdapterHostHandshakeVerifier {
-public:
-  ///  Creates a recording wrapper around a real handshake verifier.
-  explicit RecordingAdapterHostHandshakeVerifier(
-      AdapterHostHandshakeVerifier &verifier)
-      : verifier_(verifier) {}
-
-  ///  Records the candidate and delegates the bounded real verification.
-  bool Verify(const AdapterHostEndpoint &candidate,
-              std::stop_token cancellationToken) override {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      candidates_.push_back(candidate);
-    }
-    return verifier_.Verify(candidate, cancellationToken);
-  }
-
-  ///  Returns the candidates verified so far, in call order.
-  std::vector<AdapterHostEndpoint> VerifiedCandidates() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return candidates_;
-  }
-
-private:
-  ///  The real verifier that owns the handshake implementation.
-  AdapterHostHandshakeVerifier &verifier_;
-  ///  Guards the recorded candidate sequence.
-  mutable std::mutex mutex_;
-  ///  Every candidate passed to the wrapped verifier.
-  std::vector<AdapterHostEndpoint> candidates_;
 };
 
 ///  Builds a deterministic lifetime identity for two concurrent test hosts.
@@ -447,52 +429,6 @@ bool WaitForProcessExit(std::uint32_t processId) {
 
 } //  namespace
 
-TEST_CASE("the native launcher and verifier complete the real C# host "
-          "dynamic-port handshake",
-          "[process][integration]") {
-  const std::filesystem::path hostExecutable{DOVAHLINK_HOST_EXECUTABLE};
-  REQUIRE(std::filesystem::exists(hostExecutable));
-
-  const auto ownerLifetimeId = DeriveOwnerLifetimeId();
-  const auto rendezvousPath = ResolveDefaultRendezvousFilePath(ownerLifetimeId);
-  REQUIRE(rendezvousPath.has_value());
-  ScopedRendezvousCleanup rendezvousCleanup(*rendezvousPath);
-
-  std::error_code removeError;
-  std::filesystem::remove(*rendezvousPath, removeError);
-
-  Win32AdapterHostProcessLauncher launcher(hostExecutable, ownerLifetimeId,
-                                           std::chrono::seconds(10));
-  std::optional<AdapterHostEndpoint> launchedEndpoint = launcher.Launch();
-
-  REQUIRE(launchedEndpoint.has_value());
-  CHECK(launchedEndpoint->port != 0);
-  REQUIRE(launchedEndpoint->proofToken.size() ==
-          dovahlink::adapter::ipc::kMaxIpcPeerProofTokenBytes);
-
-  FileAdapterHostRendezvousReader reader(*rendezvousPath);
-  std::optional<AdapterHostEndpoint> fileEndpoint = reader.TryRead();
-  REQUIRE(fileEndpoint.has_value());
-  CHECK(*fileEndpoint == *launchedEndpoint);
-
-  AdapterInstanceIdGenerator idGenerator;
-  const auto adapterInstanceId = idGenerator.Generate();
-  WinsockAdapterIpcSocket verifierSocket(launchedEndpoint->port);
-  IpcFrameCodec codec;
-  AdapterHostHandshakeVerifier verifier(adapterInstanceId, ownerLifetimeId,
-                                        verifierSocket, codec,
-                                        std::chrono::seconds(2));
-
-  CHECK(verifier.Verify(*launchedEndpoint));
-
-  AdapterHostEndpoint forgedEndpoint = *launchedEndpoint;
-  forgedEndpoint.proofToken.front() ^= std::byte{0xFF};
-  CHECK_FALSE(verifier.Verify(forgedEndpoint));
-
-  CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
-  CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
-}
-
 TEST_CASE("Job Object supervision terminates the real host when its owner "
           "process is killed",
           "[process][integration]") {
@@ -514,8 +450,7 @@ TEST_CASE("Job Object supervision terminates the real host when its owner "
                   std::chrono::seconds(10)));
 }
 
-TEST_CASE("real hosts remain isolated by owner lifetime for authentication "
-          "and shutdown signals",
+TEST_CASE("real hosts remain isolated by owner lifetime and shutdown signals",
           "[process][integration]") {
   const std::filesystem::path hostExecutable{DOVAHLINK_HOST_EXECUTABLE};
   REQUIRE(std::filesystem::exists(hostExecutable));
@@ -544,29 +479,11 @@ TEST_CASE("real hosts remain isolated by owner lifetime for authentication "
   REQUIRE(secondEndpoint.has_value());
   CHECK(firstEndpoint->port != secondEndpoint->port);
 
-  AdapterInstanceIdGenerator idGenerator;
-  IpcFrameCodec codec;
-  WinsockAdapterIpcSocket secondVerifierSocket(firstEndpoint->port);
-  AdapterHostHandshakeVerifier secondVerifier(idGenerator.Generate(),
-                                              secondOwner, secondVerifierSocket,
-                                              codec, std::chrono::seconds(2));
-  CHECK_FALSE(secondVerifier.Verify(*firstEndpoint));
-
-  WinsockAdapterIpcSocket firstToSecondVerifierSocket(secondEndpoint->port);
-  AdapterHostHandshakeVerifier firstToSecondVerifier(
-      idGenerator.Generate(), firstOwner, firstToSecondVerifierSocket, codec,
-      std::chrono::seconds(2));
-  CHECK_FALSE(firstToSecondVerifier.Verify(*secondEndpoint));
-
   WindowsEventAdapterHostShutdownRequester firstShutdown(firstOwner);
   firstShutdown.RequestShutdown();
   REQUIRE(firstLauncher.AwaitExitOrTerminate(std::chrono::seconds(5)));
-
-  WinsockAdapterIpcSocket secondAfterFirstShutdownSocket(secondEndpoint->port);
-  AdapterHostHandshakeVerifier secondAfterFirstShutdown(
-      idGenerator.Generate(), secondOwner, secondAfterFirstShutdownSocket,
-      codec, std::chrono::seconds(2));
-  CHECK(secondAfterFirstShutdown.Verify(*secondEndpoint));
+  CHECK_FALSE(
+      secondLauncher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
 
   WindowsEventAdapterHostShutdownRequester secondShutdown(secondOwner);
   secondShutdown.RequestShutdown();
@@ -592,12 +509,8 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
   REQUIRE(firstEndpoint.has_value());
 
   FileAdapterHostRendezvousReader reader(*rendezvousPath);
-  WinsockAdapterIpcSocket verifierSocket(0);
   WinsockAdapterIpcSocket connectionSocket(0);
   IpcFrameCodec codec;
-  AdapterHostHandshakeVerifier verifier(AdapterInstanceIdGenerator{}.Generate(),
-                                        ownerLifetimeId, verifierSocket, codec,
-                                        std::chrono::seconds(2));
   ImmediateTaskMarshaller taskMarshaller;
   AdapterNativeDispatcher dispatcher;
   NoopCaptureQueue captureQueue;
@@ -627,15 +540,14 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
           .onDecodeFailure = [&] { session.HandleDecodeFailure(); },
           .onDisconnected = [&] { session.HandleDisconnected(); },
           .onAttemptFinished =
-              [&](std::uint64_t,
-                  dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) {
-                supervisor->NotifyConnectionLost();
+              [&](std::uint64_t targetGeneration,
+                  dovahlink::adapter::ipc::AdapterIpcAttemptOutcome outcome) {
+                supervisor->NotifyConnectionLost(targetGeneration, outcome);
               },
       });
   session.AttachConnection(connection);
   supervisor = std::make_unique<AdapterHostSupervisor>(
-      reader, verifier, verifierSocket, launcher, connection,
-      std::chrono::milliseconds(50));
+      reader, launcher, connection, std::chrono::milliseconds(50));
   supervisor->Start();
 
   REQUIRE(
@@ -682,7 +594,7 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
 }
 
 TEST_CASE("a rendezvous port occupied by another process falls back to a "
-          "fresh verified host",
+          "fresh host after the connection attempt fails",
           "[process][integration]") {
   const std::filesystem::path hostExecutable{DOVAHLINK_HOST_EXECUTABLE};
   REQUIRE(std::filesystem::exists(hostExecutable));
@@ -706,36 +618,30 @@ TEST_CASE("a rendezvous port occupied by another process falls back to a "
 
   Win32AdapterHostProcessLauncher launcher(hostExecutable, ownerLifetimeId,
                                            std::chrono::seconds(10));
-  WinsockAdapterIpcSocket verifierSocket(0);
-  WinsockAdapterIpcSocket connectionSocket(0);
-  IpcFrameCodec codec;
-  AdapterHostHandshakeVerifier realVerifier(
-      AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId, verifierSocket,
-      codec, std::chrono::seconds(2));
-  RecordingAdapterHostHandshakeVerifier verifier(realVerifier);
   RecordingAdapterIpcConnection connection;
-  AdapterHostSupervisor supervisor(reader, verifier, verifierSocket, launcher,
-                                   connection, std::chrono::milliseconds(50));
+  AdapterHostSupervisor supervisor(reader, launcher, connection,
+                                   std::chrono::milliseconds(50));
+  connection.SetOnStartCallback([&] {
+    if (connection.StartCount() == 1) {
+      supervisor.NotifyConnectionLost(
+          1, dovahlink::adapter::ipc::AdapterIpcAttemptOutcome::kConnectFailed);
+    }
+  });
 
   supervisor.Start();
 
   REQUIRE(WaitUntil(
       [&] {
-        return connection.StartCount() == 1 &&
+        return connection.StartCount() == 2 &&
                connection.ConfiguredPort() != staleListener.Port() &&
                connection.ConfiguredPort() != 0;
       },
       std::chrono::seconds(10)));
-  auto verifiedCandidates = verifier.VerifiedCandidates();
-  REQUIRE(verifiedCandidates.size() == 2);
-  CHECK(verifiedCandidates.front() == *staleEndpoint);
-  CHECK(verifiedCandidates.back().port != staleListener.Port());
 
   auto freshEndpoint = reader.TryRead();
   REQUIRE(freshEndpoint.has_value());
   CHECK(connection.ConfiguredPort() == freshEndpoint->port);
   CHECK(connection.ConfiguredProofToken() == freshEndpoint->proofToken);
-  CHECK(freshEndpoint->port == verifiedCandidates.back().port);
 
   supervisor.RequestStop();
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));

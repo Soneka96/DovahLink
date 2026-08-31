@@ -1,7 +1,6 @@
 #include "process/adapter_host_supervisor.hpp"
 
 #include "ipc/adapter_ipc_connection.hpp"
-#include "process/adapter_host_handshake_verifier.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
 
@@ -20,7 +19,6 @@
 
 using dovahlink::adapter::process::AdapterHostEndpoint;
 using dovahlink::adapter::process::AdapterHostSupervisor;
-using dovahlink::adapter::process::IAdapterHostHandshakeVerifier;
 using dovahlink::adapter::process::IAdapterHostProcessLauncher;
 using dovahlink::adapter::process::IAdapterHostRendezvousReader;
 
@@ -155,96 +153,6 @@ private:
   BlockingGate *blockGate_ = nullptr;
 };
 
-///  A deterministic, fully controllable `IAdapterHostHandshakeVerifier` test
-///  double: `Verify` replays a scripted result sequence (the last entry
-///  repeats) and records every candidate it was asked to verify.
-class FakeAdapterHostHandshakeVerifier final
-    : public IAdapterHostHandshakeVerifier {
-public:
-  ///  Configures the sequence of `Verify` results; the last entry repeats
-  ///  once exhausted. An empty sequence (the default) always returns
-  ///  `false`.
-  void SetResults(std::vector<bool> results) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    results_ = std::move(results);
-  }
-
-  ///  Every candidate `Verify` has been called with so far, in order.
-  std::vector<AdapterHostEndpoint> VerifiedCandidates() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return verifiedCandidates_;
-  }
-
-  ///  Makes the next `Verify` call throw instead of returning.
-  void SetThrowsOnce() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    throwOnce_ = true;
-  }
-
-  ///  Makes the next `Verify` call wait for `gate` or supervisor cancellation.
-  void BlockNextCallUntilReleased(BlockingGate &gate) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    blockGate_ = &gate;
-  }
-
-  ///  Invokes `callback` (if set) synchronously at the start of every
-  ///  `Verify` call, before consulting the scripted result -- so a test can
-  ///  act from inside a discovery round on the supervisor's own worker
-  ///  thread, for example to prove a reentrant `RequestStop` call is safe.
-  void SetOnVerifyCallback(std::function<void()> callback) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    onVerify_ = std::move(callback);
-  }
-
-  bool Verify(const AdapterHostEndpoint &candidate,
-              std::stop_token cancellationToken) override {
-    BlockingGate *gate = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      gate = blockGate_;
-      blockGate_ = nullptr;
-    }
-    if (gate != nullptr && !gate->WaitUntilReleasedOrStop(cancellationToken)) {
-      return false;
-    }
-
-    std::function<void()> callback;
-    bool shouldThrow = false;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      verifiedCandidates_.push_back(candidate);
-      callback = onVerify_;
-      shouldThrow = throwOnce_;
-      throwOnce_ = false;
-    }
-    if (callback) {
-      callback();
-    }
-    if (shouldThrow) {
-      throw std::runtime_error("Verify failed unexpectedly");
-    }
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (results_.empty()) {
-      return false;
-    }
-    std::size_t index = std::min(callIndex_, results_.size() - 1);
-    if (callIndex_ + 1 < results_.size()) {
-      ++callIndex_;
-    }
-    return results_[index];
-  }
-
-private:
-  mutable std::mutex mutex_;
-  std::function<void()> onVerify_;
-  bool throwOnce_ = false;
-  std::vector<bool> results_;
-  std::size_t callIndex_ = 0;
-  std::vector<AdapterHostEndpoint> verifiedCandidates_;
-  BlockingGate *blockGate_ = nullptr;
-};
-
 ///  A deterministic, fully controllable `IAdapterHostProcessLauncher` test
 ///  double: `Launch` replays a scripted result sequence (the last entry
 ///  repeats).
@@ -335,14 +243,27 @@ public:
     target_ = std::move(target);
   }
 
+  ///  Invokes a test-controlled callback after a connection start is recorded.
+  void SetOnStartCallback(std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    onStart_ = std::move(callback);
+  }
+
   ///  Records that the connection was started.
   void Start() override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (throwOnce_) {
-      throwOnce_ = false;
-      throw std::runtime_error("connection start failed unexpectedly");
+    std::function<void()> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (throwOnce_) {
+        throwOnce_ = false;
+        throw std::runtime_error("connection start failed unexpectedly");
+      }
+      ++startCount_;
+      callback = std::move(onStart_);
     }
-    ++startCount_;
+    if (callback) {
+      callback();
+    }
   }
 
   ///  The supervisor never sends through this test connection.
@@ -390,33 +311,30 @@ private:
   int startCount_ = 0;
   ///  Whether the next startup request should throw.
   bool throwOnce_ = false;
+  ///  A one-shot callback invoked after a start is recorded.
+  std::function<void()> onStart_;
   ///  The complete target snapshot most recently configured by the supervisor.
   std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> target_;
 };
 
 ///  Bundles a supervisor with its fakes so each test can inspect and drive them
-///  without repeating setup. Uses a short failed-round backoff so
-///  a test proving automatic retry does not slow down the suite.
+///  without repeating setup. Uses a short failed-round backoff so recovery
+///  tests do not slow down the suite.
 struct SupervisorFixture {
   FakeAdapterHostRendezvousReader reader;
-  FakeAdapterHostHandshakeVerifier verifier;
-  dovahlink::adapter::ipc::WinsockAdapterIpcSocket verifierSocket{0};
   FakeAdapterHostProcessLauncher launcher;
   FakeAdapterIpcConnection connection;
-  AdapterHostSupervisor supervisor{
-      reader,   verifier,   verifierSocket,
-      launcher, connection, std::chrono::milliseconds(30)};
+  AdapterHostSupervisor supervisor{reader, launcher, connection,
+                                   std::chrono::milliseconds(30)};
 };
 
 } //  namespace
 
-TEST_CASE("AdapterHostSupervisor adopts a verified rendezvous candidate and "
-          "reconfigures the live target without ever launching") {
+TEST_CASE("AdapterHostSupervisor selects a rendezvous candidate and "
+          "reconfigures the live target without launching") {
   SupervisorFixture fixture;
   AdapterHostEndpoint endpoint = SampleEndpoint(1111);
   fixture.reader.SetResults({endpoint});
-  fixture.verifier.SetResults({true});
-
   fixture.supervisor.Start();
 
   REQUIRE(WaitUntil(
@@ -436,15 +354,19 @@ TEST_CASE("AdapterHostSupervisor falls back to launching a fresh host when "
   AdapterHostEndpoint launchedCandidate = SampleEndpoint(3333);
   fixture.reader.SetResults({rejectedCandidate});
   fixture.launcher.SetResults({launchedCandidate});
-  fixture.verifier.SetResults({false, true});
-
+  fixture.connection.SetOnStartCallback([&] {
+    if (fixture.connection.StartCount() == 1) {
+      fixture.supervisor.NotifyConnectionLost(
+          1, dovahlink::adapter::ipc::AdapterIpcAttemptOutcome::
+                 kAuthenticationFailed);
+    }
+  });
   fixture.supervisor.Start();
 
   REQUIRE(WaitUntil([&] {
     return fixture.connection.ConfiguredPort() == launchedCandidate.port;
   }));
-  CHECK(fixture.verifier.VerifiedCandidates() ==
-        std::vector<AdapterHostEndpoint>{rejectedCandidate, launchedCandidate});
+  CHECK(fixture.connection.ConfiguredTargetGeneration() == 2);
 
   fixture.supervisor.RequestStop();
 }
@@ -464,26 +386,49 @@ TEST_CASE("AdapterHostSupervisor retries automatically after a round that "
 }
 
 TEST_CASE("AdapterHostSupervisor runs a fresh discovery round after "
-          "NotifyConnectionLost, reconnecting to a newly discovered "
+          "a disconnected attempt, reconnecting to a newly discovered "
           "endpoint") {
   SupervisorFixture fixture;
   AdapterHostEndpoint firstEndpoint = SampleEndpoint(4444);
   AdapterHostEndpoint secondEndpoint = SampleEndpoint(5555);
   fixture.reader.SetResults({firstEndpoint, secondEndpoint});
-  fixture.verifier.SetResults({true});
-
   fixture.supervisor.Start();
   REQUIRE(WaitUntil([&] {
     return fixture.connection.ConfiguredPort() == firstEndpoint.port;
   }));
 
-  fixture.supervisor.NotifyConnectionLost();
+  fixture.supervisor.NotifyConnectionLost(
+      1, dovahlink::adapter::ipc::AdapterIpcAttemptOutcome::kDisconnected);
 
   REQUIRE(WaitUntil([&] {
     return fixture.connection.ConfiguredPort() == secondEndpoint.port;
   }));
   CHECK(fixture.connection.ConfiguredProofToken() == secondEndpoint.proofToken);
   CHECK(fixture.connection.ConfiguredTargetGeneration() == 2);
+
+  fixture.supervisor.RequestStop();
+}
+
+TEST_CASE("AdapterHostSupervisor ignores connection outcomes from stale or "
+          "future target generations") {
+  SupervisorFixture fixture;
+  AdapterHostEndpoint firstEndpoint = SampleEndpoint(4567);
+  AdapterHostEndpoint secondEndpoint = SampleEndpoint(5678);
+  fixture.reader.SetResults({firstEndpoint, secondEndpoint});
+  fixture.supervisor.Start();
+  REQUIRE(WaitUntil(
+      [&] { return fixture.connection.ConfiguredTargetGeneration() == 1; }));
+
+  fixture.supervisor.NotifyConnectionLost(
+      2, dovahlink::adapter::ipc::AdapterIpcAttemptOutcome::kDisconnected);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  CHECK(fixture.connection.ConfiguredTargetGeneration() == 1);
+
+  fixture.supervisor.NotifyConnectionLost(
+      1, dovahlink::adapter::ipc::AdapterIpcAttemptOutcome::kDisconnected);
+  REQUIRE(WaitUntil(
+      [&] { return fixture.connection.ConfiguredTargetGeneration() == 2; }));
+  CHECK(fixture.connection.ConfiguredPort() == secondEndpoint.port);
 
   fixture.supervisor.RequestStop();
 }
@@ -533,31 +478,9 @@ TEST_CASE("AdapterHostSupervisor cancels an in-flight launch without starting "
   CHECK(fixture.connection.StartCount() == 0);
   CHECK(fixture.connection.ConfiguredPort() == 0);
   CHECK(fixture.connection.ConfiguredProofToken().empty());
-  CHECK(fixture.verifier.VerifiedCandidates().empty());
 }
 
-TEST_CASE("AdapterHostSupervisor cancels an in-flight verification without "
-          "launching or starting the connection") {
-  SupervisorFixture fixture;
-  BlockingGate gate;
-  AdapterHostEndpoint endpoint = SampleEndpoint(5432);
-  fixture.reader.SetResults({endpoint});
-  fixture.verifier.SetResults({true});
-  fixture.verifier.BlockNextCallUntilReleased(gate);
-
-  fixture.supervisor.Start();
-  REQUIRE(WaitUntil([&] { return gate.HasWaiter(); }));
-
-  fixture.supervisor.RequestStop();
-
-  CHECK(fixture.launcher.CallCount() == 0);
-  CHECK(fixture.connection.StartCount() == 0);
-  CHECK(fixture.connection.ConfiguredPort() == 0);
-  CHECK(fixture.connection.ConfiguredProofToken().empty());
-  CHECK(fixture.verifier.VerifiedCandidates().empty());
-}
-
-TEST_CASE("AdapterHostSupervisor skips launched-candidate verification when "
+TEST_CASE("AdapterHostSupervisor skips starting a launched candidate when "
           "shutdown begins after launch") {
   SupervisorFixture fixture;
   AdapterHostEndpoint endpoint = SampleEndpoint(6543);
@@ -569,7 +492,6 @@ TEST_CASE("AdapterHostSupervisor skips launched-candidate verification when "
   REQUIRE(WaitUntil([&] { return fixture.launcher.CallCount() == 1; }));
   fixture.supervisor.RequestStop();
 
-  CHECK(fixture.verifier.VerifiedCandidates().empty());
   CHECK(fixture.connection.StartCount() == 0);
   CHECK(fixture.connection.ConfiguredPort() == 0);
   CHECK(fixture.connection.ConfiguredProofToken().empty());
@@ -580,8 +502,6 @@ TEST_CASE("AdapterHostSupervisor::RequestStop during a successful round's "
   SupervisorFixture fixture;
   AdapterHostEndpoint endpoint = SampleEndpoint(6666);
   fixture.reader.SetResults({endpoint});
-  fixture.verifier.SetResults({true});
-
   fixture.supervisor.Start();
   REQUIRE(WaitUntil(
       [&] { return fixture.connection.ConfiguredPort() == endpoint.port; }));
@@ -613,7 +533,6 @@ TEST_CASE("AdapterHostSupervisor recovers after repeated failed rounds") {
   // reader always produces no candidate; launcher fails twice, then
   // succeeds, then keeps succeeding.
   fixture.launcher.SetResults({std::nullopt, std::nullopt, endpoint});
-  fixture.verifier.SetResults({true});
 
   fixture.supervisor.Start();
 
@@ -625,39 +544,33 @@ TEST_CASE("AdapterHostSupervisor recovers after repeated failed rounds") {
   fixture.supervisor.RequestStop();
 }
 
-TEST_CASE("AdapterHostSupervisor treats a collaborator exception as a "
-          "failed round instead of letting it escape the worker thread") {
+TEST_CASE("AdapterHostSupervisor contains a connection-start exception and "
+          "falls back to a fresh launch") {
   SupervisorFixture fixture;
   AdapterHostEndpoint endpoint = SampleEndpoint(9999);
   fixture.reader.SetResults({endpoint});
-  fixture.verifier.SetThrowsOnce();
-  fixture.verifier.SetResults({true});
+  fixture.launcher.SetResults({endpoint});
+  fixture.connection.SetThrowsOnce();
 
   fixture.supervisor.Start();
 
-  //  The first round's adoption attempt throws; the round must be treated
-  //  as failed and retried in the very next round (adopting the same
-  //  candidate, which this time verifies normally) rather than crashing
-  //  the background thread.
-  REQUIRE(WaitUntil(
-      [&] { return fixture.connection.ConfiguredPort() == endpoint.port; }));
+  REQUIRE(WaitUntil([&] { return fixture.connection.StartCount() == 1; }));
+  CHECK(fixture.connection.ConfiguredPort() == endpoint.port);
 
   fixture.supervisor.RequestStop();
 }
 
-TEST_CASE("AdapterHostSupervisor::RequestStop can be called from within a "
-          "collaborator's own callback, on the supervisor's own worker "
-          "thread, without self-joining") {
+TEST_CASE("AdapterHostSupervisor::RequestStop can be called from within the "
+          "launcher callback without self-joining") {
   SupervisorFixture fixture;
-  fixture.reader.SetResults({SampleEndpoint(8888)});
-  fixture.verifier.SetOnVerifyCallback(
+  fixture.reader.SetResults({std::nullopt});
+  fixture.launcher.SetResults({SampleEndpoint(8888)});
+  fixture.launcher.SetOnLaunchCallback(
       [&] { fixture.supervisor.RequestStop(); });
-  fixture.verifier.SetResults({true});
 
   fixture.supervisor.Start();
 
-  REQUIRE(WaitUntil(
-      [&] { return !fixture.verifier.VerifiedCandidates().empty(); }));
+  REQUIRE(WaitUntil([&] { return fixture.launcher.CallCount() == 1; }));
 
   //  A second, ordinary call from this (the main) thread: if the reentrant
   //  call above had incorrectly joined its own thread, the worker would
@@ -667,21 +580,5 @@ TEST_CASE("AdapterHostSupervisor::RequestStop can be called from within a "
   CHECK(fixture.connection.StartCount() == 0);
   CHECK(fixture.connection.ConfiguredPort() == 0);
   CHECK(fixture.connection.ConfiguredProofToken().empty());
-  CHECK(fixture.launcher.CallCount() == 0);
-}
-
-TEST_CASE("AdapterHostSupervisor contains a connection-start exception and "
-          "retries the verified target") {
-  SupervisorFixture fixture;
-  AdapterHostEndpoint endpoint = SampleEndpoint(1234);
-  fixture.reader.SetResults({endpoint});
-  fixture.verifier.SetResults({true});
-  fixture.connection.SetThrowsOnce();
-
-  fixture.supervisor.Start();
-
-  REQUIRE(WaitUntil([&] { return fixture.connection.StartCount() == 1; }));
-  CHECK(fixture.connection.ConfiguredPort() == endpoint.port);
-
-  fixture.supervisor.RequestStop();
+  CHECK(fixture.launcher.CallCount() == 1);
 }

@@ -31,7 +31,6 @@ add_library(dovahlink_adapter_core STATIC
     process/adapter_owner_lifetime_id.cpp
     process/adapter_host_endpoint_report.cpp
     process/adapter_host_rendezvous_reader.cpp
-    process/adapter_host_handshake_verifier.cpp
     process/adapter_host_process_launcher.cpp
     process/adapter_host_shutdown_requester.cpp
     process/adapter_host_supervisor.cpp
@@ -115,7 +114,6 @@ add_executable(dovahlink_adapter_tests
     tests/process/adapter_owner_lifetime_id_test.cpp
     tests/process/adapter_host_endpoint_report_test.cpp
     tests/process/adapter_host_rendezvous_reader_test.cpp
-    tests/process/adapter_host_handshake_verifier_test.cpp
     tests/process/adapter_host_process_launcher_test.cpp
     tests/process/adapter_host_real_process_test.cpp
     tests/process/adapter_host_shutdown_requester_test.cpp
