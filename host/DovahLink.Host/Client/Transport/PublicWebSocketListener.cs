@@ -222,8 +222,14 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
             }
             catch (Exception)
             {
+                // The factory failed before any connection was ever admitted, so no connection owns
+                // this slot yet; only the slot flag needs clearing, not currentConnection.
                 acceptedStream.Dispose();
-                ReleaseSlot();
+                lock (gate)
+                {
+                    slotOccupied = false;
+                }
+
                 continue;
             }
 
@@ -232,12 +238,22 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
             // accept loop itself must keep accepting (so it can promptly reject a concurrent second
             // attempt) instead of blocking here until the active connection ends. RunAsync still
             // awaits this task after both accept loops stop, so shutdown remains deterministic.
-            Task serveTask = ServeConnectionAsync(connection, cancellationToken);
+            //
+            // ServeConnectionAsync must not actually start running connection.RunAsync before
+            // currentConnection/currentServeTask are stored below: if RunAsync happened to complete
+            // synchronously, its finally block could release the slot and clear currentConnection
+            // before this loop ever stored it, leaving a dead connection visible as current. The
+            // start barrier holds ServeConnectionAsync at its first await until that storage below
+            // has happened.
+            TaskCompletionSource startBarrier = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task serveTask = ServeConnectionAsync(connection, cancellationToken, startBarrier.Task);
             lock (gate)
             {
                 currentConnection = connection;
                 currentServeTask = serveTask;
             }
+
+            startBarrier.SetResult();
         }
     }
 
@@ -248,10 +264,17 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// </summary>
     /// <param name="connection">The connection to serve.</param>
     /// <param name="cancellationToken">The token used to stop the connection.</param>
-    private async Task ServeConnectionAsync(IPublicWebSocketConnection connection, CancellationToken cancellationToken)
+    /// <param name="startBarrier">
+    /// Awaited before <paramref name="connection"/> is run, so this method never reaches
+    /// <see cref="ReleaseSlot"/> before the accept loop has stored <paramref name="connection"/> as
+    /// <see cref="currentConnection"/>, even when <see cref="IPublicWebSocketConnection.RunAsync"/>
+    /// completes synchronously.
+    /// </param>
+    private async Task ServeConnectionAsync(IPublicWebSocketConnection connection, CancellationToken cancellationToken, Task startBarrier)
     {
         try
         {
+            await startBarrier.ConfigureAwait(false);
             await connection.RunAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
@@ -262,7 +285,7 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         }
         finally
         {
-            ReleaseSlot();
+            ReleaseSlot(connection);
         }
     }
 
@@ -282,13 +305,23 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         }
     }
 
-    /// <summary>Releases the single connection admission slot and clears <see cref="currentConnection"/>.</summary>
-    private void ReleaseSlot()
+    /// <summary>
+    /// Releases the single connection admission slot and clears <see cref="currentConnection"/>, but
+    /// only when it still refers to <paramref name="connection"/>. A later connection's own admission
+    /// always replaces <see cref="currentConnection"/> before this connection's teardown can reach
+    /// here, so this check is a defensive guard against ever clearing a newer connection's state
+    /// rather than a condition expected to trigger in practice.
+    /// </summary>
+    /// <param name="connection">The connection whose slot is being released.</param>
+    private void ReleaseSlot(IPublicWebSocketConnection connection)
     {
         lock (gate)
         {
             slotOccupied = false;
-            currentConnection = null;
+            if (ReferenceEquals(currentConnection, connection))
+            {
+                currentConnection = null;
+            }
         }
     }
 }

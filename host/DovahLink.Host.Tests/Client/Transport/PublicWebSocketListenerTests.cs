@@ -285,6 +285,67 @@ public class PublicWebSocketListenerTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that a connection whose <see cref="IPublicWebSocketConnection.RunAsync"/> completes
+    /// synchronously (before the accept loop ever stores it as current) is still cleared correctly and
+    /// never left visible as a stale current connection, and that the admission slot it held is freed
+    /// for the next connection.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ConnectionCompletesSynchronously_NeverExposesStaleConnectionAndAdmitsNext()
+    {
+        ConcurrentQueue<FakePublicWebSocketConnection> connections = new();
+        using var listener = new PublicWebSocketListener(0, stream =>
+        {
+            var connection = new FakePublicWebSocketConnection(stream);
+            connection.Complete();
+            connections.Enqueue(connection);
+            return connection;
+        });
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => connections.Count == 1);
+        await WaitUntilAsync(() => listener.CurrentConnection is null);
+
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => connections.Count == 2);
+        Assert.NotSame(connections.ElementAt(0), connections.ElementAt(1));
+        await WaitUntilAsync(() => listener.CurrentConnection is null);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies the same synchronous-completion race fix on the IPv6 loopback accept loop.</summary>
+    [Fact]
+    public async Task RunAsync_ConnectionCompletesSynchronouslyOnIPv6_NeverExposesStaleConnectionAndAdmitsNext()
+    {
+        ConcurrentQueue<FakePublicWebSocketConnection> connections = new();
+        using var listener = new PublicWebSocketListener(0, stream =>
+        {
+            var connection = new FakePublicWebSocketConnection(stream);
+            connection.Complete();
+            connections.Enqueue(connection);
+            return connection;
+        });
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetworkV6);
+        await WaitUntilAsync(() => connections.Count == 1);
+        await WaitUntilAsync(() => listener.CurrentConnection is null);
+
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetworkV6);
+        await WaitUntilAsync(() => connections.Count == 2);
+        Assert.NotSame(connections.ElementAt(0), connections.ElementAt(1));
+        await WaitUntilAsync(() => listener.CurrentConnection is null);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Verifies that disposing the listener stops accepting but leaves its active connection running.</summary>
     [Fact]
     public async Task Dispose_WhileConnectionActive_LeavesConnectionRunningUntilItEnds()
