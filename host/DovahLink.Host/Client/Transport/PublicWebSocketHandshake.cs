@@ -18,11 +18,22 @@ internal static class PublicWebSocketHandshake
     private const int RequiredKeyBytes = 16;
 
     /// <summary>
+    /// The handshake headers this parser requires to appear at most once. A repeated occurrence of
+    /// any of these could otherwise let an earlier or later duplicate silently change which value
+    /// validation actually saw; <c>Connection</c> is deliberately excluded here because RFC 7230
+    /// gives it token-list semantics, so repeated <c>Connection</c> lines are combined instead of
+    /// rejected.
+    /// </summary>
+    private static readonly HashSet<string> SingletonHeaderNames =
+        new(StringComparer.OrdinalIgnoreCase) { "Host", "Upgrade", "Sec-WebSocket-Version", "Sec-WebSocket-Key" };
+
+    /// <summary>
     /// Determines whether <paramref name="requestBytes"/> is a well-formed WebSocket upgrade request
-    /// -- a <c>GET ... HTTP/1.1</c> request line, an <c>Upgrade: websocket</c> header, a
-    /// <c>Connection</c> header containing the <c>upgrade</c> token, <c>Sec-WebSocket-Version: 13</c>,
-    /// and a <c>Sec-WebSocket-Key</c> that decodes as Base64 to exactly <see cref="RequiredKeyBytes"/>
-    /// bytes -- and computes the matching <c>Sec-WebSocket-Accept</c> value.
+    /// -- a <c>GET &lt;non-empty target&gt; HTTP/1.1</c> request line, a required <c>Host</c> header, an
+    /// <c>Upgrade: websocket</c> header, a <c>Connection</c> header containing the <c>upgrade</c>
+    /// token, <c>Sec-WebSocket-Version: 13</c>, and a <c>Sec-WebSocket-Key</c> that decodes as Base64
+    /// to exactly <see cref="RequiredKeyBytes"/> bytes -- and computes the matching
+    /// <c>Sec-WebSocket-Accept</c> value.
     /// </summary>
     /// <param name="requestBytes">
     /// The complete request line and headers, including the terminating blank line, as received from
@@ -30,6 +41,11 @@ internal static class PublicWebSocketHandshake
     /// </param>
     /// <param name="acceptKey">The computed <c>Sec-WebSocket-Accept</c> value on success; otherwise empty.</param>
     /// <returns><see langword="true"/> when the request is a valid WebSocket upgrade request.</returns>
+    /// <remarks>
+    /// This parser never writes an HTTP error response for a rejected request: the caller's
+    /// documented behavior for a <see langword="false"/> result is to close the connection silently,
+    /// the same way it treats a peer that never completes its handshake at all.
+    /// </remarks>
     internal static bool TryParseUpgradeRequest(ReadOnlySpan<byte> requestBytes, out string acceptKey)
     {
         acceptKey = string.Empty;
@@ -56,7 +72,29 @@ internal static class PublicWebSocketHandshake
                 return false;
             }
 
-            headers[line[..separator].Trim()] = line[(separator + 1)..].Trim();
+            string name = line[..separator].Trim();
+            string value = line[(separator + 1)..].Trim();
+
+            if (SingletonHeaderNames.Contains(name))
+            {
+                if (!headers.TryAdd(name, value))
+                {
+                    return false;
+                }
+            }
+            else if (name.Equals("Connection", StringComparison.OrdinalIgnoreCase) && headers.TryGetValue(name, out string? existingConnection))
+            {
+                headers[name] = existingConnection + "," + value;
+            }
+            else
+            {
+                headers[name] = value;
+            }
+        }
+
+        if (!headers.TryGetValue("Host", out string? host) || host.Length == 0)
+        {
+            return false;
         }
 
         if (!headers.TryGetValue("Upgrade", out string? upgrade) ||
@@ -97,11 +135,11 @@ internal static class PublicWebSocketHandshake
             "Connection: Upgrade\r\n" +
             $"Sec-WebSocket-Accept: {acceptKey}\r\n\r\n");
 
-    /// <summary>Whether an HTTP request line is a well-formed <c>GET ... HTTP/1.1</c> line.</summary>
+    /// <summary>Whether an HTTP request line is a well-formed <c>GET &lt;non-empty target&gt; HTTP/1.1</c> line.</summary>
     /// <param name="requestLine">The first line of the request, without its terminating <c>\r\n</c>.</param>
     private static bool IsValidRequestLine(string requestLine)
     {
         string[] parts = requestLine.Split(' ');
-        return parts.Length == 3 && parts[0] == "GET" && parts[2] == "HTTP/1.1";
+        return parts.Length == 3 && parts[0] == "GET" && parts[1].Length > 0 && parts[2] == "HTTP/1.1";
     }
 }

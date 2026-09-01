@@ -23,6 +23,7 @@ public class PublicWebSocketHandshakeTests
     {
         byte[] request = Encoding.ASCII.GetBytes(
             "GET / HTTP/1.1\r\n" +
+            "host: 127.0.0.1\r\n" +
             "upgrade: WebSocket\r\n" +
             "CONNECTION: keep-alive, Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\n" +
@@ -269,10 +270,178 @@ public class PublicWebSocketHandshakeTests
     {
         byte[] request = Encoding.ASCII.GetBytes(
             "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key:   dGhlIHNhbXBsZSBub25jZQ==  \r\n\r\n");
+
+        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+
+        Assert.True(accepted);
+        Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
+    }
+
+    /// <summary>Verifies that a request missing the required Host header is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_MissingHostHeader_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that an empty Host header value is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_EmptyHostHeader_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: \r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a repeated Host header is rejected rather than letting the last value silently win.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_DuplicateHostHeader_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Host: evil.example\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a repeated Upgrade header is rejected, including when both occurrences agree.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_DuplicateUpgradeHeader_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a repeated Sec-WebSocket-Version header is rejected, including when both occurrences agree.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_DuplicateVersionHeader_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a repeated Sec-WebSocket-Key header is rejected, including when both occurrences agree.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_DuplicateKeyHeader_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that repeated Connection header lines are combined as a token list, not rejected as a duplicate singleton.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_ConnectionHeaderRepeatedAcrossTwoLines_TokensAreCombinedAndAccepted()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: keep-alive\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+
+        Assert.True(accepted);
+        Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
+    }
+
+    /// <summary>Verifies that a request line with an empty target between two spaces is rejected rather than admitted as well-formed.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_EmptyRequestTarget_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET  HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a request line with no spaces at all is rejected rather than throwing or being misread.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_RequestLineWithNoSpaces_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>
+    /// Verifies that a header outside the singleton set (Host, Upgrade, Sec-WebSocket-Version,
+    /// Sec-WebSocket-Key) may still repeat without being rejected -- the duplicate-header rejection
+    /// introduced for those four is deliberately scoped to them, not a blanket ban on any repeated
+    /// header.
+    /// </summary>
+    [Fact]
+    public void TryParseUpgradeRequest_UnrelatedHeaderRepeatedTwice_IsStillAccepted()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "X-Custom: first\r\n" +
+            "X-Custom: second\r\n\r\n");
 
         bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
 
@@ -298,6 +467,7 @@ public class PublicWebSocketHandshakeTests
     private static byte[] BuildRequestBytes(string key) =>
         Encoding.ASCII.GetBytes(
             "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\n" +

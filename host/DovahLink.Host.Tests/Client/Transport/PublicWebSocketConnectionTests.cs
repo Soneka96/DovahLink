@@ -962,6 +962,7 @@ public class PublicWebSocketConnectionTests
     {
         await client.WriteAsync(Encoding.ASCII.GetBytes(
             "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\n" +
