@@ -261,12 +261,12 @@ message shape. This phase is that phase; this section is the filled-in decision.
 - A session admitted via `unpaired` is a real, fully authenticated `sessionId` (it still obeys
   loopback, input-limit, protocol-validation, and single-connected-client rules), but it is
   trust-restricted: until pairing succeeds on that connection, the message dispatcher accepts only
-  `ping`, `capabilities`, `pairing_request`, and `pairing_confirm` from it — `subscribe` and
-  `snapshot_request` are rejected the same way any other message outside the allowlist is,
-  `malformed_message`, not a distinct error code. This mirrors `IsAllowedMessageType`'s existing
-  allowlist mechanism in `bridge/application/message_dispatcher.cpp`; a session's trust tier is a
-  second, narrower allowlist selector alongside "authenticated at all", not a parallel dispatch
-  path.
+  `ping`, `capabilities`, `pairing_request`, `pairing_confirm`, `pairing_ack`, `pairing_renotify`,
+  and `pairing_cancel` from it — `subscribe` and `snapshot_request` are rejected the same way any
+  other message outside the allowlist is, `malformed_message`, not a distinct error code. This
+  mirrors `IsAllowedMessageType`'s existing allowlist mechanism in
+  `bridge/application/message_dispatcher.cpp`; a session's trust tier is a second, narrower
+  allowlist selector alongside "authenticated at all", not a parallel dispatch path.
 - `hello_ack.clientIdentityKind` is `"unpaired"` for both developer-authenticated and
   bootstrap-`unpaired` sessions (no wire-visible difference; a developer-authenticated session is
   simply never trust-restricted, since developer authentication already implies full access per

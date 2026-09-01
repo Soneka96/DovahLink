@@ -125,8 +125,9 @@ connection; it persists across reconnects and is not itself a trust credential.
 - `one_time_local_token` — developer/loopback-proof authentication against the process-lifetime
   one-time token. `auth.token` is required.
 - `unpaired` — no credential presented yet. Admits a session restricted to
-  `ping`/`capabilities`/`pairing_request`/`pairing_confirm`/`pairing_ack` until pairing succeeds
-  (see the pairing messages below). `auth.token` must be absent.
+  `ping`/`capabilities`/`pairing_request`/`pairing_confirm`/`pairing_ack`/`pairing_renotify`/
+  `pairing_cancel` until pairing succeeds (see the pairing messages below). `auth.token` must be
+  absent.
 - `trusted_device_credential` — a persisted pairing credential, for an ordinary reconnect.
   `auth.token` carries the hex-encoded credential and is required.
 
