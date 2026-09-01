@@ -430,6 +430,26 @@ public class PublicWebSocketListenerTests
         listener.Dispose();
     }
 
+    /// <summary>
+    /// Verifies that construction binds the explicit loopback address on each socket rather than a
+    /// wildcard address, deterministically: reads the sockets' own bound <see cref="IPEndPoint"/>
+    /// rather than depending on a LAN interface, external networking, or shelling out to a diagnostic
+    /// tool. A future change from <see cref="IPAddress.Loopback"/>/<see cref="IPAddress.IPv6Loopback"/>
+    /// to a wildcard bind address fails this test immediately, even though the accepted-remote-address
+    /// check in <see cref="PublicWebSocketListener.IsLoopbackRemote"/> would still defend against a
+    /// non-loopback peer on its own.
+    /// </summary>
+    [Fact]
+    public void Constructor_BindsExplicitLoopbackAddresses_NotWildcard()
+    {
+        using var listener = new PublicWebSocketListener(0, stream => new FakePublicWebSocketConnection(stream));
+
+        Assert.Equal(IPAddress.Loopback, listener.BoundIPv4Address);
+        Assert.Equal(IPAddress.IPv6Loopback, listener.BoundIPv6Address);
+        Assert.NotEqual(IPAddress.Any, listener.BoundIPv4Address);
+        Assert.NotEqual(IPAddress.IPv6Any, listener.BoundIPv6Address);
+    }
+
     /// <summary>Verifies that constructing a second listener on a port already bound by another fails fast.</summary>
     [Fact]
     public void Constructor_PortAlreadyInUse_Throws()

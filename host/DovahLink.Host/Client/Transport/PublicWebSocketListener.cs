@@ -112,6 +112,18 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// <inheritdoc/>
     public int BoundPort => ((IPEndPoint)ipv4Socket.LocalEndPoint!).Port;
 
+    /// <summary>
+    /// The IPv4 socket's actual bound local address, for a deterministic test proving construction
+    /// binds the explicit loopback address rather than a wildcard address.
+    /// </summary>
+    internal IPAddress BoundIPv4Address => ((IPEndPoint)ipv4Socket.LocalEndPoint!).Address;
+
+    /// <summary>
+    /// The IPv6 socket's actual bound local address, for a deterministic test proving construction
+    /// binds the explicit loopback address rather than a wildcard address.
+    /// </summary>
+    internal IPAddress BoundIPv6Address => ((IPEndPoint)ipv6Socket.LocalEndPoint!).Address;
+
     /// <inheritdoc/>
     public IPublicWebSocketConnection? CurrentConnection
     {
