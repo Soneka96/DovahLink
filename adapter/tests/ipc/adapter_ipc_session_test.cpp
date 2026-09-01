@@ -825,6 +825,45 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
   destructionThread.join();
 }
 
+TEST_CASE("AdapterIpcSession's queued game-thread dispatch stays safe to run "
+          "after the session itself has been destroyed") {
+  //  Complementary to the test above: that one covers a task already
+  //  running and holding callbackMutex_ when destruction begins, which
+  //  ~AdapterIpcSession() waits for. This covers a task still sitting
+  //  unstarted in the marshaller's queue at that same moment -- the
+  //  destructor's own lock never blocks on that task, since it hasn't
+  //  reached callbackMutex_ yet. Running it here, after the session is
+  //  gone, only stays well-defined because nothing in the scheduled
+  //  closure reaches through `this` before its own lifetime gate.
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterIpcConnection connection;
+  auto session = std::make_unique<AdapterIpcSession>(
+      SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+      captureQueue);
+  session->AttachConnection(connection);
+  Authenticate(*session, connection, target);
+
+  dispatcher.SetResult(7, {std::byte{1}});
+  session->HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  REQUIRE(marshaller.PendingCount() == 1);
+
+  session.reset();
+
+  //  Must complete without touching freed session memory.
+  marshaller.RunAllPending();
+}
+
 TEST_CASE("AdapterIpcSession closes on a pre-authentication "
           "ResynchronizeResult without sending a response") {
   SessionFixture fixture;

@@ -354,24 +354,30 @@ void AdapterIpcSession::HandleReadSample(
 }
 
 void AdapterIpcSession::ScheduleGameThreadDispatch(std::function<void()> task) {
-  if (pendingGameThreadDispatchCount_.fetch_add(1, std::memory_order_relaxed) >=
-      kMaxPendingGameThreadDispatches) {
-    pendingGameThreadDispatchCount_.fetch_sub(1, std::memory_order_relaxed);
+  if (pendingGameThreadDispatchCount_->fetch_add(
+          1, std::memory_order_relaxed) >= kMaxPendingGameThreadDispatches) {
+    pendingGameThreadDispatchCount_->fetch_sub(1, std::memory_order_relaxed);
     ReportGameThreadDispatchRejected();
     return;
   }
   try {
-    taskMarshaller_.RunOnGameThread([this, task = std::move(task)] {
-      PendingDispatchGuard dispatchGuard(pendingGameThreadDispatchCount_);
-      task();
-    });
+    //  Captured by value, not reached through `this`: this closure can still
+    //  be queued and run after this session is destroyed, and nothing here
+    //  may touch session memory before `task` itself passes its own lifetime
+    //  gate (`callbackMutex_`/`lifetimeToken_`, captured the same way).
+    auto pendingCount = pendingGameThreadDispatchCount_;
+    taskMarshaller_.RunOnGameThread(
+        [pendingCount = std::move(pendingCount), task = std::move(task)] {
+          PendingDispatchGuard dispatchGuard(*pendingCount);
+          task();
+        });
   } catch (...) {
     //  RunOnGameThread failed (or threw while constructing its own closure)
     //  before the task it was given ever ran, so PendingDispatchGuard's
     //  destructor never fires for this admission: release the slot here
     //  instead, or every future scheduling failure would leak one
     //  permanently until the bound rejects all further dispatch.
-    pendingGameThreadDispatchCount_.fetch_sub(1, std::memory_order_relaxed);
+    pendingGameThreadDispatchCount_->fetch_sub(1, std::memory_order_relaxed);
     ReportGameThreadDispatchRejected();
   }
 }

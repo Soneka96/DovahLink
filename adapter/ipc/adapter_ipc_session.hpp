@@ -247,8 +247,14 @@ private:
   ///  The number of deferred game-thread dispatches currently admitted but
   ///  not yet run, bounded by `kMaxPendingGameThreadDispatches`. Incremented
   ///  when a request is admitted and decremented when its marshaled task
-  ///  finishes, regardless of outcome.
-  std::atomic<std::size_t> pendingGameThreadDispatchCount_{0};
+  ///  finishes, regardless of outcome. Independently reference-counted, the
+  ///  same technique `callbackMutex_` and `lifetimeToken_` already use:
+  ///  `ScheduleGameThreadDispatch`'s task-marshaling closure must never
+  ///  dereference `this` before the task it wraps passes the lifetime gate,
+  ///  since that closure can still be queued and run after this session is
+  ///  destroyed.
+  std::shared_ptr<std::atomic<std::size_t>> pendingGameThreadDispatchCount_ =
+      std::make_shared<std::atomic<std::size_t>>(0);
   ///  Correlation ids of received `IpcCancelMessage`s not yet consumed by a
   ///  matching deferred task, oldest first, bounded by
   ///  `kMaxPendingIpcCancellations`. Scoped to the current connection
