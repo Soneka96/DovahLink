@@ -39,6 +39,49 @@ public class PublicWebSocketConnectionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that a message split across two WebSocket frames is accumulated and delivered to the
+    /// handler as one complete payload, that dispatch happens only after the second, final fragment
+    /// arrives -- not after the first, partial one -- and that a second fragmented message sent
+    /// afterward reassembles independently, proving the accumulation buffer is correctly reset
+    /// between messages rather than only ever tested once.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_MessageSplitAcrossTwoFragments_ReassemblesAndDeliversOneCompleteMessage()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        using var cancellation = new CancellationTokenSource();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = new PublicWebSocketConnection(
+            serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.SendAsync(Encoding.UTF8.GetBytes("hel"), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        // Give the reader a chance to process the partial fragment before asserting nothing was
+        // dispatched yet; a fixed small delay is enough since delivery would otherwise be near-instant.
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+        Assert.Empty(handler.ReceivedMessages);
+
+        await clientWebSocket.SendAsync(Encoding.UTF8.GetBytes("lo"), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        await clientWebSocket.SendAsync(Encoding.UTF8.GetBytes("wo"), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await clientWebSocket.SendAsync(Encoding.UTF8.GetBytes("rld"), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 2, runTask);
+
+        Assert.Equal(["hello"u8.ToArray(), "world"u8.ToArray()], handler.ReceivedMessages);
+
+        listener.Stop();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Verifies that a peer who never sends a handshake request is disconnected after the deadline without accepting or throwing.</summary>
     [Fact]
     public async Task RunAsync_HandshakeTimeout_EndsWithoutAcceptingOrThrowing()
