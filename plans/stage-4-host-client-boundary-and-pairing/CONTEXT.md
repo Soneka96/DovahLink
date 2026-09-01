@@ -46,10 +46,12 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   singleton header, and validates the decoded `Sec-WebSocket-Key` is exactly 16 bytes), a bounded
   reader/writer that reassembles fragmented messages up to the byte bound (a positive
   fragmentation-then-dispatch proof exists alongside the oversized-fragment rejection proof) with
-  WebSocket-native keep-alive for a genuine 60-second total liveness deadline
-  (`Constants.PublicWebSocketKeepAliveInterval` is derived as `LivenessTimeout -
-  KeepAlivePongTimeout`, additive per .NET's managed WebSocket keep-alive, so the two bounds sum to
-  exactly 60 seconds rather than the ~65 seconds an earlier revision allowed; no hand-rolled
+  WebSocket-native keep-alive budgeted with headroom below the approved 60-second liveness ceiling
+  (`Constants.PublicWebSocketKeepAliveInterval` is a fixed 50 seconds plus a 5-second
+  `KeepAlivePongTimeout`, leaving roughly 5 seconds of headroom rather than summing to the ceiling
+  exactly, because .NET's managed WebSocket keep-alive scheduler polls on a `Timer` tick of
+  `min(interval, timeout) / 4` instead of firing at an exact instant -- an earlier revision's exact
+  55s+5s=60s split could itself overshoot the ceiling under normal scheduling jitter; no hand-rolled
   heartbeat), and one deterministic teardown path: a mandatory synchronous `HandleConnectionEnded()`
   lifecycle seam runs before any best-effort `HandleDisconnectedAsync()` cleanup and before the
   connection can complete or its admission slot can be reused, with a bounded
@@ -120,7 +122,8 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   three steps and follow-up fix pass; 622 passed after the post-conventions-cleanup corrective pass
   (60-second liveness deadline fix, deterministic loopback-bind proof, plus the RFC 6455 and
   fragmented-message hardening and the mandatory `HandleConnectionEnded()` seam already present
-  going into this pass)
+  going into this pass); 624 passed after this liveness-precision corrective pass (the exact-sum
+  claim replaced with a budgeted-with-headroom one, plus two tests pinning the approved 50s/5s split)
 - `integration/DovahLinkValidationClient.Tests`: 357 passed, re-run during this corrective pass; unchanged
 - `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 312 passed, re-run during this corrective pass; unchanged
 - `python -m unittest discover -s tooling -p "test_*.py"`: 93 passed
