@@ -146,21 +146,22 @@ void AdapterIpcConnection::ConfigureTarget(AdapterIpcTarget target) {
 }
 
 bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
-  //  An atomic load, not a blocking lock_guard: a caller on the Skyrim game
-  //  thread must never wait behind a concurrent Stop() call, which holds no
-  //  lock for longer than a single store into this same flag but would still
-  //  violate "Never blocks" if TrySend had to wait for it.
-  if (stopping_.load(std::memory_order_acquire)) {
-    return false;
-  }
-
   //  A try-lock, not a blocking lock_guard: a caller on the Skyrim game
   //  thread (for example a resynchronization reply) must never briefly wait
   //  on `outboundMutex_` while the worker thread's own DrainOutbound holds
   //  it, matching `AdapterCaptureHandoffQueue::TryEnqueue`'s established
   //  non-blocking idiom for the same kind of shared, worker-drained queue.
   std::unique_lock<std::mutex> outboundLock(outboundMutex_, std::try_to_lock);
-  if (!outboundLock.owns_lock() || outboundCount_ >= kMaxIpcQueuedMessages) {
+  if (!outboundLock.owns_lock()) {
+    return false;
+  }
+  //  Checked only after the lock above is held, the same lock Stop() takes
+  //  to publish this flag: reading it beforehand left a window where Stop()
+  //  could set it, join the worker, and clear the queue in between this
+  //  check and the enqueue below, silently accepting a message into a queue
+  //  no worker will ever drain again.
+  if (stopping_.load(std::memory_order_acquire) ||
+      outboundCount_ >= kMaxIpcQueuedMessages) {
     return false;
   }
   outbound_[(outboundHead_ + outboundCount_) % kMaxIpcQueuedMessages] = message;
@@ -169,7 +170,13 @@ bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
 }
 
 void AdapterIpcConnection::Stop() {
-  stopping_.store(true, std::memory_order_release);
+  {
+    //  Published under the same lock TrySend now rechecks it with, so no
+    //  TrySend call after this point can observe a stale `false` and
+    //  enqueue into a queue this Stop() is about to abandon.
+    std::lock_guard<std::mutex> lock(outboundMutex_);
+    stopping_.store(true, std::memory_order_release);
+  }
   try {
     socket_.RequestStop();
   } catch (...) {

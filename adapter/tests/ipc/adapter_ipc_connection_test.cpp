@@ -1570,6 +1570,47 @@ TEST_CASE("AdapterIpcConnection::TrySend never grows the outbound queue's own "
       std::string::npos);
 }
 
+TEST_CASE("AdapterIpcConnection::TrySend rechecks stop state under the same "
+          "lock Stop() publishes it with, closing the window where a message "
+          "could be accepted after Stop() abandons the queue") {
+  //  The race this pins shut -- TrySend reading stopping_ as false, then
+  //  Stop() setting it, joining the worker, and clearing the queue, before
+  //  TrySend goes on to enqueue anyway -- has no reliable behavioral
+  //  reproduction: closing it means the two operations now serialize on one
+  //  lock, so there is no longer a timing window to force with a barrier.
+  //  Pinning the structural property is the same technique the tests above
+  //  already use for this class's other unobservable ordering contracts.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t trySendBodyStart = source.find('{', trySend);
+  std::size_t stopStart = source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(trySendBodyStart != std::string::npos);
+  REQUIRE(stopStart != std::string::npos);
+  std::string trySendBody =
+      source.substr(trySendBodyStart, stopStart - trySendBodyStart);
+
+  std::size_t ownsLock = trySendBody.find("outboundLock.owns_lock()");
+  std::size_t stoppingLoad = trySendBody.find("stopping_.load(");
+  REQUIRE(ownsLock != std::string::npos);
+  REQUIRE(stoppingLoad != std::string::npos);
+  CHECK(stoppingLoad > ownsLock);
+
+  std::size_t stopBodyStart = source.find('{', stopStart);
+  std::size_t requestStop = source.find("socket_.RequestStop()", stopStart);
+  REQUIRE(stopBodyStart != std::string::npos);
+  REQUIRE(requestStop != std::string::npos);
+  std::string stopLeadIn =
+      source.substr(stopBodyStart, requestStop - stopBodyStart);
+
+  CHECK(stopLeadIn.find("outboundMutex_") != std::string::npos);
+  CHECK(stopLeadIn.find("stopping_.store(") != std::string::npos);
+}
+
 TEST_CASE("AdapterIpcConnection::Stop is idempotent") {
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;

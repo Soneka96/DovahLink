@@ -188,10 +188,16 @@ private:
   ///  Whether the current worker has finished and may be joined by `Start()`.
   bool workerFinished_ = false;
   ///  Set by `Stop()`; checked before and during the current attempt. Atomic
-  ///  so `TrySend()` can check it from the Skyrim game thread without ever
-  ///  blocking on a mutex, matching its "Never blocks" contract.
+  ///  so every reader outside `TrySend()` can check it from wherever it runs
+  ///  without ever blocking on a mutex. `Stop()` publishes it and `TrySend()`
+  ///  rechecks it both while holding `outboundMutex_`, so a message can never
+  ///  be accepted into a queue `Stop()` has already started abandoning; every
+  ///  other reader only needs the plain "stopped or not" answer and does not
+  ///  share that ordering requirement.
   std::atomic<bool> stopping_{false};
-  ///  Guards `outbound_`, `outboundHead_`, and `outboundCount_`.
+  ///  Guards `outbound_`, `outboundHead_`, `outboundCount_`, and -- jointly
+  ///  with `stopping_`'s own atomicity -- the ordering between `Stop()`
+  ///  publishing `stopping_` and `TrySend()` rechecking it.
   std::mutex outboundMutex_;
   ///  A preallocated fixed-capacity ring buffer holding up to
   ///  `kMaxIpcQueuedMessages` messages queued for the next write, oldest at
