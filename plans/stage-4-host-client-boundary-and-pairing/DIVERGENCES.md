@@ -59,3 +59,37 @@ Status: approved
 Decision source: Direct maintainer instruction in the current task on 2026-09-01 ("do it then"),
 following the Stage 4 plan audit; the canonical schema and existing Bridge pairing-handler behavior
 support the complete allowlist.
+
+## D3 — Stage 4 uses one flat bounded outbound pool before live publication exists
+
+Original requirement: `ai/context/protocol/security.md`'s outbound queue policy describes a
+128-message/2 MiB per-session budget split into 16 reserved control/recovery slots, 108 Normal data
+slots, and 4 Heavy data slots, so a slow client under state-publication pressure cannot delay or
+crowd out timely control-message delivery.
+
+Observed conflict: Concept 01's public transport (`PublicWebSocketConnection`/
+`PublicWebSocketTransportOptions`) implements the approved 128-message/2 MiB total bound, but as one
+flat pool with no Normal/Heavy/reserved-control lane split. Stage 4 publishes no live application
+state, so nothing yet competes with connection/control traffic for outbound capacity; implementing
+the full lane split now would require building Stage 5's Normal/Heavy/Snapshot/Event delivery
+classification ahead of the state it exists to protect.
+
+Decision: Accept the flat pool for Stage 4. The total bound remains 128 messages/2 MiB, unchanged
+from the approved security baseline. Stage 4 traffic is limited to connection/control responses and
+terminal-control messages only; no Normal/Heavy/live-state traffic exists yet to need a separate
+lane. Before any phase activates live-state publication over this transport, the delivery
+architecture must introduce the approved reserved-control/Normal/Heavy separation and partition
+`PublicWebSocketTransportOptions.OutboundQueueMaxMessages`/`OutboundQueueMaxBytes` accordingly; this
+divergence does not waive that requirement, and does not by itself authorize live-state publication
+under the flat pool.
+
+Impact: Concept 01 remains a transport-only concept and does not prematurely implement Stage 5
+delivery classification. The deferred lane split must remain visible in the phase ledger so a later
+phase does not silently begin publishing live state over the still-flat pool.
+
+Status: approved
+
+Decision source: Direct maintainer instruction in the current task on 2026-09-01 ("go ahead with
+/step-build for the real findings"), following a Concept 01 review that proposed this deviation and
+noted "I agree with the simplification"; consistent with `PublicWebSocketTransportOptions.cs`'s and
+`CONTEXT.md`'s existing rationale for the flat pool.
