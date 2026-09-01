@@ -332,8 +332,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         workflow = self._read(".github/workflows/app-ci.yml")
         expected_paths = {
             '- "app/**"',
+            '- "bridge/**"',
             '- "protocol/**"',
             '- "sdk/dart/dovahlink_client/**"',
+            '- "tooling/vcpkg-ports/**"',
             '- ".github/workflows/app-ci.yml"',
         }
 
@@ -364,7 +366,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "          persist-credentials: false",
         )
         self.assertIn("    runs-on: windows-2022", workflow)
-        self.assertIn("    timeout-minutes: 20", workflow)
+        self.assertIn("    timeout-minutes: 30", workflow)
         self.assertIn("        shell: pwsh", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertIn(
