@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <future>
 #include <new>
 #include <optional>
@@ -1472,6 +1473,31 @@ TEST_CASE("AdapterIpcConnection::TrySend rejects once Stop has been called") {
   IpcMessage message{
       IpcCloseMessage{.correlationId = 0, .reason = IpcCloseReason::kNormal}};
   CHECK_FALSE(connection.TrySend(message));
+}
+
+TEST_CASE("AdapterIpcConnection::TrySend uses a non-blocking try-lock on the "
+          "outbound queue, matching its own \"Never blocks\" contract") {
+  //  A `std::lock_guard` on `outboundMutex_` would let a caller on the
+  //  Skyrim game thread briefly wait behind the worker thread's own
+  //  DrainOutbound -- undetectable through the public API without an
+  //  artificial hook that would itself distort the timing being proved, so
+  //  this pins the implementation choice structurally instead.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t bodyStart = source.find('{', trySend);
+  std::size_t nextFunction =
+      source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(nextFunction != std::string::npos);
+  std::string body = source.substr(bodyStart, nextFunction - bodyStart);
+
+  CHECK(body.find("std::try_to_lock") != std::string::npos);
+  CHECK(body.find("outboundLock.owns_lock()") != std::string::npos);
 }
 
 TEST_CASE("AdapterIpcConnection::Stop is idempotent") {

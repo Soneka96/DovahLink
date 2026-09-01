@@ -158,8 +158,13 @@ bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
     return false;
   }
 
-  std::lock_guard<std::mutex> outboundLock(outboundMutex_);
-  if (outbound_.size() >= kMaxIpcQueuedMessages) {
+  //  A try-lock, not a blocking lock_guard: a caller on the Skyrim game
+  //  thread (for example a resynchronization reply) must never briefly wait
+  //  on `outboundMutex_` while the worker thread's own DrainOutbound holds
+  //  it, matching `AdapterCaptureHandoffQueue::TryEnqueue`'s established
+  //  non-blocking idiom for the same kind of shared, worker-drained queue.
+  std::unique_lock<std::mutex> outboundLock(outboundMutex_, std::try_to_lock);
+  if (!outboundLock.owns_lock() || outbound_.size() >= kMaxIpcQueuedMessages) {
     return false;
   }
   outbound_.push_back(message);

@@ -43,7 +43,10 @@ public:
   ///  next write. Pending messages may be discarded when that generation ends.
   ///  Never blocks.
   ///  @return `true` when the message was accepted onto the bounded outbound
-  ///  queue; `false` at capacity or once `Stop()` has been called.
+  ///  queue; `false` at capacity, once `Stop()` has been called, or if the
+  ///  outbound queue's own lock is currently held by a concurrent caller
+  ///  (rejected rather than waited for, to preserve the non-blocking
+  ///  guarantee).
   virtual bool TrySend(const IpcMessage &message) = 0;
 
   ///  Requests the socket close, wakes the connection's background thread,
