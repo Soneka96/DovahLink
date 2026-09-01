@@ -37,7 +37,11 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     public void Complete() => completionSource.TrySetResult();
 
     /// <inheritdoc/>
-    public bool TrySend(ReadOnlyMemory<byte> payload) => false;
+    public bool TrySend(ReadOnlyMemory<byte> payload)
+    {
+        SentPayloads.Add(payload.ToArray());
+        return TrySendResult;
+    }
 
     /// <summary>Ends <see cref="RunAsync"/> as cancelled after <see cref="teardownDelayAfterCancellation"/>, simulating bounded teardown work.</summary>
     /// <param name="cancellationToken">The token <see cref="RunAsync"/> was cancelled with.</param>
@@ -50,4 +54,10 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
         completionSource.TrySetCanceled(cancellationToken);
     }
+
+    /// <summary>The value <see cref="TrySend"/> returns; defaults to <see langword="false"/>.</summary>
+    public bool TrySendResult { get; set; }
+
+    /// <summary>Every payload passed to <see cref="TrySend"/> so far, in call order.</summary>
+    public List<byte[]> SentPayloads { get; } = [];
 }

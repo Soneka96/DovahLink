@@ -69,6 +69,17 @@ The host is the sole new owner of:
 - Diagnostics, host availability, and host-side shutdown. Adapter-side
   discovery and reconnect coordination remain on the native adapter.
 
+## Per-connection capability boundary
+
+Application, session, and domain code above the transport never resolves which live connection it
+is acting on through a global or listener-owned "current connection" lookup. Any per-connection
+behavior -- sending a response, requesting that connection's termination, or anything else scoped to
+one accepted client -- is reached only through an explicit capability tied to that exact
+connection's own lifetime, handed to the caller by the transport itself. A capability that outlives
+its connection must never observably act on a later, unrelated connection. This is an ownership
+invariant, not a concrete interface or type shape; the transport layer choosing how to satisfy it is
+implementation work for the stage that introduces the first such capability.
+
 ## Boundary against Skyrim
 
 The host does not read Skyrim/CommonLib state, does not perform game-thread work, and does not

@@ -1,0 +1,53 @@
+using System.Net.WebSockets;
+using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Tests.TestDoubles;
+
+namespace DovahLink.Host.Tests.Client.Transport;
+
+/// <summary>Tests for <see cref="PublicConnectionContext"/>.</summary>
+public class PublicConnectionContextTests
+{
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> forwards the exact payload to the wrapped connection and returns its result when the connection admits the message.</summary>
+    [Fact]
+    public void TrySend_ConnectionAdmitsMessage_ForwardsPayloadAndReturnsTrue()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendResult = true };
+        var context = new PublicConnectionContext(connection);
+        byte[] payload = "response"u8.ToArray();
+
+        bool result = context.TrySend(payload);
+
+        Assert.True(result);
+        Assert.Equal(payload, Assert.Single(connection.SentPayloads));
+    }
+
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> returns <see langword="false"/> when the wrapped connection does not admit the message, rather than swallowing that outcome.</summary>
+    [Fact]
+    public void TrySend_ConnectionRejectsMessage_ReturnsFalse()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendResult = false };
+        var context = new PublicConnectionContext(connection);
+        byte[] payload = "response"u8.ToArray();
+
+        bool result = context.TrySend(payload);
+
+        Assert.False(result);
+        Assert.Equal(payload, Assert.Single(connection.SentPayloads));
+    }
+
+    /// <summary>Verifies that <see cref="IPublicConnectionContext"/>'s members expose no raw WebSocket, stream, or socket type, proving application code reached through this capability cannot obtain transport ownership.</summary>
+    [Fact]
+    public void Interface_Members_ExposeNoRawTransportType()
+    {
+        Type[] disallowedTypes = [typeof(WebSocket), typeof(Stream), typeof(System.Net.Sockets.Socket)];
+
+        foreach (var method in typeof(IPublicConnectionContext).GetMethods())
+        {
+            Assert.DoesNotContain(method.ReturnType, disallowedTypes);
+            foreach (var parameter in method.GetParameters())
+            {
+                Assert.DoesNotContain(parameter.ParameterType, disallowedTypes);
+            }
+        }
+    }
+}
