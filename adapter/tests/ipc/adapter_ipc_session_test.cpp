@@ -729,6 +729,37 @@ TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
   CHECK(fixture.session.IsHostAvailable());
 }
 
+TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
+          "connection generation cancel a same-numbered request on a later "
+          "generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  The host cancels correlation id 1 on the first generation. No matching
+  //  request is pending yet; HandleCancel still records the tombstone.
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+
+  fixture.session.HandleDisconnected();
+  fixture.session.HandleConnected(fixture.target);
+  connection.Clear();
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  The new generation's host reuses correlation id 1 for an unrelated
+  //  request; the stale cancellation from the old generation must not apply.
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+}
+
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{

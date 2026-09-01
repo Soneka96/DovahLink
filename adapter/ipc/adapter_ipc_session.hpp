@@ -239,7 +239,10 @@ private:
   std::atomic<std::size_t> pendingGameThreadDispatchCount_{0};
   ///  Correlation ids of received `IpcCancelMessage`s not yet consumed by a
   ///  matching deferred task, oldest first, bounded by
-  ///  `kMaxPendingIpcCancellations`. Guarded by `availableMutex_`.
+  ///  `kMaxPendingIpcCancellations`. Scoped to the current connection
+  ///  generation: `CloseCurrentGenerationLocked` clears every entry, since a
+  ///  cancellation from one generation must never apply to a correlation id
+  ///  reused by a later one. Guarded by `availableMutex_`.
   std::deque<std::uint64_t> cancelledCorrelationIds_;
 };
 

@@ -418,6 +418,12 @@ void AdapterIpcSession::CloseCurrentGenerationLocked() {
   authenticationState_ = AuthenticationState::kClosed;
   activeTarget_.reset();
   ++connectionGeneration_;
+  //  A cancellation only ever applies to a deferred task from the generation
+  //  that received it; every such task already self-rejects once
+  //  connectionGeneration_ no longer matches, so a tombstone surviving past
+  //  this point could only misfire against an unrelated request that reuses
+  //  the same correlation id on a later generation.
+  cancelledCorrelationIds_.clear();
 }
 
 } //  namespace dovahlink::adapter::ipc
