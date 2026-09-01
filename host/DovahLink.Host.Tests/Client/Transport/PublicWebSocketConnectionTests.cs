@@ -495,6 +495,37 @@ public class PublicWebSocketConnectionTests
         client.Dispose();
     }
 
+    /// <summary>
+    /// Verifies that a queue overflow requested before <see cref="PublicWebSocketConnection.RunAsync"/>
+    /// is ever called -- as a caller obtaining a reference to the connection before its own setup runs
+    /// might do -- is not lost: once <see cref="PublicWebSocketConnection.RunAsync"/> does start, it
+    /// must end promptly rather than running as if nothing had happened.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_QueueOverflowBeforeRunAsyncStarts_StillEndsPromptlyOnceStarted()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(
+            outboundQueueMaxBytes: 4, handshakeTimeout: TimeSpan.FromSeconds(30));
+        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), options);
+
+        // Overflow the queue before RunAsync is ever called. The client never sends a handshake
+        // request, so if this request were lost, RunAsync would otherwise sit waiting for the full
+        // 30-second handshake timeout with nothing else ever cancelling it.
+        Assert.False(connection.TrySend(new byte[8]));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"RunAsync took {stopwatch.Elapsed} even though the queue overflow happened before it ever " +
+            "started; a close request made before RunAsync begins must not be lost.");
+        Assert.Equal(0, handler.DisconnectedCalls);
+        client.Dispose();
+    }
+
     /// <summary>Verifies that a send beyond the outbound message-count bound is rejected without blocking, when nothing drains the queue.</summary>
     [Fact]
     public void TrySend_BeyondOutboundQueueMaxMessages_ReturnsFalse()

@@ -93,12 +93,17 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private bool writerFaulted;
 
     /// <summary>
-    /// The shared I/O cancellation created by the in-flight <see cref="RunAsync"/> call, or
-    /// <see langword="null"/> before <see cref="RunAsync"/> has started. Lets <see cref="TrySend"/>
-    /// request the connection's own teardown from any thread, at any point in the connection's
-    /// lifetime, without owning that cancellation source itself.
+    /// A cancellation source this connection owns for its entire lifetime, independent of
+    /// <see cref="RunAsync"/>'s external <see cref="CancellationToken"/> parameter. <see
+    /// cref="RunAsync"/> links its own shared I/O cancellation to this source alongside the external
+    /// token, so <see cref="TrySend"/> can request the connection's own teardown from any thread at
+    /// any point in the connection's lifetime -- including before <see cref="RunAsync"/> has ever
+    /// been called -- without depending on the timing of when <see cref="RunAsync"/> happens to set
+    /// up its own state. Calling <see cref="CancellationTokenSource.Cancel()"/> on this source before
+    /// <see cref="RunAsync"/> links it is never lost: linking an already-cancelled source still
+    /// produces an already-cancelled linked token, so this needs no separate lock or nullable guard.
     /// </summary>
-    private CancellationTokenSource? sharedIoCancellation;
+    private readonly CancellationTokenSource selfRequestedClose = new();
 
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
@@ -120,8 +125,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        sharedIoCancellation = ioCancellation;
+        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, selfRequestedClose.Token);
         WebSocket? webSocket = null;
         Task writerTask = Task.CompletedTask;
         bool upgraded = false;
@@ -189,6 +193,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
             webSocket?.Dispose();
             await stream.DisposeAsync().ConfigureAwait(false);
+            selfRequestedClose.Dispose();
         }
     }
 
@@ -244,15 +249,16 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// Requests this connection's controlled close after <see cref="TrySend"/> could not admit a
     /// message onto the bounded outbound queue, rather than leaving the connection open with the
     /// message silently dropped. Safe to call from any thread and at any point in the connection's
-    /// lifetime: before <see cref="RunAsync"/> has started, or after it has already ended, there is
-    /// nothing left to close, so this is a no-op.
+    /// lifetime: a call before <see cref="RunAsync"/> has started is never lost, since <see
+    /// cref="RunAsync"/> always links its shared I/O cancellation to <see cref="selfRequestedClose"/>;
+    /// a call after <see cref="RunAsync"/> has already ended and disposed it is a no-op instead.
     /// </summary>
     private void RequestForcedCloseForUnadmittedMessage()
     {
         forceCloseRequested = true;
         try
         {
-            sharedIoCancellation?.Cancel();
+            selfRequestedClose.Cancel();
         }
         catch (ObjectDisposedException)
         {
