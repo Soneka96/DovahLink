@@ -5,6 +5,7 @@
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -180,10 +181,10 @@ private:
   bool joinInProgress_ = false;
   ///  Whether the current worker has finished and may be joined by `Start()`.
   bool workerFinished_ = false;
-  ///  Guards `stopping_`.
-  std::mutex stopMutex_;
-  ///  Set by `Stop()`; checked before and during the current attempt.
-  bool stopping_ = false;
+  ///  Set by `Stop()`; checked before and during the current attempt. Atomic
+  ///  so `TrySend()` can check it from the Skyrim game thread without ever
+  ///  blocking on a mutex, matching its "Never blocks" contract.
+  std::atomic<bool> stopping_{false};
   ///  Guards `outbound_`.
   std::mutex outboundMutex_;
   ///  The bounded FIFO of messages queued for the next write.

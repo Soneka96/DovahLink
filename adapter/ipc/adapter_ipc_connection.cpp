@@ -50,11 +50,8 @@ AdapterIpcConnection::~AdapterIpcConnection() {
 }
 
 void AdapterIpcConnection::Start() {
-  {
-    std::lock_guard<std::mutex> stopLock(stopMutex_);
-    if (stopping_) {
-      return;
-    }
+  if (stopping_.load(std::memory_order_acquire)) {
+    return;
   }
 
   std::unique_lock<std::mutex> lifecycleLock(lifecycleMutex_);
@@ -72,11 +69,8 @@ void AdapterIpcConnection::Start() {
   while (joinInProgress_) {
     lifecycleCondition_.wait(lifecycleLock);
   }
-  {
-    std::lock_guard<std::mutex> stopLock(stopMutex_);
-    if (stopping_) {
-      return;
-    }
+  if (stopping_.load(std::memory_order_acquire)) {
+    return;
   }
   if (worker_.joinable()) {
     if (!workerFinished_) {
@@ -134,8 +128,7 @@ void AdapterIpcConnection::Start() {
     //  A concurrent Stop() may have set `stopping_` while this thread was
     //  joining; re-check before replacing the worker it just retired so that
     //  call reliably wins instead of racing a fresh attempt into existence.
-    std::lock_guard<std::mutex> stopLock(stopMutex_);
-    if (stopping_) {
+    if (stopping_.load(std::memory_order_acquire)) {
       return;
     }
   }
@@ -153,8 +146,11 @@ void AdapterIpcConnection::ConfigureTarget(AdapterIpcTarget target) {
 }
 
 bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
-  std::lock_guard<std::mutex> stopLock(stopMutex_);
-  if (stopping_) {
+  //  An atomic load, not a blocking lock_guard: a caller on the Skyrim game
+  //  thread must never wait behind a concurrent Stop() call, which holds no
+  //  lock for longer than a single store into this same flag but would still
+  //  violate "Never blocks" if TrySend had to wait for it.
+  if (stopping_.load(std::memory_order_acquire)) {
     return false;
   }
 
@@ -172,10 +168,7 @@ bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
 }
 
 void AdapterIpcConnection::Stop() {
-  {
-    std::lock_guard<std::mutex> lock(stopMutex_);
-    stopping_ = true;
-  }
+  stopping_.store(true, std::memory_order_release);
   try {
     socket_.RequestStop();
   } catch (...) {
@@ -294,12 +287,9 @@ void AdapterIpcConnection::RunAttempt() {
     attemptTarget = target_;
   }
 
-  {
-    std::lock_guard<std::mutex> lock(stopMutex_);
-    if (stopping_) {
-      finish(targetGeneration, AdapterIpcAttemptOutcome::kStopped);
-      return;
-    }
+  if (stopping_.load(std::memory_order_acquire)) {
+    finish(targetGeneration, AdapterIpcAttemptOutcome::kStopped);
+    return;
   }
 
   try {
@@ -310,11 +300,7 @@ void AdapterIpcConnection::RunAttempt() {
     bool connectedAttempt = socket_.Connect();
     if (!connectedAttempt) {
       ClearOutbound();
-      bool stopped = false;
-      {
-        std::lock_guard<std::mutex> lock(stopMutex_);
-        stopped = stopping_;
-      }
+      bool stopped = stopping_.load(std::memory_order_acquire);
       if (!stopped) {
         InvokeContained(callbacks_.onConnectionAttemptFailed);
       }
@@ -354,11 +340,7 @@ void AdapterIpcConnection::RunAttempt() {
       } catch (...) {
       }
       ClearOutbound();
-      bool stopped = false;
-      {
-        std::lock_guard<std::mutex> lock(stopMutex_);
-        stopped = stopping_;
-      }
+      bool stopped = stopping_.load(std::memory_order_acquire);
       if (!stopped) {
         InvokeContained(callbacks_.onConnectionAttemptFailed);
       }
@@ -386,11 +368,7 @@ void AdapterIpcConnection::RunAttempt() {
     InvokeContained(callbacks_.onDisconnected);
   }
 
-  bool stopped = false;
-  {
-    std::lock_guard<std::mutex> lock(stopMutex_);
-    stopped = stopping_;
-  }
+  bool stopped = stopping_.load(std::memory_order_acquire);
   finish(targetGeneration,
          stopped     ? AdapterIpcAttemptOutcome::kStopped
          : connected ? authenticated
@@ -403,11 +381,8 @@ void AdapterIpcConnection::ServeConnection(
     std::chrono::steady_clock::time_point establishmentDeadline,
     bool &authenticated) {
   while (true) {
-    {
-      std::lock_guard<std::mutex> lock(stopMutex_);
-      if (stopping_) {
-        return;
-      }
+    if (stopping_.load(std::memory_order_acquire)) {
+      return;
     }
 
     if (!authenticated &&
@@ -498,11 +473,8 @@ bool AdapterIpcConnection::ReadFully(
     std::optional<std::chrono::steady_clock::time_point> deadline) {
   std::size_t totalRead = 0;
   while (totalRead < buffer.size()) {
-    {
-      std::lock_guard<std::mutex> lock(stopMutex_);
-      if (stopping_) {
-        return false;
-      }
+    if (stopping_.load(std::memory_order_acquire)) {
+      return false;
     }
 
     if (deadline.has_value() && std::chrono::steady_clock::now() >= *deadline) {

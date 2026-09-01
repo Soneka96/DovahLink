@@ -1500,6 +1500,41 @@ TEST_CASE("AdapterIpcConnection::TrySend uses a non-blocking try-lock on the "
   CHECK(body.find("outboundLock.owns_lock()") != std::string::npos);
 }
 
+TEST_CASE("AdapterIpcConnection::TrySend checks stop state through an atomic "
+          "load instead of a blocking mutex") {
+  //  A concurrent Stop() only ever holds a lock (if any) for the single
+  //  instant it takes to publish `stopping_`, so no test can reliably force
+  //  TrySend to observe contention without an artificial hook that would
+  //  itself distort the timing being proved -- the same problem the
+  //  try_to_lock test above solves by pinning the implementation choice
+  //  structurally instead.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t bodyStart = source.find('{', trySend);
+  std::size_t nextFunction =
+      source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(nextFunction != std::string::npos);
+  std::string body = source.substr(bodyStart, nextFunction - bodyStart);
+
+  CHECK(body.find("stopMutex_") == std::string::npos);
+  CHECK(body.find("stopping_.load(") != std::string::npos);
+
+  //  No call site anywhere in the class may reintroduce a blocking mutex
+  //  guarding stop state -- not just the one this test names -- since any
+  //  such site would let a concurrent Stop() block a caller on it again.
+  std::filesystem::path connectionHeader =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.hpp";
+  CHECK(source.find("stopMutex_") == std::string::npos);
+  CHECK(ReadSource(connectionHeader).find("stopMutex_") == std::string::npos);
+}
+
 TEST_CASE("AdapterIpcConnection::Stop is idempotent") {
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;
