@@ -129,6 +129,13 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// </summary>
     private readonly CancellationTokenSource orderlyCloseRequested = new();
 
+    /// <summary>
+    /// The single per-connection capability handed to <see cref="messageHandler"/> on every call to
+    /// <see cref="IPublicWebSocketMessageHandler.HandleMessageAsync"/>, scoped to this exact
+    /// connection instance for its entire lifetime.
+    /// </summary>
+    private readonly IPublicConnectionContext connectionContext;
+
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="messageHandler">The handler this connection delegates inbound messages and disconnection to.</param>
@@ -144,6 +151,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         messageBuffer = new byte[options.MaxMessageBytes];
         outbound = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(options.OutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
+        connectionContext = new PublicConnectionContext(this);
     }
 
     /// <inheritdoc/>
@@ -499,7 +507,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 return;
             }
 
-            await messageHandler.HandleMessageAsync(messageBuffer.AsMemory(0, messageLength), cancellationToken).ConfigureAwait(false);
+            await messageHandler.HandleMessageAsync(connectionContext, messageBuffer.AsMemory(0, messageLength), cancellationToken).ConfigureAwait(false);
             messageLength = 0;
         }
     }

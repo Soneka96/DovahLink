@@ -9,12 +9,17 @@ namespace DovahLink.Host.Client.Transport;
 public interface IPublicWebSocketMessageHandler
 {
     /// <summary>Handles one complete inbound text message, encoded exactly as received from the peer.</summary>
+    /// <param name="connection">
+    /// The narrow, per-connection capability scoped to the exact connection that delivered
+    /// <paramref name="payload"/>: a response sent through it reaches this same connection's peer,
+    /// and a close requested through it targets this same connection, never a different one.
+    /// </param>
     /// <param name="payload">
     /// The complete message payload. Backed by a buffer the connection reuses for the next message; a
     /// handler that needs the bytes beyond the synchronous extent of this call must copy them first.
     /// </param>
     /// <param name="cancellationToken">The token used to stop waiting if handling itself awaits.</param>
-    Task HandleMessageAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
+    Task HandleMessageAsync(IPublicConnectionContext connection, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
 
     /// <summary>
     /// Mandatorily invalidates any session bound to this connection before the transport's admission

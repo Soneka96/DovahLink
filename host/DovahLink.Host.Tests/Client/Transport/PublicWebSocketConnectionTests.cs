@@ -41,6 +41,132 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
+    /// Verifies that a handler can send a response through the exact connection that delivered an
+    /// inbound message -- via the <see cref="IPublicConnectionContext"/> passed to
+    /// <see cref="IPublicWebSocketMessageHandler.HandleMessageAsync"/> -- and that the peer receives
+    /// it through the connection's normal serialized/bounded writer, proving the capability is not
+    /// merely accepted but actually wired to this connection's own outbound path.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_HandlerSendsThroughReceivedContext_PeerReceivesResponseOnSameConnection()
+    {
+        byte[] responsePayload = Encoding.UTF8.GetBytes("response");
+        var handler = new FakePublicWebSocketMessageHandler { AutoRespondPayload = responsePayload };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        using var cancellation = new CancellationTokenSource();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = new PublicWebSocketConnection(
+            serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.SendAsync("request"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var buffer = new byte[64];
+        WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(WebSocketMessageType.Text, result.MessageType);
+        Assert.Equal(responsePayload, buffer[..result.Count]);
+
+        listener.Stop();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that two separate messages on the same connection receive the exact same connection-context instance, matching this connection's documented one-context-per-lifetime contract.</summary>
+    [Fact]
+    public async Task HandleMessageAsync_TwoMessagesOnSameConnection_ReceiveTheSameContextInstance()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        using var cancellation = new CancellationTokenSource();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = new PublicWebSocketConnection(
+            serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.SendAsync("first"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+        IPublicConnectionContext? firstContext = handler.LastConnection;
+
+        await clientWebSocket.SendAsync("second"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 2, runTask);
+
+        Assert.NotNull(firstContext);
+        Assert.Same(firstContext, handler.LastConnection);
+
+        listener.Stop();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a connection context retained after its own connection has ended cannot affect
+    /// a subsequently created connection: the stale context's <see cref="IPublicConnectionContext.TrySend"/>
+    /// fails safely, and the new connection's own traffic is unaffected, proving the capability is
+    /// structurally scoped to the exact connection instance that issued it rather than any kind of
+    /// shared or global addressing.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_StaleContextFromEndedConnection_CannotAffectSubsequentConnection()
+    {
+        var handlerA = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTaskA = listener.AcceptTcpClientAsync();
+        using var clientWebSocketA = new ClientWebSocket();
+        Task connectTaskA = clientWebSocketA.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClientA = await acceptTaskA.WaitAsync(TimeSpan.FromSeconds(5));
+        var connectionA = new PublicWebSocketConnection(
+            serverTcpClientA.GetStream(), handlerA, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTaskA = connectionA.RunAsync(CancellationToken.None);
+        await connectTaskA.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocketA.SendAsync("hello"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handlerA.LastConnection is not null, runTaskA);
+        IPublicConnectionContext staleContext = handlerA.LastConnection!;
+
+        await clientWebSocketA.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await runTaskA.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Connection A has now fully ended. Its captured context must fail safely rather than
+        // reaching into whatever connection happens to be current next.
+        Assert.False(staleContext.TrySend("late"u8.ToArray()));
+        staleContext.RequestClose(); // must not throw even though connection A is already torn down
+
+        var handlerB = new FakePublicWebSocketMessageHandler();
+        Task<TcpClient> acceptTaskB = listener.AcceptTcpClientAsync();
+        using var clientWebSocketB = new ClientWebSocket();
+        Task connectTaskB = clientWebSocketB.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClientB = await acceptTaskB.WaitAsync(TimeSpan.FromSeconds(5));
+        var connectionB = new PublicWebSocketConnection(
+            serverTcpClientB.GetStream(), handlerB, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        using var cancellationB = new CancellationTokenSource();
+        Task runTaskB = connectionB.RunAsync(cancellationB.Token);
+        await connectTaskB.WaitAsync(TimeSpan.FromSeconds(5));
+
+        byte[] payloadB = "unaffected"u8.ToArray();
+        await clientWebSocketB.SendAsync(payloadB, WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handlerB.ReceivedMessages.Count == 1, runTaskB);
+
+        Assert.Equal(payloadB, Assert.Single(handlerB.ReceivedMessages));
+        Assert.False(runTaskB.IsCompleted);
+
+        listener.Stop();
+        cancellationB.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTaskB).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Verifies that a message split across two WebSocket frames is accumulated and delivered to the
     /// handler as one complete payload, that dispatch happens only after the second, final fragment
     /// arrives -- not after the first, partial one -- and that a second fragmented message sent

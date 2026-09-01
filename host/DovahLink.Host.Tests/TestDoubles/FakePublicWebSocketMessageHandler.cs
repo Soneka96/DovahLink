@@ -45,9 +45,16 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     public bool ReceivedTokenWasCancelled { get; private set; }
 
     /// <inheritdoc/>
-    public Task HandleMessageAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    public Task HandleMessageAsync(IPublicConnectionContext connection, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
+        LastConnection = connection;
         ReceivedMessages.Enqueue(payload.ToArray());
+
+        if (AutoRespondPayload is not null)
+        {
+            connection.TrySend(AutoRespondPayload);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -88,4 +95,10 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
             throw DisconnectedFailure;
         }
     }
+
+    /// <summary>The connection capability passed to the most recent <see cref="HandleMessageAsync"/> call, or <see langword="null"/> before any message has been received.</summary>
+    public IPublicConnectionContext? LastConnection { get; private set; }
+
+    /// <summary>When set, every <see cref="HandleMessageAsync"/> call sends this payload through the connection context it received.</summary>
+    public byte[]? AutoRespondPayload { get; set; }
 }

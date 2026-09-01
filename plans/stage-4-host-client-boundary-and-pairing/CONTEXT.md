@@ -58,6 +58,24 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   disconnect-notification timeout and a bounded graceful-close/abort fallback. All steps and
   follow-up fix/corrective passes are independently tested; see "Deferred debt" below for the
   accepted scope simplifications.
+- A pre-merge fresh-eyes audit found Concept 01's own completion criterion -- "the next concept
+  receives a transport context with explicit reader/writer ownership and teardown hooks" -- was not
+  actually met: `HandleMessageAsync` gave the handler no way to respond on, or close, the exact
+  connection that delivered a message, and the only reachable alternative was
+  `PublicWebSocketListener.CurrentConnection`, a global/listener-owned lookup unsafe across
+  reconnects. A corrective pass added `IPublicConnectionContext`/`PublicConnectionContext`
+  (`host/DovahLink.Host/Client/Transport/PublicConnectionContext.cs`, a stateless forwarding adapter
+  per `ai/context/common.md`'s "focused capability class" rule rather than a second contract on
+  `PublicWebSocketConnection`), now passed as `HandleMessageAsync`'s first parameter and scoped to
+  the exact connection instance that constructs it for its entire lifetime, so a stale context from
+  an ended connection cannot resolve a later one. It also added
+  `IPublicWebSocketConnection.RequestClose()`, an orderly close distinct from the forced close an
+  unadmittable outbound message already triggers: cancelling the read loop's own token immediately
+  proved destructive during the fix -- .NET's managed `WebSocket` leaves the whole object unusable
+  once any pending operation on it is cancelled, which would abandon an already-admitted but
+  not-yet-sent frame -- so `RequestClose` completes the outbound queue and defers that cancellation
+  until the queue has had a bounded (`GracefulCloseTimeout`) opportunity to drain. All three concept
+  files stayed within Concept 01's existing allowlist; no divergence was required.
 
 ## Decisions and approved deviations
 
@@ -114,6 +132,15 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `FakePublicWebSocketConnection.cs`, `ThrowingPublicWebSocketConnection.cs`; and the test project's
   first `Fixtures.cs` builder.
 - Concept 01, modified: `host/DovahLink.Host/Constants.cs` (public-transport bounds).
+- Concept 01, transport-context corrective pass, new: `host/DovahLink.Host/Client/Transport/PublicConnectionContext.cs`;
+  `host/DovahLink.Host.Tests/Client/Transport/PublicConnectionContextTests.cs`.
+- Concept 01, transport-context corrective pass, modified: `IPublicWebSocketMessageHandler.cs`,
+  `PublicWebSocketConnection.cs` (`RequestClose`, the `IPublicConnectionContext` wiring, and the
+  `writerCancellation`/`readCancellation` split); matching test file
+  `PublicWebSocketConnectionTests.cs`; existing test doubles `FakePublicWebSocketConnection.cs`,
+  `ThrowingPublicWebSocketConnection.cs`, `FakePublicWebSocketMessageHandler.cs`.
+- `ai/context/host/architecture.md`: recorded the general per-connection capability boundary invariant
+  (no concrete type names) this corrective pass then implemented.
 
 ## Verification
 
@@ -123,11 +150,20 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   (60-second liveness deadline fix, deterministic loopback-bind proof, plus the RFC 6455 and
   fragmented-message hardening and the mandatory `HandleConnectionEnded()` seam already present
   going into this pass); 624 passed after this liveness-precision corrective pass (the exact-sum
-  claim replaced with a budgeted-with-headroom one, plus two tests pinning the approved 50s/5s split)
-- `integration/DovahLinkValidationClient.Tests`: 357 passed, re-run during this corrective pass; unchanged
-- `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 312 passed, re-run during this corrective pass; unchanged
-- `python -m unittest discover -s tooling -p "test_*.py"`: 93 passed
-- `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean
+  claim replaced with a budgeted-with-headroom one, plus two tests pinning the approved 50s/5s split);
+  638 passed after the transport-context corrective pass (14 new: the per-connection capability's
+  forwarding/no-raw-transport-leak proof, `RequestClose`'s drain/idempotency/racing/bounded-fallback
+  behavior, and the handler-wiring/stale-context-isolation proofs), re-run five times with no flake
+- `integration/DovahLinkValidationClient.Tests`, `ctest --test-dir adapter/build/windows-x64-debug`:
+  not re-run for the transport-context corrective pass -- it changes only
+  `host/DovahLink.Host`/`.Tests` C# transport internals, with no protocol, SDK, or native/adapter
+  change
+- `python -m unittest discover -s tooling -p "test_*.py"`: 93 passed, re-run during the
+  transport-context corrective pass; unchanged
+- `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
+  during the transport-context corrective pass
+- `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release` and
+  the resulting `DovahLink.Host.exe`: clean, re-run during the transport-context corrective pass
 - `host/PLAN.md` SHA-256: `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`
 
 ## Handoff

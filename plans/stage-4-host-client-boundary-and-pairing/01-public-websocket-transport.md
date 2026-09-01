@@ -29,6 +29,13 @@ timeout/cancellation outcomes, and deterministic connection-close notifications.
 - Perform the WebSocket upgrade and establish the handshake deadline before application dispatch.
 - Own exactly one reader and one serialized writer per socket. Application code never writes to the
   WebSocket directly.
+- The message handler receives a narrow transport capability scoped to the exact connection that
+  delivered each message -- a bounded/serialized send and an orderly-close request -- rather than
+  only inbound bytes. The capability exposes no raw `WebSocket`/`Stream`/`Socket` type and can never
+  resolve or address a different connection, including after its own connection has ended.
+- A caller-requested orderly close is distinct from the forced close an unadmittable outbound
+  message already triggers: an orderly close gives whatever is already queued a bounded opportunity
+  to reach the wire before the read side is interrupted, rather than racing it out of existence.
 - Apply the five-second establishment deadline, 60-second idle/liveness deadline, 1 MiB complete
   message bound, and 100 inbound messages-per-second bound at the transport boundary. Fragmented
   messages must be accumulated only up to the bound; a larger message is closed without an error
@@ -101,3 +108,13 @@ public-boundary behavior in integration-client fixtures.
 - The host remains buildable without native headers or the old bridge.
 - The next concept receives a transport context with explicit reader/writer ownership and teardown
   hooks, without exposing private adapter types.
+
+A pre-merge fresh-eyes audit found this last criterion was not actually met: the original
+`HandleMessageAsync(payload, cancellationToken)` shape gave the handler no way to respond on, or
+close, the exact connection that delivered a message -- the only reachable path was
+`PublicWebSocketListener.CurrentConnection`, a global/listener-owned lookup unsafe across reconnects.
+A corrective pass added `IPublicConnectionContext`/`PublicConnectionContext`
+(`host/DovahLink.Host/Client/Transport/PublicConnectionContext.cs`), now passed as
+`HandleMessageAsync`'s first parameter, and `IPublicWebSocketConnection.RequestClose()` alongside the
+existing `TrySend`, all within this concept's existing file allowlist. See `CONTEXT.md` for the full
+corrective-pass record and updated verification counts.
