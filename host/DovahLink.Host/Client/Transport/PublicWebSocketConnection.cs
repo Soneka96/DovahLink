@@ -363,7 +363,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         return WebSocket.CreateFromStream(stream, new WebSocketCreationOptions
         {
             IsServer = true,
-            KeepAliveInterval = options.IdleTimeout,
+            KeepAliveInterval = options.KeepAliveInterval,
             KeepAliveTimeout = options.KeepAlivePongTimeout,
         });
     }

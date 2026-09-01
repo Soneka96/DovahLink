@@ -11,16 +11,17 @@ public sealed record PublicWebSocketTransportOptions
     public TimeSpan HandshakeTimeout { get; init; } = Constants.PublicWebSocketHandshakeTimeout;
 
     /// <summary>
-    /// The interval of silence after which the connection sends a WebSocket-level keep-alive ping.
-    /// See <see cref="Constants.PublicWebSocketIdleTimeout"/> for how this and
-    /// <see cref="KeepAlivePongTimeout"/> together satisfy the documented idle/liveness deadline.
+    /// The interval of inbound silence after which the connection sends a WebSocket-level keep-alive
+    /// ping. Derived from the total liveness deadline minus <see cref="KeepAlivePongTimeout"/>; see
+    /// <see cref="Constants.PublicWebSocketLivenessTimeout"/> for that total and how the two bounds
+    /// together satisfy it.
     /// </summary>
-    public TimeSpan IdleTimeout { get; init; } = Constants.PublicWebSocketIdleTimeout;
+    public TimeSpan KeepAliveInterval { get; init; } = Constants.PublicWebSocketKeepAliveInterval;
 
     /// <summary>
     /// How long the connection waits for a keep-alive ping's pong reply before it is treated as
-    /// unresponsive. Additional to <see cref="IdleTimeout"/>, not carved out of it -- see
-    /// <see cref="Constants.PublicWebSocketKeepAlivePongTimeout"/> for the worst-case total.
+    /// unresponsive. Bounded together with <see cref="KeepAliveInterval"/> by the total liveness
+    /// deadline in <see cref="Constants.PublicWebSocketLivenessTimeout"/>.
     /// </summary>
     public TimeSpan KeepAlivePongTimeout { get; init; } = Constants.PublicWebSocketKeepAlivePongTimeout;
 

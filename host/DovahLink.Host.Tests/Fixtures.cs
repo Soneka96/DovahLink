@@ -14,7 +14,7 @@ public static class Fixtures
     /// </summary>
     public static PublicWebSocketTransportOptions BuildPublicWebSocketTransportOptions(
         TimeSpan? handshakeTimeout = null,
-        TimeSpan? idleTimeout = null,
+        TimeSpan? keepAliveInterval = null,
         TimeSpan? keepAlivePongTimeout = null,
         int? maxMessageBytes = null,
         int? maxInboundMessagesPerSecond = null,
@@ -27,7 +27,7 @@ public static class Fixtures
         new()
         {
             HandshakeTimeout = handshakeTimeout ?? Constants.PublicWebSocketHandshakeTimeout,
-            IdleTimeout = idleTimeout ?? Constants.PublicWebSocketIdleTimeout,
+            KeepAliveInterval = keepAliveInterval ?? Constants.PublicWebSocketKeepAliveInterval,
             KeepAlivePongTimeout = keepAlivePongTimeout ?? Constants.PublicWebSocketKeepAlivePongTimeout,
             MaxMessageBytes = maxMessageBytes ?? Constants.PublicWebSocketMaxMessageBytes,
             MaxInboundMessagesPerSecond = maxInboundMessagesPerSecond ?? Constants.PublicWebSocketMaxMessagesPerSecond,

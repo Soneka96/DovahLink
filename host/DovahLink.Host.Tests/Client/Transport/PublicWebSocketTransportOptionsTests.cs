@@ -12,7 +12,7 @@ public class PublicWebSocketTransportOptionsTests
         var options = Fixtures.BuildPublicWebSocketTransportOptions();
 
         Assert.Equal(Constants.PublicWebSocketHandshakeTimeout, options.HandshakeTimeout);
-        Assert.Equal(Constants.PublicWebSocketIdleTimeout, options.IdleTimeout);
+        Assert.Equal(Constants.PublicWebSocketKeepAliveInterval, options.KeepAliveInterval);
         Assert.Equal(Constants.PublicWebSocketKeepAlivePongTimeout, options.KeepAlivePongTimeout);
         Assert.Equal(Constants.PublicWebSocketMaxMessageBytes, options.MaxMessageBytes);
         Assert.Equal(Constants.PublicWebSocketMaxMessagesPerSecond, options.MaxInboundMessagesPerSecond);
@@ -28,10 +28,25 @@ public class PublicWebSocketTransportOptionsTests
     [Fact]
     public void Build_WithOneOverride_OverridesOnlyTheGivenParameter()
     {
-        PublicWebSocketTransportOptions options = Fixtures.BuildPublicWebSocketTransportOptions(idleTimeout: TimeSpan.FromMilliseconds(50));
+        PublicWebSocketTransportOptions options = Fixtures.BuildPublicWebSocketTransportOptions(keepAliveInterval: TimeSpan.FromMilliseconds(50));
 
-        Assert.Equal(TimeSpan.FromMilliseconds(50), options.IdleTimeout);
+        Assert.Equal(TimeSpan.FromMilliseconds(50), options.KeepAliveInterval);
         Assert.Equal(Constants.PublicWebSocketHandshakeTimeout, options.HandshakeTimeout);
         Assert.Equal(Constants.PublicWebSocketKeepAlivePongTimeout, options.KeepAlivePongTimeout);
+    }
+
+    /// <summary>
+    /// Verifies that the approved keep-alive interval and pong-timeout constants sum to exactly the
+    /// approved 60-second total liveness deadline, per <c>ai/context/protocol/security.md</c>'s "idle
+    /// connection timeout: 60 seconds without a valid heartbeat or message" -- not less, and critically
+    /// not more, since .NET's managed WebSocket keep-alive treats the two bounds as additive.
+    /// </summary>
+    [Fact]
+    public void LivenessBudget_KeepAliveIntervalPlusPongTimeout_EqualsSixtySeconds()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(60), Constants.PublicWebSocketLivenessTimeout);
+        Assert.Equal(
+            Constants.PublicWebSocketLivenessTimeout,
+            Constants.PublicWebSocketKeepAliveInterval + Constants.PublicWebSocketKeepAlivePongTimeout);
     }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -172,9 +173,15 @@ public class PublicWebSocketConnectionTests
         Assert.Empty(handler.ReceivedMessages);
     }
 
-    /// <summary>Verifies that a silent peer is disconnected once the idle keep-alive deadline elapses.</summary>
+    /// <summary>
+    /// Verifies that a silent peer is disconnected once the keep-alive deadline elapses, that the pong
+    /// timeout genuinely contributes wait time beyond the interval alone (proving it is not silently
+    /// ignored), and that the elapsed time stays within this file's usual generous bound for a
+    /// real-timer test -- proving the two configured bounds are additive and nothing else is layered on
+    /// top. Uses distinct interval and pong values so neither could be mistaken for the other.
+    /// </summary>
     [Fact]
-    public async Task RunAsync_IdleTimeoutWithSilentPeer_ForcesClosureAndNotifiesDisconnected()
+    public async Task RunAsync_KeepAliveDeadlineWithSilentPeer_ForcesClosureWithinIntervalPlusPongTimeout()
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (TcpListener listener, int port) = StartLoopbackListener();
@@ -183,15 +190,27 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        TimeSpan keepAliveInterval = TimeSpan.FromMilliseconds(100);
+        TimeSpan pongTimeout = TimeSpan.FromMilliseconds(300);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
-            idleTimeout: TimeSpan.FromMilliseconds(200), keepAlivePongTimeout: TimeSpan.FromMilliseconds(200));
+            keepAliveInterval: keepAliveInterval, keepAlivePongTimeout: pongTimeout);
         var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var stopwatch = Stopwatch.StartNew();
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         // The client never reads, so it can never observe or reply to the server's keep-alive ping.
         await handler.Disconnected.WaitAsync(TimeSpan.FromSeconds(5));
+        stopwatch.Stop();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Elapsed must exceed the interval alone -- proving the pong timeout genuinely adds wait time
+        // rather than being ignored -- and stay under this file's usual generous real-timer bound
+        // (matching the other Stopwatch-based assertions here), proving detection is not unbounded.
+        Assert.True(
+            stopwatch.Elapsed > keepAliveInterval,
+            $"Expected the pong timeout to add wait time beyond the {keepAliveInterval} interval alone, took {stopwatch.Elapsed}.");
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Silent-peer detection must not hang.");
 
         listener.Stop();
     }
@@ -208,7 +227,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
-            idleTimeout: TimeSpan.FromMilliseconds(100), keepAlivePongTimeout: TimeSpan.FromMilliseconds(100));
+            keepAliveInterval: TimeSpan.FromMilliseconds(100), keepAlivePongTimeout: TimeSpan.FromMilliseconds(100));
         var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
