@@ -10,10 +10,18 @@ public sealed record PublicWebSocketTransportOptions
     /// <summary>How long a newly accepted connection may take to complete the WebSocket upgrade handshake.</summary>
     public TimeSpan HandshakeTimeout { get; init; } = Constants.PublicWebSocketHandshakeTimeout;
 
-    /// <summary>The interval of silence after which the connection sends a WebSocket-level keep-alive ping.</summary>
+    /// <summary>
+    /// The interval of silence after which the connection sends a WebSocket-level keep-alive ping.
+    /// See <see cref="Constants.PublicWebSocketIdleTimeout"/> for how this and
+    /// <see cref="KeepAlivePongTimeout"/> together satisfy the documented idle/liveness deadline.
+    /// </summary>
     public TimeSpan IdleTimeout { get; init; } = Constants.PublicWebSocketIdleTimeout;
 
-    /// <summary>How long the connection waits for a keep-alive ping's pong reply before it is treated as unresponsive.</summary>
+    /// <summary>
+    /// How long the connection waits for a keep-alive ping's pong reply before it is treated as
+    /// unresponsive. Additional to <see cref="IdleTimeout"/>, not carved out of it -- see
+    /// <see cref="Constants.PublicWebSocketKeepAlivePongTimeout"/> for the worst-case total.
+    /// </summary>
     public TimeSpan KeepAlivePongTimeout { get; init; } = Constants.PublicWebSocketKeepAlivePongTimeout;
 
     /// <summary>The maximum byte length of one accumulated inbound message.</summary>

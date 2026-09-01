@@ -234,13 +234,23 @@ public static class Constants
     /// <summary>
     /// The interval of inbound/outbound silence after which an established connection sends a
     /// WebSocket-level keep-alive ping, matching the approved 60-second idle/liveness deadline in
-    /// <c>ai/context/protocol/security.md</c>'s "Input limits".
+    /// <c>ai/context/protocol/security.md</c>'s "Input limits" ("idle connection timeout: 60 seconds
+    /// without a valid heartbeat or message"). This is the idle-before-probe half of that deadline;
+    /// see <see cref="PublicWebSocketKeepAlivePongTimeout"/> for the separately bounded grace period
+    /// layered on top once a probe is sent, and their combined worst case.
     /// </summary>
     public static readonly TimeSpan PublicWebSocketIdleTimeout = TimeSpan.FromSeconds(60);
 
     /// <summary>
     /// How long an established connection waits for a keep-alive ping's pong reply before the
-    /// connection is treated as unresponsive and torn down.
+    /// connection is treated as unresponsive and torn down. Intentionally a separate, additional
+    /// bound rather than borrowed from <see cref="PublicWebSocketIdleTimeout"/>'s budget: the
+    /// documented "60 seconds without a valid heartbeat or message" describes the silence that
+    /// triggers a liveness probe, not a hard ceiling on detecting an unresponsive peer once one has
+    /// been sent. An unresponsive peer is therefore detected within <see
+    /// cref="PublicWebSocketIdleTimeout"/> plus this value in the worst case (currently up to ~65
+    /// seconds total), not this value alone. This is WebSocket-native Ping/Pong; no separate
+    /// application-level heartbeat is used.
     /// </summary>
     public static readonly TimeSpan PublicWebSocketKeepAlivePongTimeout = TimeSpan.FromSeconds(5);
 
