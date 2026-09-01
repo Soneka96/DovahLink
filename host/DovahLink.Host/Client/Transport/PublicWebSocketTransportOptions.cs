@@ -27,11 +27,20 @@ public sealed record PublicWebSocketTransportOptions
 
     /// <summary>
     /// The maximum number of outbound messages queued before
-    /// <see cref="IPublicWebSocketConnection.TrySend"/> fails.
+    /// <see cref="IPublicWebSocketConnection.TrySend"/> fails. Currently one flat pool covering
+    /// every outbound message: no live application data is published over this transport yet, so
+    /// nothing competes with connection/control traffic for the capacity. A design that publishes
+    /// live state must split this capacity by traffic class -- a small slice reserved for
+    /// connection-level control messages, kept separate from bulk state-publication traffic -- so a
+    /// slow client under state-publication pressure cannot delay or crowd out timely control-message
+    /// delivery; until that split exists, this single bound stands in for both.
     /// </summary>
     public int OutboundQueueMaxMessages { get; init; } = Constants.PublicWebSocketOutboundQueueMaxMessages;
 
-    /// <summary>The maximum total encoded byte size of the outbound queue.</summary>
+    /// <summary>
+    /// The maximum total encoded byte size of the outbound queue. Not yet split by traffic class,
+    /// for the same reason as <see cref="OutboundQueueMaxMessages"/>.
+    /// </summary>
     public long OutboundQueueMaxBytes { get; init; } = Constants.PublicWebSocketOutboundQueueMaxBytes;
 
     /// <summary>The maximum time a graceful close handshake may take before falling back to an abort.</summary>
