@@ -132,7 +132,9 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
             AcceptLoopAsync(ipv6Socket, cancellationToken)).ConfigureAwait(false);
 
         // Both accept loops have stopped admitting new connections, but the most recently admitted
-        // one may still be tearing down; its own teardown is bounded, so this cannot hang shutdown.
+        // one may still be tearing down. This wait is not independently bounded here; it relies on
+        // IPublicWebSocketConnection.RunAsync's own documented contract to always complete within a
+        // bounded time, so this cannot hang shutdown as long as every implementation honors that.
         Task serveTask;
         lock (gate)
         {

@@ -369,6 +369,10 @@ public class PublicWebSocketConnectionTests
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Teardown took {stopwatch.Elapsed}, far longer than the configured {disconnectNotificationTimeout} bound.");
         Assert.Equal(1, handler.DisconnectedCalls);
+
+        // The handler's own abandoned continuation reacts to its token asynchronously, independently
+        // of when this connection's outer WaitAsync gave up on it; poll rather than assert immediately.
+        await WaitUntilAsync(() => handler.ReceivedTokenWasCancelled, Task.CompletedTask);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
     }

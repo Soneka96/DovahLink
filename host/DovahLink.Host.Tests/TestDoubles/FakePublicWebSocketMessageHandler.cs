@@ -21,8 +21,15 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     /// <summary>When set, <see cref="HandleDisconnectedAsync"/> throws this exception after recording the call.</summary>
     public Exception? DisconnectedFailure { get; set; }
 
-    /// <summary>When <see langword="true"/>, <see cref="HandleDisconnectedAsync"/> never completes, simulating a hung handler.</summary>
+    /// <summary>When <see langword="true"/>, <see cref="HandleDisconnectedAsync"/> waits on its received token instead of completing immediately, simulating a hung-but-cooperative handler.</summary>
     public bool HangOnDisconnected { get; set; }
+
+    /// <summary>
+    /// Whether the token passed to <see cref="HandleDisconnectedAsync"/> was actually cancelled while
+    /// <see cref="HangOnDisconnected"/> was waiting on it -- proving the caller supplied a real,
+    /// usable token rather than <see cref="CancellationToken.None"/>.
+    /// </summary>
+    public bool ReceivedTokenWasCancelled { get; private set; }
 
     /// <inheritdoc/>
     public Task HandleMessageAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
@@ -39,7 +46,15 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
 
         if (HangOnDisconnected)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                ReceivedTokenWasCancelled = true;
+                throw;
+            }
         }
 
         if (DisconnectedFailure is not null)

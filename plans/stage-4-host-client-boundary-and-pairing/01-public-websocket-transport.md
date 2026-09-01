@@ -1,6 +1,6 @@
 # 01 — Public WebSocket transport and connection lifecycle
 
-Status: pending
+Status: complete
 
 Covers: R1, R3, R6
 

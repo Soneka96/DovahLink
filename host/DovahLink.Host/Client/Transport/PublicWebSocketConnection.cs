@@ -20,7 +20,10 @@ public interface IPublicWebSocketConnection
     /// <paramref name="cancellationToken"/> is cancelled. Whenever the handshake completed, makes a
     /// bounded best-effort attempt to notify the message handler of disconnection, then always
     /// disposes the underlying transport before returning regardless of whether that notification
-    /// succeeded, failed, or timed out.
+    /// succeeded, failed, or timed out. Every implementation must complete within a bounded time
+    /// under every one of these conditions -- <see cref="PublicWebSocketListener"/> awaits this call
+    /// after its own accept loops stop, so an implementation that can hang here would hold the
+    /// listener's single connection admission slot open indefinitely.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
@@ -162,13 +165,17 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <see cref="PublicWebSocketTransportOptions.DisconnectNotificationTimeout"/> and tolerant of
     /// any handler failure. A handler that throws or never returns must not prevent this
     /// connection's own socket teardown from completing, and must not hold the listener's single
-    /// connection admission slot open indefinitely.
+    /// connection admission slot open indefinitely. The handler receives a real token tied to that
+    /// same deadline, so a cooperative implementation gets a genuine chance to unwind rather than
+    /// being merely abandoned; <see cref="Task.WaitAsync(TimeSpan)"/> below still bounds this
+    /// connection's own wait even if the handler ignores the token entirely.
     /// </summary>
     private async Task NotifyDisconnectedAsync()
     {
+        using var notifyDeadline = new CancellationTokenSource(options.DisconnectNotificationTimeout);
         try
         {
-            await messageHandler.HandleDisconnectedAsync(CancellationToken.None)
+            await messageHandler.HandleDisconnectedAsync(notifyDeadline.Token)
                 .WaitAsync(options.DisconnectNotificationTimeout).ConfigureAwait(false);
         }
         catch (Exception)
