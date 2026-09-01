@@ -152,9 +152,21 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                         webSocket.Abort();
                     }
                 }
+
+                // The abort above (whichever branch reached it) is expected to unblock a writer
+                // stuck in a per-write send, since each send now carries its own bounded deadline;
+                // this second bounded wait is a belt-and-suspenders check, not the primary bound. If
+                // the writer still has not ended, teardown proceeds and disposes the transport out
+                // from under it regardless, rather than ever waiting on it unconditionally.
+                try
+                {
+                    await writerTask.WaitAsync(options.GracefulCloseTimeout).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                }
             }
 
-            await writerTask.ConfigureAwait(false);
             webSocket?.Dispose();
             await stream.DisposeAsync().ConfigureAwait(false);
         }
@@ -380,7 +392,12 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// Drains the outbound queue and sends each frame as a WebSocket text message in order, until the
     /// queue is completed. Tolerates transport faults by cancelling <paramref name="ioCancellation"/>
     /// and ending the loop rather than throwing, so a broken connection cannot leave this task running
-    /// or crash the caller awaiting it.
+    /// or crash the caller awaiting it. Each send carries its own <see
+    /// cref="PublicWebSocketTransportOptions.GracefulCloseTimeout"/> deadline -- reused here rather
+    /// than adding a second timeout value, since a peer that cannot drain one send within a
+    /// close-handshake-sized window is not one a close handshake could complete with either -- so a
+    /// peer that stops reading cannot block this loop indefinitely even while the connection is
+    /// otherwise healthy and <paramref name="ioCancellation"/> is not itself cancelled.
     /// </summary>
     /// <param name="webSocket">The upgraded connection to write to.</param>
     /// <param name="ioCancellation">Cancelled by this loop when a write fails, so the reader stops too.</param>
@@ -392,7 +409,9 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             {
                 try
                 {
-                    await webSocket.SendAsync(frame, WebSocketMessageType.Text, endOfMessage: true, ioCancellation.Token).ConfigureAwait(false);
+                    using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(ioCancellation.Token);
+                    writeDeadline.CancelAfter(options.GracefulCloseTimeout);
+                    await webSocket.SendAsync(frame, WebSocketMessageType.Text, endOfMessage: true, writeDeadline.Token).ConfigureAwait(false);
                 }
                 catch (Exception)
                 {

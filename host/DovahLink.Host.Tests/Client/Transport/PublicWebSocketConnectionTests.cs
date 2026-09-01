@@ -614,6 +614,86 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
+    /// Verifies that a send blocked on an unresponsive peer -- one that stops draining the socket
+    /// entirely, rather than failing the write outright -- still ends the connection once its own
+    /// per-write deadline elapses, even though nothing external ever cancels the connection or
+    /// releases the write.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_WriteTimeoutWithoutExternalCancellation_EndsWithinBoundAndDisposesStream()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(200));
+        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this TrySend's frame is the second and blocks
+        // until either released or its own per-write deadline elapses -- neither of which this test
+        // ever triggers externally, so only the new per-write timeout can end the connection.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Teardown took {stopwatch.Elapsed}, far longer than the configured {options.GracefulCloseTimeout} write deadline.");
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that cancelling a connection whose writer is currently blocked on an unresponsive peer
+    /// ends teardown promptly via cancellation, rather than waiting out the far longer per-write
+    /// deadline configured for this test.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_WriterBlockedThenCancelledExternally_EndsPromptlyWithoutHanging()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(30));
+        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Cancelling a blocked writer took {stopwatch.Elapsed} even though the configured write deadline is 30 seconds away; " +
+            "teardown must not wait for the per-write timeout when cancellation already ended it.");
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
+        listener.Stop();
+    }
+
+    /// <summary>
     /// Verifies that cancelling a connection whose peer never sends anything back still converges
     /// promptly: the cancelled read leaves the WebSocket unable to complete an ordinary close, and the
     /// teardown path's abort/dispose fallback recovers from that without hanging or leaking the
