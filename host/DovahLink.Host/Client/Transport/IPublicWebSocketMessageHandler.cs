@@ -9,7 +9,10 @@ namespace DovahLink.Host.Client.Transport;
 public interface IPublicWebSocketMessageHandler
 {
     /// <summary>Handles one complete inbound text message, encoded exactly as received from the peer.</summary>
-    /// <param name="payload">The complete message payload.</param>
+    /// <param name="payload">
+    /// The complete message payload. Backed by a buffer the connection reuses for the next message; a
+    /// handler that needs the bytes beyond the synchronous extent of this call must copy them first.
+    /// </param>
     /// <param name="cancellationToken">The token used to stop waiting if handling itself awaits.</param>
     Task HandleMessageAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
 
