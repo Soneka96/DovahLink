@@ -232,12 +232,15 @@ public static class Constants
     public static readonly TimeSpan PublicWebSocketHandshakeTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// The total worst-case deadline for detecting an unresponsive established connection, matching
+    /// The approved liveness ceiling for detecting an unresponsive established connection, matching
     /// <c>ai/context/protocol/security.md</c>'s "Input limits" ("idle connection timeout: 60 seconds
-    /// without a valid heartbeat or message"). <see cref="PublicWebSocketKeepAliveInterval"/> (the
-    /// idle-before-probe wait) and <see cref="PublicWebSocketKeepAlivePongTimeout"/> (the pong grace
-    /// period once a probe is sent) are additive in .NET's managed WebSocket keep-alive
-    /// implementation, so their sum is this deadline exactly -- neither bound may add time beyond it.
+    /// without a valid heartbeat or message"). <see cref="PublicWebSocketKeepAliveInterval"/> and
+    /// <see cref="PublicWebSocketKeepAlivePongTimeout"/> are configured with intentional headroom
+    /// below this ceiling rather than summing to it exactly, because .NET's managed WebSocket
+    /// keep-alive scheduler polls on a <c>Timer</c> tick (<c>min(interval, timeout) / 4</c>) instead
+    /// of firing at an exact instant, so both ping dispatch and pong-timeout detection can each land
+    /// up to one tick late. This is a budgeted ceiling under normal runtime scheduling, not an exact
+    /// stopwatch guarantee against arbitrary scheduler or OS delay.
     /// </summary>
     public static readonly TimeSpan PublicWebSocketLivenessTimeout = TimeSpan.FromSeconds(60);
 
@@ -250,12 +253,13 @@ public static class Constants
 
     /// <summary>
     /// The interval of inbound silence after which an established connection sends a WebSocket-level
-    /// keep-alive ping. Derived from <see cref="PublicWebSocketLivenessTimeout"/> minus <see
-    /// cref="PublicWebSocketKeepAlivePongTimeout"/> so the idle-before-probe wait and the pong grace
-    /// period together never exceed the approved total liveness deadline.
+    /// keep-alive ping. Fixed at 50 seconds rather than derived by subtracting <see
+    /// cref="PublicWebSocketKeepAlivePongTimeout"/> from <see cref="PublicWebSocketLivenessTimeout"/>,
+    /// so the configured budget (55s) intentionally leaves roughly 5 seconds of headroom below the
+    /// 60-second ceiling for the managed WebSocket keep-alive scheduler's own polling jitter -- see
+    /// <see cref="PublicWebSocketLivenessTimeout"/> for why an exact 55s+5s=60s sum is not relied on.
     /// </summary>
-    public static readonly TimeSpan PublicWebSocketKeepAliveInterval =
-        PublicWebSocketLivenessTimeout - PublicWebSocketKeepAlivePongTimeout;
+    public static readonly TimeSpan PublicWebSocketKeepAliveInterval = TimeSpan.FromSeconds(50);
 
     /// <summary>
     /// The maximum byte length of one accumulated inbound WebSocket message, per

@@ -12,16 +12,16 @@ public sealed record PublicWebSocketTransportOptions
 
     /// <summary>
     /// The interval of inbound silence after which the connection sends a WebSocket-level keep-alive
-    /// ping. Derived from the total liveness deadline minus <see cref="KeepAlivePongTimeout"/>; see
-    /// <see cref="Constants.PublicWebSocketLivenessTimeout"/> for that total and how the two bounds
-    /// together satisfy it.
+    /// ping. Configured with intentional headroom below the liveness ceiling rather than derived to
+    /// sum to it exactly; see <see cref="Constants.PublicWebSocketLivenessTimeout"/> for why.
     /// </summary>
     public TimeSpan KeepAliveInterval { get; init; } = Constants.PublicWebSocketKeepAliveInterval;
 
     /// <summary>
     /// How long the connection waits for a keep-alive ping's pong reply before it is treated as
-    /// unresponsive. Bounded together with <see cref="KeepAliveInterval"/> by the total liveness
-    /// deadline in <see cref="Constants.PublicWebSocketLivenessTimeout"/>.
+    /// unresponsive. Configured together with <see cref="KeepAliveInterval"/> to stay within the
+    /// liveness ceiling in <see cref="Constants.PublicWebSocketLivenessTimeout"/> with headroom, not
+    /// as an exact sum.
     /// </summary>
     public TimeSpan KeepAlivePongTimeout { get; init; } = Constants.PublicWebSocketKeepAlivePongTimeout;
 
