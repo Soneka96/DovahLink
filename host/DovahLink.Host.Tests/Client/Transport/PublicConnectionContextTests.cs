@@ -35,6 +35,18 @@ public class PublicConnectionContextTests
         Assert.Equal(payload, Assert.Single(connection.SentPayloads));
     }
 
+    /// <summary>Verifies that <see cref="PublicConnectionContext.RequestClose"/> forwards to the wrapped connection.</summary>
+    [Fact]
+    public void RequestClose_DelegatesToConnection()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream());
+        var context = new PublicConnectionContext(connection);
+
+        context.RequestClose();
+
+        Assert.Equal(1, connection.RequestCloseCalls);
+    }
+
     /// <summary>Verifies that <see cref="IPublicConnectionContext"/>'s members expose no raw WebSocket, stream, or socket type, proving application code reached through this capability cannot obtain transport ownership.</summary>
     [Fact]
     public void Interface_Members_ExposeNoRawTransportType()

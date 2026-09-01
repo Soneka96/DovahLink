@@ -996,6 +996,212 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>
+    /// Verifies that a <see cref="IPublicWebSocketConnection.RequestClose"/> requested before
+    /// <see cref="PublicWebSocketConnection.RunAsync"/> is ever called is not lost, and that it ends
+    /// the connection promptly without treating it as a forced close (no handler notification, since
+    /// the handshake never happened).
+    /// </summary>
+    [Fact]
+    public async Task RequestClose_BeforeRunAsyncStarts_StillEndsPromptlyOnceStartedWithoutForcing()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromSeconds(30));
+        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), options);
+
+        // Requested before RunAsync is ever called. The client never sends a handshake request, so if
+        // this request were lost, RunAsync would otherwise sit waiting for the full 30-second
+        // handshake timeout with nothing else ever cancelling it.
+        connection.RequestClose();
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"RunAsync took {stopwatch.Elapsed} even though RequestClose happened before it ever started.");
+        Assert.Equal(0, handler.ConnectionEndedCalls);
+        Assert.Equal(0, handler.DisconnectedCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that calling <see cref="IPublicWebSocketConnection.RequestClose"/> more than once, and alongside another close cause, never throws.</summary>
+    [Fact]
+    public async Task RequestClose_CalledRepeatedlyAndAlongsideQueueOverflow_NeverThrows()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        connection.RequestClose();
+        connection.RequestClose();
+        connection.TrySend(new byte[2000]); // exceeds the byte budget, triggering the distinct forced-close path too
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies the supported administrative-invalidation sequence -- send a terminal payload, then
+    /// request close -- gives the already-admitted terminal frame a bounded opportunity to reach the
+    /// peer before teardown, rather than the close request racing the queued frame out of existence.
+    /// Delivery remains best-effort, not a guarantee; this proves the opportunity exists.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_TerminalPayloadThenRequestClose_GivesAdmittedFrameADrainOpportunity()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(2));
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        byte[] terminalPayload = Encoding.UTF8.GetBytes("terminal");
+        Assert.True(connection.TrySend(terminalPayload));
+        connection.RequestClose();
+
+        var buffer = new byte[64];
+        WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(WebSocketMessageType.Text, result.MessageType);
+        Assert.Equal(terminalPayload, buffer[..result.Count]);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that a <see cref="PublicWebSocketConnection.TrySend"/> call racing a concurrent
+    /// <see cref="IPublicWebSocketConnection.RequestClose"/> call never throws, never corrupts the
+    /// outbound queue's accounting, and produces a coherent per-call result: an admitted send that
+    /// reaches the peer, or a cleanly rejected one once closing has begun.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_RacingRequestClose_NeverThrowsAndTearsDownCoherently()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 200, outboundQueueMaxBytes: 1024 * 1024);
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task sendLoop = Task.Run(() =>
+        {
+            for (int index = 0; index < 100; index++)
+            {
+                connection.TrySend(Encoding.UTF8.GetBytes($"message-{index}"));
+            }
+        });
+        Task closeCall = Task.Run(connection.RequestClose);
+
+        await Task.WhenAll(sendLoop, closeCall);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        listener.Stop();
+    }
+
+    /// <summary>Verifies that a send made synchronously after <see cref="IPublicWebSocketConnection.RequestClose"/> returns <see langword="false"/>, since the outbound queue is completed immediately rather than only once teardown finishes.</summary>
+    [Fact]
+    public async Task TrySend_AfterRequestClose_ReturnsFalse()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = new PublicWebSocketConnection(
+            serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        connection.RequestClose();
+
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("too-late")));
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+    }
+
+    /// <summary>Verifies that calling <see cref="IPublicWebSocketConnection.RequestClose"/> after the connection has already fully ended is a safe no-op rather than throwing.</summary>
+    [Fact]
+    public async Task RequestClose_AfterConnectionAlreadyEnded_DoesNotThrow()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200)));
+
+        // No handshake request is ever sent, so the connection ends via the handshake timeout, fully
+        // disposing its internally owned cancellation sources.
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        connection.RequestClose();
+
+        client.Dispose();
+    }
+
+    /// <summary>
+    /// Verifies that a peer who never drains the outbound queue -- so the bounded drain
+    /// <see cref="IPublicWebSocketConnection.RequestClose"/> gives it never actually completes -- still
+    /// lets teardown converge within roughly <see cref="PublicWebSocketTransportOptions.GracefulCloseTimeout"/>
+    /// rather than hanging indefinitely, proving the drain wait's own timeout is what eventually forces
+    /// the read loop to stop.
+    /// </summary>
+    [Fact]
+    public async Task RequestClose_WriterBlockedOnUnresponsivePeer_StillTearsDownWithinGracefulCloseTimeoutBound()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(300));
+        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this send is the second and blocks forever
+        // (never released), so the outbound queue can never actually drain.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        connection.RequestClose();
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Teardown took {stopwatch.Elapsed}, far longer than the configured {options.GracefulCloseTimeout} drain bound.");
+        listener.Stop();
+    }
+
     /// <summary>Starts a loopback <see cref="TcpListener"/> on an operating-system-assigned port.</summary>
     private static (TcpListener Listener, int Port) StartLoopbackListener()
     {

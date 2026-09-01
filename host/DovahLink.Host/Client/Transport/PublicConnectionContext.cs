@@ -2,10 +2,10 @@ namespace DovahLink.Host.Client.Transport;
 
 /// <summary>
 /// A narrow, per-connection transport capability handed to application code that consumes one
-/// inbound message: it can send a response on the exact connection that delivered the message,
-/// without owning or ever seeing the underlying WebSocket, stream, or socket. An implementation is
-/// scoped to exactly one connection's lifetime; it must never resolve or address a different
-/// connection.
+/// inbound message: it can send a response on the exact connection that delivered the message and
+/// request that connection's own orderly close, without owning or ever seeing the underlying
+/// WebSocket, stream, or socket. An implementation is scoped to exactly one connection's lifetime;
+/// it must never resolve or address a different connection.
 /// </summary>
 public interface IPublicConnectionContext
 {
@@ -17,6 +17,13 @@ public interface IPublicConnectionContext
     /// <param name="payload">The complete message payload to send.</param>
     /// <returns><see langword="true"/> when the message was accepted onto the bounded outbound queue.</returns>
     bool TrySend(ReadOnlyMemory<byte> payload);
+
+    /// <summary>
+    /// Requests the owning connection's own orderly close. See
+    /// <see cref="IPublicWebSocketConnection.RequestClose"/> for the drain and teardown contract
+    /// this forwards to.
+    /// </summary>
+    void RequestClose();
 }
 
 /// <inheritdoc cref="IPublicConnectionContext"/>
@@ -34,4 +41,7 @@ public sealed class PublicConnectionContext : IPublicConnectionContext
 
     /// <inheritdoc/>
     public bool TrySend(ReadOnlyMemory<byte> payload) => connection.TrySend(payload);
+
+    /// <inheritdoc/>
+    public void RequestClose() => connection.RequestClose();
 }

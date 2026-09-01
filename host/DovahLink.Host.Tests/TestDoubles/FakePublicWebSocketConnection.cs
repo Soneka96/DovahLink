@@ -60,4 +60,10 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>Every payload passed to <see cref="TrySend"/> so far, in call order.</summary>
     public List<byte[]> SentPayloads { get; } = [];
+
+    /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
+    public int RequestCloseCalls { get; private set; }
+
+    /// <inheritdoc/>
+    public void RequestClose() => RequestCloseCalls++;
 }

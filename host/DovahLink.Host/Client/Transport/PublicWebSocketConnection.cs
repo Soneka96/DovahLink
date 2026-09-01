@@ -30,7 +30,8 @@ public interface IPublicWebSocketConnection
 
     /// <summary>
     /// Attempts to enqueue an outbound message for the writer loop to send as a WebSocket text frame.
-    /// A message that cannot be admitted also requests this connection's own controlled close, per
+    /// A message that cannot be admitted also requests this connection's own forced close (see
+    /// <see cref="RequestClose"/> for the distinct orderly close a caller can request instead), per
     /// the transport's contract that an unadmittable response must not be dropped silently while the
     /// connection stays open; the caller does not need to close the connection itself after a
     /// <see langword="false"/> result.
@@ -41,6 +42,16 @@ public interface IPublicWebSocketConnection
     /// otherwise <see langword="false"/>, and the connection is now closing.
     /// </returns>
     bool TrySend(ReadOnlyMemory<byte> payload);
+
+    /// <summary>
+    /// Requests this connection's own orderly close: the read loop stops serving further inbound
+    /// messages, but unlike the forced close <see cref="TrySend"/> requests for an unadmittable
+    /// message, any frame already admitted onto the bounded outbound queue keeps its normal bounded
+    /// opportunity to drain before teardown. Safe to call from any thread and at any point in the
+    /// connection's lifetime, including before <see cref="RunAsync"/> has started; idempotent with
+    /// every other reason this connection can end.
+    /// </summary>
+    void RequestClose();
 }
 
 /// <inheritdoc cref="IPublicWebSocketConnection"/>
@@ -87,7 +98,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>
     /// Whether the writer loop ended because a send failed. Set before the writer cancels
-    /// <c>ioCancellation</c>, so it is safely observable once the read loop reacts to that
+    /// <c>writerCancellation</c>, so it is safely observable once the read loop reacts to that
     /// cancellation and returns.
     /// </summary>
     private bool writerFaulted;
@@ -104,6 +115,19 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// produces an already-cancelled linked token, so this needs no separate lock or nullable guard.
     /// </summary>
     private readonly CancellationTokenSource selfRequestedClose = new();
+
+    /// <summary>
+    /// A cancellation source this connection owns for its entire lifetime, used by
+    /// <see cref="RequestClose"/> to request this connection's own orderly close. Unlike
+    /// <see cref="selfRequestedClose"/>, cancelling this source is deliberately deferred until the
+    /// outbound queue has had a bounded opportunity to drain (see
+    /// <see cref="InterruptReadOnceOutboundDrainsAsync"/>) rather than firing the instant
+    /// <see cref="RequestClose"/> is called, and it is never linked into the writer loop's own
+    /// cancellation -- so an outbound frame already admitted onto the bounded queue is not abandoned
+    /// mid-send. The same before-<see cref="RunAsync"/>-links-it guarantee documented on
+    /// <see cref="selfRequestedClose"/> applies here too.
+    /// </summary>
+    private readonly CancellationTokenSource orderlyCloseRequested = new();
 
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
@@ -125,23 +149,26 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, selfRequestedClose.Token);
+        using var writerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, selfRequestedClose.Token);
+        using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(writerCancellation.Token, orderlyCloseRequested.Token);
         WebSocket? webSocket = null;
         Task writerTask = Task.CompletedTask;
         bool upgraded = false;
         try
         {
-            webSocket = await UpgradeAsync(ioCancellation.Token).ConfigureAwait(false);
+            webSocket = await UpgradeAsync(readCancellation.Token).ConfigureAwait(false);
             if (webSocket is not null)
             {
                 upgraded = true;
-                writerTask = WriterLoopAsync(webSocket, ioCancellation);
-                await ReadLoopAsync(webSocket, ioCancellation.Token).ConfigureAwait(false);
+                writerTask = WriterLoopAsync(webSocket, writerCancellation);
+                await ReadLoopAsync(webSocket, readCancellation.Token).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException) when (ioCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (readCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            // A write failure cancelled the reader so both halves leave together.
+            // A write failure, a forced self-requested close, or an orderly close request unblocked
+            // the reader so teardown can proceed; only the caller's own token should ever propagate
+            // as a thrown cancellation from this method.
         }
         finally
         {
@@ -195,6 +222,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             webSocket?.Dispose();
             await stream.DisposeAsync().ConfigureAwait(false);
             selfRequestedClose.Dispose();
+            orderlyCloseRequested.Dispose();
         }
     }
 
@@ -267,7 +295,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     }
 
     /// <summary>
-    /// Requests this connection's controlled close after <see cref="TrySend"/> could not admit a
+    /// Requests this connection's own forced close after <see cref="TrySend"/> could not admit a
     /// message onto the bounded outbound queue, rather than leaving the connection open with the
     /// message silently dropped. Safe to call from any thread and at any point in the connection's
     /// lifetime: a call before <see cref="RunAsync"/> has started is never lost, since <see
@@ -280,6 +308,46 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         try
         {
             selfRequestedClose.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RequestClose()
+    {
+        outbound.Writer.TryComplete();
+        _ = InterruptReadOnceOutboundDrainsAsync();
+    }
+
+    /// <summary>
+    /// Gives the outbound queue a bounded opportunity to drain whatever was already admitted before
+    /// <see cref="RequestClose"/> was called -- so an admitted terminal frame is not abandoned
+    /// mid-send the instant an orderly close is requested -- before interrupting the read loop.
+    /// Interrupting the read immediately instead would not merely skip the drain: cancelling a
+    /// pending <see cref="WebSocket.ReceiveAsync(Memory{byte}, CancellationToken)"/> call leaves the
+    /// underlying <see cref="WebSocket"/> unable to complete any further operation, including a send
+    /// already in flight on the same object, so an immediate cancellation can destroy an
+    /// already-admitted send that had not yet reached the wire. Bounded by
+    /// <see cref="PublicWebSocketTransportOptions.GracefulCloseTimeout"/>, the same window this
+    /// connection's own teardown already uses elsewhere for a bounded drain; the wait proceeds
+    /// regardless of whether it elapses, the queue drains, or the connection has already ended
+    /// through an unrelated path by the time it runs.
+    /// </summary>
+    private async Task InterruptReadOnceOutboundDrainsAsync()
+    {
+        try
+        {
+            await outbound.Reader.Completion.WaitAsync(options.GracefulCloseTimeout).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+        }
+
+        try
+        {
+            orderlyCloseRequested.Cancel();
         }
         catch (ObjectDisposedException)
         {
@@ -458,33 +526,37 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>
     /// Drains the outbound queue and sends each frame as a WebSocket text message in order, until the
-    /// queue is completed. Tolerates transport faults by cancelling <paramref name="ioCancellation"/>
+    /// queue is completed. Tolerates transport faults by cancelling <paramref name="writerCancellation"/>
     /// and ending the loop rather than throwing, so a broken connection cannot leave this task running
     /// or crash the caller awaiting it. Each send carries its own <see
     /// cref="PublicWebSocketTransportOptions.GracefulCloseTimeout"/> deadline -- reused here rather
     /// than adding a second timeout value, since a peer that cannot drain one send within a
     /// close-handshake-sized window is not one a close handshake could complete with either -- so a
     /// peer that stops reading cannot block this loop indefinitely even while the connection is
-    /// otherwise healthy and <paramref name="ioCancellation"/> is not itself cancelled.
+    /// otherwise healthy and <paramref name="writerCancellation"/> is not itself cancelled.
     /// </summary>
     /// <param name="webSocket">The upgraded connection to write to.</param>
-    /// <param name="ioCancellation">Cancelled by this loop when a write fails, so the reader stops too.</param>
-    private async Task WriterLoopAsync(WebSocket webSocket, CancellationTokenSource ioCancellation)
+    /// <param name="writerCancellation">
+    /// Cancelled by this loop when a write fails, so the reader stops too; deliberately never linked
+    /// to an orderly close request (see <see cref="orderlyCloseRequested"/>), so this loop keeps
+    /// draining whatever the outbound queue already holds when only an orderly close is in progress.
+    /// </param>
+    private async Task WriterLoopAsync(WebSocket webSocket, CancellationTokenSource writerCancellation)
     {
         try
         {
-            await foreach (byte[] frame in outbound.Reader.ReadAllAsync(ioCancellation.Token).ConfigureAwait(false))
+            await foreach (byte[] frame in outbound.Reader.ReadAllAsync(writerCancellation.Token).ConfigureAwait(false))
             {
                 try
                 {
-                    using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(ioCancellation.Token);
+                    using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(writerCancellation.Token);
                     writeDeadline.CancelAfter(options.GracefulCloseTimeout);
                     await webSocket.SendAsync(frame, WebSocketMessageType.Text, endOfMessage: true, writeDeadline.Token).ConfigureAwait(false);
                 }
                 catch (Exception)
                 {
                     writerFaulted = true;
-                    ioCancellation.Cancel();
+                    writerCancellation.Cancel();
                     return;
                 }
                 finally
@@ -493,7 +565,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 }
             }
         }
-        catch (OperationCanceledException) when (ioCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (writerCancellation.IsCancellationRequested)
         {
         }
     }
