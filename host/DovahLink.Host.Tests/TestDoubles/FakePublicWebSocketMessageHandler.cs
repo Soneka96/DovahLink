@@ -15,11 +15,24 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     /// <summary>The number of times <see cref="HandleDisconnectedAsync"/> has been called.</summary>
     public int DisconnectedCalls { get; private set; }
 
+    /// <summary>The number of times <see cref="HandleConnectionEnded"/> has been called.</summary>
+    public int ConnectionEndedCalls { get; private set; }
+
+    /// <summary>
+    /// The order in which <see cref="HandleConnectionEnded"/> and <see cref="HandleDisconnectedAsync"/>
+    /// were called, recording <c>"ConnectionEnded"</c> and <c>"Disconnected"</c> respectively, so a
+    /// test can assert the mandatory-before-best-effort ordering the transport promises.
+    /// </summary>
+    public ConcurrentQueue<string> CallOrder { get; } = new();
+
     /// <summary>Gets a task that completes once <see cref="HandleDisconnectedAsync"/> is called.</summary>
     public Task Disconnected => disconnected.Task;
 
     /// <summary>When set, <see cref="HandleDisconnectedAsync"/> throws this exception after recording the call.</summary>
     public Exception? DisconnectedFailure { get; set; }
+
+    /// <summary>When set, <see cref="HandleConnectionEnded"/> throws this exception after recording the call.</summary>
+    public Exception? ConnectionEndedFailure { get; set; }
 
     /// <summary>When <see langword="true"/>, <see cref="HandleDisconnectedAsync"/> waits on its received token instead of completing immediately, simulating a hung-but-cooperative handler.</summary>
     public bool HangOnDisconnected { get; set; }
@@ -39,9 +52,22 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     }
 
     /// <inheritdoc/>
+    public void HandleConnectionEnded()
+    {
+        ConnectionEndedCalls++;
+        CallOrder.Enqueue("ConnectionEnded");
+
+        if (ConnectionEndedFailure is not null)
+        {
+            throw ConnectionEndedFailure;
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task HandleDisconnectedAsync(CancellationToken cancellationToken)
     {
         DisconnectedCalls++;
+        CallOrder.Enqueue("Disconnected");
         disconnected.TrySetResult();
 
         if (HangOnDisconnected)

@@ -17,10 +17,25 @@ public interface IPublicWebSocketMessageHandler
     Task HandleMessageAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Notifies the handler that the transport connection has ended, so any session bound to it can
-    /// be invalidated before the transport releases its connection slot. Called exactly once per
-    /// connection that completed its WebSocket upgrade, always before
-    /// <see cref="IPublicWebSocketConnection.RunAsync"/> returns.
+    /// Mandatorily invalidates any session bound to this connection before the transport's admission
+    /// slot can be released. Called exactly once per connection that completed its WebSocket upgrade,
+    /// synchronously inside <see cref="IPublicWebSocketConnection.RunAsync"/>'s teardown, before that
+    /// call can return and before <see cref="HandleDisconnectedAsync"/> runs. This member is
+    /// deliberately synchronous rather than awaitable: an implementation must be a fast, deterministic,
+    /// idempotent-safe operation (for example releasing an in-memory session record under a lock) and
+    /// must never block on I/O or another connection's teardown -- that is what
+    /// <see cref="HandleDisconnectedAsync"/> exists for instead.
+    /// </summary>
+    void HandleConnectionEnded();
+
+    /// <summary>
+    /// Gives the handler a bounded, best-effort opportunity to run additional disconnect cleanup or
+    /// notification after <see cref="HandleConnectionEnded"/> has already completed. Called exactly
+    /// once per connection that completed its WebSocket upgrade, always before
+    /// <see cref="IPublicWebSocketConnection.RunAsync"/> returns. Failure or a timeout here is
+    /// tolerated by the transport and never prevents or delays its own teardown or the admission
+    /// slot's release, so this member must not be relied on for anything the connection's own
+    /// lifecycle correctness depends on -- use <see cref="HandleConnectionEnded"/> for that.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop waiting if the notification itself awaits.</param>
     Task HandleDisconnectedAsync(CancellationToken cancellationToken);

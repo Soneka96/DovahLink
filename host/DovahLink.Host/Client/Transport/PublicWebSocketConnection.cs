@@ -148,6 +148,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             outbound.Writer.TryComplete();
             if (upgraded)
             {
+                InvalidateConnectionState();
                 await NotifyDisconnectedAsync().ConfigureAwait(false);
             }
 
@@ -194,6 +195,26 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             webSocket?.Dispose();
             await stream.DisposeAsync().ConfigureAwait(false);
             selfRequestedClose.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Runs the handler's mandatory session invalidation before any best-effort disconnect cleanup or
+    /// physical teardown proceeds, so an authenticated session cannot outlive the connection it
+    /// belongs to. Tolerant of a throwing handler -- the handler's own contract requires this call to
+    /// be fast and non-blocking, but a bug in it must still not prevent this connection's own
+    /// teardown from completing.
+    /// </summary>
+    private void InvalidateConnectionState()
+    {
+        try
+        {
+            messageHandler.HandleConnectionEnded();
+        }
+        catch (Exception)
+        {
+            // Mandatory invalidation is expected to be a fast, local, non-throwing operation; a
+            // failure here must still not prevent this connection's own teardown from completing.
         }
     }
 

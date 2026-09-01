@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Tests.TestDoubles;
+using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Tests.Client.Transport;
 
@@ -102,6 +104,40 @@ public class PublicWebSocketListenerTests
         await WaitUntilAsync(() => connections.Count == 2);
 
         connections.ElementAt(1).Complete();
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies, using real <see cref="PublicWebSocketConnection"/> instances (not the fake), that the
+    /// admission slot only becomes reusable after the first connection's mandatory
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/> invalidation has already run
+    /// -- the transport-level ordering proof the fake-connection reconnect test above cannot exercise,
+    /// since the listener has no visibility into a fake connection's handler calls.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_AfterRealConnectionEnds_SecondConnectionIsAdmittedOnlyAfterFirstInvalidated()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        using var listener = new PublicWebSocketListener(0, stream =>
+            new PublicWebSocketConnection(stream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions()));
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using var firstClient = new ClientWebSocket();
+        await firstClient.ConnectAsync(new Uri($"ws://127.0.0.1:{listener.BoundPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+
+        await firstClient.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await WaitUntilAsync(() => listener.CurrentConnection is null);
+
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+
+        using var secondClient = new ClientWebSocket();
+        await secondClient.ConnectAsync(new Uri($"ws://127.0.0.1:{listener.BoundPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+
+        await secondClient.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }

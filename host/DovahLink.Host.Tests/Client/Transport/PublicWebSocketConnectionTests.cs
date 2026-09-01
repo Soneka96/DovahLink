@@ -51,6 +51,7 @@ public class PublicWebSocketConnectionTests
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
         client.Dispose();
     }
@@ -69,6 +70,7 @@ public class PublicWebSocketConnectionTests
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
         client.Dispose();
     }
@@ -105,6 +107,7 @@ public class PublicWebSocketConnectionTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
 
+        Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
         Assert.Empty(handler.ReceivedMessages);
         client.Dispose();
@@ -174,6 +177,7 @@ public class PublicWebSocketConnectionTests
         await Task.Delay(TimeSpan.FromSeconds(1));
 
         Assert.False(runTask.IsCompleted);
+        Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
 
         listener.Stop();
@@ -204,6 +208,7 @@ public class PublicWebSocketConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         listener.Stop();
     }
@@ -263,6 +268,7 @@ public class PublicWebSocketConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         client.Dispose();
     }
@@ -288,6 +294,7 @@ public class PublicWebSocketConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         listener.Stop();
     }
@@ -312,7 +319,69 @@ public class PublicWebSocketConnectionTests
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that the mandatory <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>
+    /// invalidation runs exactly once, before the best-effort
+    /// <see cref="IPublicWebSocketMessageHandler.HandleDisconnectedAsync"/> notification, and before
+    /// <see cref="IPublicWebSocketConnection.RunAsync"/> returns -- proving the transport cannot
+    /// return (and so cannot let the listener release its admission slot) before mandatory
+    /// invalidation has already completed.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ClientClose_CallsConnectionEndedBeforeDisconnectedAndBeforeReturning()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = new PublicWebSocketConnection(
+            serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, handler.ConnectionEndedCalls);
+
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal(["ConnectionEnded", "Disconnected"], handler.CallOrder);
+        listener.Stop();
+    }
+
+    /// <summary>Verifies that a mandatory-invalidation handler that throws still lets the connection fully tear down rather than leaking the transport, and still runs the best-effort disconnect notification afterward.</summary>
+    [Fact]
+    public async Task RunAsync_ConnectionEndedThrows_StillTearsDownConnection()
+    {
+        var handler = new FakePublicWebSocketMessageHandler { ConnectionEndedFailure = new InvalidOperationException("Simulated handler failure.") };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var connection = new PublicWebSocketConnection(serverStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
     }
 
@@ -336,6 +405,7 @@ public class PublicWebSocketConnectionTests
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
@@ -368,6 +438,7 @@ public class PublicWebSocketConnectionTests
         Assert.True(
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Teardown took {stopwatch.Elapsed}, far longer than the configured {disconnectNotificationTimeout} bound.");
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
 
         // The handler's own abandoned continuation reacts to its token asynchronously, independently
@@ -397,6 +468,7 @@ public class PublicWebSocketConnectionTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         listener.Stop();
     }
@@ -421,6 +493,7 @@ public class PublicWebSocketConnectionTests
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         listener.Stop();
     }
@@ -522,6 +595,7 @@ public class PublicWebSocketConnectionTests
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"RunAsync took {stopwatch.Elapsed} even though the queue overflow happened before it ever " +
             "started; a close request made before RunAsync begins must not be lost.");
+        Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
         client.Dispose();
     }
@@ -595,6 +669,7 @@ public class PublicWebSocketConnectionTests
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Teardown took {stopwatch.Elapsed} even though the configured write deadline is 30 seconds away; " +
             "the queue-overflow request itself must end the connection promptly.");
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
@@ -639,6 +714,7 @@ public class PublicWebSocketConnectionTests
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Teardown took {stopwatch.Elapsed} even though the configured write deadline is 30 seconds away; " +
             "the queue-overflow request itself must end the connection promptly.");
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
@@ -669,6 +745,7 @@ public class PublicWebSocketConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(3, handler.ReceivedMessages.Count);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         listener.Stop();
     }
@@ -701,6 +778,7 @@ public class PublicWebSocketConnectionTests
         await clientWebSocket.SendAsync(Encoding.UTF8.GetBytes("c"), WebSocketMessageType.Text, true, CancellationToken.None);
         await WaitUntilAsync(() => handler.ReceivedMessages.Count == 3, runTask);
 
+        Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
         Assert.False(runTask.IsCompleted);
 
@@ -730,6 +808,7 @@ public class PublicWebSocketConnectionTests
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         listener.Stop();
     }
@@ -769,6 +848,7 @@ public class PublicWebSocketConnectionTests
         Assert.True(
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Teardown took {stopwatch.Elapsed}, far longer than the configured {options.GracefulCloseTimeout} write deadline.");
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
@@ -809,6 +889,7 @@ public class PublicWebSocketConnectionTests
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Cancelling a blocked writer took {stopwatch.Elapsed} even though the configured write deadline is 30 seconds away; " +
             "teardown must not wait for the per-write timeout when cancellation already ended it.");
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
@@ -845,6 +926,7 @@ public class PublicWebSocketConnectionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), "Cancellation with an unresponsive peer must not hang host shutdown.");
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         listener.Stop();
     }
