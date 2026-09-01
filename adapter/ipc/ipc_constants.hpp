@@ -31,6 +31,22 @@ inline constexpr std::size_t kMaxIpcQueuedMessages = 256;
 ///  per connected peer. Not itself enforced by this contract's codec.
 inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 
+///  The maximum number of deferred game-thread dispatches `AdapterIpcSession`
+///  admits at once (resynchronization, listen-event, and read-sample
+///  requests marshaled onto the game thread but not yet run). Bounds memory
+///  growth when the game thread is paused or overloaded; a request beyond
+///  this capacity is rejected without blocking. Matches
+///  `kMaxAdapterCaptureQueueItems`, since admitting more game-thread work than
+///  the downstream capture queue can absorb has no benefit.
+inline constexpr std::size_t kMaxPendingGameThreadDispatches = 64;
+
+///  The maximum number of not-yet-consumed `IpcCancelMessage` correlation ids
+///  `AdapterIpcSession` remembers at once. Bounds memory growth from
+///  cancellations whose target request already finished, was dropped by a
+///  disconnect, or never arrived; the oldest entry is evicted to admit a new
+///  one past this capacity.
+inline constexpr std::size_t kMaxPendingIpcCancellations = 64;
+
 //  ---- Connection ----
 
 ///  The absolute bound on one long-lived connection's pre-authentication

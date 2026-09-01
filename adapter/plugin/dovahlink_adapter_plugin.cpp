@@ -181,7 +181,10 @@ SKSEPluginInfo(
   const auto &stableOwnerLifetimeId = *gOwnerLifetimeId;
   static auto *session = new dovahlink::adapter::ipc::AdapterIpcSession(
       instanceId, stableOwnerLifetimeId, *taskMarshaller, *dispatcher,
-      *captureQueue);
+      *captureQueue, [] {
+        SKSE::log::warn("Adapter IPC session rejected a deferred "
+                        "game-thread dispatch at capacity.");
+      });
 
   static auto *socket = new dovahlink::adapter::ipc::WinsockAdapterIpcSocket(0);
   static auto *codec = new dovahlink::adapter::ipc::IpcFrameCodec;

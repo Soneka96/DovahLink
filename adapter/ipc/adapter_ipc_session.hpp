@@ -13,6 +13,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -98,12 +100,18 @@ public:
   ///  thread.
   ///  @param dispatcher Performs the one generic key-to-Skyrim translation.
   ///  @param captureQueue Receives owned captured values for handoff.
+  ///  @param onGameThreadDispatchRejected Invoked when a resynchronization,
+  ///  listen-event, or read-sample request is rejected at the
+  ///  `kMaxPendingGameThreadDispatches` bound instead of being marshaled onto
+  ///  the game thread. Diagnostics only; must not throw, and may run on the
+  ///  connection's own thread.
   AdapterIpcSession(
       identity::AdapterInstanceId instanceId,
       std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
       runtime::IAdapterTaskMarshaller &taskMarshaller,
       dispatch::IAdapterNativeDispatcher &dispatcher,
-      capture::IAdapterCaptureHandoffQueue &captureQueue);
+      capture::IAdapterCaptureHandoffQueue &captureQueue,
+      std::function<void()> onGameThreadDispatchRejected = [] {});
 
   ///  Invalidates deferred game-thread tasks and waits for any task already
   ///  inside the session lifetime gate before the session is destroyed.
@@ -161,6 +169,14 @@ private:
   ///  queue.
   void HandleReadSample(const IpcReadSampleMessage &readSample);
 
+  ///  Records `cancel.correlationId` as cancelled, evicting the oldest
+  ///  recorded cancellation first if already at `kMaxPendingIpcCancellations`.
+  void HandleCancel(const IpcCancelMessage &cancel);
+
+  ///  Returns whether `correlationId` was cancelled, consuming (erasing) the
+  ///  entry if so. Must be called while holding `availableMutex_`.
+  bool ConsumeCancellationLocked(std::uint64_t correlationId);
+
   ///  Issues the next monotonic outbound correlation id, starting at 1.
   std::uint64_t NextCorrelationId();
 
@@ -182,6 +198,9 @@ private:
   dispatch::IAdapterNativeDispatcher &dispatcher_;
   ///  Receives owned captured values for handoff.
   capture::IAdapterCaptureHandoffQueue &captureQueue_;
+  ///  Invoked when a deferred game-thread dispatch is rejected at the
+  ///  `kMaxPendingGameThreadDispatches` bound.
+  std::function<void()> onGameThreadDispatchRejected_;
   ///  The connection this session sends messages through, set once by
   ///  `AttachConnection`. Non-owning: the composition root owns both this
   ///  session and the connection it attaches, for the same plugin lifetime.
@@ -213,6 +232,15 @@ private:
   mutable std::mutex availableMutex_;
   ///  The current transport's authentication lifecycle phase.
   AuthenticationState authenticationState_ = AuthenticationState::kClosed;
+  ///  The number of deferred game-thread dispatches currently admitted but
+  ///  not yet run, bounded by `kMaxPendingGameThreadDispatches`. Incremented
+  ///  when a request is admitted and decremented when its marshaled task
+  ///  finishes, regardless of outcome.
+  std::atomic<std::size_t> pendingGameThreadDispatchCount_{0};
+  ///  Correlation ids of received `IpcCancelMessage`s not yet consumed by a
+  ///  matching deferred task, oldest first, bounded by
+  ///  `kMaxPendingIpcCancellations`. Guarded by `availableMutex_`.
+  std::deque<std::uint64_t> cancelledCorrelationIds_;
 };
 
 } //  namespace dovahlink::adapter::ipc
