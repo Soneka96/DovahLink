@@ -25,7 +25,7 @@ repository (commit `049923f`, "docs: persist host migration plans and align Stag
 The cold-start handoff gate is satisfied.
 
 After the files are present, the new AI must verify the source SHA-256, active concept, feature
-branch, D1/D2 status, and clean scope before implementation.
+branch, D1/D2/D3 status, and clean scope before implementation.
 
 ## Active concept
 
@@ -36,16 +36,26 @@ branch, D1/D2 status, and clean scope before implementation.
 
 ## Completed concepts
 
-- `01-public-websocket-transport.md`: complete. Loopback-only dual-stack listener (`127.0.0.1` and
-  `::1`, one shared port), single-connection admission slot enforced by decoupling accept from serve
-  (a serial accept-then-serve loop cannot reject a same-family second connection promptly, since it
-  never returns to `AcceptAsync` while serving the first), hand-rolled RFC 6455 handshake under a
-  deadline, bounded reader/writer with WebSocket-native keep-alive for the 60-second idle/liveness
-  deadline (no hand-rolled heartbeat), and one deterministic teardown path with a bounded
-  disconnect-notification timeout and a bounded graceful-close/abort fallback. All three steps and a
-  follow-up fix pass (bounded/exception-safe disconnect notification; listener shutdown now awaits
-  the in-flight connection's own teardown) are independently tested; see "Deferred debt" below for
-  the one accepted scope simplification.
+- `01-public-websocket-transport.md`: complete, including a post-conventions-cleanup corrective pass.
+  Loopback-only dual-stack listener (`127.0.0.1` and `::1`, one shared port; a deterministic test
+  proves both sockets bind the explicit loopback address rather than a wildcard, alongside the
+  accepted-remote-address check), single-connection admission slot enforced by decoupling accept from
+  serve (a serial accept-then-serve loop cannot reject a same-family second connection promptly, since
+  it never returns to `AcceptAsync` while serving the first), strict RFC 6455 handshake validation
+  under a deadline (requires a non-empty `Host` header and request target, rejects a repeated
+  singleton header, and validates the decoded `Sec-WebSocket-Key` is exactly 16 bytes), a bounded
+  reader/writer that reassembles fragmented messages up to the byte bound (a positive
+  fragmentation-then-dispatch proof exists alongside the oversized-fragment rejection proof) with
+  WebSocket-native keep-alive for a genuine 60-second total liveness deadline
+  (`Constants.PublicWebSocketKeepAliveInterval` is derived as `LivenessTimeout -
+  KeepAlivePongTimeout`, additive per .NET's managed WebSocket keep-alive, so the two bounds sum to
+  exactly 60 seconds rather than the ~65 seconds an earlier revision allowed; no hand-rolled
+  heartbeat), and one deterministic teardown path: a mandatory synchronous `HandleConnectionEnded()`
+  lifecycle seam runs before any best-effort `HandleDisconnectedAsync()` cleanup and before the
+  connection can complete or its admission slot can be reused, with a bounded
+  disconnect-notification timeout and a bounded graceful-close/abort fallback. All steps and
+  follow-up fix/corrective passes are independently tested; see "Deferred debt" below for the
+  accepted scope simplifications.
 
 ## Decisions and approved deviations
 
@@ -55,6 +65,8 @@ branch, D1/D2 status, and clean scope before implementation.
 - The Stage 4 public message matrix in `PLAN.md` is authoritative for implementation allowlists; server-originated messages must not be accepted as client requests.
 - D2 is approved: restricted sessions allow the complete pairing allowlist from the canonical schema, including `pairing_ack`, `pairing_renotify`, and `pairing_cancel`; the abbreviated source wording has been reconciled.
 - `bridgeVersion` remains required and uses the existing transitional `bridge/vcpkg.json` value without a phase-branch version bump; `bridgeInstanceId` remains the approved D1 limitation.
+- D3 is approved: Stage 4's public transport implements the approved 128-message/2 MiB outbound bound as one flat pool rather than the reserved-control/Normal/Heavy lane split, since no live data lane exists yet to compete for capacity. See `DIVERGENCES.md` D3.
+- Root `PLAN.md` is marked historical/paused reference, not implementation authority; `ROADMAP.md`, `host/PLAN.md`, and this package are authoritative for Stage 4 work.
 
 ## Deferred debt
 
@@ -75,6 +87,14 @@ branch, D1/D2 status, and clean scope before implementation.
   `PublicWebSocketTransportOptions.OutboundQueueMaxMessages`/`OutboundQueueMaxBytes` by traffic
   class before publishing state, so a slow client under publication pressure cannot delay or crowd
   out control-message delivery.
+- Concept 02 must prove its `IPublicWebSocketMessageHandler.HandleConnectionEnded()` implementation
+  invalidates the exact socket's authenticated session, performs only local/in-memory lifecycle work,
+  is idempotent-safe, cannot block on network/disk/adapter I/O, and cannot throw under normal
+  session-registry conditions. Concept 01's transport tolerates a throwing `HandleConnectionEnded()`
+  so a handler bug can never leak the socket, but that same tolerance means an authenticated session
+  is not guaranteed removed if Concept 02's implementation throws before completing invalidation;
+  Concept 02 owns closing that gap, not a further Concept 01 change. Best-effort secondary cleanup
+  belongs in `HandleDisconnectedAsync()` instead.
 
 ## Changed files
 
@@ -96,11 +116,15 @@ branch, D1/D2 status, and clean scope before implementation.
 ## Verification
 
 - `git branch --show-current`: `feature/4-host-client-boundary-and-pairing`
-- `git status --short --branch`: clean before package creation
-- `host/DovahLink.Host.Tests`: 528 passed before Concept 01; 592 passed after Concept 01 (Steps 1-3
-  plus the follow-up fix pass for bounded disconnect notification and listener shutdown determinism)
-- `integration/DovahLinkValidationClient.Tests`: 357 passed
-- `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 312 passed
+- `host/DovahLink.Host.Tests`: 528 passed before Concept 01; 592 passed after Concept 01's original
+  three steps and follow-up fix pass; 622 passed after the post-conventions-cleanup corrective pass
+  (60-second liveness deadline fix, deterministic loopback-bind proof, plus the RFC 6455 and
+  fragmented-message hardening and the mandatory `HandleConnectionEnded()` seam already present
+  going into this pass)
+- `integration/DovahLinkValidationClient.Tests`: 357 passed, re-run during this corrective pass; unchanged
+- `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 312 passed, re-run during this corrective pass; unchanged
+- `python -m unittest discover -s tooling -p "test_*.py"`: 93 passed
+- `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean
 - `host/PLAN.md` SHA-256: `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`
 
 ## Handoff
