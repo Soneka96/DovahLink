@@ -4,8 +4,7 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
-/// <summary>Exercises the bridge-restart identity guarantee and ROADMAP.md's full bridge-restart
-/// acceptance criterion.</summary>
+/// <summary>Exercises the bridge-restart identity guarantee.</summary>
 /// <remarks>
 /// <see cref="RelaunchingTheHarnessReportsADifferentBridgeInstanceId"/> proves the harness-only half:
 /// bridgeInstanceId itself changes across a kill-and-relaunch cycle.
@@ -73,12 +72,12 @@ public class RestartScenarioTests
 
     /// <summary>
     /// Verifies that a paired client's trust survives a full bridge process restart -- covering
-    /// both the "Bridge-restart" and "simulated Windows-restart" halves of Phase 3's acceptance
-    /// criteria (ROADMAP.md, security.md's "Persistent local trust": "Persist completed trust
-    /// outside the Skyrim/modpack files... survives Bridge, Skyrim, and Windows restarts"). A fresh
-    /// process launch is the practical proof of both: only the DPAPI-encrypted trust-store file on
-    /// disk survives a dead process, not any in-memory state, which is exactly what distinguishes
-    /// this from an ordinary same-process reconnect (already proven by
+    /// both Bridge and Windows restarts: persistent trust is stored outside the Skyrim/modpack files
+    /// and survives Bridge, Skyrim, and Windows restarts, per
+    /// ai/context/protocol/security.md's "Persistent local trust" contract. A fresh process launch
+    /// is the practical proof: only the DPAPI-encrypted trust-store file on disk survives a dead
+    /// process, not any in-memory state, which is exactly what distinguishes this from an ordinary
+    /// same-process reconnect (already proven by
     /// PairingScenarioTests.FullPairingRoundTripUpgradesTheSessionAndAllowsSubscribe).
     /// </summary>
     [Fact]

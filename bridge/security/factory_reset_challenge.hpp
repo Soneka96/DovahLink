@@ -32,14 +32,12 @@ class IFactoryResetChallenge {
 };
 
 ///  In-memory, single global six-digit confirmation challenge for the
-///  destructive Factory Reset operation, per `ai/context/protocol/security.md`'s
-///  "Administrative session invalidation" and
-///  `roadmap/03-local-device-pairing-and-reconnection.md`'s "3.2 Known Device &
-///  Trust Administration". Unlike `PairingSession`, there is no per-`clientId`
-///  ownership, pacing, or renotify concept: Factory Reset is a single local
+///  destructive Factory Reset operation. Unlike `PairingSession`, there is no
+///  per-`clientId` ownership, pacing, or renotify concept: Factory Reset is a single local
 ///  admin operation, started and confirmed through the same trusted
-///  console/Papyrus surface, never over the wire (`security.md`: "remote clients
-///  cannot confirm it"). A wrong code destroys the challenge immediately rather
+///  console/Papyrus surface, never over the wire, per
+///  `ai/context/protocol/security.md`'s "Administrative session invalidation" rule. A wrong code
+///  destroys the challenge immediately rather
 ///  than counting toward a multi-attempt budget. Never persists across a Bridge
 ///  restart, matching `PairingSession`'s own in-memory-only lifecycle.
 class FactoryResetChallenge : public IFactoryResetChallenge {

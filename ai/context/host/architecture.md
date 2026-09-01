@@ -104,8 +104,9 @@ requests cleanly rather than hanging).
   host's in-memory authoritative published state and revisions do not survive a host restart -- they
   are not persisted, so a restarted host holds no authoritative state until it resynchronizes with
   the adapter and starts a fresh revision sequence for every affected state area.
-- **Adapter restart** (an SKSE plugin reload or a Skyrim process restart) creates a new
-  `adapterInstanceId`. The host observes the IPC connection drop and reconnect and
+- **Adapter restart** means a Skyrim process restart; live SKSE plugin unload/reload is not a
+  supported lifecycle boundary, per `ARCHITECTURE.md`'s runtime and identity model. It creates a
+  new `adapterInstanceId`. The host observes the IPC connection drop and reconnect and
   treats any state associated with the previous adapter connection as stale until it is
   resynchronized; it never continues publishing the old connection's state as current across an
   adapter restart.

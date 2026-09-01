@@ -846,8 +846,8 @@ public class PairingScenarioTests
         Assert.Equal(correctCode, autoRenotifySignal.AsSpan()["PAIRING_CODE_INCORRECT ".Length..].ToString());
 
         // Query pairing status: should be "in_progress" (same client owns active challenge).
-        // A wrong code leaves the challenge, code, and expiry in place (ROADMAP.md) -- it does
-        // NOT refresh/extend the deadline, distinct from the code being freshly generated.
+        // A wrong code leaves the challenge, code, and expiry in place -- it does NOT refresh or
+        // extend the deadline, distinct from the code being freshly generated.
         await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
         Envelope statusAfterWrongCode = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", statusAfterWrongCode.MessageType);

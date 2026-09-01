@@ -142,6 +142,10 @@ Write-Host "=== tooling-ci ==="
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
     "-m", "unittest", "discover", "-s", "tooling", "-p", "test_*.py"
 )
+# Mirror tooling-ci's changed-file formatter check, including committed and local branch changes.
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
+    "tooling/format_staged.py", "--check", "--base-ref", "main"
+)
 
 Write-Host "=== host-ci ==="
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
@@ -168,6 +172,8 @@ Write-Host "=== app-ci ==="
 $sdkDirectory = Join-Path $repoRoot "sdk\dart\dovahlink_client"
 Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("pub", "get")
 Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")
+Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("analyze")
+Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("test")
 
 $appDirectory = Join-Path $repoRoot "app"
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")

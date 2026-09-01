@@ -93,7 +93,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   serialization, its constructor forwards those fields through an explicit `super(...)` initializer
   (for example, `: super(level: level, health: health, ...)`). This is intentional model-boundary
   boilerplate required by `json_serializable`; it is not a general constructor pattern.
-- Actions are the only permitted multi-class file exception, because action declarations and their closely related action value types are intentionally grouped.
+- The `<feature>.actions.dart` exception in `ai/context/common.md` is the sole Flutter-specific
+  multi-class exception: action declarations and their closely related action value types are
+  intentionally grouped there.
 - A `StatefulWidget` and its paired `State<T>` class may also share a file.
 - A private widget class, or a method that returns widgets for a parent to render, still gets its
   own file with the appropriate suffix; being private is not a one-class-per-file exemption.

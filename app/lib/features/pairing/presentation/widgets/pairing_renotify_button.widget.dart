@@ -50,12 +50,12 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
 
   @override
   Widget build(BuildContext context) {
-    return StoreConnector<AppState, _RenotifyButtonViewModel>(
+    return StoreConnector<AppState, _PairingRenotifyButtonViewModel>(
       converter: (store) {
         final cooldownSeconds =
             PairingSelectors.renotifyCooldownSecondsSelector(store.state);
         final isAvailable = cooldownSeconds == null || cooldownSeconds == 0;
-        return _RenotifyButtonViewModel(
+        return _PairingRenotifyButtonViewModel(
           isAvailable: isAvailable,
           cooldownSeconds: cooldownSeconds,
           onPressed: isAvailable
@@ -73,7 +73,7 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
     );
   }
 
-  String _buildLabel(_RenotifyButtonViewModel viewModel) {
+  String _buildLabel(_PairingRenotifyButtonViewModel viewModel) {
     if (viewModel.isAvailable) {
       return widget.label;
     }
@@ -84,14 +84,21 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
   }
 }
 
-class _RenotifyButtonViewModel {
-  _RenotifyButtonViewModel({
+/// Widget-local presentation values consumed by [PairingRenotifyButton]'s store connector.
+class _PairingRenotifyButtonViewModel {
+  /// Creates the presentation values used to render the pairing-renotify button.
+  _PairingRenotifyButtonViewModel({
     required this.isAvailable,
     required this.cooldownSeconds,
     required this.onPressed,
   });
 
+  /// Whether the pairing code may be redisplayed now.
   final bool isAvailable;
+
+  /// Remaining cooldown duration, or `null` when the bridge did not report one.
   final int? cooldownSeconds;
+
+  /// Callback that requests redisplay when the button is enabled.
   final VoidCallback? onPressed;
 }

@@ -45,6 +45,14 @@ jobs:
         working-directory: sdk/dart/dovahlink_client
         run: dart run build_runner build
 
+      - name: Analyze Dart SDK
+        working-directory: sdk/dart/dovahlink_client
+        run: dart analyze
+
+      - name: Test Dart SDK
+        working-directory: sdk/dart/dovahlink_client
+        run: dart test
+
       - name: Restore Flutter dependencies
         working-directory: app
         run: flutter pub get
