@@ -57,8 +57,18 @@ namespace {
 class FakeAdapterTaskMarshaller final : public IAdapterTaskMarshaller {
 public:
   void RunOnGameThread(std::function<void()> task) override {
+    if (throwOnNextSchedule_) {
+      throwOnNextSchedule_ = false;
+      throw std::runtime_error("RunOnGameThread failed");
+    }
     pendingTasks_.push_back(std::move(task));
   }
+
+  ///  Makes the next `RunOnGameThread` call throw instead of admitting its
+  ///  task, so a test can prove a scheduling failure never leaks the
+  ///  caller's pending-dispatch slot. Consumed by the call it affects; a
+  ///  later `RunOnGameThread` call schedules normally again.
+  void ThrowOnNextSchedule() { throwOnNextSchedule_ = true; }
 
   ///  The number of tasks not yet run.
   std::size_t PendingCount() const { return pendingTasks_.size(); }
@@ -74,6 +84,9 @@ public:
 
 private:
   std::vector<std::function<void()>> pendingTasks_;
+  ///  Whether the next `RunOnGameThread` call should throw instead of
+  ///  admitting its task.
+  bool throwOnNextSchedule_ = false;
 };
 
 ///  A fake `IAdapterNativeDispatcher` with a configurable per-key result.
@@ -1213,6 +1226,59 @@ TEST_CASE("AdapterIpcSession shares its pending game-thread dispatch bound "
 
   CHECK(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
   CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession releases its pending-dispatch slot when "
+          "RunOnGameThread throws instead of admitting the task") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.marshaller.ThrowOnNextSchedule();
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 1}});
+
+  //  The failed admission was reported and never reached the marshaller's
+  //  pending queue.
+  CHECK(fixture.rejectedDispatchCount == 1);
+  CHECK(fixture.marshaller.PendingCount() == 0);
+
+  //  A fresh dispatch is still admitted afterward: the failed attempt above
+  //  did not leak its slot.
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 2, .eventKey = 2}});
+
+  CHECK(fixture.marshaller.PendingCount() == 1);
+  CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession recovers from repeated game-thread scheduling "
+          "failures without leaking any pending-dispatch slot") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  Every one of these fails to schedule; if a single failure ever leaked
+  //  its slot, this loop alone would exhaust the bound and the assertions
+  //  below would see rejections caused by admission, not by the induced
+  //  throw.
+  for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+       ++eventKey) {
+    fixture.marshaller.ThrowOnNextSchedule();
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey, .eventKey = eventKey}});
+  }
+  CHECK(fixture.marshaller.PendingCount() == 0);
+  CHECK(fixture.rejectedDispatchCount == kMaxPendingGameThreadDispatches);
+
+  //  A dispatch that succeeds is still admitted after that many failures.
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 900, .eventKey = 900}});
+
+  CHECK(fixture.marshaller.PendingCount() == 1);
+  CHECK(fixture.rejectedDispatchCount == kMaxPendingGameThreadDispatches);
 }
 
 TEST_CASE("AdapterIpcSession contains an exception thrown by the "

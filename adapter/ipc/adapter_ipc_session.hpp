@@ -169,6 +169,18 @@ private:
   ///  queue.
   void HandleReadSample(const IpcReadSampleMessage &readSample);
 
+  ///  Admits `task` against `kMaxPendingGameThreadDispatches` and marshals it
+  ///  onto the game thread, wrapped so its slot in
+  ///  `pendingGameThreadDispatchCount_` is always released -- whether `task`
+  ///  runs, or `RunOnGameThread` itself fails to admit it. Reports a rejected
+  ///  admission (bound reached, or a failed `RunOnGameThread` call) through
+  ///  `onGameThreadDispatchRejected_`.
+  void ScheduleGameThreadDispatch(std::function<void()> task);
+
+  ///  Invokes `onGameThreadDispatchRejected_`, containing any exception it
+  ///  throws so diagnostics can never escape into the IPC worker thread.
+  void ReportGameThreadDispatchRejected();
+
   ///  Records `cancel.correlationId` as cancelled, evicting the oldest
   ///  recorded cancellation first if already at `kMaxPendingIpcCancellations`.
   void HandleCancel(const IpcCancelMessage &cancel);

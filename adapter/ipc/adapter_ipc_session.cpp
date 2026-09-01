@@ -204,17 +204,6 @@ void AdapterIpcSession::HandleClosing() {
 
 void AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage &request) {
-  if (pendingGameThreadDispatchCount_.fetch_add(1, std::memory_order_relaxed) >=
-      kMaxPendingGameThreadDispatches) {
-    pendingGameThreadDispatchCount_.fetch_sub(1, std::memory_order_relaxed);
-    try {
-      onGameThreadDispatchRejected_();
-    } catch (...) {
-      //  A diagnostics callback must never escape into the IPC worker thread.
-    }
-    return;
-  }
-
   std::uint64_t correlationId = request.correlationId;
   std::uint64_t connectionGeneration;
   {
@@ -223,11 +212,9 @@ void AdapterIpcSession::HandleResynchronizeRequest(
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread([this,
-                                   callbackMutex = std::move(callbackMutex),
-                                   lifetimeToken = std::move(lifetimeToken),
-                                   correlationId, connectionGeneration] {
-    PendingDispatchGuard dispatchGuard(pendingGameThreadDispatchCount_);
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              correlationId, connectionGeneration] {
     std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
     if (!lifetimeToken->load()) {
       return;
@@ -280,50 +267,38 @@ void AdapterIpcSession::HandleListenEvent(
     //  mandatory Concept 03 handoff requirement.
     return;
   }
-  if (pendingGameThreadDispatchCount_.fetch_add(1, std::memory_order_relaxed) >=
-      kMaxPendingGameThreadDispatches) {
-    pendingGameThreadDispatchCount_.fetch_sub(1, std::memory_order_relaxed);
-    try {
-      onGameThreadDispatchRejected_();
-    } catch (...) {
-      //  A diagnostics callback must never escape into the IPC worker thread.
-    }
-    return;
-  }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread(
-      [this, callbackMutex = std::move(callbackMutex),
-       lifetimeToken = std::move(lifetimeToken), eventKey, correlationId,
-       connectionGeneration] {
-        PendingDispatchGuard dispatchGuard(pendingGameThreadDispatchCount_);
-        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
-        if (!lifetimeToken->load()) {
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              eventKey, correlationId, connectionGeneration] {
+    std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+    if (!lifetimeToken->load()) {
+      return;
+    }
+    try {
+      {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        //  Re-checked at execution time, not just at enqueue time: a later
+        //  authentication failure can close the same connection
+        //  generation, so the generation guard alone must not authorize
+        //  this deferred dispatch.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated ||
+            ConsumeCancellationLocked(correlationId)) {
           return;
         }
-        try {
-          {
-            std::lock_guard<std::mutex> lock(availableMutex_);
-            //  Re-checked at execution time, not just at enqueue time: a later
-            //  authentication failure can close the same connection
-            //  generation, so the generation guard alone must not authorize
-            //  this deferred dispatch.
-            if (connectionGeneration != connectionGeneration_ ||
-                authenticationState_ != AuthenticationState::kAuthenticated ||
-                ConsumeCancellationLocked(correlationId)) {
-              return;
-            }
-          }
-          std::optional<std::vector<std::byte>> captured =
-              dispatcher_.TryDispatch(eventKey);
-          if (captured.has_value()) {
-            captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                .intentKey = eventKey, .capturedValue = *captured});
-          }
-        } catch (...) {
-          //  Contained; see HandleResynchronizeRequest's task for why.
-        }
-      });
+      }
+      std::optional<std::vector<std::byte>> captured =
+          dispatcher_.TryDispatch(eventKey);
+      if (captured.has_value()) {
+        captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+            .intentKey = eventKey, .capturedValue = *captured});
+      }
+    } catch (...) {
+      //  Contained; see HandleResynchronizeRequest's task for why.
+    }
+  });
 }
 
 void AdapterIpcSession::HandleReadSample(
@@ -343,50 +318,70 @@ void AdapterIpcSession::HandleReadSample(
     //  mandatory Concept 03 handoff requirement.
     return;
   }
+  auto callbackMutex = callbackMutex_;
+  auto lifetimeToken = lifetimeToken_;
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              sampleToken, correlationId,
+                              connectionGeneration] {
+    std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+    if (!lifetimeToken->load()) {
+      return;
+    }
+    try {
+      {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        //  Re-checked at execution time, not just at enqueue time: a later
+        //  authentication failure can close the same connection
+        //  generation, so the generation guard alone must not authorize
+        //  this deferred dispatch.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated ||
+            ConsumeCancellationLocked(correlationId)) {
+          return;
+        }
+      }
+      std::optional<std::vector<std::byte>> captured =
+          dispatcher_.TryDispatch(sampleToken);
+      if (captured.has_value()) {
+        captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+            .intentKey = sampleToken, .capturedValue = *captured});
+      }
+    } catch (...) {
+      //  Contained; see HandleResynchronizeRequest's task for why.
+    }
+  });
+}
+
+void AdapterIpcSession::ScheduleGameThreadDispatch(std::function<void()> task) {
   if (pendingGameThreadDispatchCount_.fetch_add(1, std::memory_order_relaxed) >=
       kMaxPendingGameThreadDispatches) {
     pendingGameThreadDispatchCount_.fetch_sub(1, std::memory_order_relaxed);
-    try {
-      onGameThreadDispatchRejected_();
-    } catch (...) {
-      //  A diagnostics callback must never escape into the IPC worker thread.
-    }
+    ReportGameThreadDispatchRejected();
     return;
   }
-  auto callbackMutex = callbackMutex_;
-  auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread(
-      [this, callbackMutex = std::move(callbackMutex),
-       lifetimeToken = std::move(lifetimeToken), sampleToken, correlationId,
-       connectionGeneration] {
-        PendingDispatchGuard dispatchGuard(pendingGameThreadDispatchCount_);
-        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
-        if (!lifetimeToken->load()) {
-          return;
-        }
-        try {
-          {
-            std::lock_guard<std::mutex> lock(availableMutex_);
-            //  Re-checked at execution time, not just at enqueue time: a later
-            //  authentication failure can close the same connection
-            //  generation, so the generation guard alone must not authorize
-            //  this deferred dispatch.
-            if (connectionGeneration != connectionGeneration_ ||
-                authenticationState_ != AuthenticationState::kAuthenticated ||
-                ConsumeCancellationLocked(correlationId)) {
-              return;
-            }
-          }
-          std::optional<std::vector<std::byte>> captured =
-              dispatcher_.TryDispatch(sampleToken);
-          if (captured.has_value()) {
-            captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                .intentKey = sampleToken, .capturedValue = *captured});
-          }
-        } catch (...) {
-          //  Contained; see HandleResynchronizeRequest's task for why.
-        }
-      });
+  try {
+    taskMarshaller_.RunOnGameThread([this, task = std::move(task)] {
+      PendingDispatchGuard dispatchGuard(pendingGameThreadDispatchCount_);
+      task();
+    });
+  } catch (...) {
+    //  RunOnGameThread failed (or threw while constructing its own closure)
+    //  before the task it was given ever ran, so PendingDispatchGuard's
+    //  destructor never fires for this admission: release the slot here
+    //  instead, or every future scheduling failure would leak one
+    //  permanently until the bound rejects all further dispatch.
+    pendingGameThreadDispatchCount_.fetch_sub(1, std::memory_order_relaxed);
+    ReportGameThreadDispatchRejected();
+  }
+}
+
+void AdapterIpcSession::ReportGameThreadDispatchRejected() {
+  try {
+    onGameThreadDispatchRejected_();
+  } catch (...) {
+    //  A diagnostics callback must never escape into the IPC worker thread.
+  }
 }
 
 void AdapterIpcSession::HandleCancel(const IpcCancelMessage &cancel) {
