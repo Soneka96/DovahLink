@@ -192,4 +192,85 @@ public static class Constants
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
     public static string ShutdownEventName(OwnerLifetimeId ownerLifetimeId) =>
         $@"Local\DovahLink.Host.Shutdown.{ownerLifetimeId.Format()}";
+
+    // ---- Client transport ----
+
+    /// <summary>
+    /// The approved public loopback port reserved for the eventual production public WebSocket
+    /// listener composition, per <c>ai/context/host/migration-audit.md</c>'s "Default loopback port
+    /// 58231". Not activated by Stage 4; an isolated development/test composition injects a
+    /// different explicit loopback port instead of this value.
+    /// </summary>
+    public const int PublicWebSocketPort = 58231;
+
+    /// <summary>
+    /// The maximum number of public WebSocket connections served concurrently, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum connected clients during the first proof: 1".
+    /// </summary>
+    public const int PublicWebSocketMaxConcurrentConnections = 1;
+
+    /// <summary>The pending-connection backlog for each of the public listener's two loopback-address sockets.</summary>
+    public const int PublicWebSocketAcceptBacklog = 8;
+
+    /// <summary>
+    /// How long the public listener's accept loop waits before retrying after a failed accept caused
+    /// by something other than the listening socket being disposed, so a persistent failure cannot
+    /// spin the loop without bound.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketAcceptRetryDelay = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// The maximum byte length of the raw HTTP Upgrade request line and headers a connection will
+    /// buffer while completing the WebSocket handshake.
+    /// </summary>
+    public const int PublicWebSocketMaxHandshakeRequestBytes = 8192;
+
+    /// <summary>
+    /// How long a newly accepted public connection may take to complete the WebSocket upgrade
+    /// handshake, per <c>ai/context/protocol/security.md</c>'s "handshake timeout: 5 seconds".
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketHandshakeTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The interval of inbound/outbound silence after which an established connection sends a
+    /// WebSocket-level keep-alive ping, matching the approved 60-second idle/liveness deadline in
+    /// <c>ai/context/protocol/security.md</c>'s "Input limits".
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketIdleTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// How long an established connection waits for a keep-alive ping's pong reply before the
+    /// connection is treated as unresponsive and torn down.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketKeepAlivePongTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The maximum byte length of one accumulated inbound WebSocket message, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum frame size: 1 MiB".
+    /// </summary>
+    public const int PublicWebSocketMaxMessageBytes = 1024 * 1024;
+
+    /// <summary>
+    /// The maximum number of inbound messages accepted per second per public connection, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum inbound messages: 100 per second per client".
+    /// </summary>
+    public const int PublicWebSocketMaxMessagesPerSecond = 100;
+
+    /// <summary>The rolling window used for the public connection's inbound message-rate limit.</summary>
+    public static readonly TimeSpan PublicWebSocketMessageRateWindow = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// The maximum number of outbound messages queued per public connection, per
+    /// <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy.
+    /// </summary>
+    public const int PublicWebSocketOutboundQueueMaxMessages = 128;
+
+    /// <summary>
+    /// The maximum total encoded byte size of the outbound queue per public connection, per
+    /// <c>ai/context/protocol/security.md</c>'s "outbound queue byte budget: 2 MiB per client".
+    /// </summary>
+    public const long PublicWebSocketOutboundQueueMaxBytes = 2L * 1024 * 1024;
+
+    /// <summary>The maximum time a graceful WebSocket close handshake may take before falling back to an abort.</summary>
+    public static readonly TimeSpan PublicWebSocketGracefulCloseTimeout = TimeSpan.FromSeconds(2);
 }
