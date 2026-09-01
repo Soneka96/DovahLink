@@ -3,20 +3,46 @@
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_hmac.hpp"
 
+#include <algorithm>
 #include <type_traits>
 #include <variant>
 
 namespace dovahlink::adapter::ipc {
+
+namespace {
+
+///  Decrements a pending-game-thread-dispatch counter when destroyed,
+///  regardless of how the owning scope exits, so every admitted dispatch
+///  releases its slot exactly once.
+class PendingDispatchGuard {
+public:
+  ///  @param count The counter this guard decrements on destruction.
+  explicit PendingDispatchGuard(std::atomic<std::size_t> &count)
+      : count_(count) {}
+  ///  Decrements the guarded counter.
+  ~PendingDispatchGuard() { count_.fetch_sub(1, std::memory_order_relaxed); }
+
+  PendingDispatchGuard(const PendingDispatchGuard &) = delete;
+  PendingDispatchGuard &operator=(const PendingDispatchGuard &) = delete;
+
+private:
+  ///  The counter decremented on destruction.
+  std::atomic<std::size_t> &count_;
+};
+
+} //  namespace
 
 AdapterIpcSession::AdapterIpcSession(
     identity::AdapterInstanceId instanceId,
     std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
     runtime::IAdapterTaskMarshaller &taskMarshaller,
     dispatch::IAdapterNativeDispatcher &dispatcher,
-    capture::IAdapterCaptureHandoffQueue &captureQueue)
+    capture::IAdapterCaptureHandoffQueue &captureQueue,
+    std::function<void()> onGameThreadDispatchRejected)
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
       taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
-      captureQueue_(captureQueue) {}
+      captureQueue_(captureQueue),
+      onGameThreadDispatchRejected_(std::move(onGameThreadDispatchRejected)) {}
 
 AdapterIpcSession::~AdapterIpcSession() {
   std::lock_guard<std::mutex> lock(*callbackMutex_);
@@ -137,6 +163,7 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
         } else if constexpr (std::is_same_v<T, IpcRejectMessage>) {
           return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcCancelMessage>) {
+          HandleCancel(value);
           return AdapterIpcMessageDisposition::kContinue;
         } else {
           //  IpcHelloMessage and IpcResynchronizeResultMessage are
@@ -185,10 +212,9 @@ void AdapterIpcSession::HandleResynchronizeRequest(
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread([this,
-                                   callbackMutex = std::move(callbackMutex),
-                                   lifetimeToken = std::move(lifetimeToken),
-                                   correlationId, connectionGeneration] {
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              correlationId, connectionGeneration] {
     std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
     if (!lifetimeToken->load()) {
       return;
@@ -203,7 +229,8 @@ void AdapterIpcSession::HandleResynchronizeRequest(
         //  bumping connectionGeneration_ -- so the generation guard alone is
         //  not enough to reject a task queued just before that happened.
         if (connectionGeneration != connectionGeneration_ ||
-            authenticationState_ != AuthenticationState::kAuthenticated) {
+            authenticationState_ != AuthenticationState::kAuthenticated ||
+            ConsumeCancellationLocked(correlationId)) {
           return;
         }
       }
@@ -226,6 +253,7 @@ void AdapterIpcSession::HandleResynchronizeRequest(
 void AdapterIpcSession::HandleListenEvent(
     const IpcListenEventMessage &listenEvent) {
   std::uint32_t eventKey = listenEvent.eventKey;
+  std::uint64_t correlationId = listenEvent.correlationId;
   std::uint64_t connectionGeneration;
   bool authenticated;
   {
@@ -241,10 +269,9 @@ void AdapterIpcSession::HandleListenEvent(
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread([this,
-                                   callbackMutex = std::move(callbackMutex),
-                                   lifetimeToken = std::move(lifetimeToken),
-                                   eventKey, connectionGeneration] {
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              eventKey, correlationId, connectionGeneration] {
     std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
     if (!lifetimeToken->load()) {
       return;
@@ -254,10 +281,11 @@ void AdapterIpcSession::HandleListenEvent(
         std::lock_guard<std::mutex> lock(availableMutex_);
         //  Re-checked at execution time, not just at enqueue time: a later
         //  authentication failure can close the same connection
-        //  generation, so the generation guard alone must not authorize this
-        //  deferred dispatch.
+        //  generation, so the generation guard alone must not authorize
+        //  this deferred dispatch.
         if (connectionGeneration != connectionGeneration_ ||
-            authenticationState_ != AuthenticationState::kAuthenticated) {
+            authenticationState_ != AuthenticationState::kAuthenticated ||
+            ConsumeCancellationLocked(correlationId)) {
           return;
         }
       }
@@ -276,6 +304,7 @@ void AdapterIpcSession::HandleListenEvent(
 void AdapterIpcSession::HandleReadSample(
     const IpcReadSampleMessage &readSample) {
   std::uint32_t sampleToken = readSample.sampleToken;
+  std::uint64_t correlationId = readSample.correlationId;
   std::uint64_t connectionGeneration;
   bool authenticated;
   {
@@ -291,10 +320,10 @@ void AdapterIpcSession::HandleReadSample(
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread([this,
-                                   callbackMutex = std::move(callbackMutex),
-                                   lifetimeToken = std::move(lifetimeToken),
-                                   sampleToken, connectionGeneration] {
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              sampleToken, correlationId,
+                              connectionGeneration] {
     std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
     if (!lifetimeToken->load()) {
       return;
@@ -304,10 +333,11 @@ void AdapterIpcSession::HandleReadSample(
         std::lock_guard<std::mutex> lock(availableMutex_);
         //  Re-checked at execution time, not just at enqueue time: a later
         //  authentication failure can close the same connection
-        //  generation, so the generation guard alone must not authorize this
-        //  deferred dispatch.
+        //  generation, so the generation guard alone must not authorize
+        //  this deferred dispatch.
         if (connectionGeneration != connectionGeneration_ ||
-            authenticationState_ != AuthenticationState::kAuthenticated) {
+            authenticationState_ != AuthenticationState::kAuthenticated ||
+            ConsumeCancellationLocked(correlationId)) {
           return;
         }
       }
@@ -323,6 +353,61 @@ void AdapterIpcSession::HandleReadSample(
   });
 }
 
+void AdapterIpcSession::ScheduleGameThreadDispatch(std::function<void()> task) {
+  if (pendingGameThreadDispatchCount_->fetch_add(
+          1, std::memory_order_relaxed) >= kMaxPendingGameThreadDispatches) {
+    pendingGameThreadDispatchCount_->fetch_sub(1, std::memory_order_relaxed);
+    ReportGameThreadDispatchRejected();
+    return;
+  }
+  try {
+    //  Captured by value, not reached through `this`: this closure can still
+    //  be queued and run after this session is destroyed, and nothing here
+    //  may touch session memory before `task` itself passes its own lifetime
+    //  gate (`callbackMutex_`/`lifetimeToken_`, captured the same way).
+    auto pendingCount = pendingGameThreadDispatchCount_;
+    taskMarshaller_.RunOnGameThread(
+        [pendingCount = std::move(pendingCount), task = std::move(task)] {
+          PendingDispatchGuard dispatchGuard(*pendingCount);
+          task();
+        });
+  } catch (...) {
+    //  RunOnGameThread failed (or threw while constructing its own closure)
+    //  before the task it was given ever ran, so PendingDispatchGuard's
+    //  destructor never fires for this admission: release the slot here
+    //  instead, or every future scheduling failure would leak one
+    //  permanently until the bound rejects all further dispatch.
+    pendingGameThreadDispatchCount_->fetch_sub(1, std::memory_order_relaxed);
+    ReportGameThreadDispatchRejected();
+  }
+}
+
+void AdapterIpcSession::ReportGameThreadDispatchRejected() {
+  try {
+    onGameThreadDispatchRejected_();
+  } catch (...) {
+    //  A diagnostics callback must never escape into the IPC worker thread.
+  }
+}
+
+void AdapterIpcSession::HandleCancel(const IpcCancelMessage &cancel) {
+  std::lock_guard<std::mutex> lock(availableMutex_);
+  if (cancelledCorrelationIds_.size() >= kMaxPendingIpcCancellations) {
+    cancelledCorrelationIds_.pop_front();
+  }
+  cancelledCorrelationIds_.push_back(cancel.correlationId);
+}
+
+bool AdapterIpcSession::ConsumeCancellationLocked(std::uint64_t correlationId) {
+  auto it = std::find(cancelledCorrelationIds_.begin(),
+                      cancelledCorrelationIds_.end(), correlationId);
+  if (it == cancelledCorrelationIds_.end()) {
+    return false;
+  }
+  cancelledCorrelationIds_.erase(it);
+  return true;
+}
+
 std::uint64_t AdapterIpcSession::NextCorrelationId() {
   return nextCorrelationId_.fetch_add(1) + 1;
 }
@@ -334,6 +419,12 @@ void AdapterIpcSession::CloseCurrentGenerationLocked() {
   authenticationState_ = AuthenticationState::kClosed;
   activeTarget_.reset();
   ++connectionGeneration_;
+  //  A cancellation only ever applies to a deferred task from the generation
+  //  that received it; every such task already self-rejects once
+  //  connectionGeneration_ no longer matches, so a tombstone surviving past
+  //  this point could only misfire against an unrelated request that reuses
+  //  the same correlation id on a later generation.
+  cancelledCorrelationIds_.clear();
 }
 
 } //  namespace dovahlink::adapter::ipc

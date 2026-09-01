@@ -46,6 +46,8 @@ using dovahlink::adapter::ipc::IpcRejectReason;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeResultMessage;
 using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
+using dovahlink::adapter::ipc::kMaxPendingGameThreadDispatches;
+using dovahlink::adapter::ipc::kMaxPendingIpcCancellations;
 using dovahlink::adapter::runtime::IAdapterTaskMarshaller;
 
 namespace {
@@ -55,8 +57,18 @@ namespace {
 class FakeAdapterTaskMarshaller final : public IAdapterTaskMarshaller {
 public:
   void RunOnGameThread(std::function<void()> task) override {
+    if (throwOnNextSchedule_) {
+      throwOnNextSchedule_ = false;
+      throw std::runtime_error("RunOnGameThread failed");
+    }
     pendingTasks_.push_back(std::move(task));
   }
+
+  ///  Makes the next `RunOnGameThread` call throw instead of admitting its
+  ///  task, so a test can prove a scheduling failure never leaks the
+  ///  caller's pending-dispatch slot. Consumed by the call it affects; a
+  ///  later `RunOnGameThread` call schedules normally again.
+  void ThrowOnNextSchedule() { throwOnNextSchedule_ = true; }
 
   ///  The number of tasks not yet run.
   std::size_t PendingCount() const { return pendingTasks_.size(); }
@@ -72,6 +84,9 @@ public:
 
 private:
   std::vector<std::function<void()>> pendingTasks_;
+  ///  Whether the next `RunOnGameThread` call should throw instead of
+  ///  admitting its task.
+  bool throwOnNextSchedule_ = false;
 };
 
 ///  A fake `IAdapterNativeDispatcher` with a configurable per-key result.
@@ -211,8 +226,23 @@ struct SessionFixture {
   FakeAdapterTaskMarshaller marshaller;
   FakeAdapterNativeDispatcher dispatcher;
   FakeAdapterCaptureHandoffQueue captureQueue;
-  AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
-                            marshaller, dispatcher, captureQueue};
+  ///  The number of times `session` reported a rejected game-thread dispatch.
+  std::size_t rejectedDispatchCount = 0;
+  ///  When true, the rejection callback throws instead of just counting, so
+  ///  a test can prove the exception is contained.
+  bool throwOnRejectedDispatch = false;
+  AdapterIpcSession session{SampleInstanceId(),
+                            SampleOwnerLifetimeId(),
+                            marshaller,
+                            dispatcher,
+                            captureQueue,
+                            [this] {
+                              ++rejectedDispatchCount;
+                              if (throwOnRejectedDispatch) {
+                                throw std::runtime_error(
+                                    "rejected-dispatch diagnostics failure");
+                              }
+                            }};
 };
 
 ///  Drives a real Hello/HelloAck handshake to completion: connects with
@@ -712,6 +742,37 @@ TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
   CHECK(fixture.session.IsHostAvailable());
 }
 
+TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
+          "connection generation cancel a same-numbered request on a later "
+          "generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  The host cancels correlation id 1 on the first generation. No matching
+  //  request is pending yet; HandleCancel still records the tombstone.
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+
+  fixture.session.HandleDisconnected();
+  fixture.session.HandleConnected(fixture.target);
+  connection.Clear();
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  The new generation's host reuses correlation id 1 for an unrelated
+  //  request; the stale cancellation from the old generation must not apply.
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+}
+
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
@@ -762,6 +823,45 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           std::future_status::ready);
   gameThread.join();
   destructionThread.join();
+}
+
+TEST_CASE("AdapterIpcSession's queued game-thread dispatch stays safe to run "
+          "after the session itself has been destroyed") {
+  //  Complementary to the test above: that one covers a task already
+  //  running and holding callbackMutex_ when destruction begins, which
+  //  ~AdapterIpcSession() waits for. This covers a task still sitting
+  //  unstarted in the marshaller's queue at that same moment -- the
+  //  destructor's own lock never blocks on that task, since it hasn't
+  //  reached callbackMutex_ yet. Running it here, after the session is
+  //  gone, only stays well-defined because nothing in the scheduled
+  //  closure reaches through `this` before its own lifetime gate.
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterIpcConnection connection;
+  auto session = std::make_unique<AdapterIpcSession>(
+      SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+      captureQueue);
+  session->AttachConnection(connection);
+  Authenticate(*session, connection, target);
+
+  dispatcher.SetResult(7, {std::byte{1}});
+  session->HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  REQUIRE(marshaller.PendingCount() == 1);
+
+  session.reset();
+
+  //  Must complete without touching freed session memory.
+  marshaller.RunAllPending();
 }
 
 TEST_CASE("AdapterIpcSession closes on a pre-authentication "
@@ -1086,4 +1186,301 @@ TEST_CASE("AdapterIpcSession::HandleDecodeFailure does nothing without an "
   SessionFixture fixture;
 
   fixture.session.HandleDecodeFailure();
+}
+
+TEST_CASE("AdapterIpcSession rejects a deferred game-thread dispatch once "
+          "the pending bound is reached, without scheduling it") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+       ++eventKey) {
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey, .eventKey = eventKey}});
+  }
+  REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+  CHECK(fixture.rejectedDispatchCount == 0);
+
+  fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+      .correlationId = kMaxPendingGameThreadDispatches + 1,
+      .eventKey = kMaxPendingGameThreadDispatches + 1}});
+
+  //  The rejected request is never scheduled: the pending count does not
+  //  grow past the bound.
+  CHECK(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+  CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession admits a new dispatch once previously pending "
+          "ones have run and freed their slot") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+       ++eventKey) {
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey, .eventKey = eventKey}});
+  }
+  fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+      .correlationId = kMaxPendingGameThreadDispatches + 1,
+      .eventKey = kMaxPendingGameThreadDispatches + 1}});
+  REQUIRE(fixture.rejectedDispatchCount == 1);
+
+  fixture.marshaller.RunAllPending();
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 900, .eventKey = 900}});
+
+  CHECK(fixture.marshaller.PendingCount() == 1);
+  //  No new rejection: the earlier tasks running freed their slots.
+  CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession shares its pending game-thread dispatch bound "
+          "across resynchronization, listen-event, and read-sample "
+          "requests") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcReadSampleMessage{.correlationId = 2, .sampleToken = 1}});
+  for (std::uint32_t eventKey = 1;
+       eventKey <= kMaxPendingGameThreadDispatches - 2; ++eventKey) {
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey + 2, .eventKey = eventKey}});
+  }
+  REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+  CHECK(fixture.rejectedDispatchCount == 0);
+
+  fixture.session.HandleMessage(IpcMessage{
+      IpcReadSampleMessage{.correlationId = 999, .sampleToken = 999}});
+
+  CHECK(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+  CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession releases its pending-dispatch slot when "
+          "RunOnGameThread throws instead of admitting the task") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.marshaller.ThrowOnNextSchedule();
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 1}});
+
+  //  The failed admission was reported and never reached the marshaller's
+  //  pending queue.
+  CHECK(fixture.rejectedDispatchCount == 1);
+  CHECK(fixture.marshaller.PendingCount() == 0);
+
+  //  A fresh dispatch is still admitted afterward: the failed attempt above
+  //  did not leak its slot.
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 2, .eventKey = 2}});
+
+  CHECK(fixture.marshaller.PendingCount() == 1);
+  CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession recovers from repeated game-thread scheduling "
+          "failures without leaking any pending-dispatch slot") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  Every one of these fails to schedule; if a single failure ever leaked
+  //  its slot, this loop alone would exhaust the bound and the assertions
+  //  below would see rejections caused by admission, not by the induced
+  //  throw.
+  for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+       ++eventKey) {
+    fixture.marshaller.ThrowOnNextSchedule();
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey, .eventKey = eventKey}});
+  }
+  CHECK(fixture.marshaller.PendingCount() == 0);
+  CHECK(fixture.rejectedDispatchCount == kMaxPendingGameThreadDispatches);
+
+  //  A dispatch that succeeds is still admitted after that many failures.
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 900, .eventKey = 900}});
+
+  CHECK(fixture.marshaller.PendingCount() == 1);
+  CHECK(fixture.rejectedDispatchCount == kMaxPendingGameThreadDispatches);
+}
+
+TEST_CASE("AdapterIpcSession contains an exception thrown by the "
+          "game-thread-dispatch-rejected callback, and still reports "
+          "kContinue for the rejected request") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+       ++eventKey) {
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey, .eventKey = eventKey}});
+  }
+  REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+  fixture.throwOnRejectedDispatch = true;
+
+  AdapterIpcMessageDisposition disposition =
+      AdapterIpcMessageDisposition::kClose;
+  REQUIRE_NOTHROW(disposition = fixture.session.HandleMessage(
+                      IpcMessage{IpcListenEventMessage{
+                          .correlationId = kMaxPendingGameThreadDispatches + 1,
+                          .eventKey = kMaxPendingGameThreadDispatches + 1}}));
+  CHECK(disposition == AdapterIpcMessageDisposition::kContinue);
+  CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession cancels a listen-event dispatch received "
+          "before its marshaled task runs") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 11, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 11}}) == AdapterIpcMessageDisposition::kContinue);
+
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession cancelling a request after its marshaled task "
+          "already ran has no effect") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 11, .eventKey = 7}});
+  fixture.marshaller.RunAllPending();
+
+  REQUIRE(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 11}}) == AdapterIpcMessageDisposition::kContinue);
+
+  //  The already-produced result is unaffected: cancellation cannot undo
+  //  work that already happened.
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  CHECK(fixture.captureQueue.Enqueued().size() == 1);
+}
+
+TEST_CASE("AdapterIpcSession cancels only the listen-event request whose "
+          "correlation id matches the cancellation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 11, .eventKey = 7}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 12, .eventKey = 8}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcCancelMessage{.correlationId = 11}});
+
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{8});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 8);
+}
+
+TEST_CASE("AdapterIpcSession evicts the oldest pending cancellation once "
+          "more than the bound have been received") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  for (std::uint64_t correlationId = 1;
+       correlationId <= kMaxPendingIpcCancellations + 1; ++correlationId) {
+    fixture.session.HandleMessage(
+        IpcMessage{IpcCancelMessage{.correlationId = correlationId}});
+  }
+
+  //  Correlation id 1 was evicted to admit the
+  //  (kMaxPendingIpcCancellations + 1)th cancellation, so a request reusing
+  //  it now dispatches normally.
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  //  Correlation id (kMaxPendingIpcCancellations + 1) is still recorded, so
+  //  the matching request is cancelled.
+  fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+      .correlationId = kMaxPendingIpcCancellations + 1, .eventKey = 8}});
+
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+}
+
+TEST_CASE("AdapterIpcSession cancels a resynchronization request received "
+          "before its marshaled task runs, sending no result") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}});
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcCancelMessage{.correlationId = 42}});
+  fixture.marshaller.RunAllPending();
+
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession cancels a read-sample dispatch received before "
+          "its marshaled task runs") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcReadSampleMessage{.correlationId = 21, .sampleToken = 8}});
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcCancelMessage{.correlationId = 21}});
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
 }

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <future>
 #include <new>
 #include <optional>
@@ -1474,6 +1475,142 @@ TEST_CASE("AdapterIpcConnection::TrySend rejects once Stop has been called") {
   CHECK_FALSE(connection.TrySend(message));
 }
 
+TEST_CASE("AdapterIpcConnection::TrySend uses a non-blocking try-lock on the "
+          "outbound queue, matching its own \"Never blocks\" contract") {
+  //  A `std::lock_guard` on `outboundMutex_` would let a caller on the
+  //  Skyrim game thread briefly wait behind the worker thread's own
+  //  DrainOutbound -- undetectable through the public API without an
+  //  artificial hook that would itself distort the timing being proved, so
+  //  this pins the implementation choice structurally instead.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t bodyStart = source.find('{', trySend);
+  std::size_t nextFunction =
+      source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(nextFunction != std::string::npos);
+  std::string body = source.substr(bodyStart, nextFunction - bodyStart);
+
+  CHECK(body.find("std::try_to_lock") != std::string::npos);
+  CHECK(body.find("outboundLock.owns_lock()") != std::string::npos);
+}
+
+TEST_CASE("AdapterIpcConnection::TrySend checks stop state through an atomic "
+          "load instead of a blocking mutex") {
+  //  A concurrent Stop() only ever holds a lock (if any) for the single
+  //  instant it takes to publish `stopping_`, so no test can reliably force
+  //  TrySend to observe contention without an artificial hook that would
+  //  itself distort the timing being proved -- the same problem the
+  //  try_to_lock test above solves by pinning the implementation choice
+  //  structurally instead.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t bodyStart = source.find('{', trySend);
+  std::size_t nextFunction =
+      source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(nextFunction != std::string::npos);
+  std::string body = source.substr(bodyStart, nextFunction - bodyStart);
+
+  CHECK(body.find("stopMutex_") == std::string::npos);
+  CHECK(body.find("stopping_.load(") != std::string::npos);
+
+  //  No call site anywhere in the class may reintroduce a blocking mutex
+  //  guarding stop state -- not just the one this test names -- since any
+  //  such site would let a concurrent Stop() block a caller on it again.
+  std::filesystem::path connectionHeader =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.hpp";
+  CHECK(source.find("stopMutex_") == std::string::npos);
+  CHECK(ReadSource(connectionHeader).find("stopMutex_") == std::string::npos);
+}
+
+TEST_CASE("AdapterIpcConnection::TrySend never grows the outbound queue's own "
+          "storage") {
+  //  Whether a container growth allocation actually fails or blocks is not
+  //  observable through the public API without an artificial allocator hook
+  //  that would itself distort the very allocation behavior being proved;
+  //  pinning the implementation choice structurally is the same technique
+  //  the two tests above already use for this class's other unobservable
+  //  "never blocks"/"never allocates" contracts.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t bodyStart = source.find('{', trySend);
+  std::size_t nextFunction =
+      source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(nextFunction != std::string::npos);
+  std::string body = source.substr(bodyStart, nextFunction - bodyStart);
+
+  CHECK(body.find("push_back") == std::string::npos);
+  CHECK(body.find("emplace_back") == std::string::npos);
+
+  //  The outbound storage itself must be a fixed-size, preallocated buffer,
+  //  not a container `TrySend` could grow.
+  std::string header =
+      ReadSource(std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+                 "adapter_ipc_connection.hpp");
+  CHECK(
+      header.find("std::array<IpcMessage, kMaxIpcQueuedMessages> outbound_") !=
+      std::string::npos);
+}
+
+TEST_CASE("AdapterIpcConnection::TrySend rechecks stop state under the same "
+          "lock Stop() publishes it with, closing the window where a message "
+          "could be accepted after Stop() abandons the queue") {
+  //  The race this pins shut -- TrySend reading stopping_ as false, then
+  //  Stop() setting it, joining the worker, and clearing the queue, before
+  //  TrySend goes on to enqueue anyway -- has no reliable behavioral
+  //  reproduction: closing it means the two operations now serialize on one
+  //  lock, so there is no longer a timing window to force with a barrier.
+  //  Pinning the structural property is the same technique the tests above
+  //  already use for this class's other unobservable ordering contracts.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t trySendBodyStart = source.find('{', trySend);
+  std::size_t stopStart = source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(trySendBodyStart != std::string::npos);
+  REQUIRE(stopStart != std::string::npos);
+  std::string trySendBody =
+      source.substr(trySendBodyStart, stopStart - trySendBodyStart);
+
+  std::size_t ownsLock = trySendBody.find("outboundLock.owns_lock()");
+  std::size_t stoppingLoad = trySendBody.find("stopping_.load(");
+  REQUIRE(ownsLock != std::string::npos);
+  REQUIRE(stoppingLoad != std::string::npos);
+  CHECK(stoppingLoad > ownsLock);
+
+  std::size_t stopBodyStart = source.find('{', stopStart);
+  std::size_t requestStop = source.find("socket_.RequestStop()", stopStart);
+  REQUIRE(stopBodyStart != std::string::npos);
+  REQUIRE(requestStop != std::string::npos);
+  std::string stopLeadIn =
+      source.substr(stopBodyStart, requestStop - stopBodyStart);
+
+  CHECK(stopLeadIn.find("outboundMutex_") != std::string::npos);
+  CHECK(stopLeadIn.find("stopping_.store(") != std::string::npos);
+}
+
 TEST_CASE("AdapterIpcConnection::Stop is idempotent") {
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;
@@ -1582,6 +1719,63 @@ TEST_CASE("AdapterIpcConnection drains a burst of queued messages in order") {
          std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+  CHECK(socket.WrittenBytes() == expectedBytes);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection preserves order and capacity across many "
+          "send/drain cycles that wrap the outbound ring buffer's index "
+          "past its end") {
+  //  outbound_ is a fixed-size ring buffer of kMaxIpcQueuedMessages slots;
+  //  sending and fully draining more than that many messages across several
+  //  waves forces outboundHead_ past the array's end and back to 0 more than
+  //  once, exercising the wraparound arithmetic a single-pass test (like the
+  //  burst-drain test above) never reaches.
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDecodeFailure = [] {},
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+
+  constexpr std::size_t kMessagesPerWave = 100;
+  constexpr int kWaveCount = 3; //  300 total: over kMaxIpcQueuedMessages (256).
+  std::vector<std::byte> expectedBytes;
+  std::uint64_t correlationId = 1;
+
+  for (int wave = 0; wave < kWaveCount; ++wave) {
+    for (std::size_t sent = 0; sent < kMessagesPerWave;
+         ++sent, ++correlationId) {
+      IpcMessage message{IpcCancelMessage{.correlationId = correlationId}};
+      REQUIRE(connection.TrySend(message));
+      std::vector<std::byte> encoded = codec.Encode(message);
+      expectedBytes.insert(expectedBytes.end(), encoded.begin(), encoded.end());
+    }
+
+    //  Wait for this wave to fully drain before sending the next one, so
+    //  every wave's writes land in the order this test sent them rather than
+    //  racing the worker's own drain timing.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (socket.WrittenBytes() != expectedBytes &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(socket.WrittenBytes() == expectedBytes);
+  }
+
   CHECK(socket.WrittenBytes() == expectedBytes);
 
   connection.Stop();

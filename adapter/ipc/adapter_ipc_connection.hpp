@@ -5,6 +5,8 @@
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -41,9 +43,17 @@ public:
 
   ///  Attempts to enqueue a message for the current transport generation's
   ///  next write. Pending messages may be discarded when that generation ends.
-  ///  Never blocks.
+  ///  Never blocks. The outbound queue is a preallocated fixed-capacity
+  ///  buffer, so accepting a message never grows it; assigning the message
+  ///  into its slot allocates only if the message carries a variable-size
+  ///  payload larger than what the slot already holds. A caller on the
+  ///  Skyrim game thread must only ever send a message with no such payload
+  ///  for this call to stay allocation-free there.
   ///  @return `true` when the message was accepted onto the bounded outbound
-  ///  queue; `false` at capacity or once `Stop()` has been called.
+  ///  queue; `false` at capacity, once `Stop()` has been called, or if the
+  ///  outbound queue's own lock is currently held by a concurrent caller
+  ///  (rejected rather than waited for, to preserve the non-blocking
+  ///  guarantee).
   virtual bool TrySend(const IpcMessage &message) = 0;
 
   ///  Requests the socket close, wakes the connection's background thread,
@@ -177,14 +187,31 @@ private:
   bool joinInProgress_ = false;
   ///  Whether the current worker has finished and may be joined by `Start()`.
   bool workerFinished_ = false;
-  ///  Guards `stopping_`.
-  std::mutex stopMutex_;
-  ///  Set by `Stop()`; checked before and during the current attempt.
-  bool stopping_ = false;
-  ///  Guards `outbound_`.
+  ///  Set by `Stop()`; checked before and during the current attempt. Atomic
+  ///  so every reader outside `TrySend()` can check it from wherever it runs
+  ///  without ever blocking on a mutex. `Stop()` publishes it and `TrySend()`
+  ///  rechecks it both while holding `outboundMutex_`, so a message can never
+  ///  be accepted into a queue `Stop()` has already started abandoning; every
+  ///  other reader only needs the plain "stopped or not" answer and does not
+  ///  share that ordering requirement.
+  std::atomic<bool> stopping_{false};
+  ///  Guards `outbound_`, `outboundHead_`, `outboundCount_`, and -- jointly
+  ///  with `stopping_`'s own atomicity -- the ordering between `Stop()`
+  ///  publishing `stopping_` and `TrySend()` rechecking it.
   std::mutex outboundMutex_;
-  ///  The bounded FIFO of messages queued for the next write.
-  std::deque<IpcMessage> outbound_;
+  ///  A preallocated fixed-capacity ring buffer holding up to
+  ///  `kMaxIpcQueuedMessages` messages queued for the next write, oldest at
+  ///  `outboundHead_`. Sized once at construction so accepting a message in
+  ///  `TrySend` -- reachable from the Skyrim game thread -- never grows this
+  ///  storage; see `IAdapterIpcConnection::TrySend`'s own documentation for
+  ///  the assignment-into-a-slot allocation caveat.
+  std::array<IpcMessage, kMaxIpcQueuedMessages> outbound_{};
+  ///  The index of the oldest queued message in `outbound_`, meaningful only
+  ///  while `outboundCount_ > 0`.
+  std::size_t outboundHead_ = 0;
+  ///  The number of messages currently queued in `outbound_`, at most
+  ///  `kMaxIpcQueuedMessages`.
+  std::size_t outboundCount_ = 0;
   ///  Timestamps of inbound frames still inside the current attempt's rolling
   ///  rate window.
   std::deque<std::chrono::steady_clock::time_point> inboundMessageTimes_;

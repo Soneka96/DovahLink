@@ -24,7 +24,7 @@ The adapter is the sole new owner of:
 - Play-context transition notifications and Skyrim-facing pairing/admin notifications.
 - Starting and supervising the packaged host executable as an external, hidden process, including
   requesting graceful host shutdown when Skyrim closes.
-- A private, bounded, versioned IPC connection to the host.
+- A private, bounded IPC connection to the host, package-versioned rather than wire-versioned.
 
 ## Boundary against client-facing behavior
 

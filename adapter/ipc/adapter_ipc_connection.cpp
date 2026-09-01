@@ -50,11 +50,8 @@ AdapterIpcConnection::~AdapterIpcConnection() {
 }
 
 void AdapterIpcConnection::Start() {
-  {
-    std::lock_guard<std::mutex> stopLock(stopMutex_);
-    if (stopping_) {
-      return;
-    }
+  if (stopping_.load(std::memory_order_acquire)) {
+    return;
   }
 
   std::unique_lock<std::mutex> lifecycleLock(lifecycleMutex_);
@@ -72,11 +69,8 @@ void AdapterIpcConnection::Start() {
   while (joinInProgress_) {
     lifecycleCondition_.wait(lifecycleLock);
   }
-  {
-    std::lock_guard<std::mutex> stopLock(stopMutex_);
-    if (stopping_) {
-      return;
-    }
+  if (stopping_.load(std::memory_order_acquire)) {
+    return;
   }
   if (worker_.joinable()) {
     if (!workerFinished_) {
@@ -134,8 +128,7 @@ void AdapterIpcConnection::Start() {
     //  A concurrent Stop() may have set `stopping_` while this thread was
     //  joining; re-check before replacing the worker it just retired so that
     //  call reliably wins instead of racing a fresh attempt into existence.
-    std::lock_guard<std::mutex> stopLock(stopMutex_);
-    if (stopping_) {
+    if (stopping_.load(std::memory_order_acquire)) {
       return;
     }
   }
@@ -153,23 +146,36 @@ void AdapterIpcConnection::ConfigureTarget(AdapterIpcTarget target) {
 }
 
 bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
-  std::lock_guard<std::mutex> stopLock(stopMutex_);
-  if (stopping_) {
+  //  A try-lock, not a blocking lock_guard: a caller on the Skyrim game
+  //  thread (for example a resynchronization reply) must never briefly wait
+  //  on `outboundMutex_` while the worker thread's own DrainOutbound holds
+  //  it, matching `AdapterCaptureHandoffQueue::TryEnqueue`'s established
+  //  non-blocking idiom for the same kind of shared, worker-drained queue.
+  std::unique_lock<std::mutex> outboundLock(outboundMutex_, std::try_to_lock);
+  if (!outboundLock.owns_lock()) {
     return false;
   }
-
-  std::lock_guard<std::mutex> outboundLock(outboundMutex_);
-  if (outbound_.size() >= kMaxIpcQueuedMessages) {
+  //  Checked only after the lock above is held, the same lock Stop() takes
+  //  to publish this flag: reading it beforehand left a window where Stop()
+  //  could set it, join the worker, and clear the queue in between this
+  //  check and the enqueue below, silently accepting a message into a queue
+  //  no worker will ever drain again.
+  if (stopping_.load(std::memory_order_acquire) ||
+      outboundCount_ >= kMaxIpcQueuedMessages) {
     return false;
   }
-  outbound_.push_back(message);
+  outbound_[(outboundHead_ + outboundCount_) % kMaxIpcQueuedMessages] = message;
+  ++outboundCount_;
   return true;
 }
 
 void AdapterIpcConnection::Stop() {
   {
-    std::lock_guard<std::mutex> lock(stopMutex_);
-    stopping_ = true;
+    //  Published under the same lock TrySend now rechecks it with, so no
+    //  TrySend call after this point can observe a stale `false` and
+    //  enqueue into a queue this Stop() is about to abandon.
+    std::lock_guard<std::mutex> lock(outboundMutex_);
+    stopping_.store(true, std::memory_order_release);
   }
   try {
     socket_.RequestStop();
@@ -289,12 +295,9 @@ void AdapterIpcConnection::RunAttempt() {
     attemptTarget = target_;
   }
 
-  {
-    std::lock_guard<std::mutex> lock(stopMutex_);
-    if (stopping_) {
-      finish(targetGeneration, AdapterIpcAttemptOutcome::kStopped);
-      return;
-    }
+  if (stopping_.load(std::memory_order_acquire)) {
+    finish(targetGeneration, AdapterIpcAttemptOutcome::kStopped);
+    return;
   }
 
   try {
@@ -305,11 +308,7 @@ void AdapterIpcConnection::RunAttempt() {
     bool connectedAttempt = socket_.Connect();
     if (!connectedAttempt) {
       ClearOutbound();
-      bool stopped = false;
-      {
-        std::lock_guard<std::mutex> lock(stopMutex_);
-        stopped = stopping_;
-      }
+      bool stopped = stopping_.load(std::memory_order_acquire);
       if (!stopped) {
         InvokeContained(callbacks_.onConnectionAttemptFailed);
       }
@@ -349,11 +348,7 @@ void AdapterIpcConnection::RunAttempt() {
       } catch (...) {
       }
       ClearOutbound();
-      bool stopped = false;
-      {
-        std::lock_guard<std::mutex> lock(stopMutex_);
-        stopped = stopping_;
-      }
+      bool stopped = stopping_.load(std::memory_order_acquire);
       if (!stopped) {
         InvokeContained(callbacks_.onConnectionAttemptFailed);
       }
@@ -381,11 +376,7 @@ void AdapterIpcConnection::RunAttempt() {
     InvokeContained(callbacks_.onDisconnected);
   }
 
-  bool stopped = false;
-  {
-    std::lock_guard<std::mutex> lock(stopMutex_);
-    stopped = stopping_;
-  }
+  bool stopped = stopping_.load(std::memory_order_acquire);
   finish(targetGeneration,
          stopped     ? AdapterIpcAttemptOutcome::kStopped
          : connected ? authenticated
@@ -398,11 +389,8 @@ void AdapterIpcConnection::ServeConnection(
     std::chrono::steady_clock::time_point establishmentDeadline,
     bool &authenticated) {
   while (true) {
-    {
-      std::lock_guard<std::mutex> lock(stopMutex_);
-      if (stopping_) {
-        return;
-      }
+    if (stopping_.load(std::memory_order_acquire)) {
+      return;
     }
 
     if (!authenticated &&
@@ -493,11 +481,8 @@ bool AdapterIpcConnection::ReadFully(
     std::optional<std::chrono::steady_clock::time_point> deadline) {
   std::size_t totalRead = 0;
   while (totalRead < buffer.size()) {
-    {
-      std::lock_guard<std::mutex> lock(stopMutex_);
-      if (stopping_) {
-        return false;
-      }
+    if (stopping_.load(std::memory_order_acquire)) {
+      return false;
     }
 
     if (deadline.has_value() && std::chrono::steady_clock::now() >= *deadline) {
@@ -527,11 +512,12 @@ bool AdapterIpcConnection::DrainOutbound() {
     IpcMessage message;
     {
       std::lock_guard<std::mutex> lock(outboundMutex_);
-      if (outbound_.empty()) {
+      if (outboundCount_ == 0) {
         return true;
       }
-      message = std::move(outbound_.front());
-      outbound_.pop_front();
+      message = std::move(outbound_[outboundHead_]);
+      outboundHead_ = (outboundHead_ + 1) % kMaxIpcQueuedMessages;
+      --outboundCount_;
     }
 
     std::vector<std::byte> frame = codec_.Encode(message);
@@ -543,7 +529,8 @@ bool AdapterIpcConnection::DrainOutbound() {
 
 void AdapterIpcConnection::ClearOutbound() {
   std::lock_guard<std::mutex> lock(outboundMutex_);
-  outbound_.clear();
+  outboundHead_ = 0;
+  outboundCount_ = 0;
 }
 
 bool AdapterIpcConnection::TryAcceptInboundMessage() {
