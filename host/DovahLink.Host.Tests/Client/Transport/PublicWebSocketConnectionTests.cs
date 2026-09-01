@@ -176,12 +176,14 @@ public class PublicWebSocketConnectionTests
     /// <summary>
     /// Verifies that a silent peer is disconnected once the keep-alive deadline elapses, that the pong
     /// timeout genuinely contributes wait time beyond the interval alone (proving it is not silently
-    /// ignored), and that the elapsed time stays within this file's usual generous bound for a
-    /// real-timer test -- proving the two configured bounds are additive and nothing else is layered on
-    /// top. Uses distinct interval and pong values so neither could be mistaken for the other.
+    /// ignored), and that detection completes within this file's usual generous bound for a real-timer
+    /// test. This does not assert a tight <c>interval + pongTimeout</c> upper bound -- .NET's managed
+    /// WebSocket keep-alive scheduler polls rather than firing at an exact instant, so this test only
+    /// proves detection is bounded, not that it lands within the configured budget to the millisecond.
+    /// Uses distinct interval and pong values so neither could be mistaken for the other.
     /// </summary>
     [Fact]
-    public async Task RunAsync_KeepAliveDeadlineWithSilentPeer_ForcesClosureWithinIntervalPlusPongTimeout()
+    public async Task RunAsync_KeepAliveDeadlineWithSilentPeer_PongTimeoutAddsWaitAndDetectionStaysBounded()
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (TcpListener listener, int port) = StartLoopbackListener();
@@ -206,7 +208,8 @@ public class PublicWebSocketConnectionTests
 
         // Elapsed must exceed the interval alone -- proving the pong timeout genuinely adds wait time
         // rather than being ignored -- and stay under this file's usual generous real-timer bound
-        // (matching the other Stopwatch-based assertions here), proving detection is not unbounded.
+        // (matching the other Stopwatch-based assertions here), proving detection is bounded. This is
+        // a generous tolerance, not a tight proof of interval + pongTimeout as an exact ceiling.
         Assert.True(
             stopwatch.Elapsed > keepAliveInterval,
             $"Expected the pong timeout to add wait time beyond the {keepAliveInterval} interval alone, took {stopwatch.Elapsed}.");
