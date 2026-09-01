@@ -119,14 +119,14 @@ cross-cutting constant values (timeouts, limits, and similar non-secret fixed va
 unit/package/project -- not across a package or project boundary, and not one repository-wide
 dumping ground -- ordered and separated into clearly labeled groups rather than left as a flat
 unordered list. Every other rule (documentation, naming, layering) still applies inside these files
-exactly as it would to any other file. The Flutter-specific exception is a feature's
+exactly as it would to any other file. One Flutter-specific grouping exception is a feature's
 `<feature>.actions.dart` file: it may group Redux action declarations with their closely related
 action value types, because those values jointly define the feature's dispatch vocabulary. The exact
 file name and grouping convention is area-specific; see:
 
 - Dart (Flutter client and SDK): `ai/context/dart/dart-style.md`
 - C++ (Skyrim bridge): `ai/context/skse/cpp-style.md`
-- C# (.NET validation client and tooling): `ai/context/dotnet/csharp-style.md`
+- C# (Host, validation client, and tooling): `ai/context/dotnet/csharp-style.md`
 - Python (repository tooling): `ai/context/python/python-style.md`
 
 A small type that exists only to be returned by, or passed to, exactly one other type -- a

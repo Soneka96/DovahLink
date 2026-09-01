@@ -1813,9 +1813,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "an SKSE plugin reload or a Skyrim process restart", host_architecture
         )
         self.assertIn("host process and its tests", dotnet_style)
-        self.assertIn("The Flutter-specific exception is a feature's", common)
+        self.assertIn("One Flutter-specific grouping exception is a feature's", common)
+        self.assertNotIn("The Flutter-specific exception is", common)
         self.assertIn("`<feature>.actions.dart` file", common)
         self.assertIn("exception in `ai/context/common.md`", flutter_architecture)
+        self.assertNotIn("sole Flutter-specific", flutter_architecture)
         self.assertIn("one private, widget-local `_<WidgetName>ViewModel`", dart_style)
 
         for source_path, widget_name in (

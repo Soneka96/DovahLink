@@ -6,7 +6,9 @@ and tests, and repository tooling.
 ## Files and types
 
 One primary public class, record, struct, or interface per file, per `ai/context/common.md`'s
-shared file-organization rule. Its two exceptions apply per project (`DovahLink.Host`,
+shared file-organization rule. An interface and its one concrete implementation are the paired
+declaration exception: they share the implementation's owning file and no unrelated public type may
+be placed there. Its two additional grouping exceptions apply per project (`DovahLink.Host`,
 `DovahLink.Host.Tests`, `DovahLinkValidationClient`, `DovahLinkValidationClient.Tests`, and
 `tooling/BridgeBuilder` each get their own, never shared across a project boundary): every enum
 for that project belongs in that project's `Enums.cs`, and
