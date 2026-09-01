@@ -316,6 +316,63 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>Verifies that a disconnect-notification handler that throws still lets the connection fully tear down rather than leaking the transport.</summary>
+    [Fact]
+    public async Task RunAsync_DisconnectNotificationThrows_StillTearsDownConnection()
+    {
+        var handler = new FakePublicWebSocketMessageHandler { DisconnectedFailure = new InvalidOperationException("Simulated handler failure.") };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var connection = new PublicWebSocketConnection(serverStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
+        listener.Stop();
+    }
+
+    /// <summary>Verifies that a disconnect-notification handler that never returns still lets the connection tear down within the bounded timeout instead of hanging forever.</summary>
+    [Fact]
+    public async Task RunAsync_DisconnectNotificationHangs_StillTearsDownWithinBound()
+    {
+        var handler = new FakePublicWebSocketMessageHandler { HangOnDisconnected = true };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var disconnectNotificationTimeout = TimeSpan.FromMilliseconds(200);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(disconnectNotificationTimeout: disconnectNotificationTimeout);
+        var connection = new PublicWebSocketConnection(serverStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        // Without the bounded timeout, this would hang forever rather than complete within 5 seconds.
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Teardown took {stopwatch.Elapsed}, far longer than the configured {disconnectNotificationTimeout} bound.");
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
+        listener.Stop();
+    }
+
     /// <summary>Verifies that cancelling the connection propagates as cancellation and still notifies the handler before returning.</summary>
     [Fact]
     public async Task RunAsync_ExternalCancellation_ThrowsOperationCanceledAndNotifiesDisconnected()

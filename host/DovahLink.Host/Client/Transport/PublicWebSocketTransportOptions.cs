@@ -39,4 +39,10 @@ public sealed record PublicWebSocketTransportOptions
 
     /// <summary>The maximum byte length of the raw HTTP Upgrade request line and headers buffered during the handshake.</summary>
     public int MaxHandshakeRequestBytes { get; init; } = Constants.PublicWebSocketMaxHandshakeRequestBytes;
+
+    /// <summary>
+    /// The maximum time the connection waits for its injected message handler's disconnect
+    /// notification before proceeding with teardown regardless.
+    /// </summary>
+    public TimeSpan DisconnectNotificationTimeout { get; init; } = Constants.PublicWebSocketDisconnectNotificationTimeout;
 }

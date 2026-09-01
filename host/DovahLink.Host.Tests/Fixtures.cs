@@ -22,7 +22,8 @@ public static class Fixtures
         int? outboundQueueMaxMessages = null,
         long? outboundQueueMaxBytes = null,
         TimeSpan? gracefulCloseTimeout = null,
-        int? maxHandshakeRequestBytes = null) =>
+        int? maxHandshakeRequestBytes = null,
+        TimeSpan? disconnectNotificationTimeout = null) =>
         new()
         {
             HandshakeTimeout = handshakeTimeout ?? Constants.PublicWebSocketHandshakeTimeout,
@@ -35,5 +36,6 @@ public static class Fixtures
             OutboundQueueMaxBytes = outboundQueueMaxBytes ?? Constants.PublicWebSocketOutboundQueueMaxBytes,
             GracefulCloseTimeout = gracefulCloseTimeout ?? Constants.PublicWebSocketGracefulCloseTimeout,
             MaxHandshakeRequestBytes = maxHandshakeRequestBytes ?? Constants.PublicWebSocketMaxHandshakeRequestBytes,
+            DisconnectNotificationTimeout = disconnectNotificationTimeout ?? Constants.PublicWebSocketDisconnectNotificationTimeout,
         };
 }

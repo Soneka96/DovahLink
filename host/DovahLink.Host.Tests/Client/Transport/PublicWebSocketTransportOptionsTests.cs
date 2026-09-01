@@ -21,6 +21,7 @@ public class PublicWebSocketTransportOptionsTests
         Assert.Equal(Constants.PublicWebSocketOutboundQueueMaxBytes, options.OutboundQueueMaxBytes);
         Assert.Equal(Constants.PublicWebSocketGracefulCloseTimeout, options.GracefulCloseTimeout);
         Assert.Equal(Constants.PublicWebSocketMaxHandshakeRequestBytes, options.MaxHandshakeRequestBytes);
+        Assert.Equal(Constants.PublicWebSocketDisconnectNotificationTimeout, options.DisconnectNotificationTimeout);
     }
 
     /// <summary>Verifies that a single overridden property leaves every other default untouched.</summary>

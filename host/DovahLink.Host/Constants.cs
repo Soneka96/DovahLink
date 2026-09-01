@@ -273,4 +273,12 @@ public static class Constants
 
     /// <summary>The maximum time a graceful WebSocket close handshake may take before falling back to an abort.</summary>
     public static readonly TimeSpan PublicWebSocketGracefulCloseTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The maximum time a connection waits for its injected message handler's disconnect
+    /// notification before proceeding with teardown regardless. A hanging or failing handler must
+    /// never prevent the underlying socket from being released or hold the listener's single
+    /// connection admission slot open.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketDisconnectNotificationTimeout = TimeSpan.FromSeconds(2);
 }

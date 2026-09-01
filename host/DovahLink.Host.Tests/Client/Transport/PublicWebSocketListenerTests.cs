@@ -196,6 +196,27 @@ public class PublicWebSocketListenerTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>Verifies that <see cref="PublicWebSocketListener.RunAsync"/> does not return until the currently-served connection's own teardown has finished, not merely once the accept loops themselves stop.</summary>
+    [Fact]
+    public async Task RunAsync_CancelledWhileConnectionTearsDownSlowly_DoesNotReturnUntilConnectionEnds()
+    {
+        var teardownDelay = TimeSpan.FromMilliseconds(300);
+        using var listener = new PublicWebSocketListener(0, stream => new FakePublicWebSocketConnection(stream, teardownDelay));
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket client = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed >= teardownDelay,
+            $"RunAsync returned after {stopwatch.Elapsed}, before the connection's {teardownDelay} teardown delay elapsed.");
+    }
+
     /// <summary>Verifies that a connection failing with an unexpected exception does not end the accept loop for later connections.</summary>
     [Fact]
     public async Task RunAsync_ConnectionThrows_StillAcceptsSubsequentConnection()

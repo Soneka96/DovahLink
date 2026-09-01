@@ -23,10 +23,12 @@ public interface IPublicWebSocketListener : IDisposable
     /// Runs both loopback addresses' accept loops until <paramref name="cancellationToken"/> is
     /// cancelled. Each loop keeps accepting -- so it can promptly reject a concurrent second
     /// connection attempt on either address -- rather than blocking until an admitted connection
-    /// finishes; the admitted connection itself still runs until it ends or the token is cancelled.
-    /// Returns normally on cancellation rather than propagating it. A single failed accept, rejected
-    /// connection, connection-factory attempt, or served-connection failure never ends the loop for
-    /// the rest of the host process's life -- the next accepted connection tries again.
+    /// finishes; the admitted connection itself still runs until it ends or the token is cancelled. A
+    /// single failed accept, rejected connection, connection-factory attempt, or served-connection
+    /// failure never ends the loop for the rest of the host process's life -- the next accepted
+    /// connection tries again. Once both accept loops stop, waits for the most recently admitted
+    /// connection's own bounded teardown to finish before returning, so shutdown is deterministic
+    /// rather than racing an in-flight connection's disconnect notification and socket disposal.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop accepting and serving connections.</param>
     Task RunAsync(CancellationToken cancellationToken);
@@ -44,7 +46,10 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// <summary>Creates a connection over a newly accepted transport.</summary>
     private readonly Func<Stream, IPublicWebSocketConnection> connectionFactory;
 
-    /// <summary>Guards <see cref="currentConnection"/> and <see cref="slotOccupied"/> against concurrent access from both accept loops.</summary>
+    /// <summary>
+    /// Guards <see cref="currentConnection"/>, <see cref="currentServeTask"/>, and
+    /// <see cref="slotOccupied"/> against concurrent access from both accept loops.
+    /// </summary>
     private readonly object gate = new();
 
     /// <summary>Whether the single connection admission slot is currently occupied.</summary>
@@ -52,6 +57,14 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
 
     /// <summary>The currently active connection, or <see langword="null"/> when no public client is connected.</summary>
     private IPublicWebSocketConnection? currentConnection;
+
+    /// <summary>
+    /// The task serving the most recently admitted connection, or an already-completed task before
+    /// any connection has ever been admitted. Awaited by <see cref="RunAsync"/> after both accept
+    /// loops end, so shutdown does not complete while that connection's own teardown is still
+    /// running.
+    /// </summary>
+    private Task currentServeTask = Task.CompletedTask;
 
     /// <summary>
     /// Creates a listener and eagerly binds both loopback addresses on <paramref name="port"/>.
@@ -117,6 +130,16 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         await Task.WhenAll(
             AcceptLoopAsync(ipv4Socket, cancellationToken),
             AcceptLoopAsync(ipv6Socket, cancellationToken)).ConfigureAwait(false);
+
+        // Both accept loops have stopped admitting new connections, but the most recently admitted
+        // one may still be tearing down; its own teardown is bounded, so this cannot hang shutdown.
+        Task serveTask;
+        lock (gate)
+        {
+            serveTask = currentServeTask;
+        }
+
+        await serveTask.ConfigureAwait(false);
     }
 
     /// <summary>
@@ -202,13 +225,17 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
                 continue;
             }
 
-            SetCurrentConnection(connection);
-
             // Serving runs detached from this loop rather than being awaited inline: the admission
             // slot bound already guarantees at most one connection is ever served at a time, but the
             // accept loop itself must keep accepting (so it can promptly reject a concurrent second
-            // attempt) instead of blocking here until the active connection ends.
-            _ = ServeConnectionAsync(connection, cancellationToken);
+            // attempt) instead of blocking here until the active connection ends. RunAsync still
+            // awaits this task after both accept loops stop, so shutdown remains deterministic.
+            Task serveTask = ServeConnectionAsync(connection, cancellationToken);
+            lock (gate)
+            {
+                currentConnection = connection;
+                currentServeTask = serveTask;
+            }
         }
     }
 
@@ -260,16 +287,6 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         {
             slotOccupied = false;
             currentConnection = null;
-        }
-    }
-
-    /// <summary>Sets the currently active connection under <see cref="gate"/>.</summary>
-    /// <param name="connection">The connection to record as active.</param>
-    private void SetCurrentConnection(IPublicWebSocketConnection connection)
-    {
-        lock (gate)
-        {
-            currentConnection = connection;
         }
     }
 }

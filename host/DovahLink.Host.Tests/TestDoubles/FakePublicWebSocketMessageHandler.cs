@@ -18,6 +18,12 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     /// <summary>Gets a task that completes once <see cref="HandleDisconnectedAsync"/> is called.</summary>
     public Task Disconnected => disconnected.Task;
 
+    /// <summary>When set, <see cref="HandleDisconnectedAsync"/> throws this exception after recording the call.</summary>
+    public Exception? DisconnectedFailure { get; set; }
+
+    /// <summary>When <see langword="true"/>, <see cref="HandleDisconnectedAsync"/> never completes, simulating a hung handler.</summary>
+    public bool HangOnDisconnected { get; set; }
+
     /// <inheritdoc/>
     public Task HandleMessageAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
@@ -26,10 +32,19 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     }
 
     /// <inheritdoc/>
-    public Task HandleDisconnectedAsync(CancellationToken cancellationToken)
+    public async Task HandleDisconnectedAsync(CancellationToken cancellationToken)
     {
         DisconnectedCalls++;
         disconnected.TrySetResult();
-        return Task.CompletedTask;
+
+        if (HangOnDisconnected)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (DisconnectedFailure is not null)
+        {
+            throw DisconnectedFailure;
+        }
     }
 }

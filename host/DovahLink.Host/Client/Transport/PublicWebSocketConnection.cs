@@ -17,8 +17,10 @@ public interface IPublicWebSocketConnection
     /// <summary>
     /// Runs the connection to completion: performs the handshake, then serves inbound messages until
     /// the peer closes, the transport fails, the keep-alive liveness check fails, or
-    /// <paramref name="cancellationToken"/> is cancelled. Notifies the message handler of disconnection
-    /// and disposes the underlying transport before returning, whenever the handshake completed.
+    /// <paramref name="cancellationToken"/> is cancelled. Whenever the handshake completed, makes a
+    /// bounded best-effort attempt to notify the message handler of disconnection, then always
+    /// disposes the underlying transport before returning regardless of whether that notification
+    /// succeeded, failed, or timed out.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
@@ -119,7 +121,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             outbound.Writer.TryComplete();
             if (upgraded)
             {
-                await messageHandler.HandleDisconnectedAsync(CancellationToken.None).ConfigureAwait(false);
+                await NotifyDisconnectedAsync().ConfigureAwait(false);
             }
 
             bool forceClose = forceCloseRequested || writerFaulted;
@@ -152,6 +154,28 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             await writerTask.ConfigureAwait(false);
             webSocket?.Dispose();
             await stream.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Notifies the message handler of disconnection, bounded by
+    /// <see cref="PublicWebSocketTransportOptions.DisconnectNotificationTimeout"/> and tolerant of
+    /// any handler failure. A handler that throws or never returns must not prevent this
+    /// connection's own socket teardown from completing, and must not hold the listener's single
+    /// connection admission slot open indefinitely.
+    /// </summary>
+    private async Task NotifyDisconnectedAsync()
+    {
+        try
+        {
+            await messageHandler.HandleDisconnectedAsync(CancellationToken.None)
+                .WaitAsync(options.DisconnectNotificationTimeout).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Best-effort notification only: delivery is never a precondition for this connection's
+            // own teardown to proceed, so a failed or hung handler cannot leak the socket or wedge
+            // the listener's admission slot.
         }
     }
 
