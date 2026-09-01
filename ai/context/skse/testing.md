@@ -133,3 +133,10 @@ Cover:
 When a change touches runtime integration, record the Skyrim runtime, SKSE version, load order conditions, reproduction steps, expected result, and observed result. A manual check does not replace automated tests for the code that can be tested without Skyrim.
 
 If a manual verification pass turns up a genuine SKSE or engine quirk rather than a project-specific bug, also record it in `runtime-quirks.md`.
+
+Real domain capture is deferred to Stage 6, but before cutover, exercise the adapter plugin and private IPC transport in a real Skyrim/SKSE session at least once and record the result per the process above. Cover:
+
+- the plugin loads and defers host discovery to `kDataLoaded`
+- the adapter launches or adopts the packaged host process and the private IPC connection completes Hello/HelloAck authentication
+- a resynchronization round-trip completes through the game-thread path
+- an orderly Skyrim close does not hang or crash: `DllMain`'s `DLL_PROCESS_DETACH` path only signals host shutdown and returns
