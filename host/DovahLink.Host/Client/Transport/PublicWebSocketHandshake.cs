@@ -14,12 +14,15 @@ internal static class PublicWebSocketHandshake
     /// <summary>The fixed GUID RFC 6455 defines for computing <c>Sec-WebSocket-Accept</c>.</summary>
     private const string WebSocketAcceptGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+    /// <summary>The exact decoded length RFC 6455 requires of <c>Sec-WebSocket-Key</c>.</summary>
+    private const int RequiredKeyBytes = 16;
+
     /// <summary>
     /// Determines whether <paramref name="requestBytes"/> is a well-formed WebSocket upgrade request
     /// -- a <c>GET ... HTTP/1.1</c> request line, an <c>Upgrade: websocket</c> header, a
     /// <c>Connection</c> header containing the <c>upgrade</c> token, <c>Sec-WebSocket-Version: 13</c>,
-    /// and a non-empty <c>Sec-WebSocket-Key</c> -- and computes the matching
-    /// <c>Sec-WebSocket-Accept</c> value.
+    /// and a <c>Sec-WebSocket-Key</c> that decodes as Base64 to exactly <see cref="RequiredKeyBytes"/>
+    /// bytes -- and computes the matching <c>Sec-WebSocket-Accept</c> value.
     /// </summary>
     /// <param name="requestBytes">
     /// The complete request line and headers, including the terminating blank line, as received from
@@ -73,7 +76,10 @@ internal static class PublicWebSocketHandshake
             return false;
         }
 
-        if (!headers.TryGetValue("Sec-WebSocket-Key", out string? key) || key.Length == 0)
+        Span<byte> keyBytes = stackalloc byte[RequiredKeyBytes];
+        if (!headers.TryGetValue("Sec-WebSocket-Key", out string? key) ||
+            !Convert.TryFromBase64String(key, keyBytes, out int keyByteCount) ||
+            keyByteCount != RequiredKeyBytes)
         {
             return false;
         }

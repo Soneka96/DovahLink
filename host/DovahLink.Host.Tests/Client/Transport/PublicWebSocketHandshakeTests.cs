@@ -209,6 +209,77 @@ public class PublicWebSocketHandshakeTests
         Assert.Equal(string.Empty, acceptKey);
     }
 
+    /// <summary>Verifies that a key which is not valid Base64 is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_MalformedBase64Key_IsRejected()
+    {
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "abc"), out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a key decoding to fewer than the required 16 bytes is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_KeyDecodesToFifteenBytes_IsRejected()
+    {
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(
+            BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25j"), out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a well-formed but short Base64 value (one decoded byte) is rejected, not only obviously malformed input.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_KeyDecodesToOneByte_IsRejected()
+    {
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "AA=="), out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a key decoding to more than the required 16 bytes is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_KeyDecodesToSeventeenBytes_IsRejected()
+    {
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(
+            BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZWU="), out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a key with invalid Base64 padding is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_KeyWithInvalidPadding_IsRejected()
+    {
+        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(
+            BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZQ"), out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a valid, distinct 16-byte nonce is accepted, not only the RFC example key.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_ValidSixteenByteNonce_IsAccepted()
+    {
+        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(
+            BuildRequestBytes(key: "AAECAwQFBgcICQoLDA0ODw=="), out string acceptKey);
+
+        Assert.True(accepted);
+        Assert.NotEqual(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a valid key surrounded by header-value whitespace is trimmed and still accepted.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_ValidKeyWithSurroundingWhitespace_IsAccepted()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key:   dGhlIHNhbXBsZSBub25jZQ==  \r\n\r\n");
+
+        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+
+        Assert.True(accepted);
+        Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
+    }
+
     /// <summary>Verifies that the built response contains the expected status line and accept header.</summary>
     [Fact]
     public void BuildSwitchingProtocolsResponse_ContainsTheExpectedStatusLineAndAcceptHeader()
