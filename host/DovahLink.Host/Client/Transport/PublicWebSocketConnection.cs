@@ -28,9 +28,18 @@ public interface IPublicWebSocketConnection
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
 
-    /// <summary>Attempts to enqueue an outbound message for the writer loop to send as a WebSocket text frame.</summary>
+    /// <summary>
+    /// Attempts to enqueue an outbound message for the writer loop to send as a WebSocket text frame.
+    /// A message that cannot be admitted also requests this connection's own controlled close, per
+    /// the transport's contract that an unadmittable response must not be dropped silently while the
+    /// connection stays open; the caller does not need to close the connection itself after a
+    /// <see langword="false"/> result.
+    /// </summary>
     /// <param name="payload">The complete message payload to send.</param>
-    /// <returns><see langword="true"/> when the message was accepted onto the bounded outbound queue.</returns>
+    /// <returns>
+    /// <see langword="true"/> when the message was accepted onto the bounded outbound queue;
+    /// otherwise <see langword="false"/>, and the connection is now closing.
+    /// </returns>
     bool TrySend(ReadOnlyMemory<byte> payload);
 }
 
@@ -68,9 +77,11 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private readonly Queue<DateTimeOffset> inboundMessageTimes = [];
 
     /// <summary>
-    /// Whether the read loop ended for a reason that requires an abort rather than a graceful close:
-    /// a missed keep-alive pong, invalid framing, an oversized message, binary input, or an exceeded
-    /// inbound rate. A transport already known to be broken is not worth a graceful close attempt.
+    /// Whether the connection ended for a reason that requires an abort rather than a graceful close:
+    /// a missed keep-alive pong, invalid framing, an oversized message, binary input, an exceeded
+    /// inbound rate, or an outbound message that <see cref="TrySend"/> could not admit onto the
+    /// bounded queue. A transport already known to be broken, or whose peer is not draining its
+    /// outbound queue, is not worth a graceful close attempt.
     /// </summary>
     private bool forceCloseRequested;
 
@@ -80,6 +91,14 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// cancellation and returns.
     /// </summary>
     private bool writerFaulted;
+
+    /// <summary>
+    /// The shared I/O cancellation created by the in-flight <see cref="RunAsync"/> call, or
+    /// <see langword="null"/> before <see cref="RunAsync"/> has started. Lets <see cref="TrySend"/>
+    /// request the connection's own teardown from any thread, at any point in the connection's
+    /// lifetime, without owning that cancellation source itself.
+    /// </summary>
+    private CancellationTokenSource? sharedIoCancellation;
 
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
@@ -102,6 +121,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        sharedIoCancellation = ioCancellation;
         WebSocket? webSocket = null;
         Task writerTask = Task.CompletedTask;
         bool upgraded = false;
@@ -205,6 +225,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         if (queuedAfterReserve > options.OutboundQueueMaxBytes)
         {
             Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
+            RequestForcedCloseForUnadmittedMessage();
             return false;
         }
 
@@ -212,10 +233,30 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         if (!outbound.Writer.TryWrite(frame))
         {
             Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
+            RequestForcedCloseForUnadmittedMessage();
             return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Requests this connection's controlled close after <see cref="TrySend"/> could not admit a
+    /// message onto the bounded outbound queue, rather than leaving the connection open with the
+    /// message silently dropped. Safe to call from any thread and at any point in the connection's
+    /// lifetime: before <see cref="RunAsync"/> has started, or after it has already ended, there is
+    /// nothing left to close, so this is a no-op.
+    /// </summary>
+    private void RequestForcedCloseForUnadmittedMessage()
+    {
+        forceCloseRequested = true;
+        try
+        {
+            sharedIoCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     /// <summary>

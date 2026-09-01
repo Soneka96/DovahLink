@@ -523,6 +523,96 @@ public class PublicWebSocketConnectionTests
         Assert.False(connection.TrySend(new byte[6]));
     }
 
+    /// <summary>
+    /// Verifies that a message which cannot be admitted because the bounded outbound queue's
+    /// message-count limit is already full -- while the writer is blocked on an unresponsive peer --
+    /// requests this connection's own controlled close rather than leaving it open with the message
+    /// silently dropped, and that teardown completes promptly rather than waiting out the far longer
+    /// per-write deadline configured for this test (proving the queue-overflow request itself is what
+    /// ends the connection, not the unrelated per-write timeout).
+    /// </summary>
+    [Fact]
+    public async Task TrySend_MessageCountOverflowWithBlockedWriter_RequestsControlledCloseAndTearsDownWithinBound()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(
+            outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
+        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The first frame is picked up by the writer and blocks in SendAsync; the second fills the
+        // one-slot queue behind it; the third cannot be admitted at all.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("third")));
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Teardown took {stopwatch.Elapsed} even though the configured write deadline is 30 seconds away; " +
+            "the queue-overflow request itself must end the connection promptly.");
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that a message which cannot be admitted because the bounded outbound queue's byte
+    /// budget is already exhausted by a still-in-flight blocked send -- rather than the message-count
+    /// limit -- also requests this connection's own controlled close and tears down promptly.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_ByteBudgetOverflowWithBlockedWriter_RequestsControlledCloseAndTearsDownWithinBound()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        // A generous message-count bound ensures only the byte budget can ever reject a send here.
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(
+            outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 6, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
+        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // "first" (5 bytes) is picked up by the writer and blocks in SendAsync; its bytes stay
+        // reserved in the budget the whole time it is in flight, so "second" (6 bytes) alone already
+        // exceeds the 6-byte budget once added to those still-reserved 5 bytes.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Teardown took {stopwatch.Elapsed} even though the configured write deadline is 30 seconds away; " +
+            "the queue-overflow request itself must end the connection promptly.");
+        Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
+        listener.Stop();
+    }
+
     /// <summary>Verifies that exceeding the inbound message-rate limit closes the connection before delivering the excess message.</summary>
     [Fact]
     public async Task RunAsync_InboundRateLimitExceeded_ClosesConnectionBeforeExcessMessage()
