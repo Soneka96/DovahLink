@@ -1,5 +1,19 @@
 # 4.2 Bridge Live Publication and Bounded Transport
 
+**Status:** HISTORICAL / PAUSED REFERENCE
+
+This plan is retained for its record of the Bridge live-publication and bounded-transport
+decisions; it is not the active implementation track and does not by itself authorize continuing
+Bridge production work. The active replacement is the standalone C# host and thin native adapter
+migration owned by `host/PLAN.md`, which treats `bridge/` as frozen reference behavior until its own
+Stage 7 conformance gate and Stage 8 cutover. For current status and direction, see:
+
+- `ROADMAP.md` for product-stage order and status.
+- `host/PLAN.md` for the active Host/Adapter replacement migration, its stages, and the disclaimer
+  that owns implementation authority for that track.
+- The phase package under `plans/` for the current phase's authorized scope (for example
+  `plans/stage-4-host-client-boundary-and-pairing/` for Stage 4).
+
 ## Selected decisions
 
 - The Bridge uses a bounded session registry from 4.2 onward. Its capacity is controlled by
