@@ -5,6 +5,7 @@
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -42,7 +43,12 @@ public:
 
   ///  Attempts to enqueue a message for the current transport generation's
   ///  next write. Pending messages may be discarded when that generation ends.
-  ///  Never blocks.
+  ///  Never blocks. The outbound queue is a preallocated fixed-capacity
+  ///  buffer, so accepting a message never grows it; assigning the message
+  ///  into its slot allocates only if the message carries a variable-size
+  ///  payload larger than what the slot already holds. A caller on the
+  ///  Skyrim game thread must only ever send a message with no such payload
+  ///  for this call to stay allocation-free there.
   ///  @return `true` when the message was accepted onto the bounded outbound
   ///  queue; `false` at capacity, once `Stop()` has been called, or if the
   ///  outbound queue's own lock is currently held by a concurrent caller
@@ -185,10 +191,21 @@ private:
   ///  so `TrySend()` can check it from the Skyrim game thread without ever
   ///  blocking on a mutex, matching its "Never blocks" contract.
   std::atomic<bool> stopping_{false};
-  ///  Guards `outbound_`.
+  ///  Guards `outbound_`, `outboundHead_`, and `outboundCount_`.
   std::mutex outboundMutex_;
-  ///  The bounded FIFO of messages queued for the next write.
-  std::deque<IpcMessage> outbound_;
+  ///  A preallocated fixed-capacity ring buffer holding up to
+  ///  `kMaxIpcQueuedMessages` messages queued for the next write, oldest at
+  ///  `outboundHead_`. Sized once at construction so accepting a message in
+  ///  `TrySend` -- reachable from the Skyrim game thread -- never grows this
+  ///  storage; see `IAdapterIpcConnection::TrySend`'s own documentation for
+  ///  the assignment-into-a-slot allocation caveat.
+  std::array<IpcMessage, kMaxIpcQueuedMessages> outbound_{};
+  ///  The index of the oldest queued message in `outbound_`, meaningful only
+  ///  while `outboundCount_ > 0`.
+  std::size_t outboundHead_ = 0;
+  ///  The number of messages currently queued in `outbound_`, at most
+  ///  `kMaxIpcQueuedMessages`.
+  std::size_t outboundCount_ = 0;
   ///  Timestamps of inbound frames still inside the current attempt's rolling
   ///  rate window.
   std::deque<std::chrono::steady_clock::time_point> inboundMessageTimes_;

@@ -1535,6 +1535,41 @@ TEST_CASE("AdapterIpcConnection::TrySend checks stop state through an atomic "
   CHECK(ReadSource(connectionHeader).find("stopMutex_") == std::string::npos);
 }
 
+TEST_CASE("AdapterIpcConnection::TrySend never grows the outbound queue's own "
+          "storage") {
+  //  Whether a container growth allocation actually fails or blocks is not
+  //  observable through the public API without an artificial allocator hook
+  //  that would itself distort the very allocation behavior being proved;
+  //  pinning the implementation choice structurally is the same technique
+  //  the two tests above already use for this class's other unobservable
+  //  "never blocks"/"never allocates" contracts.
+  std::filesystem::path connectionSource =
+      std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+      "adapter_ipc_connection.cpp";
+  std::string source = ReadSource(connectionSource);
+
+  std::size_t trySend = source.find("AdapterIpcConnection::TrySend(");
+  REQUIRE(trySend != std::string::npos);
+  std::size_t bodyStart = source.find('{', trySend);
+  std::size_t nextFunction =
+      source.find("AdapterIpcConnection::Stop(", trySend);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(nextFunction != std::string::npos);
+  std::string body = source.substr(bodyStart, nextFunction - bodyStart);
+
+  CHECK(body.find("push_back") == std::string::npos);
+  CHECK(body.find("emplace_back") == std::string::npos);
+
+  //  The outbound storage itself must be a fixed-size, preallocated buffer,
+  //  not a container `TrySend` could grow.
+  std::string header =
+      ReadSource(std::filesystem::path(DOVAHLINK_ADAPTER_IPC_DIR) /
+                 "adapter_ipc_connection.hpp");
+  CHECK(
+      header.find("std::array<IpcMessage, kMaxIpcQueuedMessages> outbound_") !=
+      std::string::npos);
+}
+
 TEST_CASE("AdapterIpcConnection::Stop is idempotent") {
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;
@@ -1643,6 +1678,63 @@ TEST_CASE("AdapterIpcConnection drains a burst of queued messages in order") {
          std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+  CHECK(socket.WrittenBytes() == expectedBytes);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection preserves order and capacity across many "
+          "send/drain cycles that wrap the outbound ring buffer's index "
+          "past its end") {
+  //  outbound_ is a fixed-size ring buffer of kMaxIpcQueuedMessages slots;
+  //  sending and fully draining more than that many messages across several
+  //  waves forces outboundHead_ past the array's end and back to 0 more than
+  //  once, exercising the wraparound arithmetic a single-pass test (like the
+  //  burst-drain test above) never reaches.
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDecodeFailure = [] {},
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+
+  constexpr std::size_t kMessagesPerWave = 100;
+  constexpr int kWaveCount = 3; //  300 total: over kMaxIpcQueuedMessages (256).
+  std::vector<std::byte> expectedBytes;
+  std::uint64_t correlationId = 1;
+
+  for (int wave = 0; wave < kWaveCount; ++wave) {
+    for (std::size_t sent = 0; sent < kMessagesPerWave;
+         ++sent, ++correlationId) {
+      IpcMessage message{IpcCancelMessage{.correlationId = correlationId}};
+      REQUIRE(connection.TrySend(message));
+      std::vector<std::byte> encoded = codec.Encode(message);
+      expectedBytes.insert(expectedBytes.end(), encoded.begin(), encoded.end());
+    }
+
+    //  Wait for this wave to fully drain before sending the next one, so
+    //  every wave's writes land in the order this test sent them rather than
+    //  racing the worker's own drain timing.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (socket.WrittenBytes() != expectedBytes &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(socket.WrittenBytes() == expectedBytes);
+  }
+
   CHECK(socket.WrittenBytes() == expectedBytes);
 
   connection.Stop();

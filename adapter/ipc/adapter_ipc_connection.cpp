@@ -160,10 +160,11 @@ bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
   //  it, matching `AdapterCaptureHandoffQueue::TryEnqueue`'s established
   //  non-blocking idiom for the same kind of shared, worker-drained queue.
   std::unique_lock<std::mutex> outboundLock(outboundMutex_, std::try_to_lock);
-  if (!outboundLock.owns_lock() || outbound_.size() >= kMaxIpcQueuedMessages) {
+  if (!outboundLock.owns_lock() || outboundCount_ >= kMaxIpcQueuedMessages) {
     return false;
   }
-  outbound_.push_back(message);
+  outbound_[(outboundHead_ + outboundCount_) % kMaxIpcQueuedMessages] = message;
+  ++outboundCount_;
   return true;
 }
 
@@ -504,11 +505,12 @@ bool AdapterIpcConnection::DrainOutbound() {
     IpcMessage message;
     {
       std::lock_guard<std::mutex> lock(outboundMutex_);
-      if (outbound_.empty()) {
+      if (outboundCount_ == 0) {
         return true;
       }
-      message = std::move(outbound_.front());
-      outbound_.pop_front();
+      message = std::move(outbound_[outboundHead_]);
+      outboundHead_ = (outboundHead_ + 1) % kMaxIpcQueuedMessages;
+      --outboundCount_;
     }
 
     std::vector<std::byte> frame = codec_.Encode(message);
@@ -520,7 +522,8 @@ bool AdapterIpcConnection::DrainOutbound() {
 
 void AdapterIpcConnection::ClearOutbound() {
   std::lock_guard<std::mutex> lock(outboundMutex_);
-  outbound_.clear();
+  outboundHead_ = 0;
+  outboundCount_ = 0;
 }
 
 bool AdapterIpcConnection::TryAcceptInboundMessage() {
