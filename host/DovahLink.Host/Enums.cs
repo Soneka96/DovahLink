@@ -46,6 +46,29 @@ public enum SessionState
     Invalidated,
 }
 
+/// <summary>How a session's owning connection authenticated at <c>hello</c>.</summary>
+public enum SessionAuthenticationSource
+{
+    /// <summary>Authenticated against the process-lifetime developer/local-connection token.</summary>
+    OneTimeLocalToken,
+
+    /// <summary>Admitted with no credential presented yet, to run the pairing flow.</summary>
+    Unpaired,
+
+    /// <summary>Authenticated with a persisted pairing credential.</summary>
+    TrustedDeviceCredential,
+}
+
+/// <summary>A session's current message-authorization tier.</summary>
+public enum SessionTrustTier
+{
+    /// <summary>Restricted to the pairing/liveness allowlist until pairing succeeds on this connection.</summary>
+    Restricted,
+
+    /// <summary>Full access to every non-restricted public message.</summary>
+    Full,
+}
+
 // ---- Pairing ----
 
 /// <summary>The host's pairing state machine, per <c>ai/context/host/migration-audit.md</c>'s "Pairing state machine".</summary>

@@ -13,7 +13,8 @@ public class SessionRegistryTests
         var registry = new SessionRegistry();
         ConnectionId connectionId = ConnectionId.NewId();
 
-        Assert.True(registry.TryCreate(ClientId.NewId(), connectionId, out SessionId sessionId));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
 
         Assert.True(registry.IsActive(sessionId, connectionId));
         Assert.Equal(1, registry.ActiveCount);
@@ -34,13 +35,15 @@ public class SessionRegistryTests
     {
         var registry = new SessionRegistry();
         ConnectionId connectionId = ConnectionId.NewId();
-        Assert.True(registry.TryCreate(ClientId.NewId(), connectionId, out SessionId sessionId));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
 
         registry.Invalidate(sessionId, connectionId);
 
         Assert.False(registry.IsActive(sessionId, connectionId));
         Assert.Equal(0, registry.ActiveCount);
-        Assert.True(registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out _));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
     }
 
     /// <summary>Verifies that a non-owner cannot invalidate a live session.</summary>
@@ -49,7 +52,8 @@ public class SessionRegistryTests
     {
         var registry = new SessionRegistry();
         ConnectionId owner = ConnectionId.NewId();
-        Assert.True(registry.TryCreate(ClientId.NewId(), owner, out SessionId sessionId));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), owner, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
 
         registry.Invalidate(sessionId, ConnectionId.NewId());
 
@@ -64,7 +68,8 @@ public class SessionRegistryTests
         var registry = new SessionRegistry();
         ConnectionId owner = ConnectionId.NewId();
         ConnectionId otherConnection = ConnectionId.NewId();
-        Assert.True(registry.TryCreate(ClientId.NewId(), owner, out SessionId sessionId));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), owner, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
 
         Assert.False(registry.IsActive(sessionId, otherConnection));
         Assert.True(registry.IsActive(sessionId, owner));
@@ -79,9 +84,12 @@ public class SessionRegistryTests
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
         ConnectionId otherConnection = ConnectionId.NewId();
-        Assert.True(registry.TryCreate(targetClient, firstConnection, out SessionId firstSession));
-        Assert.True(registry.TryCreate(targetClient, secondConnection, out SessionId secondSession));
-        Assert.True(registry.TryCreate(ClientId.NewId(), otherConnection, out SessionId otherSession));
+        Assert.True(registry.TryCreate(
+            targetClient, firstConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId firstSession));
+        Assert.True(registry.TryCreate(
+            targetClient, secondConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId secondSession));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), otherConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId otherSession));
 
         registry.InvalidateAllForClient(targetClient);
 
@@ -89,6 +97,77 @@ public class SessionRegistryTests
         Assert.False(registry.IsActive(secondSession, secondConnection));
         Assert.True(registry.IsActive(otherSession, otherConnection));
         Assert.Equal(1, registry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies that client-wide invalidation exempts a developer-token session: a session whose
+    /// <see cref="SessionAuthenticationSource"/> is <see cref="SessionAuthenticationSource.OneTimeLocalToken"/>
+    /// is never a Known Device and must survive Block/Revoke's client-scoped invalidation even when
+    /// its self-declared <see cref="ClientId"/> matches the target.
+    /// </summary>
+    [Fact]
+    public void InvalidateAllForClient_DeveloperTokenSession_IsExempt()
+    {
+        var registry = new SessionRegistry(2);
+        ClientId clientId = ClientId.NewId();
+        ConnectionId developerConnection = ConnectionId.NewId();
+        ConnectionId trustedConnection = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            clientId, developerConnection, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId developerSession));
+        Assert.True(registry.TryCreate(
+            clientId, trustedConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId trustedSession));
+
+        registry.InvalidateAllForClient(clientId);
+
+        Assert.True(registry.IsActive(developerSession, developerConnection));
+        Assert.False(registry.IsActive(trustedSession, trustedConnection));
+        Assert.Equal(1, registry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies that unconditional global invalidation (Factory Reset) still invalidates a
+    /// developer-token session, unlike the client-scoped exemption
+    /// <see cref="ISessionRegistry.InvalidateAllForClient"/> applies.
+    /// </summary>
+    [Fact]
+    public void InvalidateAll_DeveloperTokenSession_IsNotExempt()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId sessionId));
+
+        registry.InvalidateAll();
+
+        Assert.False(registry.IsActive(sessionId, connectionId));
+        Assert.Equal(0, registry.ActiveCount);
+    }
+
+    /// <summary>Verifies that a created session's record carries the authentication source and trust tier it was admitted with.</summary>
+    [Theory]
+    [InlineData(SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full)]
+    [InlineData(SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted)]
+    [InlineData(SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full)]
+    public void TryCreate_RecordsTheSuppliedAuthenticationSourceAndTrustTier(
+        SessionAuthenticationSource authenticationSource, SessionTrustTier trustTier)
+    {
+        var registry = new SessionRegistry(2);
+        ClientId clientId = ClientId.NewId();
+        ConnectionId connectionId = ConnectionId.NewId();
+        ConnectionId otherConnection = ConnectionId.NewId();
+
+        // Only OneTimeLocalToken sessions are exempt from client-scoped invalidation, so admitting one
+        // of each source under the same clientId and observing which ones InvalidateAllForClient
+        // removes indirectly proves the record actually retained the source it was created with.
+        Assert.True(registry.TryCreate(clientId, connectionId, authenticationSource, trustTier, out SessionId sessionId));
+        Assert.True(registry.TryCreate(
+            clientId, otherConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId otherSession));
+
+        registry.InvalidateAllForClient(clientId);
+
+        bool expectedExempt = authenticationSource == SessionAuthenticationSource.OneTimeLocalToken;
+        Assert.Equal(expectedExempt, registry.IsActive(sessionId, connectionId));
+        Assert.False(registry.IsActive(otherSession, otherConnection));
     }
 
     /// <summary>Verifies that reconnecting creates a fresh session bound to the new connection.</summary>
@@ -99,10 +178,12 @@ public class SessionRegistryTests
         ClientId clientId = ClientId.NewId();
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
-        Assert.True(registry.TryCreate(clientId, firstConnection, out SessionId firstSession));
+        Assert.True(registry.TryCreate(
+            clientId, firstConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId firstSession));
         registry.Invalidate(firstSession, firstConnection);
 
-        Assert.True(registry.TryCreate(clientId, secondConnection, out SessionId secondSession));
+        Assert.True(registry.TryCreate(
+            clientId, secondConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId secondSession));
 
         Assert.NotEqual(firstSession, secondSession);
         Assert.False(registry.IsActive(firstSession, firstConnection));
@@ -114,9 +195,11 @@ public class SessionRegistryTests
     public void TryCreate_AtCapacity_RejectsAdditionalSession()
     {
         var registry = new SessionRegistry(1);
-        Assert.True(registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out _));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
 
-        Assert.False(registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out _));
+        Assert.False(registry.TryCreate(
+            ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
         Assert.Equal(1, registry.ActiveCount);
     }
 
@@ -129,7 +212,8 @@ public class SessionRegistryTests
         (bool Accepted, SessionId SessionId)[] results = await Task.WhenAll(
             Enumerable.Range(0, 32).Select(_ => Task.Run(() =>
             {
-                bool accepted = registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out SessionId sessionId);
+                bool accepted = registry.TryCreate(
+                    ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
                 return (accepted, sessionId);
             })));
 
@@ -148,7 +232,8 @@ public class SessionRegistryTests
             .Select(_ =>
             {
                 ConnectionId connectionId = ConnectionId.NewId();
-                registry.TryCreate(clientId, connectionId, out SessionId sessionId);
+                registry.TryCreate(
+                    clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
                 return (sessionId, connectionId);
             })
             .ToArray();
@@ -177,7 +262,8 @@ public class SessionRegistryTests
                 if (index % 2 == 0)
                 {
                     ConnectionId connectionId = ConnectionId.NewId();
-                    if (registry.TryCreate(clientId, connectionId, out SessionId sessionId))
+                    if (registry.TryCreate(
+                        clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId))
                     {
                         registry.Invalidate(sessionId, connectionId);
                     }
@@ -201,8 +287,10 @@ public class SessionRegistryTests
         var registry = new SessionRegistry(2);
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
-        Assert.True(registry.TryCreate(ClientId.NewId(), firstConnection, out SessionId firstSession));
-        Assert.True(registry.TryCreate(ClientId.NewId(), secondConnection, out SessionId secondSession));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), firstConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId firstSession));
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), secondConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId secondSession));
 
         registry.InvalidateAll();
 

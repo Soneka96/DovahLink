@@ -12,16 +12,29 @@ public interface ISessionRegistry
     /// <summary>Attempts to create a new session for a client and owning connection.</summary>
     /// <param name="clientId">The client the session belongs to.</param>
     /// <param name="connectionId">The transport connection that owns the session.</param>
+    /// <param name="authenticationSource">How the owning connection authenticated at <c>hello</c>. Security-significant state; callers must always state it explicitly.</param>
+    /// <param name="trustTier">The session's initial message-authorization tier. Security-significant state; callers must always state it explicitly.</param>
     /// <param name="sessionId">Receives the new session identifier when admission succeeds.</param>
     /// <returns><see langword="true"/> when capacity admitted the session.</returns>
-    bool TryCreate(ClientId clientId, ConnectionId connectionId, out SessionId sessionId);
+    bool TryCreate(
+        ClientId clientId,
+        ConnectionId connectionId,
+        SessionAuthenticationSource authenticationSource,
+        SessionTrustTier trustTier,
+        out SessionId sessionId);
 
     /// <summary>Invalidates one session when called by its owning connection.</summary>
     /// <param name="sessionId">The session to invalidate.</param>
     /// <param name="connectionId">The connection claiming ownership of the session.</param>
     void Invalidate(SessionId sessionId, ConnectionId connectionId);
 
-    /// <summary>Invalidates every currently active session belonging to a client.</summary>
+    /// <summary>
+    /// Invalidates every currently active session belonging to a client, except a session whose
+    /// <see cref="ActiveSessionRecord.AuthenticationSource"/> is <see cref="SessionAuthenticationSource.OneTimeLocalToken"/>:
+    /// a developer-token session is never a Known Device and must not be disconnected merely because
+    /// its self-declared <see cref="ClientId"/> matches a client-scoped administrative mutation's
+    /// target. Use <see cref="InvalidateAll"/> for Factory Reset's unconditional invalidation instead.
+    /// </summary>
     /// <param name="clientId">The client whose sessions should be invalidated.</param>
     void InvalidateAllForClient(ClientId clientId);
 
@@ -75,7 +88,12 @@ public sealed class SessionRegistry : ISessionRegistry
     public int MaxActiveSessions => maxActiveSessions;
 
     /// <inheritdoc/>
-    public bool TryCreate(ClientId clientId, ConnectionId connectionId, out SessionId sessionId)
+    public bool TryCreate(
+        ClientId clientId,
+        ConnectionId connectionId,
+        SessionAuthenticationSource authenticationSource,
+        SessionTrustTier trustTier,
+        out SessionId sessionId)
     {
         lock (gate)
         {
@@ -91,20 +109,10 @@ public sealed class SessionRegistry : ISessionRegistry
             }
             while (sessionsById.ContainsKey(sessionId));
 
-            sessionsById[sessionId] = new ActiveSessionRecord(sessionId, clientId, connectionId, SessionState.Active);
+            sessionsById[sessionId] = new ActiveSessionRecord(
+                sessionId, clientId, connectionId, SessionState.Active, authenticationSource, trustTier);
             return true;
         }
-    }
-
-    /// <summary>Creates a session or rejects the connection when the admission bound is full.</summary>
-    public SessionId Create(ClientId clientId, ConnectionId connectionId)
-    {
-        if (!TryCreate(clientId, connectionId, out SessionId sessionId))
-        {
-            throw new InvalidOperationException("The active session capacity has been reached.");
-        }
-
-        return sessionId;
     }
 
     /// <inheritdoc/>
@@ -125,7 +133,8 @@ public sealed class SessionRegistry : ISessionRegistry
         lock (gate)
         {
             foreach (SessionId sessionId in sessionsById
-                .Where(pair => pair.Value.ClientId.Equals(clientId))
+                .Where(pair => pair.Value.ClientId.Equals(clientId) &&
+                    pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())
             {
