@@ -142,7 +142,12 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// outbound queue was already completed by an in-progress orderly close is never misclassified
     /// as a queue overflow: forcing in that case would cancel the shared writer cancellation
     /// immediately, destroying the very drain opportunity <see cref="RequestClose"/> exists to give
-    /// an already-admitted frame.
+    /// an already-admitted frame. <see cref="RequestClose"/> and <see cref="TrySend"/> are both
+    /// documented as callable from any thread at any point in the connection's lifetime, so every
+    /// access goes through <see cref="Volatile"/> rather than a plain read/write: without it, a
+    /// concurrent <see cref="TrySend"/> could observe a stale <see langword="false"/> published by a
+    /// racing <see cref="RequestClose"/> call and still take the forced-close path this field exists
+    /// to rule out.
     /// </summary>
     private bool orderlyCloseInProgress;
 
@@ -336,7 +341,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// </summary>
     private void RequestForcedCloseForUnadmittedMessage()
     {
-        if (orderlyCloseInProgress)
+        if (Volatile.Read(ref orderlyCloseInProgress))
         {
             return;
         }
@@ -354,7 +359,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <inheritdoc/>
     public void RequestClose()
     {
-        orderlyCloseInProgress = true;
+        Volatile.Write(ref orderlyCloseInProgress, true);
         outbound.Writer.TryComplete();
         _ = InterruptReadOnceOutboundDrainsAsync();
     }
