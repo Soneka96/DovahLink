@@ -10,6 +10,14 @@ public sealed class BlockingAfterFirstWriteStream : Stream
     /// <summary>The stream reads and the first write are delegated to.</summary>
     private readonly Stream inner;
 
+    /// <summary>
+    /// Whether a blocked write ignores its own cancellation token instead of honoring it, for
+    /// simulating a write blocked in a raw syscall that only a hard transport disposal can ever
+    /// unblock -- the passed token alone (a per-write deadline, an aborted WebSocket cascading its
+    /// own internal token, or both) is deliberately never enough by itself.
+    /// </summary>
+    private readonly bool ignoreCancellation;
+
     /// <summary>Completes when a blocked write should be allowed to proceed.</summary>
     private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -21,7 +29,17 @@ public sealed class BlockingAfterFirstWriteStream : Stream
 
     /// <summary>Creates a stream that delegates its first write to <paramref name="inner"/> but blocks every write after that.</summary>
     /// <param name="inner">The stream reads and the first write are delegated to.</param>
-    public BlockingAfterFirstWriteStream(Stream inner) => this.inner = inner;
+    /// <param name="ignoreCancellation">
+    /// When <see langword="true"/>, a blocked write ignores its own cancellation token and can only be
+    /// unblocked by <see cref="Release"/> or disposal, simulating a write stuck in a raw syscall that
+    /// no amount of token cancellation alone can interrupt. Defaults to <see langword="false"/>, which
+    /// preserves this type's original behavior of honoring the token passed to <see cref="WriteAsync"/>.
+    /// </param>
+    public BlockingAfterFirstWriteStream(Stream inner, bool ignoreCancellation = false)
+    {
+        this.inner = inner;
+        this.ignoreCancellation = ignoreCancellation;
+    }
 
     /// <summary>Gets a task that completes once a write after the first has actually started blocking.</summary>
     public Task BlockedWriteStarted => blockedWriteStarted.Task;
@@ -79,7 +97,15 @@ public sealed class BlockingAfterFirstWriteStream : Stream
         }
 
         blockedWriteStarted.TrySetResult();
-        await release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (ignoreCancellation)
+        {
+            await release.Task.ConfigureAwait(false);
+        }
+        else
+        {
+            await release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
     }
 

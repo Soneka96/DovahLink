@@ -188,6 +188,22 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// </summary>
     private int diagnosticReported;
 
+    /// <summary>
+    /// Whether this connection's teardown has already begun, written by <see cref="RunAsync"/> before
+    /// it completes <see cref="outbound"/>'s writer, for any reason -- an orderly close, cancellation,
+    /// a protocol violation, or a write failure. Checked alongside <see cref="orderlyCloseInProgress"/>
+    /// by <see cref="RequestForcedCloseForUnadmittedMessage"/>, so a <see cref="TrySend"/> that arrives
+    /// after teardown has already ended the connection fails silently instead of reporting a spurious
+    /// <see cref="PublicWebSocketConnectionEndReason.OutboundCapacityExceeded"/> for a connection that
+    /// was never actually near capacity, and by <see cref="WriterLoopAsync"/>'s own failure handling, so
+    /// a write that only fails because teardown already disposed the transport out from under it is
+    /// never misreported as the genuine <see cref="PublicWebSocketConnectionEndReason.WriteFailure"/>
+    /// root cause. <see cref="RequestClose"/> and <see cref="TrySend"/> are both callable from any
+    /// thread at any point in the connection's lifetime, so every access goes through
+    /// <see cref="Volatile"/> for the same reason <see cref="orderlyCloseInProgress"/> does.
+    /// </summary>
+    private bool connectionEnded;
+
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="messageHandler">The handler this connection delegates inbound messages and disconnection to.</param>
@@ -230,7 +246,13 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        using var writerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, selfRequestedClose.Token);
+        // Not a `using` declaration: WriterLoopAsync can still be running -- and still touching this
+        // source's Token, Cancel(), and IsCancellationRequested -- after this method's own bounded
+        // teardown waits below give up on it. Disposing it here regardless would race those accesses
+        // and throw ObjectDisposedException out of an abandoned writer task. Ownership of disposal is
+        // handed to the writerTask continuation at the end of the finally block instead, which cannot
+        // run until WriterLoopAsync's body has fully finished touching this source.
+        var writerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, selfRequestedClose.Token);
         using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(writerCancellation.Token, orderlyCloseRequested.Token);
         WebSocket? webSocket = null;
         bool upgraded = false;
@@ -254,6 +276,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
         finally
         {
+            Volatile.Write(ref connectionEnded, true);
             outbound.Writer.TryComplete();
             if (upgraded)
             {
@@ -305,6 +328,22 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             await stream.DisposeAsync().ConfigureAwait(false);
             selfRequestedClose.Dispose();
             orderlyCloseRequested.Dispose();
+
+            // Dispose writerCancellation only once WriterLoopAsync (writerTask) has itself reached a
+            // terminal state -- never from this method directly, which would race the writer's own
+            // Token/Cancel()/IsCancellationRequested accesses if it is still running past the bounded
+            // waits above. Runs even when the upgrade never happened, since writerTask is then already
+            // the completed sentinel from the field initializer. Observes any antecedent exception
+            // first so a genuine (if currently unreachable, since WriterLoopAsync itself catches every
+            // exception it can throw) writer fault can never surface as an unobserved task exception.
+            _ = writerTask.ContinueWith(
+                static (task, state) =>
+                {
+                    _ = task.Exception;
+                    ((CancellationTokenSource)state!).Dispose();
+                },
+                writerCancellation,
+                TaskScheduler.Default);
         }
     }
 
@@ -405,15 +444,19 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// once an orderly close has started, the outbound queue is deliberately completed and every
     /// further <see cref="TrySend"/> naturally fails the same way a genuine overflow would, but that
     /// failure must not be treated as a fresh reason to force-cancel the writer out from under a
-    /// frame <see cref="RequestClose"/> already admitted and is still giving a chance to drain. Safe
-    /// to call from any thread and at any point in the connection's lifetime: a call before
+    /// frame <see cref="RequestClose"/> already admitted and is still giving a chance to drain.
+    /// Equally a no-op once <see cref="connectionEnded"/> is set: a stale <see cref="TrySend"/> that
+    /// arrives after ordinary teardown already completed the outbound queue for an unrelated reason
+    /// (a peer-initiated close, cancellation, or a protocol violation) fails the same natural way,
+    /// and must not be reported as a capacity overflow that never actually happened. Safe to call
+    /// from any thread and at any point in the connection's lifetime: a call before
     /// <see cref="RunAsync"/> has started is never lost, since <see cref="RunAsync"/> always links
     /// its shared I/O cancellation to <see cref="selfRequestedClose"/>; a call after
     /// <see cref="RunAsync"/> has already ended and disposed it is a no-op instead.
     /// </summary>
     private void RequestForcedCloseForUnadmittedMessage()
     {
-        if (Volatile.Read(ref orderlyCloseInProgress))
+        if (Volatile.Read(ref orderlyCloseInProgress) || Volatile.Read(ref connectionEnded))
         {
             return;
         }
@@ -776,8 +819,22 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 }
                 catch (Exception)
                 {
-                    writerFaulted = true;
-                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.WriteFailure);
+                    // A failure while the connection is still active is a genuine write failure. A
+                    // failure once RunAsync's own teardown has already begun -- for any reason -- is
+                    // instead this send losing a race against that teardown disposing the transport
+                    // out from under it (see RunAsync's bounded writerTask waits and its unconditional
+                    // Dispose()/Abort() once they give up); reporting that as WriteFailure would blame
+                    // the write for a connection that was already ending for an unrelated reason. A
+                    // write that fails independently at nearly the same instant teardown begins for an
+                    // unrelated reason is an inherent, accepted race in which reason wins -- the same
+                    // "whichever call wins is the true root cause" tradeoff ReportAbnormalEnd's own
+                    // single-report guarantee already makes for every other concurrent reporting path.
+                    if (!Volatile.Read(ref connectionEnded))
+                    {
+                        writerFaulted = true;
+                        ReportAbnormalEnd(PublicWebSocketConnectionEndReason.WriteFailure);
+                    }
+
                     writerCancellation.Cancel();
                     return;
                 }

@@ -2061,6 +2061,108 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>
+    /// Verifies that a writer blocked in a send that ignores its own cancellation token entirely --
+    /// simulating a raw syscall write no token alone can interrupt -- does not prevent
+    /// <see cref="PublicWebSocketConnection.RunAsync"/> from returning within its bounded teardown
+    /// window, and that once teardown's own transport disposal eventually unblocks and fails that
+    /// send, the abandoned writer settles cleanly: no <see cref="ObjectDisposedException"/> escapes
+    /// from touching the shared writer cancellation source, no unobserved task exception ever
+    /// surfaces, and -- since this connection ends via an ordinary peer-initiated close, not a write
+    /// failure -- no diagnostic is reported at all.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_WriterBlockedIgnoringCancellationDuringTeardown_ReturnsWithinBoundAndReportsNoFalseDiagnostic()
+    {
+        var unobservedExceptions = new List<Exception>();
+        void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            unobservedExceptions.Add(e.Exception);
+            e.SetObserved();
+        }
+
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        try
+        {
+            var handler = new FakePublicWebSocketMessageHandler();
+            var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+            (TcpListener listener, int port) = StartLoopbackListener();
+            Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+            using var clientWebSocket = new ClientWebSocket();
+            Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+            using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+            var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream(), ignoreCancellation: true);
+            var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(150));
+            var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, options: options, diagnostics: diagnostics);
+            Task runTask = connection.RunAsync(CancellationToken.None);
+            await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+            // The handshake response was the first write; this TrySend's frame is the second and
+            // blocks until Release() or disposal, ignoring every cancellation RunAsync's own teardown
+            // could otherwise use to unblock it.
+            Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+            await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+            // An ordinary peer-initiated close (not a protocol violation, not RequestClose()) starts
+            // teardown while the writer stays genuinely, indefinitely blocked.
+            await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+
+            var stopwatch = Stopwatch.StartNew();
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+                $"RunAsync took {stopwatch.Elapsed} to return despite a writer that ignores cancellation; " +
+                "its own bounded teardown waits must still let it return without waiting on the writer forever.");
+
+            // RunAsync's own transport disposal is what finally releases the blocked write (see
+            // BlockingAfterFirstWriteStream.Dispose); give the now-abandoned writer task a moment to
+            // observe that, fail the send against the disposed stream, and finish running.
+            await Task.Delay(TimeSpan.FromMilliseconds(300));
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.Empty(diagnostics.Reports);
+            Assert.Empty(unobservedExceptions);
+            listener.Stop();
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+        }
+    }
+
+    /// <summary>
+    /// Verifies that a <see cref="PublicWebSocketConnection.TrySend"/> call arriving after an ordinary
+    /// peer-initiated close has already ended the connection fails the same way a stale send during an
+    /// orderly close does -- silently -- rather than reporting
+    /// <see cref="PublicWebSocketConnectionEndReason.OutboundCapacityExceeded"/> for a connection that
+    /// was never actually near capacity.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_AfterOrdinaryPeerInitiatedTeardown_FailsWithoutReportingCapacityExceeded()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, diagnostics: diagnostics);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late")));
+        Assert.Empty(diagnostics.Reports);
+        listener.Stop();
+    }
+
     /// <summary>Starts a loopback <see cref="TcpListener"/> on an operating-system-assigned port.</summary>
     private static (TcpListener Listener, int Port) StartLoopbackListener()
     {
