@@ -69,6 +69,16 @@ and rejection/close decisions.
   trust for races after admission; commit a successful one-time developer token only after session
   admission succeeds; then mark the socket authenticated and send `hello_ack`/capabilities. A full
   session slot must not consume a retryable one-time token.
+- Enforce the approved 10-second pre-authentication hello deadline from
+  `ai/context/protocol/security.md`'s "Input limits" and "Connection liveness": once a connection
+  completes the WebSocket upgrade, this concept starts that deadline and owns its semantics -- the
+  transport layer only supplies the generic mechanism (`IPublicConnectionContext.RequestClose()`)
+  to close the exact connection, and must not itself know what `hello` means or gain a
+  transport-level `HelloTimeout`/`WaitForHelloAsync` API of its own. A valid `hello` accepted before
+  the deadline atomically cancels it; a deadline that fires first closes that exact connection and
+  releases its slot without admitting a late `hello`. The deadline is scoped to one connection's
+  exact lifetime and is never reused, restarted, or capable of affecting a later reconnect's own
+  connection/deadline.
 
 ## Invariants
 
@@ -79,6 +89,12 @@ and rejection/close decisions.
 - A session cannot be transferred across sockets or reused after teardown.
 - Public errors contain canonical codes without credentials, filesystem paths, or raw exceptions.
 - Authentication and session decisions remain host-owned and do not depend on adapter availability.
+- A transport-live, not-yet-admitted connection can never hold the single public admission slot past
+  the approved 10-second pre-authentication hello deadline merely by continuing to answer WebSocket
+  Ping/Pong; that liveness signal does not extend or substitute for this deadline. A pre-auth
+  deadline belongs to exactly one connection's exact lifetime: a deadline that outlives its own
+  connection's teardown can never fire against, close, or otherwise affect a different (including a
+  same-client reconnect's) connection.
 
 ## Allowed files/modules
 
@@ -125,6 +141,23 @@ Expected focused test files:
 - Socket loss, timeout, cancellation, and host shutdown invalidate sessions exactly once.
 - Canonical error/session envelope behavior is tested with independent C# clients and existing
   fixtures where the current contract permits it.
+- A connection that completes the WebSocket upgrade but never sends `hello`, while remaining
+  WebSocket-liveness-compliant (continuing to answer Ping/Pong), is closed once the approved
+  10-second pre-authentication hello deadline elapses, and its listener admission slot becomes
+  reusable.
+- A valid `hello` accepted before the 10-second deadline cancels the pending eviction; the
+  connection is not later closed by that former deadline.
+- A `hello` accepted concurrently with the deadline firing produces exactly one authoritative
+  outcome: either the session is admitted and never subsequently closed by the deadline, or the
+  deadline closes the connection and no `hello` received after that point is admitted. No interleaving
+  admits a session that a racing deadline then still closes.
+- A pre-auth deadline belongs to its own connection's exact lifetime: a stale deadline left over from
+  a connection that has already ended must never close, or otherwise affect, a different connection,
+  including a same-client reconnect that begins after the first connection's deadline was already
+  running.
+- After a connection occupying the single public admission slot is evicted by this deadline for
+  never completing `hello`, a subsequent connection can successfully occupy that slot and proceed
+  through ordinary admission.
 
 ## Non-goals
 

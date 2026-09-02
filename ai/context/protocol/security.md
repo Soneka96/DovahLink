@@ -302,6 +302,17 @@ message shape. This phase is that phase; this section is the filled-in decision.
   replacing the prior session's generation. Runtime tests must prove that normal close, force-
   close/crash, rapid restart, timeout, and Bridge restart all recover cleanly under this policy
   before same-client takeover semantics are considered.
+- WebSocket-level liveness answers whether the peer/socket is still alive; it does not answer
+  whether the peer has completed the required initial `hello`/session-admission transition, and
+  must never be treated as a substitute for that separate question. A peer that keeps answering
+  WebSocket Ping/Pong indefinitely without ever sending a valid `hello` is still transport-live, but
+  is not admitted, and is not exempt from the "Input limits" pre-authentication hello deadline
+  above solely because it remains transport-live. A valid `hello` accepted before that deadline
+  atomically cancels it, so a timeout racing an in-flight, already-accepted admission can never
+  close a connection that has, or is concurrently, completing admission; conversely a deadline that
+  fires first closes that exact connection and releases its slot without waiting for or accepting a
+  late `hello`. The deadline belongs to one exact connection's lifetime: it is never restarted,
+  reused, or allowed to affect a later reconnect on a new connection.
 
 ## Local-OS-user threat boundary
 
@@ -356,6 +367,15 @@ The transport rejects input before application decoding when it exceeds the appr
 - maximum connected clients during the first proof: 1
 - handshake timeout: 5 seconds
 - idle connection timeout: 60 seconds without a valid heartbeat or message
+- pre-authentication hello deadline: 10 seconds. This is a distinct third deadline, not a
+  restatement of either bound above: it begins only once the WebSocket upgrade has completed (the
+  5-second handshake timeout above governs establishing the WebSocket itself, not what follows),
+  and it bounds only the wait for the required initial `hello` (the 60-second idle/liveness timeout
+  above governs an established, admitted session's WebSocket-level liveness, and answering
+  WebSocket Ping/Pong does not satisfy this deadline). A connection that has completed the WebSocket
+  upgrade but has not had a valid `hello` accepted within 10 seconds is closed on that basis alone,
+  releasing its connection slot, even while it remains WebSocket-live. See "Connection liveness"
+  below for how this deadline relates to and races the required `hello` transition.
 - bounded outbound queue: 128 messages per client, with 16 reserved control/recovery slots, 108
   Normal data slots, and 4 reserved Heavy data slots. The data slots contain one pending keyed
   Snapshot slot per registered Snapshot state area, included in the applicable data-lane total, plus

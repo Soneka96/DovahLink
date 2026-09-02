@@ -131,6 +131,19 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 - `bridgeVersion` remains required and uses the existing transitional `bridge/vcpkg.json` value without a phase-branch version bump; `bridgeInstanceId` remains the approved D1 limitation.
 - D3 is approved: Stage 4's public transport implements the approved 128-message/2 MiB outbound bound as one flat pool rather than the reserved-control/Normal/Heavy lane split, since no live data lane exists yet to compete for capacity. See `DIVERGENCES.md` D3.
 - Root `PLAN.md` is marked historical/paused reference, not implementation authority; `ROADMAP.md`, `host/PLAN.md`, and this package are authoritative for Stage 4 work.
+- Approved by the maintainer on 2026-09-02: a 10-second pre-authentication hello deadline, closing a
+  security/availability decision gap identified by a `/think` investigation the same day (a
+  transport-live connection that never sends `hello` could otherwise hold the single public
+  admission slot indefinitely by continuing to answer WebSocket Ping/Pong). The deadline starts only
+  once the WebSocket upgrade has completed -- distinct from Concept 01's approved 5-second upgrade
+  handshake timeout and 60-second liveness ceiling, neither of which changed -- and is owned by
+  Concept 02, not transport: a valid `hello` accepted before the deadline atomically cancels it, a
+  deadline that fires first closes that exact connection and releases its slot, and the deadline is
+  scoped to one connection's exact lifetime so it can never affect a later reconnect. Recorded in
+  `ai/context/protocol/security.md`'s "Input limits" and "Connection liveness" sections and in
+  `02-authentication-and-session-admission.md`'s Contracts, Invariants, and Proof obligations. This
+  pass recorded the requirement only; Concept 02 as a whole remains not started (see "Active
+  concept" below), and no production code changed.
 
 ## Deferred debt
 
@@ -199,6 +212,11 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   test to prove the corrected bound, added the slot-release-timing, concurrent-admission,
   exact-boundary, and byte-rejection-does-not-leak-the-count tests). No new test-double file: reused
   the existing `BlockingAfterFirstWriteStream`.
+- Pre-authentication hello deadline decision pass, documentation-only: `ai/context/protocol/security.md`
+  (new "Input limits" bullet and new "Connection liveness" bullet); `02-authentication-and-session-admission.md`
+  (new Contracts bullet, new Invariants bullet, five new Proof obligations bullets); this `CONTEXT.md`
+  (this decision entry, this file list, the verification note above). No `host/DovahLink.Host` or
+  `.Tests` file changed; Concept 02 remains not started.
 
 ## Verification
 
@@ -229,7 +247,9 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `host/DovahLink.Host`/`.Tests` C# transport internals and documentation, with no protocol, SDK, or
   native/adapter change
 - `python -m unittest discover -s tooling -p "test_*.py"`: 93 passed, re-run during the
-  transport-context corrective pass; unchanged
+  transport-context corrective pass; unchanged; re-run again after the pre-authentication hello
+  deadline decision pass below (documentation-only; appended to but did not alter any phrase
+  `test_repository_consistency.py` locks in `security.md`)
 - `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
   after every pass since the transport-context corrective pass
 - `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release` and
