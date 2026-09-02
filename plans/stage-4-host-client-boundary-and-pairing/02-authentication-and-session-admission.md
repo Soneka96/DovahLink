@@ -68,7 +68,12 @@ and rejection/close decisions.
   reservation; generate fresh session and response IDs; reserve the bounded session slot; recheck
   trust for races after admission; commit a successful one-time developer token only after session
   admission succeeds; then mark the socket authenticated and send `hello_ack`/capabilities. A full
-  session slot must not consume a retryable one-time token.
+  session slot must not consume a retryable one-time token. `SessionRegistry.TryCreate` reserves
+  active-session capacity immediately on success, before the trust recheck runs; when that recheck
+  rejects the connection, call `SessionRegistry.Invalidate(sessionId, connectionId)` to release the
+  reservation before returning the rejection result, so a losing race against a concurrent
+  revocation/block never permanently consumes active-session capacity. The rejection result itself
+  is unaffected by that rollback.
 - Enforce the approved 10-second pre-authentication hello deadline from
   `ai/context/protocol/security.md`'s "Input limits" and "Connection liveness": once a connection
   completes the WebSocket upgrade, this concept starts that deadline and owns its semantics -- the
