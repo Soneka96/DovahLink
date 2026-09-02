@@ -113,9 +113,14 @@ internal static class PublicWebSocketHandshake
             return HandshakeRejectReason.Malformed;
         }
 
-        if (!headers.TryGetValue("Sec-WebSocket-Version", out string? version) || version != "13")
+        if (!headers.TryGetValue("Sec-WebSocket-Version", out string? version))
         {
             return HandshakeRejectReason.Malformed;
+        }
+
+        if (version != "13")
+        {
+            return HandshakeRejectReason.UnsupportedVersion;
         }
 
         Span<byte> keyBytes = stackalloc byte[RequiredKeyBytes];
@@ -143,6 +148,29 @@ internal static class PublicWebSocketHandshake
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             $"Sec-WebSocket-Accept: {acceptKey}\r\n\r\n");
+
+    /// <summary>
+    /// Builds the raw bytes of a minimal <c>400 Bad Request</c> response for a malformed or
+    /// policy-rejected upgrade request. Carries no body and no detail about what was rejected --
+    /// the caller's local diagnostic, not this wire response, records the specific reason.
+    /// </summary>
+    internal static byte[] BuildBadRequestResponse() =>
+        Encoding.ASCII.GetBytes(
+            "HTTP/1.1 400 Bad Request\r\n" +
+            "Connection: close\r\n" +
+            "Content-Length: 0\r\n\r\n");
+
+    /// <summary>
+    /// Builds the raw bytes of a minimal <c>426 Upgrade Required</c> response for a request whose
+    /// <c>Sec-WebSocket-Version</c> this transport does not support, advertising the one version it
+    /// accepts.
+    /// </summary>
+    internal static byte[] BuildUpgradeRequiredResponse() =>
+        Encoding.ASCII.GetBytes(
+            "HTTP/1.1 426 Upgrade Required\r\n" +
+            "Connection: close\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Content-Length: 0\r\n\r\n");
 
     /// <summary>Whether an HTTP request line is a well-formed <c>GET &lt;non-empty target&gt; HTTP/1.1</c> line.</summary>
     /// <param name="requestLine">The first line of the request, without its terminating <c>\r\n</c>.</param>

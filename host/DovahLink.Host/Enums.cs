@@ -307,4 +307,7 @@ public enum HandshakeRejectReason
     /// clients only; a browser-originated request is rejected regardless of the header's value.
     /// </summary>
     DisallowedOrigin,
+
+    /// <summary>The request carried a <c>Sec-WebSocket-Version</c> header whose value is not <c>13</c>, the only version this transport supports.</summary>
+    UnsupportedVersion,
 }

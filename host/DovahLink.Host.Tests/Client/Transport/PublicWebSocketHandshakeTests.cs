@@ -118,12 +118,17 @@ public class PublicWebSocketHandshakeTests
         Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
-    /// <summary>Verifies that a missing or non-13 Sec-WebSocket-Version is rejected.</summary>
+    /// <summary>
+    /// Verifies that a missing Sec-WebSocket-Version header is rejected as generically Malformed,
+    /// distinct from a present-but-unsupported value -- there is no version to call "unsupported"
+    /// when none was offered at all.
+    /// </summary>
     [Fact]
-    public void TryParseUpgradeRequest_MissingVersionHeader_IsRejected()
+    public void TryParseUpgradeRequest_MissingVersionHeader_IsRejectedAsMalformed()
     {
         byte[] request = Encoding.ASCII.GetBytes(
             "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
@@ -131,18 +136,41 @@ public class PublicWebSocketHandshakeTests
         Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
-    /// <summary>Verifies that an unsupported Sec-WebSocket-Version is rejected.</summary>
+    /// <summary>
+    /// Verifies that a Sec-WebSocket-Version header present with an unsupported value is rejected
+    /// with the distinct UnsupportedVersion reason, not the generic Malformed reason -- this is the
+    /// case that maps to an RFC 6455 426 response advertising the supported version.
+    /// </summary>
     [Fact]
-    public void TryParseUpgradeRequest_UnsupportedVersion_IsRejected()
+    public void TryParseUpgradeRequest_UnsupportedVersionValue_IsRejectedAsUnsupportedVersion()
     {
         byte[] request = Encoding.ASCII.GetBytes(
             "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
             "Upgrade: websocket\r\n" +
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 8\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.UnsupportedVersion, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a supported version value surrounded by header-value whitespace is trimmed and still accepted, not misclassified as unsupported by the newly split version gate.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_SupportedVersionWithSurroundingWhitespace_IsAccepted()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version:   13  \r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+
+        Assert.Equal(HandshakeRejectReason.None, result);
+        Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
     }
 
     /// <summary>Verifies that a missing Sec-WebSocket-Key is rejected.</summary>
@@ -588,6 +616,33 @@ public class PublicWebSocketHandshakeTests
         Assert.Contains("Upgrade: websocket\r\n", text);
         Assert.Contains("Connection: Upgrade\r\n", text);
         Assert.Contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n", text);
+        Assert.EndsWith("\r\n\r\n", text);
+    }
+
+    /// <summary>Verifies that the built response is a minimal 400 with no body and no rejection detail.</summary>
+    [Fact]
+    public void BuildBadRequestResponse_ContainsTheExpectedStatusLineAndHeaders()
+    {
+        byte[] response = PublicWebSocketHandshake.BuildBadRequestResponse();
+
+        string text = Encoding.ASCII.GetString(response);
+        Assert.StartsWith("HTTP/1.1 400 Bad Request\r\n", text);
+        Assert.Contains("Connection: close\r\n", text);
+        Assert.Contains("Content-Length: 0\r\n", text);
+        Assert.EndsWith("\r\n\r\n", text);
+    }
+
+    /// <summary>Verifies that the built response is a minimal 426 advertising the one supported version.</summary>
+    [Fact]
+    public void BuildUpgradeRequiredResponse_ContainsTheExpectedStatusLineAndSupportedVersion()
+    {
+        byte[] response = PublicWebSocketHandshake.BuildUpgradeRequiredResponse();
+
+        string text = Encoding.ASCII.GetString(response);
+        Assert.StartsWith("HTTP/1.1 426 Upgrade Required\r\n", text);
+        Assert.Contains("Connection: close\r\n", text);
+        Assert.Contains("Sec-WebSocket-Version: 13\r\n", text);
+        Assert.Contains("Content-Length: 0\r\n", text);
         Assert.EndsWith("\r\n\r\n", text);
     }
 
