@@ -306,6 +306,11 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   existing regression test already covered this contract), re-run 15 times filtered to that test
   alone (previously 5s-then-fail, now consistently ~260-400ms) plus 3 full-suite runs, no flake in
   either
+- Full suite subsequently reached 650 passed once the six fragment-assembly tests described under
+  "Completed concepts" above were added (644 baseline + 6 new: 5 in-scope tests from the plan plus 1
+  fresh-eyes addition covering external cancellation mid-assembly) -- this is the later, current
+  count; the 644 entry above is left as the historical baseline it was recorded against, per this
+  document's own append-only convention for this section.
 - `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
   after every pass since the transport-context corrective pass
 - `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release` and
