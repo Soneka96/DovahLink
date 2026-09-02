@@ -800,8 +800,9 @@ public class PairingScenarioTests
     /// <summary>
     /// Verifies the auto-renotify path: when a client submits an incorrect code,
     /// the outcome is "invalid" (challenge persists), the bridge auto-redisplays the code via
-    /// in-game notification (harness signals this with PAIRING_CODE_INCORRECT line), and the expiry
-    /// is refreshed. The owning client may continue attempting with the original code.
+    /// in-game notification (harness signals this with PAIRING_CODE_INCORRECT line), and the original
+    /// expiry deadline is preserved, not extended or reset. The owning client may continue attempting
+    /// with the original code.
     /// </summary>
     [Fact]
     public async Task WrongCodeTriggersAutoRenotifyWithoutConsumingAttempt()
