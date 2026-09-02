@@ -30,6 +30,46 @@ Future<String> _readPairingCode(HarnessProcess harness) async {
   return line.substring(prefix.length);
 }
 
+/// Bounded retry budget for reconnecting to the same harness process immediately after
+/// `disconnect()`; see [_reconnectWithAdmissionRetry].
+const int _reconnectAdmissionAttempts = 20;
+
+/// Delay between reconnect-admission retries.
+const Duration _reconnectAdmissionRetryDelay = Duration(milliseconds: 100);
+
+/// Reconnects a fresh `DovahLinkClient` sharing [storage] to [bridgeUri] and calls `hello()`,
+/// retrying a bounded number of times if admission reports `unauthorized`.
+///
+/// The Bridge (`kMaxConnectedClients == 1`) releases its previous session slot asynchronously,
+/// across the process boundary, after this SDK's `disconnect()` future has already resolved on the
+/// client side. Reconnecting to the *same* harness process immediately after `disconnect()` can
+/// therefore race that release and see a spurious `unauthorized` rejection -- a test-harness
+/// lifecycle race, not a retryable production condition (`ai/context/integration/testing.md`).
+/// Each failed attempt is disposed before retrying, since a rejected `hello()` still leaves a live
+/// but unauthenticated socket.
+/// @throws DovahLinkProtocolException if admission still reports `unauthorized` after
+/// [_reconnectAdmissionAttempts] attempts, or immediately for any other rejection code.
+Future<(DovahLinkClient, HelloResult)> _reconnectWithAdmissionRetry(
+  IClientStorage storage,
+  Uri bridgeUri,
+) async {
+  for (int attempt = 1; ; attempt++) {
+    final DovahLinkClient client = DovahLinkClient(storage: storage);
+    await client.connect(bridgeUri);
+    try {
+      final HelloResult result = await client.hello();
+      return (client, result);
+    } on DovahLinkProtocolException catch (e) {
+      await client.disconnect();
+      if (e.code != ProtocolErrorCode.unauthorized ||
+          attempt >= _reconnectAdmissionAttempts) {
+        rethrow;
+      }
+      await Future<void>.delayed(_reconnectAdmissionRetryDelay);
+    }
+  }
+}
+
 /// Starts an isolated harness, ready for a pairing scenario against it.
 Future<HarnessProcess> _startHarness() async {
   final HarnessProcess harness = await HarnessProcess.start(
@@ -96,10 +136,9 @@ void main() {
         // the same storage (simulating an app restart on the same installation), proving both the
         // bridge's trust store and this SDK's own persistence actually kept it.
         await client.disconnect();
-        final DovahLinkClient reconnected = DovahLinkClient(storage: storage);
+        final (DovahLinkClient reconnected, HelloResult reconnectResult) =
+            await _reconnectWithAdmissionRetry(storage, harness.bridgeUri);
         addTearDown(reconnected.disconnect);
-        await reconnected.connect(harness.bridgeUri);
-        final HelloResult reconnectResult = await reconnected.hello();
 
         expect(reconnectResult.trustState, DovahLinkTrustState.trusted);
       },
@@ -171,10 +210,9 @@ void main() {
         // A new DovahLinkClient instance sharing the same storage simulates the app relaunching
         // on the same installation. It must hello as unpaired -- the bridge has not committed the
         // pending credential as trusted yet -- then recover the interrupted confirmation.
-        final DovahLinkClient relaunched = DovahLinkClient(storage: storage);
+        final (DovahLinkClient relaunched, HelloResult helloResult) =
+            await _reconnectWithAdmissionRetry(storage, harness.bridgeUri);
         addTearDown(relaunched.disconnect);
-        await relaunched.connect(harness.bridgeUri);
-        final HelloResult helloResult = await relaunched.hello();
         expect(helloResult.trustState, DovahLinkTrustState.unpaired);
 
         final DovahLinkTrustState recovered = await relaunched

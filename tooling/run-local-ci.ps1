@@ -49,6 +49,54 @@ if (-not $vcpkgAlreadyBootstrapped) {
 }
 $env:VCPKG_ROOT = $vcpkgRoot
 
+<#
+.SYNOPSIS
+Detects and repairs a corrupt vcpkg per-version port cache (buildtrees/versioning).
+
+.DESCRIPTION
+vcpkg checks a specific historical revision of a port out into
+buildtrees/versioning_/versions/<port>/<tree-sha>/ the first time that pinned version is needed.
+This checkout is disposable -- vcpkg regenerates it on demand from its own pinned git history --
+but an interruption partway through one checkout (a killed build, a full disk) can leave an empty
+directory present with neither a vcpkg.json manifest nor a legacy CONTROL file. vcpkg does not
+detect that on its own; it reports "port manifest missing" for every port that happens to need
+that corrupt entry in the same run, which looks like a mass unrelated-port failure rather than one
+disposable-cache bug. Detect that signature narrowly and remove only this cache, never any other
+vcpkg or tool state, so a genuine build failure elsewhere still surfaces normally.
+
+.PARAMETER VcpkgRoot
+The local vcpkg checkout root.
+#>
+function Repair-CorruptVcpkgVersioningCache {
+    param(
+        [Parameter(Mandatory = $true)][string]$VcpkgRoot
+    )
+
+    $versioningRoot = Join-Path $VcpkgRoot "buildtrees\versioning_"
+    $versionsRoot = Join-Path $versioningRoot "versions"
+    if (-not (Test-Path -LiteralPath $versionsRoot -PathType Container)) {
+        return
+    }
+
+    $portVersionCheckouts = Get-ChildItem -LiteralPath $versionsRoot -Directory -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Directory -ErrorAction SilentlyContinue) }
+    $isCorrupt = $false
+    foreach ($checkout in $portVersionCheckouts) {
+        $hasManifest = (Test-Path -LiteralPath (Join-Path $checkout.FullName "vcpkg.json") -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $checkout.FullName "CONTROL") -PathType Leaf)
+        if (-not $hasManifest) {
+            $isCorrupt = $true
+            break
+        }
+    }
+
+    if ($isCorrupt) {
+        Write-Host "Detected a corrupt vcpkg per-version port cache at '$versioningRoot' (a port checkout is missing its manifest); removing this disposable cache so vcpkg regenerates it."
+        Remove-Item -LiteralPath $versioningRoot -Recurse -Force
+    }
+}
+Repair-CorruptVcpkgVersioningCache -VcpkgRoot $vcpkgRoot
+
 $cmakeCandidates = @(
     (Join-Path $env:ChocolateyInstall "bin\cmake.exe"),
     "C:\Program Files\CMake\bin\cmake.exe"
@@ -194,10 +242,16 @@ Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -Argumen
 
 Write-Host "=== bridge-ci ==="
 $bridgeDirectory = Join-Path $repoRoot "bridge"
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")
+# Pass the pinned Ninja path explicitly rather than letting CMake auto-detect it from PATH: CMake
+# caches whatever it finds for CMAKE_MAKE_PROGRAM in CMakeCache.txt on first configure and does not
+# reliably re-search once that variable exists in the cache, so a build directory left over from a
+# different environment (or a prior configure that aborted before writing a value) can otherwise
+# fail with "CMAKE_MAKE_PROGRAM is not set" even though the pinned Ninja above resolved and
+# verified correctly. The -D here always wins over the cache and stays consistent every run.
+Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
 Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")
 Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")
+Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
 Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")
 Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @(
     "--test-dir", "build/windows-x64-release", "--output-on-failure"
