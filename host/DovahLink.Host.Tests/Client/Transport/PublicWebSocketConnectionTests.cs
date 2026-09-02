@@ -296,6 +296,40 @@ public class PublicWebSocketConnectionTests
         client.Dispose();
     }
 
+    /// <summary>
+    /// Verifies that an otherwise-valid handshake carrying an Origin header ends the connection with
+    /// the distinct DisallowedOrigin diagnostic rather than InvalidHandshake, and that it is reported
+    /// exactly once -- the single-element list equality below is itself the proof that no diagnostic
+    /// is double-reported for this rejection path, matching the same property the InvalidHandshake
+    /// tests above already prove for theirs.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_HandshakeWithOriginHeader_EndsWithDisallowedOriginDiagnostic()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, diagnostics: diagnostics);
+
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin: https://evil.example\r\n\r\n");
+        await client.WriteAsync(request);
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(0, handler.ConnectionEndedCalls);
+        Assert.Equal(0, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.DisallowedOrigin], diagnostics.Reports);
+        client.Dispose();
+    }
+
     /// <summary>Verifies that a handshake request exceeding the configured byte bound ends the connection without an unbounded buffer.</summary>
     [Fact]
     public async Task RunAsync_OversizedHandshakeRequest_EndsWithoutAcceptingOrThrowing()

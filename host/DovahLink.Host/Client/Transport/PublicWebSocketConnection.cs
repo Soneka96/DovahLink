@@ -530,9 +530,12 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             return null;
         }
 
-        if (PublicWebSocketHandshake.TryParseUpgradeRequest(requestBuffer.AsSpan(0, length), out string acceptKey) != HandshakeRejectReason.None)
+        HandshakeRejectReason rejectReason = PublicWebSocketHandshake.TryParseUpgradeRequest(requestBuffer.AsSpan(0, length), out string acceptKey);
+        if (rejectReason != HandshakeRejectReason.None)
         {
-            ReportAbnormalEnd(PublicWebSocketConnectionEndReason.InvalidHandshake);
+            ReportAbnormalEnd(rejectReason == HandshakeRejectReason.DisallowedOrigin
+                ? PublicWebSocketConnectionEndReason.DisallowedOrigin
+                : PublicWebSocketConnectionEndReason.InvalidHandshake);
             return null;
         }
 

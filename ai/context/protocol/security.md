@@ -12,6 +12,12 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 - The token is supplied out of band by the maintainer during development and is never committed, persisted in source, or sent to a non-loopback peer.
 - LAN, Wi-Fi, or remote-device support is blocked until the maintainer approves a pairing and authentication design.
 - A configuration value or command-line flag must not silently bypass the loopback restriction.
+- The public WebSocket endpoint serves native DovahLink clients only. A handshake request carrying
+  an `Origin` header is rejected regardless of its value -- including `http://localhost` and
+  `null` -- because that header only ever appears on a browser-originated request; a native client
+  does not send it. There is no origin allowlist: this is an intentional no-browser-clients policy,
+  not a placeholder for one, and a browser origin is never treated as privileged merely because it
+  happens to be loopback.
 
 ## Persistent local trust
 

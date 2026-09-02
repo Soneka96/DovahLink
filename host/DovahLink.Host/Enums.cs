@@ -285,6 +285,9 @@ public enum PublicWebSocketConnectionEndReason
 
     /// <summary>Sending a queued outbound frame to the peer failed.</summary>
     WriteFailure,
+
+    /// <summary>The handshake request carried a browser <c>Origin</c> header, which this endpoint intentionally does not accept.</summary>
+    DisallowedOrigin,
 }
 
 /// <summary>
