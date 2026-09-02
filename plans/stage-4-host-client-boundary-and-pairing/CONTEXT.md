@@ -134,6 +134,40 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   the same lock-free `Interlocked` reserve-then-rollback idiom the byte accounting already used, so
   `TrySend` remains non-blocking and safe under concurrent callers. Fully within Concept 01's existing
   allowlist; no Stage 5 traffic-lane work was introduced.
+- A pre-upgrade allocation-lifetime finding: the constructor unconditionally allocated the 1 MiB
+  `messageBuffer` (`Constants.PublicWebSocketMaxMessageBytes`, onto the .NET Large Object Heap) and
+  the 4 KiB `receiveChunk` before the WebSocket upgrade was even attempted, so a connection that
+  never completed the handshake, sent malformed HTTP, timed out, or disconnected immediately still
+  paid the full allocation. Fixed by moving both to locals allocated in `RunAsync`'s
+  `if (webSocket is not null)` branch, passed into `ReadLoopAsync` as parameters instead of fields,
+  so the allocation is now structurally reachable only after a real WebSocket upgrade succeeded. No
+  size limit, handshake behavior, or other transport behavior changed; the existing handshake-timeout,
+  malformed/oversized-handshake, and message-bound tests cover this unchanged, re-verified at
+  644/644 passed with no new tests required.
+- A fragment-trickling resource-exhaustion finding: the inbound message-rate limit
+  (`MaxInboundMessagesPerSecond`) only ever ran once a message reached `EndOfMessage == true`, so a
+  peer could hold the single admission slot indefinitely by sending one incomplete message a tiny
+  fragment at a time, never charged against the rate limit and never time-bounded (the 1 MiB
+  `MaxMessageBytes` bound only caps total bytes, not assembly time). Maintainer approved a 5-second
+  fragment-assembly deadline, recorded in `ai/context/protocol/security.md`'s "Input limits" as a
+  bound distinct from the completed-message rate limit and the idle/liveness timeout. Implemented as
+  `Constants.PublicWebSocketFragmentAssemblyTimeout` /
+  `PublicWebSocketTransportOptions.FragmentAssemblyTimeout`, enforced entirely inside
+  `ReadLoopAsync`: a `CancellationTokenSource` created at most once per message, on its first
+  non-final fragment, never recreated or `CancelAfter`'d again by later fragments of that message
+  (anchoring it to the first fragment is what closes the trickle gap -- a per-fragment reset would
+  only move it), disposed the instant the message completes (before dispatch, so a deadline that
+  was about to fire can never be mistaken for a reason to close an already-fully-received message)
+  or, for every other exit path, in the read loop's own `finally`. Deliberately does not reuse the
+  two-independent-timers shape the `NotifyDisconnectedAsync` fix above had to close: only the
+  per-iteration linked-token *wrapper* (needed because `WebSocket.ReceiveAsync` takes one token) is
+  recreated per fragment, never the deadline's own single timer. `MaxInboundMessagesPerSecond` still
+  counts only completed messages (proven by a new test showing one two-fragment message consumes
+  exactly one rate-limit slot), `MaxMessageBytes` is unchanged, and WebSocket-level liveness remains
+  a separate, untouched concern. Six new focused tests plus reliance on existing
+  unfragmented-message and oversized-fragment tests as regression; 650/650 passed (5 in-scope tests
+  from the plan plus 1 fresh-eyes addition covering external cancellation mid-assembly), the new
+  fragment-timing tests re-run without flake.
 
 ## Decisions and approved deviations
 

@@ -298,4 +298,15 @@ public static class Constants
     /// connection admission slot open.
     /// </summary>
     public static readonly TimeSpan PublicWebSocketDisconnectNotificationTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The maximum time one incomplete fragmented inbound WebSocket message may remain open, anchored
+    /// to its first fragment and never extended by later fragments of the same message. Closes a
+    /// resource-exhaustion gap distinct from <see cref="PublicWebSocketMaxMessagesPerSecond"/> (which
+    /// only counts completed messages) and <see cref="PublicWebSocketMaxMessageBytes"/> (which bounds
+    /// total bytes but not assembly time): without this bound, a peer could keep one message open
+    /// indefinitely by sending it one tiny fragment at a time. Maintainer-approved value, not reused
+    /// from any other transport deadline.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketFragmentAssemblyTimeout = TimeSpan.FromSeconds(5);
 }

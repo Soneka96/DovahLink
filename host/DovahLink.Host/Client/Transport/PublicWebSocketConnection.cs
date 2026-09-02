@@ -543,69 +543,111 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private async Task ReadLoopAsync(WebSocket webSocket, byte[] messageBuffer, byte[] receiveChunk, CancellationToken cancellationToken)
     {
         int messageLength = 0;
-        while (true)
+
+        // Bounds how long one incomplete fragmented message may stay open, independent of the
+        // completed-message rate limit below (which never sees a message until it is fully
+        // assembled) and of established WebSocket-level liveness (Ping/Pong only proves the socket
+        // is alive, not that an in-progress message is making progress). Created at most once per
+        // message, on its first non-final fragment, and never recreated or extended by a later
+        // fragment of that same message -- anchoring it to the first fragment is what closes the
+        // trickle gap; resetting it per fragment would just move the gap instead of closing it.
+        // Disposed the moment the message completes (before dispatch) or, for every other exit from
+        // this loop, in the finally below -- never left to survive this connection's own lifetime.
+        CancellationTokenSource? fragmentAssemblyDeadline = null;
+        try
         {
-            WebSocketReceiveResult result;
-            try
+            while (true)
             {
-                result = await webSocket.ReceiveAsync(receiveChunk, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                // The keep-alive watchdog aborted the connection after a missed pong reply; the
-                // passed token was never itself cancelled, so this is a peer-liveness failure.
-                forceCloseRequested = true;
-                return;
-            }
-            catch (WebSocketException)
-            {
-                forceCloseRequested = true;
-                return;
-            }
+                WebSocketReceiveResult result;
 
-            if (result.MessageType == WebSocketMessageType.Close)
-            {
-                return;
+                // A linked wrapper combining the connection's own cancellation with the fragment
+                // deadline, recreated each receive only because WebSocket.ReceiveAsync accepts one
+                // token; disposing this wrapper never touches fragmentAssemblyDeadline's own timer,
+                // so it carries none of the two-independent-timers disposal race NotifyDisconnectedAsync
+                // had to be fixed for elsewhere in this file.
+                using CancellationTokenSource? receiveLink = fragmentAssemblyDeadline is null
+                    ? null
+                    : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, fragmentAssemblyDeadline.Token);
+                CancellationToken receiveToken = receiveLink?.Token ?? cancellationToken;
+
+                try
+                {
+                    result = await webSocket.ReceiveAsync(receiveChunk, receiveToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (fragmentAssemblyDeadline is not null && fragmentAssemblyDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    // The fragment-assembly deadline elapsed before this message reached EndOfMessage.
+                    forceCloseRequested = true;
+                    return;
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // The keep-alive watchdog aborted the connection after a missed pong reply; the
+                    // passed token was never itself cancelled, so this is a peer-liveness failure.
+                    forceCloseRequested = true;
+                    return;
+                }
+                catch (WebSocketException)
+                {
+                    forceCloseRequested = true;
+                    return;
+                }
+
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return;
+                }
+
+                if (result.MessageType == WebSocketMessageType.Binary)
+                {
+                    forceCloseRequested = true;
+                    return;
+                }
+
+                if (messageLength + result.Count > messageBuffer.Length)
+                {
+                    forceCloseRequested = true;
+                    return;
+                }
+
+                Array.Copy(receiveChunk, 0, messageBuffer, messageLength, result.Count);
+                messageLength += result.Count;
+
+                if (!result.EndOfMessage)
+                {
+                    fragmentAssemblyDeadline ??= new CancellationTokenSource(options.FragmentAssemblyTimeout);
+                    continue;
+                }
+
+                // The message completed -- clear the deadline before any further processing so a
+                // deadline that was about to fire (or just fired) can never be mistaken for a reason
+                // to close a message that has, in fact, already been fully and successfully received.
+                fragmentAssemblyDeadline?.Dispose();
+                fragmentAssemblyDeadline = null;
+
+                if (!TryAcceptInboundMessage())
+                {
+                    forceCloseRequested = true;
+                    return;
+                }
+
+                // Bounded by cancellationToken rather than a bare await: once HandleMessageAsync has
+                // returned its Task, a handler whose Task ignores that token and never completes must
+                // not be able to block this loop -- and so RunAsync and the listener's admission slot --
+                // indefinitely. The abandoned Task keeps running in the background -- unobserved task
+                // faults are not process-fatal on this runtime -- but it can no longer hold teardown
+                // hostage once this token fires. This bounds only a returned-but-hanging Task; it cannot
+                // bound HandleMessageAsync itself blocking the calling thread synchronously before ever
+                // returning one, which is why that is a documented contract requirement on the interface
+                // instead of something this loop could otherwise guard against.
+                Task handleTask = messageHandler.HandleMessageAsync(connectionContext, messageBuffer.AsMemory(0, messageLength), cancellationToken);
+                await handleTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                messageLength = 0;
             }
-
-            if (result.MessageType == WebSocketMessageType.Binary)
-            {
-                forceCloseRequested = true;
-                return;
-            }
-
-            if (messageLength + result.Count > messageBuffer.Length)
-            {
-                forceCloseRequested = true;
-                return;
-            }
-
-            Array.Copy(receiveChunk, 0, messageBuffer, messageLength, result.Count);
-            messageLength += result.Count;
-
-            if (!result.EndOfMessage)
-            {
-                continue;
-            }
-
-            if (!TryAcceptInboundMessage())
-            {
-                forceCloseRequested = true;
-                return;
-            }
-
-            // Bounded by cancellationToken rather than a bare await: once HandleMessageAsync has
-            // returned its Task, a handler whose Task ignores that token and never completes must
-            // not be able to block this loop -- and so RunAsync and the listener's admission slot --
-            // indefinitely. The abandoned Task keeps running in the background -- unobserved task
-            // faults are not process-fatal on this runtime -- but it can no longer hold teardown
-            // hostage once this token fires. This bounds only a returned-but-hanging Task; it cannot
-            // bound HandleMessageAsync itself blocking the calling thread synchronously before ever
-            // returning one, which is why that is a documented contract requirement on the interface
-            // instead of something this loop could otherwise guard against.
-            Task handleTask = messageHandler.HandleMessageAsync(connectionContext, messageBuffer.AsMemory(0, messageLength), cancellationToken);
-            await handleTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-            messageLength = 0;
+        }
+        finally
+        {
+            fragmentAssemblyDeadline?.Dispose();
         }
     }
 

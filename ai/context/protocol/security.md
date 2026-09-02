@@ -358,6 +358,13 @@ Do not invent cryptography or treat an unencrypted pairing code as authenticatio
 The transport rejects input before application decoding when it exceeds the approved limits:
 
 - maximum frame size: 1 MiB
+- fragmented-message assembly deadline: 5 seconds. Bounds how long one incomplete WebSocket message
+  may remain open, anchored to its first fragment and never extended by later fragments of the same
+  message. Independent of the maximum inbound message rate below (which only ever counts a message
+  once it is complete) and of the idle/liveness timeout (WebSocket-level Ping/Pong proves the socket
+  is alive, not that an in-progress message is making progress): without this bound, a peer could
+  hold one message open indefinitely by trickling it in one fragment at a time, occupying the
+  connection/admission slot without ever completing an application message.
 - maximum decoded nesting depth: 32
 - maximum string length: 4 KiB
 - maximum array length: 128 items

@@ -451,6 +451,216 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>Verifies that a fragmented message left incomplete past the configured assembly deadline is force-closed.</summary>
+    [Fact]
+    public async Task RunAsync_FragmentedMessageNeverCompletes_ForceClosesAfterAssemblyDeadline()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(200));
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.SendAsync("start"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal(1, handler.DisconnectedCalls);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that later fragments of one still-incomplete message do not extend the assembly
+    /// deadline anchored by its first fragment -- the core regression this deadline exists to prove:
+    /// a deadline re-derived per fragment would let a peer trickle a message open indefinitely.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_RepeatedFragmentsBeforeExpiry_DoNotExtendAssemblyDeadline()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await clientWebSocket.SendAsync("a"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        await clientWebSocket.SendAsync("b"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+        await clientWebSocket.SendAsync("c"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        stopwatch.Stop();
+
+        // A per-fragment reset would push closure out to roughly 250ms (last fragment) + 300ms = 550ms;
+        // the correct anchored-once deadline closes around 300ms from the first fragment. 450ms sits
+        // comfortably between the two, with headroom on both sides for ordinary scheduling jitter.
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromMilliseconds(450),
+            $"Connection took {stopwatch.Elapsed} to close; a per-fragment reset would push this past 550ms instead of the correct ~300ms.");
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        listener.Stop();
+    }
+
+    /// <summary>Verifies that a fragmented message completed well inside the assembly deadline is delivered exactly once and the connection stays usable afterward.</summary>
+    [Fact]
+    public async Task RunAsync_FragmentedMessageCompletedBeforeAssemblyDeadline_DeliversOnceAndConnectionStaysUsable()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        using var cancellation = new CancellationTokenSource();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.SendAsync("hel"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await clientWebSocket.SendAsync("lo"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        Assert.Equal("hello"u8.ToArray(), Assert.Single(handler.ReceivedMessages));
+
+        // The connection must remain usable well past the fragmented message's own former deadline --
+        // proving it was fully cleared on completion rather than merely not yet fired.
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        await clientWebSocket.SendAsync("world"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 2, runTask);
+
+        Assert.Equal(["hello"u8.ToArray(), "world"u8.ToArray()], handler.ReceivedMessages);
+        Assert.False(runTask.IsCompleted);
+
+        listener.Stop();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a fragmented message beginning after an earlier one completed receives its own fresh assembly deadline, unaffected by the first message's now-cleared one.</summary>
+    [Fact]
+    public async Task RunAsync_FragmentedMessageAfterEarlierOneCompleted_GetsFreshAssemblyDeadline()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Message A: fragmented, completed quickly.
+        await clientWebSocket.SendAsync("a1"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await clientWebSocket.SendAsync("a2"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        // Longer than A's own former deadline: if A's deadline object were somehow still live, message
+        // B below would already be past its budget before it even finishes sending.
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+
+        // Message B: fragmented, completed comfortably inside its own fresh deadline.
+        await clientWebSocket.SendAsync("b1"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await clientWebSocket.SendAsync("b2"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 2, runTask);
+
+        Assert.Equal(["a1a2"u8.ToArray(), "b1b2"u8.ToArray()], handler.ReceivedMessages);
+        Assert.False(runTask.IsCompleted);
+        listener.Stop();
+    }
+
+    /// <summary>Verifies that one completed fragmented message consumes exactly one slot of the completed-message rate limit, never one slot per fragment.</summary>
+    [Fact]
+    public async Task RunAsync_FragmentedMessage_CountsAsExactlyOneAgainstInboundRateLimit()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(maxInboundMessagesPerSecond: 1);
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // One fragmented message, two fragments: if fragments were separately rate-limited, the
+        // connection would already be closed before the second, unfragmented message below is sent.
+        await clientWebSocket.SendAsync("fr"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await clientWebSocket.SendAsync("ag"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        // This second, unfragmented message exceeds the 1/sec budget the fragmented message above
+        // already consumed exactly one slot of, so it must be rejected and the connection closed.
+        await clientWebSocket.SendAsync("second"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal("frag"u8.ToArray(), Assert.Single(handler.ReceivedMessages));
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that external cancellation still propagates correctly while a fragmented message is
+    /// mid-assembly (an active fragment-assembly deadline in play), rather than being misattributed to
+    /// the deadline: the per-receive linked token combines both sources, so this proves the ordering of
+    /// the two <c>OperationCanceledException</c> catch clauses correctly favors real external
+    /// cancellation.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ExternalCancellationDuringFragmentedMessageAssembly_ThrowsAndNotifiesDisconnected()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(
+            fragmentAssemblyTimeout: TimeSpan.FromSeconds(5), gracefulCloseTimeout: TimeSpan.FromMilliseconds(200));
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Start, but never complete, a fragmented message so fragmentAssemblyDeadline is active and its
+        // token is linked into the pending ReceiveAsync call alongside the external cancellation token.
+        await clientWebSocket.SendAsync("partial"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal(1, handler.DisconnectedCalls);
+        listener.Stop();
+    }
+
     /// <summary>Verifies that a message exactly at the maximum byte bound is accepted and delivered, proving the bound rejects only what exceeds it.</summary>
     [Fact]
     public async Task RunAsync_MessageExactlyAtMaxMessageBytes_IsDeliveredToHandler()

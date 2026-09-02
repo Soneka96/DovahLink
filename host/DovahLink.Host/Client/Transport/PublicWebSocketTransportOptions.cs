@@ -65,4 +65,11 @@ public sealed record PublicWebSocketTransportOptions
     /// notification before proceeding with teardown regardless.
     /// </summary>
     public TimeSpan DisconnectNotificationTimeout { get; init; } = Constants.PublicWebSocketDisconnectNotificationTimeout;
+
+    /// <summary>
+    /// The maximum time one incomplete fragmented inbound message may remain open, anchored to its
+    /// first fragment. Independent of, and never a substitute for, <see cref="MaxInboundMessagesPerSecond"/>
+    /// (completed-message rate) or established WebSocket-level liveness (peer/socket aliveness).
+    /// </summary>
+    public TimeSpan FragmentAssemblyTimeout { get; init; } = Constants.PublicWebSocketFragmentAssemblyTimeout;
 }
