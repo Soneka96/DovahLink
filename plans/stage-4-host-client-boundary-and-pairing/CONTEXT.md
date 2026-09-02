@@ -29,10 +29,10 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 
 ## Active concept
 
-- File: `02-authentication-and-session-admission.md`
+- File: `03-pairing-and-client-dispatch.md`
 - Status: not started; awaiting explicit maintainer authorization to begin
-- Prerequisites: Concept 01 complete; Stage 2 authentication/trust/identity/session services and Stage 3 host composition available; feature branch `feature/4-host-client-boundary-and-pairing` active; cold-start handoff gate satisfied
-- Next action: Revalidate the source fingerprint and this ledger, then implement only Concept 02 once the maintainer names it as the requested scope.
+- Prerequisites: Concept 02 complete; Stage 2 authentication/trust/identity/session services and Stage 3 host composition available; feature branch `feature/4-host-client-boundary-and-pairing` active; cold-start handoff gate satisfied
+- Next action: Revalidate the source fingerprint and this ledger, then implement only Concept 03 once the maintainer names it as the requested scope.
 
 ## Completed concepts
 
@@ -168,6 +168,76 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   unfragmented-message and oversized-fragment tests as regression; 650/650 passed (5 in-scope tests
   from the plan plus 1 fresh-eyes addition covering external cancellation mid-assembly), the new
   fragment-timing tests re-run without flake.
+- `02-authentication-and-session-admission.md`: complete, built as seven independently reviewed and
+  committed `/step-build` steps. Implements typed envelope validation, hello authentication across
+  all three approved methods, replay protection, trust-tier admission, fresh session identity, the
+  approved 10-second pre-authentication admission deadline, the 3-violations-in-30-seconds close
+  policy, and the per-tier inbound allowlist including the mechanical post-admission `capabilities`/
+  `subscribe`/`snapshot_request` exchanges. Mapping `ping`/pairing/`rename_request` to their owning
+  services is explicitly Concept 03's scope: those types pass the allowlist here but produce no
+  response yet.
+  - Step 1 (flagged amendment, outside Concept 02's literal file allowlist): the approved
+    pre-authentication deadline needs the handler to obtain a `RequestClose()`-capable connection
+    reference *before any message exists* -- a deadline can fire with zero messages ever sent -- but
+    `IPublicWebSocketMessageHandler` (Concept 01's own contract) had no hook earlier than
+    `HandleMessageAsync`. Added one new, symmetric lifecycle member,
+    `HandleConnectionEstablished(IPublicConnectionContext)`, called once by
+    `PublicWebSocketConnection.RunAsync` immediately after the WebSocket upgrade completes and before
+    the read loop starts (mirroring `HandleConnectionEnded()`'s existing tolerant-of-throwing
+    contract). This is the same class of "a completed concept's seam is insufficient" gap Concept
+    01's own transport-context corrective pass hit; flagged to the maintainer before implementation
+    and approved as part of continuing the step plan. Regression: the one existing exact-`CallOrder`
+    assertion this changes (`RunAsync_ClientClose_CallsConnectionEndedBeforeDisconnectedAndBeforeReturning`)
+    was updated to include the new call; four new tests cover the hook firing exactly once before any
+    message, not firing when the handshake never completes, tolerating a throwing handler, and the
+    actual intended use (a handler scheduling a delayed `RequestClose()` from within the hook, plus
+    the synchronous-`RequestClose()`-from-within-the-hook ordering edge case against the not-yet-
+    assigned writer task).
+  - Step 2: `ActiveSessionRecord`/`ISessionRegistry.TryCreate` gained explicit
+    `SessionAuthenticationSource`/`SessionTrustTier` fields with no convenience default (security-
+    significant admission state). `InvalidateAllForClient` now exempts a `OneTimeLocalToken` session
+    from client-scoped Block/Revoke even when its self-declared `clientId` matches the target, while
+    `InvalidateAll` (Factory Reset) stays unconditional -- resolving the first half of the "Deferred
+    debt" bullet below. Removed `SessionRegistry.Create(ClientId, ConnectionId)`, a dead, untested,
+    zero-caller convenience method that could not otherwise keep a silent default for the two new
+    required parameters.
+  - Step 3 (refactor): extracted `PairingCoordinator`'s private `HashCredential`/`FixedTimeEquals`
+    into a new stateless `Trust/CredentialHasher.cs`, so verifying a `trusted_device_credential` hello
+    and `PairingCoordinator`'s own credential/code checks share one implementation. No behavior
+    change; `TrustResetService`'s own separate inline `FixedTimeEquals` (factory-reset code
+    comparison) was deliberately left alone as out of scope for this pass.
+  - Step 4: added `ITrustedCredentialFailureThrottle`/`TrustedCredentialFailureThrottle`
+    (`Client/Authentication/`), a global rolling-window failure counter mirroring
+    `ILocalConnectionTokenAuthenticator`'s own shape, kept as a separate budget from the developer-
+    token throttle per `ai/context/protocol/security.md`.
+  - Step 5: added the bounded `PublicEnvelopeCodec` and every message-specific payload DTO
+    (`Client/Protocol/`). Enforces JSON nesting depth (32), string byte length (4 KiB), array length
+    (128), and object member count (64) before materializing any typed value. Payload DTOs use C#
+    `required` init-only properties rather than positional-record constructor parameters: an initial
+    assumption that STJ enforces "required" on plain constructor parameters proved wrong under test
+    (a missing `clientId` silently deserialized to `null` instead of failing), corrected before this
+    step's tests were reported passing.
+  - Step 6 (the concept's core): added `PublicHelloAdmissionHandler`, one instance per connection,
+    implementing `IPublicWebSocketMessageHandler`. Preserves the exact admission ordering the
+    security contract requires: `ILocalConnectionTokenAuthenticator` gained `TryValidate`/
+    `CommitConsumption` alongside its existing `TryConsume` so a one-time token is validated without
+    being consumed, and is committed only once `SessionRegistry.TryCreate` and the post-reservation
+    trust recheck both succeed -- a full session slot or a losing race against a concurrent
+    administrative Block/Revoke both roll back cleanly via `SessionRegistry.Invalidate` without
+    burning a retryable token. The admission deadline and a successful `hello` race through one
+    `Interlocked.CompareExchange` outcome flag so exactly one ever wins. A fresh-eyes pass caught a
+    real bug before this step was reported done: `hello_ack.clientIdentityKind` was derived from the
+    session's trust tier rather than its authentication source, which would have reported a
+    developer-token session as `"paired"` instead of the schema's required `"unpaired"`.
+  - Step 7: added the per-tier inbound allowlist (`IsAllowedForTier`) and the `capabilities`/
+    `subscribe`/`snapshot_request` dispatch. Final-review pass found `admissionDeadlineCts` was
+    written in `HandleConnectionEstablished` and read/cancelled from `Admit`/`HandleConnectionEnded`
+    without going through the handler's own `gate` lock, despite that field's own doc comment
+    claiming full coverage; fixed to route through `gate` consistently before this step was reported
+    done.
+  - Every step's fresh-eyes subagent pass and full-suite run are recorded under "Verification" below;
+    no divergence from `DIVERGENCES.md` was required, and no file outside Concept 02's allowlist was
+    touched except the flagged Step 1 amendment above.
 
 ## Decisions and approved deviations
 
@@ -192,6 +262,9 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `02-authentication-and-session-admission.md`'s Contracts, Invariants, and Proof obligations. This
   pass recorded the requirement only; Concept 02 as a whole remains not started (see "Active
   concept" below), and no production code changed.
+- The pre-authentication hello deadline decision above is now implemented and tested by Concept 02's
+  Steps 1 and 6 (see "Completed concepts"); this entry is left as the historical decision record per
+  this document's own append-only convention.
 
 ## Deferred debt
 
@@ -199,7 +272,15 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 - Live state publication, bounded delivery, and real capture remain Stage 5 and later.
 - Pairing availability must be tied to an accepted adapter display/redisplay operation; a challenge must not be reported as available merely because a code was generated in host memory.
 - Pairing forwarding includes initial display, manual redisplay, wrong-code automatic redisplay, and the no-code attempts-exhausted notification; none of these values may leak onto the public wire.
-- Session records must retain authentication source/trust tier, and administrative invalidation must preserve reason-specific best-effort notification before close without targeting developer-token sessions through a matching self-declared `clientId`.
+- Resolved by Concept 02, Step 2: session records now retain authentication source and trust tier
+  (`ActiveSessionRecord`), and `SessionRegistry.InvalidateAllForClient` exempts a developer-token
+  session from client-scoped Block/Revoke through a matching self-declared `clientId`. Still open:
+  administrative invalidation's reason-specific best-effort `session_invalidated` notification before
+  close requires routing from a `clientId`/`sessionId` to the exact live connection that owns it,
+  which no current concept builds yet -- Concept 02's `PublicHelloAdmissionHandler` only invalidates
+  its own connection's session on local teardown (`HandleConnectionEnded`), never a session it does
+  not own. This routing, and wiring `TrustAdminService`'s mutations to it, belongs to Concept 04
+  ("completes the host composition root"), per the concept graph in `PLAN.md`.
 - Resolved by Concept 01: the public transport enforces the approved bounded outbound queue even though Stage 4 has no live data lane; responses cannot accumulate without bound. See the flat-pool-versus-lane-split nuance recorded further below.
 - The frozen bridge remains production and owns port `58231` until the later cutover gate; Stage 4 must not activate replacement packaging beside it.
 - Private adapter coverage includes host→adapter pairing notifications and adapter→host Papyrus trust administration (`help`, `list`, `revoke`, `block`, `unblock`, `forget`, `reset-trust`, `reset`, `confirm-reset`) with typed correlation-scoped messages.
@@ -212,14 +293,13 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `PublicWebSocketTransportOptions.OutboundQueueMaxMessages`/`OutboundQueueMaxBytes` by traffic
   class before publishing state, so a slow client under publication pressure cannot delay or crowd
   out control-message delivery.
-- Concept 02 must prove its `IPublicWebSocketMessageHandler.HandleConnectionEnded()` implementation
-  invalidates the exact socket's authenticated session, performs only local/in-memory lifecycle work,
-  is idempotent-safe, cannot block on network/disk/adapter I/O, and cannot throw under normal
-  session-registry conditions. Concept 01's transport tolerates a throwing `HandleConnectionEnded()`
-  so a handler bug can never leak the socket, but that same tolerance means an authenticated session
-  is not guaranteed removed if Concept 02's implementation throws before completing invalidation;
-  Concept 02 owns closing that gap, not a further Concept 01 change. Best-effort secondary cleanup
-  belongs in `HandleDisconnectedAsync()` instead.
+- Resolved by Concept 02, Step 6: `PublicHelloAdmissionHandler.HandleConnectionEnded()` invalidates
+  the exact socket's session via `SessionRegistry.Invalidate(sessionId, connectionId)`, is a fast
+  local/in-memory operation with no I/O, is a no-op when never admitted, and cannot throw under
+  normal session-registry conditions (`FakeSessionRegistry`'s own `Invalidate` never throws).
+  `HandleDisconnectedAsync()` is an immediate `Task.CompletedTask`; best-effort secondary cleanup
+  beyond mandatory invalidation is not yet needed since Concept 02 introduces no other per-connection
+  resource to release.
 
 ## Changed files
 
@@ -269,6 +349,36 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   (`notifyDeadline.Cancel()` added in a new `finally` block). No test file changed: the existing
   `RunAsync_DisconnectNotificationHangs_StillTearsDownWithinBound` already covers this exact
   contract and now passes deterministically under repetition instead of racing.
+- Concept 02, Step 1 (flagged transport amendment), modified:
+  `host/DovahLink.Host/Client/Transport/IPublicWebSocketMessageHandler.cs` (new
+  `HandleConnectionEstablished` member), `PublicWebSocketConnection.cs` (`NotifyConnectionEstablished`
+  and its call site); test doubles `FakePublicWebSocketMessageHandler.cs`; test file
+  `PublicWebSocketConnectionTests.cs` (one updated `CallOrder` assertion, four new tests).
+- Concept 02, Step 2, modified: `host/DovahLink.Host/Enums.cs` (`SessionAuthenticationSource`,
+  `SessionTrustTier`), `Sessions/ActiveSessionRecord.cs`, `Sessions/SessionRegistry.cs`
+  (`TryCreate`'s new required parameters, `InvalidateAllForClient`'s developer-token exemption,
+  `Create(ClientId, ConnectionId)` removed); test doubles `FakeSessionRegistry.cs` (matching
+  signature/exemption, new `ActiveCount`); test file `SessionRegistryTests.cs`.
+- Concept 02, Step 3, new: `host/DovahLink.Host/Trust/CredentialHasher.cs`; test file
+  `host/DovahLink.Host.Tests/Trust/CredentialHasherTests.cs`. Modified:
+  `host/DovahLink.Host/Pairing/PairingCoordinator.cs` (regression only, no behavior change).
+- Concept 02, Step 4, new: `host/DovahLink.Host/Client/Authentication/TrustedCredentialFailureThrottle.cs`;
+  test file `host/DovahLink.Host.Tests/Client/Authentication/TrustedCredentialFailureThrottleTests.cs`.
+  Modified: `Constants.cs` (`TrustedCredentialMaxFailuresPerWindow`/`TrustedCredentialFailureWindow`).
+- Concept 02, Step 5, new: `host/DovahLink.Host/Client/Protocol/PublicEnvelope.cs`, `HelloPayload.cs`,
+  `HelloAuthPayload.cs`, `HelloAckPayload.cs`, `CapabilitiesPayload.cs`, `SubscribePayload.cs`,
+  `SubscriptionAckPayload.cs`, `SnapshotRequestPayload.cs`, `ErrorPayload.cs`,
+  `PublicEnvelopeCodec.cs`; test file `host/DovahLink.Host.Tests/Client/Protocol/PublicEnvelopeCodecTests.cs`.
+  Modified: `Enums.cs` (`PublicMessageType`, `HelloAuthMethod`, `ClientIdentityKind`,
+  `PublicProtocolErrorCode`), `Constants.cs` (JSON-bound constants).
+- Concept 02, Step 6, new: `host/DovahLink.Host/Client/Authentication/PublicHelloAdmissionHandler.cs`;
+  test file `host/DovahLink.Host.Tests/Client/Authentication/PublicHelloAdmissionTests.cs`. Modified:
+  `host/DovahLink.Host/Authentication/LocalConnectionTokenAuthenticator.cs` (`TryValidate`/
+  `CommitConsumption`), `Constants.cs` (admission deadline, violation-window, session-message-bound,
+  transitional bridge-version constants); test file `LocalConnectionTokenAuthenticatorTests.cs`.
+- Concept 02, Step 7, modified: `PublicHelloAdmissionHandler.cs` (`IsAllowedForTier`, post-admission
+  dispatch, the `gate`-locking fix for `admissionDeadlineCts`); `PublicHelloAdmissionTests.cs`.
+- `02-authentication-and-session-admission.md`: `Status: pending` → `Status: complete`.
 
 ## Verification
 
@@ -316,10 +426,36 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 - `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release` and
   the resulting `DovahLink.Host.exe`: clean, re-run during the transport-context corrective pass
 - `host/PLAN.md` SHA-256: `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`
+- Concept 02 baseline re-verified at session start (fingerprint-check artifact: hashing the
+  Windows-checked-out working-tree file directly, with `core.autocrlf=true`, gives a different value
+  than the committed blob due to CRLF line endings; `git show HEAD:host/PLAN.md | sha256sum` matches
+  the recorded fingerprint above exactly -- no real drift. Noted here so a future pass on a Windows
+  checkout does not misread the same artifact as a genuine mismatch): 679 passed (post-PR #46 merge,
+  pre-Concept-02).
+- Concept 02 progression, each count independently re-verified via `dotnet test` after its step's own
+  fresh-eyes pass and convention audit: 684 after Step 1 (5 new: the connection-established hook);
+  689 after Step 2 (5 new: authentication source/trust tier and the developer-token exemption); 698
+  after Step 3 (9 new: `CredentialHasher`, re-run as a pure/stateless unit with no repetition needed);
+  707 after Step 4 (9 new: the credential throttle, including a corrected staggered-pruning boundary
+  test caught by its own fresh-eyes pass); 765 after Step 5 (58 new: the envelope codec and payload
+  DTOs, including the exhaustive 20-value `PublicMessageType` round-trip theory and the UTF-8-byte-
+  vs-char-count boundary test its fresh-eyes pass added); 806 after Step 6 (36 new: the core
+  admission handler, including the `clientIdentityKind` bug the same pass's fresh-eyes review caught
+  and fixed); 833 after Step 7 (27 new: post-admission dispatch and the allowlist, plus the
+  `admissionDeadlineCts` locking fix). Timing-sensitive suites (`PublicHelloAdmissionTests`,
+  `LocalConnectionTokenAuthenticatorTests`) re-run five times at Steps 1, 6, and 7 with no flake.
+- `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
+  after every one of Concept 02's seven steps.
+- `integration/DovahLinkValidationClient.Tests`, `ctest --test-dir adapter/build/windows-x64-debug`,
+  `python -m unittest discover -s tooling -p "test_*.py"`: not re-run during Concept 02 -- every
+  change is confined to `host/DovahLink.Host`/`.Tests` C# application code, with no protocol, SDK, or
+  native/adapter file touched.
+- `host/PLAN.md` SHA-256 re-verified unchanged at Concept 02's close (git-blob level, matching the
+  value above): no drift occurred while Concept 02 was implemented.
 
 ## Handoff
 
-Next concept: `02-authentication-and-session-admission.md`
-Blocked by: explicit maintainer authorization naming Concept 02 as the requested scope. Per the
+Next concept: `03-pairing-and-client-dispatch.md`
+Blocked by: explicit maintainer authorization naming Concept 03 as the requested scope. Per the
 package's own execution guardrails, implementation does not auto-proceed from one concept to the
-next; the maintainer must confirm before Concept 02 begins.
+next; the maintainer must confirm before Concept 03 begins.

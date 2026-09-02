@@ -1,6 +1,6 @@
 # 02 — Public protocol validation, authentication, and session admission
 
-Status: pending
+Status: complete
 
 Covers: R2, R3, R4, R5, R6
 
