@@ -47,7 +47,13 @@ public class PublicConnectionContextTests
         Assert.Equal(1, connection.RequestCloseCalls);
     }
 
-    /// <summary>Verifies that <see cref="IPublicConnectionContext"/>'s members expose no raw WebSocket, stream, or socket type, proving application code reached through this capability cannot obtain transport ownership.</summary>
+    /// <summary>
+    /// Verifies that <see cref="IPublicConnectionContext"/>'s members expose no raw WebSocket, stream,
+    /// or socket type -- nor any type that derives from one -- proving application code reached
+    /// through this capability cannot obtain transport ownership through a future member typed to a
+    /// concrete subtype such as <see cref="System.Net.Sockets.NetworkStream"/> or
+    /// <see cref="System.Net.WebSockets.ClientWebSocket"/>.
+    /// </summary>
     [Fact]
     public void Interface_Members_ExposeNoRawTransportType()
     {
@@ -55,11 +61,24 @@ public class PublicConnectionContextTests
 
         foreach (var method in typeof(IPublicConnectionContext).GetMethods())
         {
-            Assert.DoesNotContain(method.ReturnType, disallowedTypes);
+            AssertNotAssignableToAnyDisallowedType(method.ReturnType, disallowedTypes);
             foreach (var parameter in method.GetParameters())
             {
-                Assert.DoesNotContain(parameter.ParameterType, disallowedTypes);
+                AssertNotAssignableToAnyDisallowedType(parameter.ParameterType, disallowedTypes);
             }
+        }
+    }
+
+    /// <summary>Asserts that <paramref name="actualType"/> is not, and does not derive from, any type in <paramref name="disallowedTypes"/>.</summary>
+    /// <param name="actualType">The return or parameter type under test.</param>
+    /// <param name="disallowedTypes">The raw transport types no interface member may expose, directly or through a subtype.</param>
+    private static void AssertNotAssignableToAnyDisallowedType(Type actualType, Type[] disallowedTypes)
+    {
+        foreach (Type disallowedType in disallowedTypes)
+        {
+            Assert.False(
+                disallowedType.IsAssignableFrom(actualType),
+                $"{actualType} is or derives from the disallowed transport type {disallowedType}.");
         }
     }
 }
