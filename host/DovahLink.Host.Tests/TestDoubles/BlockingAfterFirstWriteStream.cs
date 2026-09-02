@@ -26,7 +26,7 @@ public sealed class BlockingAfterFirstWriteStream : Stream
     /// <summary>Gets a task that completes once a write after the first has actually started blocking.</summary>
     public Task BlockedWriteStarted => blockedWriteStarted.Task;
 
-    /// <summary>Allows a currently blocked write to complete successfully.</summary>
+    /// <summary>Allows a currently blocked write to proceed and actually reach <see cref="inner"/>.</summary>
     public void Release() => release.TrySetResult();
 
     /// <inheritdoc/>
@@ -80,6 +80,7 @@ public sealed class BlockingAfterFirstWriteStream : Stream
 
         blockedWriteStarted.TrySetResult();
         await release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

@@ -1212,6 +1212,58 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
+    /// Regression test: a late <see cref="PublicWebSocketConnection.TrySend"/> rejected only because
+    /// <see cref="IPublicWebSocketConnection.RequestClose"/> already completed the outbound queue
+    /// must not be misclassified as a queue overflow and force-cancel the writer -- doing so would
+    /// abort an already-admitted terminal frame that is still in flight, defeating the very bounded
+    /// drain opportunity <see cref="IPublicWebSocketConnection.RequestClose"/> exists to give it.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_LateSendAfterRequestClose_DoesNotAbortInFlightTerminalFrame()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(5));
+        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this terminal send is the second and blocks
+        // until released, simulating a peer that has not yet drained it when the late send below
+        // arrives -- the exact window in which the late send could otherwise abort it.
+        byte[] terminalPayload = Encoding.UTF8.GetBytes("terminal");
+        Assert.True(connection.TrySend(terminalPayload));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        connection.RequestClose();
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late")));
+
+        // With the bug, the late send above would force-cancel the shared writer token, which would
+        // abort the still-blocked terminal send and end the connection almost immediately -- far
+        // short of the 5-second graceful-close deadline configured above. Waiting here without
+        // releasing the block proves that did not happen.
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        Assert.False(runTask.IsCompleted, "A late send rejected by an in-progress orderly close must not force-cancel the in-flight terminal send.");
+
+        blockingStream.Release();
+
+        var buffer = new byte[64];
+        WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(WebSocketMessageType.Text, result.MessageType);
+        Assert.Equal(terminalPayload, buffer[..result.Count]);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+    }
+
+    /// <summary>
     /// Verifies that a <see cref="PublicWebSocketConnection.TrySend"/> call racing a concurrent
     /// <see cref="IPublicWebSocketConnection.RequestClose"/> call never throws, never corrupts the
     /// outbound queue's accounting, and produces a coherent per-call result: an admitted send that

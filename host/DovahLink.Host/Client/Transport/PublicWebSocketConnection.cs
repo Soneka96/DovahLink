@@ -136,6 +136,26 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// </summary>
     private readonly IPublicConnectionContext connectionContext;
 
+    /// <summary>
+    /// Whether <see cref="RequestClose"/> has already been called. Checked by
+    /// <see cref="RequestForcedCloseForUnadmittedMessage"/> so a send rejected only because the
+    /// outbound queue was already completed by an in-progress orderly close is never misclassified
+    /// as a queue overflow: forcing in that case would cancel the shared writer cancellation
+    /// immediately, destroying the very drain opportunity <see cref="RequestClose"/> exists to give
+    /// an already-admitted frame.
+    /// </summary>
+    private bool orderlyCloseInProgress;
+
+    /// <summary>
+    /// The writer loop's own task once <see cref="RunAsync"/> has upgraded the connection, or an
+    /// already-completed task before that point or when the upgrade never happens. A field rather
+    /// than a <see cref="RunAsync"/>-local variable so <see cref="InterruptReadOnceOutboundDrainsAsync"/>
+    /// can wait on the writer actually finishing -- including a frame still in flight on a slow
+    /// write -- rather than only on the outbound queue emptying, which happens the moment a frame is
+    /// dequeued and can complete well before that frame's send over the wire actually does.
+    /// </summary>
+    private Task writerTask = Task.CompletedTask;
+
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="messageHandler">The handler this connection delegates inbound messages and disconnection to.</param>
@@ -160,7 +180,6 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         using var writerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, selfRequestedClose.Token);
         using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(writerCancellation.Token, orderlyCloseRequested.Token);
         WebSocket? webSocket = null;
-        Task writerTask = Task.CompletedTask;
         bool upgraded = false;
         try
         {
@@ -305,13 +324,23 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>
     /// Requests this connection's own forced close after <see cref="TrySend"/> could not admit a
     /// message onto the bounded outbound queue, rather than leaving the connection open with the
-    /// message silently dropped. Safe to call from any thread and at any point in the connection's
-    /// lifetime: a call before <see cref="RunAsync"/> has started is never lost, since <see
-    /// cref="RunAsync"/> always links its shared I/O cancellation to <see cref="selfRequestedClose"/>;
-    /// a call after <see cref="RunAsync"/> has already ended and disposed it is a no-op instead.
+    /// message silently dropped. A no-op while <see cref="orderlyCloseInProgress"/> is already set:
+    /// once an orderly close has started, the outbound queue is deliberately completed and every
+    /// further <see cref="TrySend"/> naturally fails the same way a genuine overflow would, but that
+    /// failure must not be treated as a fresh reason to force-cancel the writer out from under a
+    /// frame <see cref="RequestClose"/> already admitted and is still giving a chance to drain. Safe
+    /// to call from any thread and at any point in the connection's lifetime: a call before
+    /// <see cref="RunAsync"/> has started is never lost, since <see cref="RunAsync"/> always links
+    /// its shared I/O cancellation to <see cref="selfRequestedClose"/>; a call after
+    /// <see cref="RunAsync"/> has already ended and disposed it is a no-op instead.
     /// </summary>
     private void RequestForcedCloseForUnadmittedMessage()
     {
+        if (orderlyCloseInProgress)
+        {
+            return;
+        }
+
         forceCloseRequested = true;
         try
         {
@@ -325,29 +354,33 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <inheritdoc/>
     public void RequestClose()
     {
+        orderlyCloseInProgress = true;
         outbound.Writer.TryComplete();
         _ = InterruptReadOnceOutboundDrainsAsync();
     }
 
     /// <summary>
-    /// Gives the outbound queue a bounded opportunity to drain whatever was already admitted before
-    /// <see cref="RequestClose"/> was called -- so an admitted terminal frame is not abandoned
-    /// mid-send the instant an orderly close is requested -- before interrupting the read loop.
-    /// Interrupting the read immediately instead would not merely skip the drain: cancelling a
-    /// pending <see cref="WebSocket.ReceiveAsync(Memory{byte}, CancellationToken)"/> call leaves the
-    /// underlying <see cref="WebSocket"/> unable to complete any further operation, including a send
-    /// already in flight on the same object, so an immediate cancellation can destroy an
+    /// Gives the writer loop a bounded opportunity to actually finish sending whatever was already
+    /// admitted before <see cref="RequestClose"/> was called -- so an admitted terminal frame is not
+    /// abandoned mid-send the instant an orderly close is requested -- before interrupting the read
+    /// loop. Waits on <see cref="writerTask"/> itself rather than <c>outbound.Reader.Completion</c>:
+    /// the latter completes the moment a frame is dequeued, which can happen well before that
+    /// frame's send over the wire actually finishes on a slow or blocked peer, making it too early a
+    /// signal here. Interrupting the read before the send truly finishes would not merely skip the
+    /// drain: cancelling a pending <see cref="WebSocket.ReceiveAsync(Memory{byte}, CancellationToken)"/>
+    /// call leaves the underlying <see cref="WebSocket"/> unable to complete any further operation,
+    /// including a send still in flight on the same object, so an early cancellation can destroy an
     /// already-admitted send that had not yet reached the wire. Bounded by
     /// <see cref="PublicWebSocketTransportOptions.GracefulCloseTimeout"/>, the same window this
     /// connection's own teardown already uses elsewhere for a bounded drain; the wait proceeds
-    /// regardless of whether it elapses, the queue drains, or the connection has already ended
+    /// regardless of whether it elapses, the writer finishes, or the connection has already ended
     /// through an unrelated path by the time it runs.
     /// </summary>
     private async Task InterruptReadOnceOutboundDrainsAsync()
     {
         try
         {
-            await outbound.Reader.Completion.WaitAsync(options.GracefulCloseTimeout).ConfigureAwait(false);
+            await writerTask.WaitAsync(options.GracefulCloseTimeout).ConfigureAwait(false);
         }
         catch (Exception)
         {
