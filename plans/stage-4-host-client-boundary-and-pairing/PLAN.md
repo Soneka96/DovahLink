@@ -95,8 +95,11 @@ private IPC contracts remain separate, and `bridge/` remains frozen reference be
 - Public input is bounded before application handling: 1 MiB frame, depth 32, 4 KiB strings, 128
   array items, 64 object members, 100 messages per second per client, and 10,000 messages per
   session. Limit changes require explicit approval.
-- Public output is bounded by the approved 128-message/2 MiB per-session queue policy; Stage 4
-  responses use the reserved control/recovery capacity because no live data lane exists yet.
+- Public output is bounded by the approved 128-message/2 MiB per-session queue policy. Per
+  `DIVERGENCES.md` D3, Stage 4 implements this as one flat pool with no Normal/Heavy/reserved-control
+  lane split: it publishes no live application state yet, so nothing competes with connection/control
+  traffic for the capacity. The reserved-control/Normal/Heavy separation is deferred until a later
+  phase activates live-state publication over this transport.
 - The public connection has one active client during the first proof, a five-second handshake
   deadline, and a 60-second idle/liveness timeout.
 - Malformed, oversized, unauthenticated, unauthorized, expired, replayed, and unsupported input is
