@@ -355,7 +355,9 @@ def main(arguments: list[str] | None = None) -> int:
     options = parse_arguments(arguments)
     repository_root = REPOSITORY_ROOT
     try:
-        if options.paths is not None and options.base_ref is not None:
+        if options.paths is not None and (
+            options.base_ref is not None or "--base-ref" in options.paths
+        ):
             raise RuntimeError("Use either --paths or --base-ref, not both.")
         paths = (
             options.paths

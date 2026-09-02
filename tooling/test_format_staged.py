@@ -302,6 +302,17 @@ class FormatStagedTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("Use either --paths or --base-ref", stderr.getvalue())
 
+    def test_main_rejects_a_base_ref_swallowed_into_paths_by_remainder(self) -> None:
+        """Reject --base-ref even when --paths' REMAINDER capture swallows it first."""
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            result = format_staged.main(
+                ["--check", "--paths", "app/lib/main.dart", "--base-ref", "main"]
+            )
+
+        self.assertEqual(result, 1)
+        self.assertIn("Use either --paths or --base-ref", stderr.getvalue())
+
     def test_format_paths_reports_changes_without_restaging(self) -> None:
         """Leave formatted files for review instead of adding them to the index."""
         repository_root = Path(".")
