@@ -356,7 +356,11 @@ def main(arguments: list[str] | None = None) -> int:
     repository_root = REPOSITORY_ROOT
     try:
         if options.paths is not None and (
-            options.base_ref is not None or "--base-ref" in options.paths
+            options.base_ref is not None
+            or any(
+                argument == "--base-ref" or argument.startswith("--base-ref=")
+                for argument in options.paths
+            )
         ):
             raise RuntimeError("Use either --paths or --base-ref, not both.")
         paths = (
