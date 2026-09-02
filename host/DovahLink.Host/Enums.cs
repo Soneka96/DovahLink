@@ -286,3 +286,22 @@ public enum PublicWebSocketConnectionEndReason
     /// <summary>Sending a queued outbound frame to the peer failed.</summary>
     WriteFailure,
 }
+
+/// <summary>
+/// Why <see cref="Client.Transport.PublicWebSocketHandshake.TryParseUpgradeRequest"/> rejected an
+/// upgrade request, or that it did not.
+/// </summary>
+public enum HandshakeRejectReason
+{
+    /// <summary>The request was not rejected; used only when the handshake was accepted.</summary>
+    None,
+
+    /// <summary>The request was malformed, missing a required header, or otherwise not a well-formed WebSocket upgrade request.</summary>
+    Malformed,
+
+    /// <summary>
+    /// The request carried an <c>Origin</c> header. The public endpoint serves native DovahLink
+    /// clients only; a browser-originated request is rejected regardless of the header's value.
+    /// </summary>
+    DisallowedOrigin,
+}

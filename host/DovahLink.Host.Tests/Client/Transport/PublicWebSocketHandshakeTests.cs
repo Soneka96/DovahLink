@@ -10,10 +10,10 @@ public class PublicWebSocketHandshakeTests
     [Fact]
     public void TryParseUpgradeRequest_Rfc6455ExampleKey_ComputesTheDocumentedAcceptValue()
     {
-        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(
             BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZQ=="), out string acceptKey);
 
-        Assert.True(accepted);
+        Assert.Equal(HandshakeRejectReason.None, result);
         Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
     }
 
@@ -29,9 +29,9 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
 
-        Assert.True(accepted);
+        Assert.Equal(HandshakeRejectReason.None, result);
         Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
     }
 
@@ -46,7 +46,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
         Assert.Equal(string.Empty, acceptKey);
     }
 
@@ -61,7 +61,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a missing Upgrade header is rejected.</summary>
@@ -74,7 +74,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that an Upgrade header with a value other than "websocket" is rejected.</summary>
@@ -88,7 +88,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a missing Connection header is rejected.</summary>
@@ -101,7 +101,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a Connection header without the "upgrade" token is rejected.</summary>
@@ -115,7 +115,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a missing or non-13 Sec-WebSocket-Version is rejected.</summary>
@@ -128,7 +128,7 @@ public class PublicWebSocketHandshakeTests
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that an unsupported Sec-WebSocket-Version is rejected.</summary>
@@ -142,7 +142,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 8\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a missing Sec-WebSocket-Key is rejected.</summary>
@@ -155,7 +155,7 @@ public class PublicWebSocketHandshakeTests
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that an empty Sec-WebSocket-Key value is rejected.</summary>
@@ -169,7 +169,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: \r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a header line without a colon separator is rejected as malformed.</summary>
@@ -184,7 +184,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a header line consisting only of a colon (no name) is rejected.</summary>
@@ -199,14 +199,16 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that completely empty input is rejected rather than throwing.</summary>
     [Fact]
     public void TryParseUpgradeRequest_EmptyInput_IsRejected()
     {
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(ReadOnlySpan<byte>.Empty, out string acceptKey));
+        Assert.Equal(
+            HandshakeRejectReason.Malformed,
+            PublicWebSocketHandshake.TryParseUpgradeRequest(ReadOnlySpan<byte>.Empty, out string acceptKey));
         Assert.Equal(string.Empty, acceptKey);
     }
 
@@ -214,7 +216,9 @@ public class PublicWebSocketHandshakeTests
     [Fact]
     public void TryParseUpgradeRequest_MalformedBase64Key_IsRejected()
     {
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "abc"), out string acceptKey));
+        Assert.Equal(
+            HandshakeRejectReason.Malformed,
+            PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "abc"), out string acceptKey));
         Assert.Equal(string.Empty, acceptKey);
     }
 
@@ -222,8 +226,9 @@ public class PublicWebSocketHandshakeTests
     [Fact]
     public void TryParseUpgradeRequest_KeyDecodesToFifteenBytes_IsRejected()
     {
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(
-            BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25j"), out string acceptKey));
+        Assert.Equal(
+            HandshakeRejectReason.Malformed,
+            PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25j"), out string acceptKey));
         Assert.Equal(string.Empty, acceptKey);
     }
 
@@ -231,7 +236,9 @@ public class PublicWebSocketHandshakeTests
     [Fact]
     public void TryParseUpgradeRequest_KeyDecodesToOneByte_IsRejected()
     {
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "AA=="), out string acceptKey));
+        Assert.Equal(
+            HandshakeRejectReason.Malformed,
+            PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "AA=="), out string acceptKey));
         Assert.Equal(string.Empty, acceptKey);
     }
 
@@ -239,8 +246,9 @@ public class PublicWebSocketHandshakeTests
     [Fact]
     public void TryParseUpgradeRequest_KeyDecodesToSeventeenBytes_IsRejected()
     {
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(
-            BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZWU="), out string acceptKey));
+        Assert.Equal(
+            HandshakeRejectReason.Malformed,
+            PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZWU="), out string acceptKey));
         Assert.Equal(string.Empty, acceptKey);
     }
 
@@ -248,8 +256,9 @@ public class PublicWebSocketHandshakeTests
     [Fact]
     public void TryParseUpgradeRequest_KeyWithInvalidPadding_IsRejected()
     {
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(
-            BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZQ"), out string acceptKey));
+        Assert.Equal(
+            HandshakeRejectReason.Malformed,
+            PublicWebSocketHandshake.TryParseUpgradeRequest(BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZQ"), out string acceptKey));
         Assert.Equal(string.Empty, acceptKey);
     }
 
@@ -257,10 +266,10 @@ public class PublicWebSocketHandshakeTests
     [Fact]
     public void TryParseUpgradeRequest_ValidSixteenByteNonce_IsAccepted()
     {
-        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(
             BuildRequestBytes(key: "AAECAwQFBgcICQoLDA0ODw=="), out string acceptKey);
 
-        Assert.True(accepted);
+        Assert.Equal(HandshakeRejectReason.None, result);
         Assert.NotEqual(string.Empty, acceptKey);
     }
 
@@ -276,9 +285,9 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key:   dGhlIHNhbXBsZSBub25jZQ==  \r\n\r\n");
 
-        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
 
-        Assert.True(accepted);
+        Assert.Equal(HandshakeRejectReason.None, result);
         Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
     }
 
@@ -293,7 +302,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that an empty Host header value is rejected.</summary>
@@ -308,7 +317,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a repeated Host header is rejected rather than letting the last value silently win.</summary>
@@ -324,7 +333,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a repeated Upgrade header is rejected, including when both occurrences agree.</summary>
@@ -340,7 +349,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a repeated Sec-WebSocket-Version header is rejected, including when both occurrences agree.</summary>
@@ -356,7 +365,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a repeated Sec-WebSocket-Key header is rejected, including when both occurrences agree.</summary>
@@ -372,7 +381,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that repeated Connection header lines are combined as a token list, not rejected as a duplicate singleton.</summary>
@@ -388,9 +397,9 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
 
-        Assert.True(accepted);
+        Assert.Equal(HandshakeRejectReason.None, result);
         Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
     }
 
@@ -406,7 +415,7 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>Verifies that a request line with no spaces at all is rejected rather than throwing or being misread.</summary>
@@ -421,14 +430,14 @@ public class PublicWebSocketHandshakeTests
             "Sec-WebSocket-Version: 13\r\n" +
             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
 
-        Assert.False(PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
     /// <summary>
     /// Verifies that a header outside the singleton set (Host, Upgrade, Sec-WebSocket-Version,
-    /// Sec-WebSocket-Key) may still repeat without being rejected -- the duplicate-header rejection
-    /// introduced for those four is deliberately scoped to them, not a blanket ban on any repeated
-    /// header.
+    /// Sec-WebSocket-Key, Origin) may still repeat without being rejected -- the duplicate-header
+    /// rejection introduced for those five is deliberately scoped to them, not a blanket ban on any
+    /// repeated header.
     /// </summary>
     [Fact]
     public void TryParseUpgradeRequest_UnrelatedHeaderRepeatedTwice_IsStillAccepted()
@@ -443,10 +452,129 @@ public class PublicWebSocketHandshakeTests
             "X-Custom: first\r\n" +
             "X-Custom: second\r\n\r\n");
 
-        bool accepted = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
 
-        Assert.True(accepted);
+        Assert.Equal(HandshakeRejectReason.None, result);
         Assert.Equal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", acceptKey);
+    }
+
+    /// <summary>Verifies that a handshake with no Origin header at all -- the normal shape for a native client -- is accepted, matching "native client without Origin proceeds normally."</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_NoOriginHeader_IsAccepted()
+    {
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(
+            BuildRequestBytes(key: "dGhlIHNhbXBsZSBub25jZQ=="), out string acceptKey);
+
+        Assert.Equal(HandshakeRejectReason.None, result);
+        Assert.NotEqual(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that an arbitrary web Origin is rejected as a disallowed browser-originated request, not as malformed HTTP.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_ArbitraryWebOrigin_IsRejectedAsDisallowedOrigin()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin: https://evil.example\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.DisallowedOrigin, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a localhost Origin is rejected the same as any other, so a browser page is never treated as privileged merely because its own origin happens to be localhost.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_LocalhostOrigin_IsRejectedAsDisallowedOrigin()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin: http://localhost\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.DisallowedOrigin, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that an opaque "null" Origin (as sent by a sandboxed browsing context) is rejected the same as any other Origin value.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_NullOrigin_IsRejectedAsDisallowedOrigin()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin: null\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.DisallowedOrigin, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that an Origin header with an empty value is still rejected -- the policy is presence-based, not a check of the value's content, unlike Host's explicit non-empty requirement.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_EmptyOriginValue_IsRejectedAsDisallowedOrigin()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin: \r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.DisallowedOrigin, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that the Origin policy applies regardless of the header name's letter case.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_MixedCaseOriginHeaderName_IsRejectedAsDisallowedOrigin()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "oRiGiN: https://example.com\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.DisallowedOrigin, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
+    }
+
+    /// <summary>
+    /// Verifies that a duplicated Origin header is rejected through the existing singleton-header
+    /// duplicate path -- as <see cref="HandshakeRejectReason.Malformed"/> -- rather than as
+    /// <see cref="HandshakeRejectReason.DisallowedOrigin"/>, so header duplication can never be used
+    /// to bypass or reclassify the origin policy.
+    /// </summary>
+    [Fact]
+    public void TryParseUpgradeRequest_DuplicateOriginHeader_IsRejectedAsMalformed()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin: https://evil.example\r\n" +
+            "Origin: https://also-evil.example\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey));
+        Assert.Equal(string.Empty, acceptKey);
     }
 
     /// <summary>Verifies that the built response contains the expected status line and accept header.</summary>

@@ -530,7 +530,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             return null;
         }
 
-        if (!PublicWebSocketHandshake.TryParseUpgradeRequest(requestBuffer.AsSpan(0, length), out string acceptKey))
+        if (PublicWebSocketHandshake.TryParseUpgradeRequest(requestBuffer.AsSpan(0, length), out string acceptKey) != HandshakeRejectReason.None)
         {
             ReportAbnormalEnd(PublicWebSocketConnectionEndReason.InvalidHandshake);
             return null;
