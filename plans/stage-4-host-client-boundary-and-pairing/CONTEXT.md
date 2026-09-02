@@ -105,6 +105,21 @@ branch, D1/D2/D3 status, and clean scope before implementation.
     unit test (or the excluded `Task.Run` isolation), and this codebase has no existing precedent for
     runtime-testing the negative case of a "must not block" contract (`HandleConnectionEnded()`'s own
     "must never block on I/O" requirement has none either) -- documentation is the fix here.
+- A further fresh-eyes finding against the outbound bound itself: `TrySend`'s message-count check
+  relied solely on the bounded `Channel<byte[]>` rejecting `TryWrite` once full, but a `Channel`'s
+  capacity frees the instant its reader dequeues an item -- before that item's send over the wire has
+  actually finished. With `OutboundQueueMaxMessages` configured at 1, this let a second `TrySend`
+  succeed while the first frame was still blocked in-flight inside the writer's own `SendAsync` call,
+  so the connection could own one more outbound message than configured (129 at the approved
+  128-message bound). The existing outbound byte accounting (`outboundQueuedBytes`) already avoided
+  this: it releases only in the writer loop's own `finally`, once a send has actually finished,
+  failed, or been cancelled, not merely once the frame left the channel. The message count now
+  mirrors that exactly: a new `outboundOutstandingMessages` counter is reserved by `TrySend` alongside
+  the byte reservation (with symmetric rollback on either reservation failing, or on a failed
+  `Channel.Writer.TryWrite`), and released only in the writer loop's `finally`. Both reservations use
+  the same lock-free `Interlocked` reserve-then-rollback idiom the byte accounting already used, so
+  `TrySend` remains non-blocking and safe under concurrent callers. Fully within Concept 01's existing
+  allowlist; no Stage 5 traffic-lane work was introduced.
 
 ## Decisions and approved deviations
 
@@ -177,6 +192,13 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   contract); `PublicWebSocketConnectionTests.cs`; test doubles `BlockingAfterFirstWriteStream.cs`
   (`Release()` now actually forwards the blocked write instead of discarding it) and
   `FakePublicWebSocketMessageHandler.cs` (`HangOnHandleMessageIgnoringCancellation`).
+- Outbound message-count corrective pass, modified: `PublicWebSocketConnection.cs`
+  (`outboundOutstandingMessages` field, `TrySend`'s reservation/rollback, `WriterLoopAsync`'s release);
+  `PublicWebSocketTransportOptions.cs` (`OutboundQueueMaxMessages` doc clarified as a total
+  queued-plus-in-flight bound); `PublicWebSocketConnectionTests.cs` (rewrote the message-count-overflow
+  test to prove the corrected bound, added the slot-release-timing, concurrent-admission,
+  exact-boundary, and byte-rejection-does-not-leak-the-count tests). No new test-double file: reused
+  the existing `BlockingAfterFirstWriteStream`.
 
 ## Verification
 
@@ -198,7 +220,10 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `Task.WaitAsync` fix (1 new: a handler whose returned Task never completes and ignores
   cancellation no longer blocks `RunAsync` during shutdown), re-run three times with no flake;
   unchanged at 640 after this documentation-boundary correction pass (one test renamed for
-  precision, no assertions changed)
+  precision, no assertions changed); 644 passed after the outbound message-count corrective pass (4
+  new: the corrected in-flight-frame-counts-toward-the-limit regression proof, slot-release-only-after-
+  send-finishes, concurrent-admission-never-exceeds-the-bound, and byte-rejection-does-not-leak-the-
+  message-count-reservation), re-run five times with no flake
 - `integration/DovahLinkValidationClient.Tests`, `ctest --test-dir adapter/build/windows-x64-debug`:
   not re-run since the transport-context corrective pass -- every pass since changes only
   `host/DovahLink.Host`/`.Tests` C# transport internals and documentation, with no protocol, SDK, or

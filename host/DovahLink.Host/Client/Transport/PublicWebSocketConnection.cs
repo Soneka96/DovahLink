@@ -80,7 +80,12 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The bounded outbound frame queue drained by the writer loop.</summary>
     private readonly Channel<byte[]> outbound;
 
-    /// <summary>The total encoded byte size of frames currently queued in <see cref="outbound"/>.</summary>
+    /// <summary>
+    /// The total encoded byte size of frames this connection currently owns for outbound delivery --
+    /// admitted by <see cref="TrySend"/> and not yet released by the writer loop, which covers a frame
+    /// still waiting in <see cref="outbound"/> as well as one the writer has already dequeued and is
+    /// still sending. Not merely the bytes presently sitting in the channel.
+    /// </summary>
     private long outboundQueuedBytes;
 
     /// <summary>The reused buffer one inbound message is accumulated into, bounded to <see cref="PublicWebSocketTransportOptions.MaxMessageBytes"/>.</summary>
@@ -165,6 +170,17 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// dequeued and can complete well before that frame's send over the wire actually does.
     /// </summary>
     private Task writerTask = Task.CompletedTask;
+
+    /// <summary>
+    /// The count of outbound frames this connection currently owns, mirroring
+    /// <see cref="outboundQueuedBytes"/>: reserved by <see cref="TrySend"/> on admission and released
+    /// only once the writer loop has fully relinquished ownership of that frame (successful send,
+    /// failed send, or cancellation). A bounded <see cref="Channel{T}"/> alone would under-count this --
+    /// its capacity frees the instant a frame is dequeued, before that frame's send over the wire has
+    /// actually finished -- so this field, not <see cref="outbound"/>'s own capacity, is what
+    /// <see cref="PublicWebSocketTransportOptions.OutboundQueueMaxMessages"/> actually bounds.
+    /// </summary>
+    private int outboundOutstandingMessages;
 
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
@@ -312,10 +328,19 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <inheritdoc/>
     public bool TrySend(ReadOnlyMemory<byte> payload)
     {
+        int outstandingAfterReserve = Interlocked.Increment(ref outboundOutstandingMessages);
+        if (outstandingAfterReserve > options.OutboundQueueMaxMessages)
+        {
+            Interlocked.Decrement(ref outboundOutstandingMessages);
+            RequestForcedCloseForUnadmittedMessage();
+            return false;
+        }
+
         long queuedAfterReserve = Interlocked.Add(ref outboundQueuedBytes, payload.Length);
         if (queuedAfterReserve > options.OutboundQueueMaxBytes)
         {
             Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
+            Interlocked.Decrement(ref outboundOutstandingMessages);
             RequestForcedCloseForUnadmittedMessage();
             return false;
         }
@@ -324,6 +349,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         if (!outbound.Writer.TryWrite(frame))
         {
             Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
+            Interlocked.Decrement(ref outboundOutstandingMessages);
             RequestForcedCloseForUnadmittedMessage();
             return false;
         }
@@ -623,6 +649,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 finally
                 {
                     Interlocked.Add(ref outboundQueuedBytes, -frame.Length);
+                    Interlocked.Decrement(ref outboundOutstandingMessages);
                 }
             }
         }

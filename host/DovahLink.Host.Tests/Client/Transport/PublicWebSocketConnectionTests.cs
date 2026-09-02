@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
+using System.Threading.Channels;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
@@ -790,6 +791,20 @@ public class PublicWebSocketConnectionTests
         Assert.True(connection.TrySend(new byte[10]));
     }
 
+    /// <summary>Verifies that a payload exactly at the outbound message-count bound is accepted, proving the bound rejects only what exceeds it.</summary>
+    [Fact]
+    public void TrySend_ExactlyAtOutboundQueueMaxMessages_ReturnsTrue()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
+        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        for (int index = 0; index < 3; index++)
+        {
+            Assert.True(connection.TrySend(new byte[1]));
+        }
+    }
+
     /// <summary>Verifies that a send after the connection has ended returns false instead of throwing.</summary>
     [Fact]
     public async Task TrySend_AfterConnectionEnded_ReturnsFalse()
@@ -866,15 +881,35 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
-    /// Verifies that a message which cannot be admitted because the bounded outbound queue's
-    /// message-count limit is already full -- while the writer is blocked on an unresponsive peer --
-    /// requests this connection's own controlled close rather than leaving it open with the message
-    /// silently dropped, and that teardown completes promptly rather than waiting out the far longer
-    /// per-write deadline configured for this test (proving the queue-overflow request itself is what
-    /// ends the connection, not the unrelated per-write timeout).
+    /// Verifies that a send rejected only by the byte budget rolls back the message-count slot it
+    /// provisionally reserved rather than leaking it -- otherwise the one allowed slot in this test
+    /// would already be exhausted by the rejected attempt, and a later message that fits the byte
+    /// budget would be wrongly rejected too.
     /// </summary>
     [Fact]
-    public async Task TrySend_MessageCountOverflowWithBlockedWriter_RequestsControlledCloseAndTearsDownWithinBound()
+    public void TrySend_RejectedByByteBudget_DoesNotLeakMessageCountReservation()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 4);
+        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.False(connection.TrySend(new byte[8]));
+        Assert.True(connection.TrySend(new byte[4]));
+    }
+
+    /// <summary>
+    /// Verifies that a frame the writer has already dequeued but not yet finished sending still
+    /// counts against the outbound message-count limit -- a bounded <see cref="Channel{T}"/> alone
+    /// frees its capacity the instant a frame is dequeued, before that frame's send over the wire
+    /// actually finishes, which would let this connection own one more transport message than
+    /// configured. Also verifies that the resulting rejection requests this connection's own
+    /// controlled close rather than leaving it open with the message silently dropped, and that
+    /// teardown completes promptly rather than waiting out the far longer per-write deadline
+    /// configured for this test (proving the rejection itself is what ends the connection, not the
+    /// unrelated per-write timeout).
+    /// </summary>
+    [Fact]
+    public async Task TrySend_MessageCountOverflowWithInFlightWriterFrame_RequestsControlledCloseAndTearsDownWithinBound()
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (TcpListener listener, int port) = StartLoopbackListener();
@@ -891,25 +926,91 @@ public class PublicWebSocketConnectionTests
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        // The first frame is picked up by the writer and blocks in SendAsync; the second fills the
-        // one-slot queue behind it; the third cannot be admitted at all.
+        // The first frame is picked up by the writer and blocks in SendAsync -- dequeued, so the
+        // channel itself is now empty, but still owned by this connection and still consuming the
+        // single allowed message slot. The second must be rejected on that basis alone.
         Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second")));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("third")));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second")));
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Teardown took {stopwatch.Elapsed} even though the configured write deadline is 30 seconds away; " +
-            "the queue-overflow request itself must end the connection promptly.");
+            "the message-count rejection itself must end the connection promptly.");
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that the one allowed message slot releases only once the writer has actually finished
+    /// sending the in-flight frame -- not merely once it was dequeued from the channel -- by blocking
+    /// the first send, releasing it, waiting for the peer to receive it, and proving a second send now
+    /// succeeds where it would otherwise still be occupying the single-message bound.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_MessageSlotReleasedOnlyAfterWriterFinishesSend_AllowsLaterAdmission()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this send is the second and blocks until
+        // released, so the frame is dequeued -- freeing the channel's own capacity -- without yet
+        // having actually finished sending.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        blockingStream.Release();
+
+        var buffer = new byte[64];
+        WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("first", Encoding.UTF8.GetString(buffer, 0, result.Count));
+
+        // The peer only receives bytes the server has already finished sending, so the writer's own
+        // release of the one message slot -- which happens synchronously right after that send
+        // completes -- is guaranteed to have already run by this point.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+
+        listener.Stop();
+        connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that concurrent <see cref="PublicWebSocketConnection.TrySend"/> calls racing to
+    /// reserve the same bounded message-count capacity never collectively over-admit, even though the
+    /// reservation itself is lock-free. Uses an undrained connection (<see cref="PublicWebSocketConnection.RunAsync"/>
+    /// never started) so the result is fully deterministic rather than dependent on how fast a writer
+    /// drains the queue.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_ConcurrentCallsWithUndrainedQueue_NeverAdmitMoreThanTheConfiguredMessageLimit()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 4, outboundQueueMaxBytes: 1024);
+        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        const int attempts = 50;
+        bool[] results = await Task.WhenAll(Enumerable.Range(0, attempts)
+            .Select(index => Task.Run(() => connection.TrySend(new byte[1]))));
+
+        Assert.Equal(4, results.Count(succeeded => succeeded));
     }
 
     /// <summary>

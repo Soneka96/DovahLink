@@ -35,14 +35,16 @@ public sealed record PublicWebSocketTransportOptions
     public TimeSpan InboundMessageRateWindow { get; init; } = Constants.PublicWebSocketMessageRateWindow;
 
     /// <summary>
-    /// The maximum number of outbound messages queued before
-    /// <see cref="IPublicWebSocketConnection.TrySend"/> fails. Currently one flat pool covering
-    /// every outbound message: no live application data is published over this transport yet, so
-    /// nothing competes with connection/control traffic for the capacity. A design that publishes
-    /// live state must split this capacity by traffic class -- a small slice reserved for
-    /// connection-level control messages, kept separate from bulk state-publication traffic -- so a
-    /// slow client under state-publication pressure cannot delay or crowd out timely control-message
-    /// delivery; until that split exists, this single bound stands in for both.
+    /// The maximum number of outbound messages this connection may own at once before
+    /// <see cref="IPublicWebSocketConnection.TrySend"/> fails -- counting both a frame still waiting
+    /// to be sent and one the writer has already dequeued but not yet finished sending, not merely
+    /// how many currently sit in the waiting queue. Currently one flat pool covering every outbound
+    /// message: no live application data is published over this transport yet, so nothing competes
+    /// with connection/control traffic for the capacity. A design that publishes live state must
+    /// split this capacity by traffic class -- a small slice reserved for connection-level control
+    /// messages, kept separate from bulk state-publication traffic -- so a slow client under
+    /// state-publication pressure cannot delay or crowd out timely control-message delivery; until
+    /// that split exists, this single bound stands in for both.
     /// </summary>
     public int OutboundQueueMaxMessages { get; init; } = Constants.PublicWebSocketOutboundQueueMaxMessages;
 
