@@ -46,9 +46,11 @@ internal static class PublicWebSocketHandshake
     /// <param name="acceptKey">The computed <c>Sec-WebSocket-Accept</c> value on success; otherwise empty.</param>
     /// <returns><see cref="HandshakeRejectReason.None"/> when the request is accepted; otherwise the reason it was rejected.</returns>
     /// <remarks>
-    /// This parser never writes an HTTP error response for a rejected request: the caller's
-    /// documented behavior for a non-<see cref="HandshakeRejectReason.None"/> result is to close the
-    /// connection silently, the same way it treats a peer that never completes its handshake at all.
+    /// This parser only classifies the request; it never writes a response itself. For a rejected,
+    /// but otherwise complete, request the caller writes a matching minimal HTTP rejection (see
+    /// <see cref="BuildBadRequestResponse"/> and <see cref="BuildUpgradeRequiredResponse"/>) before
+    /// closing the connection -- unlike an incomplete or never-received request, which the caller
+    /// closes silently with no fabricated response, since this parser was never able to evaluate it.
     /// </remarks>
     internal static HandshakeRejectReason TryParseUpgradeRequest(ReadOnlySpan<byte> requestBytes, out string acceptKey)
     {

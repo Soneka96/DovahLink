@@ -18,6 +18,14 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   does not send it. There is no origin allowlist: this is an intentional no-browser-clients policy,
   not a placeholder for one, and a browser origin is never treated as privileged merely because it
   happens to be loopback.
+- A complete handshake request the Host intentionally rejects (malformed, missing a required
+  header, a disallowed `Origin`, or an unsupported `Sec-WebSocket-Version`) receives a minimal HTTP
+  rejection instead of a silent close: `400 Bad Request` for a malformed or policy-rejected request,
+  or `426 Upgrade Required` with `Sec-WebSocket-Version: 13` for an unsupported version. Neither
+  response carries a body, parser detail, offending header values, or an `Origin` value. An
+  incomplete request -- a handshake timeout, a peer that disconnects before the request completes,
+  or a read failure -- still closes silently with no fabricated response, since the Host never
+  reached a complete request it could evaluate and reject.
 
 ## Persistent local trust
 

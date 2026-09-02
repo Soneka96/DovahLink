@@ -288,6 +288,9 @@ public enum PublicWebSocketConnectionEndReason
 
     /// <summary>The handshake request carried a browser <c>Origin</c> header, which this endpoint intentionally does not accept.</summary>
     DisallowedOrigin,
+
+    /// <summary>The handshake request carried a <c>Sec-WebSocket-Version</c> value this transport does not support.</summary>
+    UnsupportedWebSocketVersion,
 }
 
 /// <summary>

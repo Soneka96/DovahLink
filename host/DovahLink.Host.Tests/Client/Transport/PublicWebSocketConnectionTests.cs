@@ -256,7 +256,12 @@ public class PublicWebSocketConnectionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Verifies that a peer who never sends a handshake request is disconnected after the deadline without accepting or throwing.</summary>
+    /// <summary>
+    /// Verifies that a peer who never sends a handshake request is disconnected after the deadline
+    /// without accepting or throwing, and that -- because the request was never complete enough to
+    /// evaluate -- no HTTP rejection response is ever written, unlike the response a complete,
+    /// intentionally-rejected request receives.
+    /// </summary>
     [Fact]
     public async Task RunAsync_HandshakeTimeout_EndsWithoutAcceptingOrThrowing()
     {
@@ -272,10 +277,15 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.HandshakeTimeout], diagnostics.Reports);
+        Assert.Empty(await ReadUntilClosedAsync(client));
         client.Dispose();
     }
 
-    /// <summary>Verifies that a handshake request missing required WebSocket headers ends the connection without accepting or throwing.</summary>
+    /// <summary>
+    /// Verifies that a handshake request missing required WebSocket headers ends the connection
+    /// without accepting or throwing, and receives a minimal 400 Bad Request response rather than a
+    /// silent close, since the request was complete enough for the parser to evaluate and reject.
+    /// </summary>
     [Fact]
     public async Task RunAsync_MalformedHandshakeRequest_EndsWithoutAcceptingOrThrowing()
     {
@@ -293,6 +303,12 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.InvalidHandshake], diagnostics.Reports);
+
+        string response = Encoding.ASCII.GetString(await ReadUntilClosedAsync(client));
+        Assert.StartsWith("HTTP/1.1 400 Bad Request\r\n", response);
+        Assert.Contains("Connection: close\r\n", response);
+        Assert.Contains("Content-Length: 0\r\n", response);
+        Assert.DoesNotContain("101", response);
         client.Dispose();
     }
 
@@ -301,7 +317,9 @@ public class PublicWebSocketConnectionTests
     /// the distinct DisallowedOrigin diagnostic rather than InvalidHandshake, and that it is reported
     /// exactly once -- the single-element list equality below is itself the proof that no diagnostic
     /// is double-reported for this rejection path, matching the same property the InvalidHandshake
-    /// tests above already prove for theirs.
+    /// tests above already prove for theirs. Also verifies the wire response is the same shared 400
+    /// as any other malformed/policy-rejected request, proving the local diagnostic stays specific
+    /// even though the wire status code is not.
     /// </summary>
     [Fact]
     public async Task RunAsync_HandshakeWithOriginHeader_EndsWithDisallowedOriginDiagnostic()
@@ -326,6 +344,78 @@ public class PublicWebSocketConnectionTests
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.DisallowedOrigin], diagnostics.Reports);
+
+        string response = Encoding.ASCII.GetString(await ReadUntilClosedAsync(client));
+        Assert.StartsWith("HTTP/1.1 400 Bad Request\r\n", response);
+        Assert.Contains("Connection: close\r\n", response);
+        Assert.Contains("Content-Length: 0\r\n", response);
+        client.Dispose();
+    }
+
+    /// <summary>
+    /// Verifies that a handshake carrying an unsupported Sec-WebSocket-Version is rejected with the
+    /// distinct UnsupportedWebSocketVersion diagnostic and a 426 Upgrade Required response
+    /// advertising the one version this transport supports -- not a generic 400, and not an upgrade.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_UnsupportedWebSocketVersion_EndsWith426AndSupportedVersionHeader()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, diagnostics: diagnostics);
+
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 8\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+        await client.WriteAsync(request);
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(0, handler.ConnectionEndedCalls);
+        Assert.Equal(0, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.UnsupportedWebSocketVersion], diagnostics.Reports);
+
+        string response = Encoding.ASCII.GetString(await ReadUntilClosedAsync(client));
+        Assert.StartsWith("HTTP/1.1 426 Upgrade Required\r\n", response);
+        Assert.Contains("Sec-WebSocket-Version: 13\r\n", response);
+        Assert.Contains("Connection: close\r\n", response);
+        client.Dispose();
+    }
+
+    /// <summary>
+    /// Verifies that when writing the rejection response itself fails, the connection still
+    /// terminates cleanly, the original rejection diagnosed before the write was attempted remains
+    /// the sole report, and the write failure is never reported as a second, unrelated root cause.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_RejectionResponseWriteFails_PreservesOriginalDiagnosticWithoutReportingWriteFailure()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var faultingServer = new WriteFaultingStream(server);
+        var connection = Fixtures.BuildPublicWebSocketConnection(faultingServer, handler, diagnostics: diagnostics);
+
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin: https://evil.example\r\n\r\n");
+        await client.WriteAsync(request);
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(handler.ReceivedMessages);
         Assert.Equal([PublicWebSocketConnectionEndReason.DisallowedOrigin], diagnostics.Reports);
         client.Dispose();
     }
@@ -1916,6 +2006,24 @@ public class PublicWebSocketConnectionTests
         await clientSocket.ConnectAsync((IPEndPoint)listener.LocalEndPoint!);
         Socket serverSocket = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         return (new NetworkStream(serverSocket, ownsSocket: true), new NetworkStream(clientSocket, ownsSocket: true));
+    }
+
+    /// <summary>
+    /// Reads every byte the peer wrote before closing its side, for asserting on a raw handshake
+    /// response. Intended for use after <see cref="PublicWebSocketConnection.RunAsync"/> has already
+    /// completed and disposed its own stream, so the read reaches a clean EOF rather than blocking.
+    /// </summary>
+    private static async Task<byte[]> ReadUntilClosedAsync(Stream stream)
+    {
+        using var buffer = new MemoryStream();
+        byte[] chunk = new byte[256];
+        int read;
+        while ((read = await stream.ReadAsync(chunk).AsTask().WaitAsync(TimeSpan.FromSeconds(5))) > 0)
+        {
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
     }
 
     /// <summary>Polls a condition until it becomes true, failing the test if the guard task ends unexpectedly early or the condition times out.</summary>

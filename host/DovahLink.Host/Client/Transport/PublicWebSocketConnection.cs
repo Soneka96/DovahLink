@@ -477,9 +477,11 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// Reads the raw HTTP Upgrade request byte-by-byte -- never over-reading past the header
     /// terminator, so no leftover bytes are ever lost to the WebSocket framing that follows -- within
     /// <see cref="PublicWebSocketTransportOptions.HandshakeTimeout"/>, validates it, and writes the
-    /// matching <c>101 Switching Protocols</c> response. A peer that withholds or malforms its
-    /// handshake past the deadline is treated the same as one that disconnects before completing it,
-    /// so it cannot hold the connection open indefinitely.
+    /// matching response: <c>101 Switching Protocols</c> on success, or a minimal <c>400 Bad
+    /// Request</c> or <c>426 Upgrade Required</c> for a complete request this transport intentionally
+    /// rejects. A peer that withholds or malforms its handshake past the deadline, or disconnects
+    /// before completing it, is closed silently with no fabricated HTTP response -- a rejection
+    /// response is only ever attempted for a complete request the parser actually evaluated.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop waiting for the handshake.</param>
     /// <returns>The upgraded <see cref="WebSocket"/> on success; otherwise <see langword="null"/>.</returns>
@@ -533,9 +535,26 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         HandshakeRejectReason rejectReason = PublicWebSocketHandshake.TryParseUpgradeRequest(requestBuffer.AsSpan(0, length), out string acceptKey);
         if (rejectReason != HandshakeRejectReason.None)
         {
-            ReportAbnormalEnd(rejectReason == HandshakeRejectReason.DisallowedOrigin
-                ? PublicWebSocketConnectionEndReason.DisallowedOrigin
-                : PublicWebSocketConnectionEndReason.InvalidHandshake);
+            ReportAbnormalEnd(rejectReason switch
+            {
+                HandshakeRejectReason.DisallowedOrigin => PublicWebSocketConnectionEndReason.DisallowedOrigin,
+                HandshakeRejectReason.UnsupportedVersion => PublicWebSocketConnectionEndReason.UnsupportedWebSocketVersion,
+                _ => PublicWebSocketConnectionEndReason.InvalidHandshake,
+            });
+
+            byte[] rejectionResponse = rejectReason == HandshakeRejectReason.UnsupportedVersion
+                ? PublicWebSocketHandshake.BuildUpgradeRequiredResponse()
+                : PublicWebSocketHandshake.BuildBadRequestResponse();
+            try
+            {
+                await stream.WriteAsync(rejectionResponse, handshakeDeadline.Token).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException or OperationCanceledException)
+            {
+                // Best-effort: the real rejection reason was already reported above and stays authoritative --
+                // a failed rejection-response write must never be reported as a second, unrelated root cause.
+            }
+
             return null;
         }
 
