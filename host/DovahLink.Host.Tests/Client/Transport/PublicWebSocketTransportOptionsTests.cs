@@ -9,7 +9,7 @@ public class PublicWebSocketTransportOptionsTests
     [Fact]
     public void DefaultConstructor_UsesApprovedConstants()
     {
-        var options = Fixtures.BuildPublicWebSocketTransportOptions();
+        var options = new PublicWebSocketTransportOptions();
 
         Assert.Equal(Constants.PublicWebSocketHandshakeTimeout, options.HandshakeTimeout);
         Assert.Equal(Constants.PublicWebSocketKeepAliveInterval, options.KeepAliveInterval);
@@ -22,6 +22,7 @@ public class PublicWebSocketTransportOptionsTests
         Assert.Equal(Constants.PublicWebSocketGracefulCloseTimeout, options.GracefulCloseTimeout);
         Assert.Equal(Constants.PublicWebSocketMaxHandshakeRequestBytes, options.MaxHandshakeRequestBytes);
         Assert.Equal(Constants.PublicWebSocketDisconnectNotificationTimeout, options.DisconnectNotificationTimeout);
+        Assert.Equal(Constants.PublicWebSocketFragmentAssemblyTimeout, options.FragmentAssemblyTimeout);
     }
 
     /// <summary>Verifies that a single overridden property leaves every other default untouched.</summary>
