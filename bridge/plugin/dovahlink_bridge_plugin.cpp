@@ -27,6 +27,7 @@
 #include "application/registered_state_area_policy.hpp"
 #include "application/session_manager.hpp"
 #include "application/session_publication_factory.hpp"
+#include "application/session_release_notification_sink.hpp"
 #include "application/state_publisher.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"
@@ -97,6 +98,19 @@ void SetupLogging() {
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
 }
+
+///  Discards session-release notifications: no in-game UI needs to know when
+///  a stale session's slot becomes free, unlike the Skyrim-independent test
+///  harness's `StdoutSessionReleaseNotificationSink`
+///  (`bridge/harness/dovahlink_bridge_harness.cpp`), which prints an
+///  observable signal for the validation-client test driver.
+class NoOpSessionReleaseNotificationSink
+    : public dovahlink::application::ISessionReleaseNotificationSink {
+  public:
+    ///  @copydoc
+    ///  dovahlink::application::ISessionReleaseNotificationSink::NotifySessionReleased
+    void NotifySessionReleased(std::string_view) override {}
+};
 
 } //  namespace
 
@@ -279,6 +293,7 @@ SKSEPluginInfo(
     static dovahlink::security::PairingSession pairingSession;
     static dovahlink::game_state::CommonLibPairingNotificationSink
         pairingNotificationSink;
+    static NoOpSessionReleaseNotificationSink sessionReleaseNotificationSink;
 
     static dovahlink::application::SessionManager sessionManager(
         dovahlink::security::kMaxConnectedClients);
@@ -320,7 +335,7 @@ SKSEPluginInfo(
         activePlayContextReader, bridgeInstanceId);
     static dovahlink::application::ConnectionSession connectionSession(
         handshakeHandler, messageDispatcher, activePlayContextReader,
-        pairingSession, bridgeInstanceId);
+        pairingSession, sessionReleaseNotificationSink, bridgeInstanceId);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);

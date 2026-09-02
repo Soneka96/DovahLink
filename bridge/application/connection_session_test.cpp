@@ -3,6 +3,7 @@
 
 #include "application/application_test_support.hpp"
 #include "application/bridge_config.hpp"
+#include "application/session_release_notification_sink.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "protocol/messages.hpp"
@@ -106,6 +107,22 @@ class RecordingPairingNotificationSink : public IPairingNotificationSink {
 
     ///  Every code this sink has been given, in order.
     std::vector<std::string> codes;
+};
+
+///  `ISessionReleaseNotificationSink` double that records every clientId it is
+///  given. These tests only need a working sink to satisfy
+///  `RunConnectionSession`'s signature and to prove teardown notifies it --
+///  see the "notifies the session-release sink" test cases below.
+class RecordingSessionReleaseNotificationSink
+    : public dovahlink::application::ISessionReleaseNotificationSink {
+  public:
+    ///  Appends `clientId` to `releasedClientIds`.
+    void NotifySessionReleased(std::string_view clientId) override {
+        releasedClientIds.emplace_back(clientId);
+    }
+
+    ///  Every clientId this sink has been given, in order.
+    std::vector<std::string> releasedClientIds;
 };
 
 ///  `IWebSocketSession` mock used to prove `RunConnectionSession`'s own
@@ -221,6 +238,8 @@ void RunConnectionSession(
     const IActivePlayContextReader& activePlayContext,
     PairingSession& pairingSession,
     IPairingNotificationSink& pairingNotificationSink,
+    dovahlink::application::ISessionReleaseNotificationSink&
+        sessionReleaseNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,
     const std::string& bridgeVersion,
     dovahlink::application::SteadyNowProvider steadyNow = [] {
@@ -239,7 +258,7 @@ void RunConnectionSession(
         activePlayContext, bridgeInstanceId);
     dovahlink::application::ConnectionSession connectionSession(
         handshakeHandler, messageDispatcher, activePlayContext, pairingSession,
-        bridgeInstanceId);
+        sessionReleaseNotificationSink, bridgeInstanceId);
     connectionSession.Run(ws, connection, std::move(steadyNow));
 }
 
@@ -261,6 +280,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
@@ -290,7 +310,8 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            /*bridgeInstanceId=*/std::nullopt,
             kBridgeVersion, steadyNow);
     });
 
@@ -357,6 +378,7 @@ TEST_CASE("RunConnectionSession completes pairing through the mutation coordinat
     PairingSession pairingSession(
         []() -> std::optional<std::string> { return std::string("123456"); });
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
 
@@ -371,9 +393,9 @@ TEST_CASE("RunConnectionSession completes pairing through the mutation coordinat
         RunConnectionSession(session, tokenStore, tokenThrottle, trustStore,
                              credentialThrottle, sessionManager, /*connection=*/1,
                              activePlayContext, pairingSession,
-                             pairingNotificationSink, /*bridgeInstanceId=*/
-                             std::nullopt,
-                             kBridgeVersion);
+                             pairingNotificationSink,
+                             sessionReleaseNotificationSink,
+                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -443,6 +465,7 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     std::optional<std::string> bridgeInstanceId = "bridge-1";
@@ -458,7 +481,8 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -555,6 +579,7 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     testing::StrictMock<MockActivePlayContext> activePlayContext;
     EXPECT_CALL(activePlayContext, CurrentPlayContextId())
@@ -573,7 +598,8 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -622,6 +648,7 @@ TEST_CASE("RunConnectionSession closes without creating a session when the "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
@@ -645,7 +672,8 @@ TEST_CASE("RunConnectionSession closes without creating a session when the "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            /*bridgeInstanceId=*/std::nullopt,
             kBridgeVersion, steadyNow);
     });
 
@@ -713,6 +741,7 @@ TEST_CASE("RunConnectionSession's idle-loop read closes the connection once "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
@@ -738,7 +767,8 @@ TEST_CASE("RunConnectionSession's idle-loop read closes the connection once "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            /*bridgeInstanceId=*/std::nullopt,
             kBridgeVersion, steadyNow);
     });
 
@@ -803,6 +833,7 @@ TEST_CASE(
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     //  The handshake deadline (constructor time + 5s) is already 5s in the past
@@ -823,7 +854,8 @@ TEST_CASE(
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            /*bridgeInstanceId=*/std::nullopt,
             kBridgeVersion, steadyNow);
     });
 
@@ -871,6 +903,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
 
@@ -886,6 +919,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives "
                              credentialThrottle, sessionManager, /*connection=*/1,
                              activePlayContext, pairingSession,
                              pairingNotificationSink,
+                             sessionReleaseNotificationSink,
                              /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 
@@ -949,6 +983,7 @@ TEST_CASE("RunConnectionSession's disconnect notifies PairingSession, keeping "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
 
@@ -985,7 +1020,8 @@ TEST_CASE("RunConnectionSession's disconnect notifies PairingSession, keeping "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            /*bridgeInstanceId=*/std::nullopt,
             kBridgeVersion, steadyNow);
     });
 
@@ -1037,6 +1073,7 @@ TEST_CASE("RunConnectionSession's disconnect notification lets an owned "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
 
@@ -1064,7 +1101,8 @@ TEST_CASE("RunConnectionSession's disconnect notification lets an owned "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            /*bridgeInstanceId=*/std::nullopt,
             kBridgeVersion, steadyNow);
     });
 
@@ -1116,6 +1154,7 @@ TEST_CASE("RunConnectionSession's successful hello notifies PairingSession of "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
 
@@ -1139,6 +1178,7 @@ TEST_CASE("RunConnectionSession's successful hello notifies PairingSession of "
                              credentialThrottle, sessionManager, /*connection=*/1,
                              activePlayContext, pairingSession,
                              pairingNotificationSink,
+                             sessionReleaseNotificationSink,
                              /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 
@@ -1193,6 +1233,7 @@ TEST_CASE("RunConnectionSession's disconnect/reconnect wiring works on an "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
 
@@ -1220,7 +1261,8 @@ TEST_CASE("RunConnectionSession's disconnect/reconnect wiring works on an "
         RunConnectionSession(
             session, tokenStore, tokenThrottle, trustStore, credentialThrottle,
             sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-            pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
+            pairingNotificationSink, sessionReleaseNotificationSink,
+            /*bridgeInstanceId=*/std::nullopt,
             kBridgeVersion, steadyNow);
     });
 
@@ -1273,6 +1315,7 @@ TEST_CASE("RunConnectionSession's reconnect notification for a client owning "
     FailedTokenThrottle credentialThrottle;
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
 
@@ -1295,6 +1338,7 @@ TEST_CASE("RunConnectionSession's reconnect notification for a client owning "
                              credentialThrottle, sessionManager, /*connection=*/1,
                              activePlayContext, pairingSession,
                              pairingNotificationSink,
+                             sessionReleaseNotificationSink,
                              /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 
@@ -1343,6 +1387,7 @@ TEST_CASE("ConnectionSession's real behavior is reachable through "
     auto trustStore = TrustStore::Load(persistence);
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
@@ -1354,7 +1399,8 @@ TEST_CASE("ConnectionSession's real behavior is reachable through "
         activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, messageDispatcher, activePlayContext,
-        pairingSession, /*bridgeInstanceId=*/std::nullopt);
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
     IConnectionSession& contract = connectionSession;
 
     //  Only proves the interface dispatches to the real implementation; the
@@ -1374,6 +1420,7 @@ TEST_CASE("RunConnectionSession makes no other session calls when Accept fails",
     auto trustStore = TrustStore::Load(persistence);
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
@@ -1385,7 +1432,8 @@ TEST_CASE("RunConnectionSession makes no other session calls when Accept fails",
         activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, messageDispatcher, activePlayContext,
-        pairingSession, /*bridgeInstanceId=*/std::nullopt);
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
 }
@@ -1408,6 +1456,7 @@ TEST_CASE("RunConnectionSession closes without writing when the hello read "
     auto trustStore = TrustStore::Load(persistence);
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
@@ -1419,7 +1468,8 @@ TEST_CASE("RunConnectionSession closes without writing when the hello read "
         activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, messageDispatcher, activePlayContext,
-        pairingSession, /*bridgeInstanceId=*/std::nullopt);
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
 }
@@ -1489,10 +1539,12 @@ TEST_CASE("RunConnectionSession dispatches an inbound message through "
         }));
 
     PairingSession pairingSession;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
-        pairingSession, /*bridgeInstanceId=*/std::nullopt);
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
 }
@@ -1562,10 +1614,92 @@ TEST_CASE("RunConnectionSession closes the connection when IMessageDispatcher "
         }));
 
     PairingSession pairingSession;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
-        pairingSession, /*bridgeInstanceId=*/std::nullopt);
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
+}
+
+TEST_CASE("RunConnectionSession notifies the session-release sink with the "
+          "client's clientId once the connection tears down",
+          "[application][connection_session]") {
+    std::string helloRaw = HelloMessage(kValidHexToken);
+
+    StrictMock<MockWebSocketSession> mockWs;
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(mockWs, Accept())
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_)).WillOnce(Return(helloRaw));
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  hello_ack
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, SwitchToIdleTimeout());
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  capabilities
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(std::unexpected(SessionError::kReadFailed)));
+        EXPECT_CALL(mockWs, Close());
+    }
+
+    StrictMock<MockHandshakeHandler> mockHandshakeHandler;
+    EXPECT_CALL(mockHandshakeHandler,
+                Handle(testing::_, testing::_, testing::_, testing::_))
+        .WillOnce(testing::Invoke(
+            [](const Envelope&, dovahlink::application::ConnectionId,
+               dovahlink::application::IConnectionTimeoutTracker&,
+               std::chrono::steady_clock::time_point) {
+                return dovahlink::application::HandshakeResult{
+                    .response =
+                        dovahlink::protocol::Envelope{
+                            .messageType = "hello_ack",
+                            .messageId = "message-hello-ack-1",
+                            .sessionId = std::string("session-1"),
+                            .correlationId = std::nullopt,
+                            .payload = boost::json::object{},
+                            .clientId = std::string("client-1"),
+                        },
+                    .sessionLease = dovahlink::shared::ScopedRelease([] {}),
+                    .closeConnection = false,
+                };
+            }));
+    StrictMock<MockMessageDispatcher> mockMessageDispatcher;
+
+    PairingSession pairingSession;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::ConnectionSession connectionSession(
+        mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
+
+    connectionSession.Run(mockWs, /*connection=*/1);
+
+    CHECK(sessionReleaseNotificationSink.releasedClientIds ==
+          std::vector<std::string>{"client-1"});
+}
+
+TEST_CASE("RunConnectionSession does not notify the session-release sink "
+          "when the handshake never admits a session",
+          "[application][connection_session]") {
+    StrictMock<MockWebSocketSession> mockWs;
+    EXPECT_CALL(mockWs, Accept())
+        .WillOnce(Return(std::unexpected(SessionError::kHandshakeFailed)));
+    StrictMock<MockHandshakeHandler> mockHandshakeHandler;
+    StrictMock<MockMessageDispatcher> mockMessageDispatcher;
+
+    PairingSession pairingSession;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::ConnectionSession connectionSession(
+        mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
+
+    connectionSession.Run(mockWs, /*connection=*/1);
+
+    CHECK(sessionReleaseNotificationSink.releasedClientIds.empty());
 }

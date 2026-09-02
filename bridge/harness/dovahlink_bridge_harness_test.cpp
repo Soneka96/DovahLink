@@ -414,6 +414,54 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket "
     CHECK(harness.ExitCode() == 0);
 }
 
+TEST_CASE("dovahlink_bridge_harness reports SESSION_RELEASED for the "
+          "disconnecting client once its session ends",
+          "[harness]") {
+    //  Proves the exact wiring a reconnecting client relies on to avoid
+    //  racing the Bridge's asynchronous session-slot release (see
+    //  StdoutSessionReleaseNotificationSink in dovahlink_bridge_harness.cpp):
+    //  a real client closing its socket must make the harness print an
+    //  observable SESSION_RELEASED line for that same clientId, so a test
+    //  driver can wait for it instead of retrying blind.
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+    std::uint16_t port = ReadHarnessPort(harness);
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        clientSocket.connect(boost::asio::ip::tcp::endpoint(
+                                 boost::asio::ip::make_address("127.0.0.1"), port),
+                             connectEc);
+        if (!connectEc) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+        std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessage());
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+
+    //  HelloMessage() always authenticates as clientId "client-1".
+    CHECK(harness.ReadLine() == "SESSION_RELEASED client-1");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+}
+
 TEST_CASE("dovahlink_bridge_harness shuts down cleanly when command input ends",
           "[harness]") {
     HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));

@@ -4,6 +4,7 @@
 
 #include "application/application_test_support.hpp"
 #include "application/bridge_config.hpp"
+#include "application/session_release_notification_sink.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "security/hex.hpp"
@@ -42,6 +43,7 @@ using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::HandshakeHandler;
 using dovahlink::application::IPairingNotificationSink;
+using dovahlink::application::ISessionReleaseNotificationSink;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::MessageDispatcher;
 using dovahlink::application::PairingHandler;
@@ -110,6 +112,21 @@ class RecordingPairingNotificationSink : public IPairingNotificationSink {
 
     ///  Every code this sink has been given, in order.
     std::vector<std::string> codes;
+};
+
+///  `ISessionReleaseNotificationSink` double that records every clientId it is
+///  given; these tests only need a working sink to satisfy
+///  `ConnectionSession`'s signature.
+class RecordingSessionReleaseNotificationSink
+    : public ISessionReleaseNotificationSink {
+  public:
+    ///  Appends `clientId` to `releasedClientIds`.
+    void NotifySessionReleased(std::string_view clientId) override {
+        releasedClientIds.emplace_back(clientId);
+    }
+
+    ///  Every clientId this sink has been given, in order.
+    std::vector<std::string> releasedClientIds;
 };
 
 ///  `IConnectionSession` mock proving `BridgeWorkerPool` invokes `Run` with the
@@ -182,6 +199,8 @@ struct Fixture {
                                                  sessionManager};
     ///  Records pairing codes displayed to the user; unused by these tests.
     RecordingPairingNotificationSink pairingNotificationSink;
+    ///  Records released session slots; unused by these tests.
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
     ///  Source of the acquired play context; empty (kNoContext) for these tests.
     EmptyActivePlayContext activePlayContext;
     ///  Owns publication and shutdown of the active test socket.
@@ -212,9 +231,10 @@ struct Fixture {
                                         activePlayContext,
                                         /*bridgeInstanceId=*/std::nullopt};
     ///  Runs each accepted connection's full session.
-    ConnectionSession connectionSession{handshakeHandler, messageDispatcher,
-                                        activePlayContext, pairingSession,
-                                        /*bridgeInstanceId=*/std::nullopt};
+    ConnectionSession connectionSession{
+        handshakeHandler, messageDispatcher, activePlayContext,
+        pairingSession, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt};
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};

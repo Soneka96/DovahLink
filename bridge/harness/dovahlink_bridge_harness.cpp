@@ -25,6 +25,7 @@
 #include "application/play_context_lifecycle.hpp"
 #include "application/registered_state_area_policy.hpp"
 #include "application/session_manager.hpp"
+#include "application/session_release_notification_sink.hpp"
 #include "application/state_publisher.hpp"
 #include "security/constants.hpp"
 #include "security/csprng.hpp"
@@ -86,6 +87,23 @@ class NoOpCaptureQueueDiagnostics
     void RecordCaptureRejected(std::string_view,
                                dovahlink::application::CaptureMode) noexcept
         override {}
+};
+
+///  Reports a released session slot by printing it to stdout, matching the
+///  harness's existing "print an observable signal for the test driver"
+///  convention (READY, BRIDGE_INSTANCE, LEVEL, PLAY_CONTEXT, PAIRING_CODE
+///  below). A real Skyrim build has no equivalent consumer -- see
+///  `dovahlink_bridge_plugin.cpp`'s no-op implementation. A validation-client
+///  scenario reads this line to learn a prior session's slot is free before
+///  reconnecting to this same harness process, instead of retrying blind.
+class StdoutSessionReleaseNotificationSink
+    : public dovahlink::application::ISessionReleaseNotificationSink {
+  public:
+    ///  @copydoc
+    ///  dovahlink::application::ISessionReleaseNotificationSink::NotifySessionReleased
+    void NotifySessionReleased(std::string_view clientId) override {
+        std::cout << "SESSION_RELEASED " << clientId << std::endl;
+    }
 };
 
 ///  Displays a freshly generated pairing code by printing it to stdout, matching
@@ -268,6 +286,7 @@ int main() {
     dovahlink::security::FailedTokenThrottle credentialThrottle;
     dovahlink::security::PairingSession pairingSession;
     StdoutPairingNotificationSink pairingNotificationSink;
+    StdoutSessionReleaseNotificationSink sessionReleaseNotificationSink;
 
     dovahlink::application::SessionManager sessionManager(
         dovahlink::security::kMaxConnectedClients);
@@ -339,7 +358,7 @@ int main() {
         activePlayContextReader, bridgeInstanceId);
     dovahlink::application::ConnectionSession connectionSession(
         handshakeHandler, messageDispatcher, activePlayContextReader,
-        pairingSession, bridgeInstanceId);
+        pairingSession, sessionReleaseNotificationSink, bridgeInstanceId);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);

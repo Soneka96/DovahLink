@@ -31,10 +31,12 @@ ConnectionSession::ConnectionSession(
     IHandshakeHandler& handshakeHandler, IMessageDispatcher& messageDispatcher,
     const IActivePlayContextReader& activePlayContext,
     security::IPairingSession& pairingSession,
+    ISessionReleaseNotificationSink& sessionReleaseNotificationSink,
     std::optional<std::string> bridgeInstanceId)
     : handshakeHandler_(handshakeHandler),
       messageDispatcher_(messageDispatcher),
       activePlayContext_(activePlayContext), pairingSession_(pairingSession),
+      sessionReleaseNotificationSink_(sessionReleaseNotificationSink),
       bridgeInstanceId_(std::move(bridgeInstanceId)) {}
 
 void ConnectionSession::Run(transport::IWebSocketSession& ws,
@@ -145,6 +147,9 @@ void ConnectionSession::Run(transport::IWebSocketSession& ws,
         pairingSession_.NotifyDisconnected(*clientId, steadyNow());
     }
     sessionLease.reset();
+    if (clientId.has_value()) {
+        sessionReleaseNotificationSink_.NotifySessionReleased(*clientId);
+    }
     ws.Close();
 }
 

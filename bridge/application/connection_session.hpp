@@ -4,6 +4,7 @@
 #include "application/handshake_handler.hpp"
 #include "application/message_dispatcher.hpp"
 #include "application/session_manager.hpp"
+#include "application/session_release_notification_sink.hpp"
 #include "security/pairing_session.hpp"
 #include "transport/websocket_session.hpp"
 
@@ -56,12 +57,17 @@ class ConnectionSession final : public IConnectionSession {
     ///  @param pairingSession Plugin-lifetime pairing challenge/pending-
     ///  credential state machine, notified of this connection's own
     ///  reconnect/disconnect.
+    ///  @param sessionReleaseNotificationSink Notified with this connection's
+    ///  own `clientId` immediately after its session slot is actually
+    ///  released at teardown, so an observer (a reconnecting client, a test
+    ///  driver) can learn the slot is free without racing the release.
     ///  @param bridgeInstanceId This bridge process's identity, stamped onto
     ///  every response envelope; no value if generation failed at startup.
     ConnectionSession(IHandshakeHandler& handshakeHandler,
                       IMessageDispatcher& messageDispatcher,
                       const IActivePlayContextReader& activePlayContext,
                       security::IPairingSession& pairingSession,
+                      ISessionReleaseNotificationSink& sessionReleaseNotificationSink,
                       std::optional<std::string> bridgeInstanceId);
 
     ///  @copydoc IConnectionSession::Run
@@ -84,6 +90,10 @@ class ConnectionSession final : public IConnectionSession {
 
     ///  Plugin-lifetime pairing challenge/pending-credential state machine.
     security::IPairingSession& pairingSession_;
+
+    ///  Notified with this connection's own `clientId` immediately after its
+    ///  session slot is actually released at teardown.
+    ISessionReleaseNotificationSink& sessionReleaseNotificationSink_;
 
     ///  This bridge process's identity, stamped onto every response envelope.
     std::optional<std::string> bridgeInstanceId_;
