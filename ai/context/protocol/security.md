@@ -14,10 +14,11 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 - A configuration value or command-line flag must not silently bypass the loopback restriction.
 - The public WebSocket endpoint serves native DovahLink clients only. A handshake request carrying
   an `Origin` header is rejected regardless of its value -- including `http://localhost` and
-  `null` -- because that header only ever appears on a browser-originated request; a native client
-  does not send it. There is no origin allowlist: this is an intentional no-browser-clients policy,
-  not a placeholder for one, and a browser origin is never treated as privileged merely because it
-  happens to be loopback.
+  `null` -- because the supported native clients never send that header, not because an `Origin`
+  header proves a browser sent the request: a native client, test tool, or proxy can send one too,
+  and this policy rejects it exactly the same way. There is no origin allowlist: this is an
+  intentional no-browser-clients contract, not a placeholder for one, and a browser origin is never
+  treated as privileged merely because it happens to be loopback.
 - A complete handshake request the Host intentionally rejects (malformed, missing a required
   header, a disallowed `Origin`, or an unsupported `Sec-WebSocket-Version`) receives a minimal HTTP
   rejection instead of a silent close: `400 Bad Request` for a malformed or policy-rejected request,
