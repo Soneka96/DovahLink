@@ -105,6 +105,20 @@ branch, D1/D2/D3 status, and clean scope before implementation.
     unit test (or the excluded `Task.Run` isolation), and this codebase has no existing precedent for
     runtime-testing the negative case of a "must not block" contract (`HandleConnectionEnded()`'s own
     "must never block on I/O" requirement has none either) -- documentation is the fix here.
+- A CI-only failure of `RunAsync_DisconnectNotificationHangs_StillTearsDownWithinBound` (never
+  reproduced locally across multiple runs, but confirmed real from the Host workflow's own captured
+  test output on `feature/4-host-client-boundary-and-pairing`) traced to a genuine race in
+  `NotifyDisconnectedAsync`: the `notifyDeadline` `CancellationTokenSource`'s own internal timeout
+  timer and the separate `WaitAsync(options.DisconnectNotificationTimeout)` bounding the outer await
+  are two independent timers sharing one nominal duration, not one shared deadline. If `WaitAsync`
+  gave up first, under scheduling pressure, the method returned and its `using` block disposed
+  `notifyDeadline` before its own pending timer callback had run -- silently discarding that
+  callback and leaving the token never actually cancelled, so a hung handler cooperatively awaiting
+  it could never unwind. Fixed by explicitly cancelling `notifyDeadline` in a `finally` block
+  (idempotent if its own timer already fired), guaranteeing the token is always cancelled before the
+  method gives up on it regardless of which timer wins. Verified with 15 repeated runs of the
+  regression test (previously 5s-then-fail, now ~260-400ms) and 3 repeated full-suite runs (644/644),
+  all with no flake.
 - A further fresh-eyes finding against the outbound bound itself: `TrySend`'s message-count check
   relied solely on the bounded `Channel<byte[]>` rejecting `TryWrite` once full, but a `Channel`'s
   capacity frees the instant its reader dequeues an item -- before that item's send over the wire has
@@ -217,6 +231,10 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   (new Contracts bullet, new Invariants bullet, five new Proof obligations bullets); this `CONTEXT.md`
   (this decision entry, this file list, the verification note above). No `host/DovahLink.Host` or
   `.Tests` file changed; Concept 02 remains not started.
+- `NotifyDisconnectedAsync` disposal-race fix, modified: `PublicWebSocketConnection.cs`
+  (`notifyDeadline.Cancel()` added in a new `finally` block). No test file changed: the existing
+  `RunAsync_DisconnectNotificationHangs_StillTearsDownWithinBound` already covers this exact
+  contract and now passes deterministically under repetition instead of racing.
 
 ## Verification
 
@@ -250,6 +268,10 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   transport-context corrective pass; unchanged; re-run again after the pre-authentication hello
   deadline decision pass below (documentation-only; appended to but did not alter any phrase
   `test_repository_consistency.py` locks in `security.md`)
+- Unchanged at 644 passed after the `NotifyDisconnectedAsync` disposal-race fix (0 new tests: the
+  existing regression test already covered this contract), re-run 15 times filtered to that test
+  alone (previously 5s-then-fail, now consistently ~260-400ms) plus 3 full-suite runs, no flake in
+  either
 - `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
   after every pass since the transport-context corrective pass
 - `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release` and

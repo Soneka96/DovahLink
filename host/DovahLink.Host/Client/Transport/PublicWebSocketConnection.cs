@@ -323,6 +323,18 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             // own teardown to proceed, so a failed or hung handler cannot leak the socket or wedge
             // the listener's admission slot.
         }
+        finally
+        {
+            // notifyDeadline's own timeout and the WaitAsync bound above are two independent timers
+            // sharing one duration, not one shared deadline; either can fire first. If WaitAsync gives
+            // up before notifyDeadline's internal timer has actually run, disposing notifyDeadline
+            // (via the using statement, once this method returns) silently discards that still-pending
+            // timer callback, so the token would never observe cancellation and a hung handler awaiting
+            // it would never unwind. Cancelling explicitly here -- idempotent if the timer already
+            // fired -- guarantees the handler's token is always cancelled before this method gives up
+            // on it, regardless of which timer would otherwise have won the race.
+            notifyDeadline.Cancel();
+        }
     }
 
     /// <inheritdoc/>
