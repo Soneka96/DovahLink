@@ -322,4 +322,31 @@ public static class Constants
     /// from any other transport deadline.
     /// </summary>
     public static readonly TimeSpan PublicWebSocketFragmentAssemblyTimeout = TimeSpan.FromSeconds(5);
+
+    // ---- Client protocol ----
+
+    /// <summary>
+    /// The maximum decoded JSON nesting depth accepted for one public envelope, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum decoded nesting depth: 32". Enforced by the
+    /// underlying JSON reader before materializing typed DTOs.
+    /// </summary>
+    public const int PublicProtocolMaxJsonDepth = 32;
+
+    /// <summary>
+    /// The maximum UTF-8 byte length of one decoded JSON string value (or object member name) within a
+    /// public envelope, per <c>ai/context/protocol/security.md</c>'s "maximum string length: 4 KiB".
+    /// </summary>
+    public const int PublicProtocolMaxJsonStringLengthBytes = 4096;
+
+    /// <summary>
+    /// The maximum element count of one decoded JSON array within a public envelope, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum array length: 128 items".
+    /// </summary>
+    public const int PublicProtocolMaxJsonArrayLength = 128;
+
+    /// <summary>
+    /// The maximum member count of one decoded JSON object within a public envelope, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum object members: 64".
+    /// </summary>
+    public const int PublicProtocolMaxJsonObjectMembers = 64;
 }

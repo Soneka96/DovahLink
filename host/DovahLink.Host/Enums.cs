@@ -337,3 +337,136 @@ public enum HandshakeRejectReason
     /// <summary>The request carried a <c>Sec-WebSocket-Version</c> header whose value is not <c>13</c>, the only version this transport supports.</summary>
     UnsupportedVersion,
 }
+
+// ---- Client protocol ----
+
+/// <summary>
+/// The canonical closed vocabulary of public protocol <c>messageType</c> values, per
+/// <c>protocol/schema/README.md</c>'s "Message types". An unrecognized wire value is malformed
+/// protocol input, never interpreted as a forward-compatible value.
+/// </summary>
+public enum PublicMessageType
+{
+    /// <summary>Client → host, first frame only.</summary>
+    Hello,
+
+    /// <summary>Host → client only.</summary>
+    HelloAck,
+
+    /// <summary>Client → host, restricted-session only.</summary>
+    PairingRequest,
+
+    /// <summary>Host → client, reply to <see cref="PairingRequest"/>.</summary>
+    PairingStatus,
+
+    /// <summary>Client → host, restricted-session only.</summary>
+    PairingConfirm,
+
+    /// <summary>Client → host, restricted-session only.</summary>
+    PairingAck,
+
+    /// <summary>Client → host, restricted-session only.</summary>
+    PairingRenotify,
+
+    /// <summary>Client → host, restricted-session only.</summary>
+    PairingCancel,
+
+    /// <summary>Host → client, reply to <see cref="PairingConfirm"/> or <see cref="PairingAck"/>.</summary>
+    PairingOutcome,
+
+    /// <summary>Client → host, full-session only.</summary>
+    RenameRequest,
+
+    /// <summary>Host → client, reply to <see cref="RenameRequest"/>.</summary>
+    RenameOutcome,
+
+    /// <summary>Sent by both endpoints after <see cref="HelloAck"/>.</summary>
+    Capabilities,
+
+    /// <summary>Client → host, full-session only.</summary>
+    Subscribe,
+
+    /// <summary>Host → client, reply to <see cref="Subscribe"/>.</summary>
+    SubscriptionAck,
+
+    /// <summary>Client → host, full-session only.</summary>
+    SnapshotRequest,
+
+    /// <summary>Host → client only.</summary>
+    StateSnapshot,
+
+    /// <summary>Host → client only.</summary>
+    StateEvent,
+
+    /// <summary>Host → client only.</summary>
+    Error,
+
+    /// <summary>Host → client only, unsolicited terminal event.</summary>
+    SessionInvalidated,
+
+    /// <summary>Client liveness request.</summary>
+    Ping,
+
+    /// <summary>Host reply to <see cref="Ping"/>.</summary>
+    Pong,
+}
+
+/// <summary>The authentication method a client presents in <c>hello.auth.method</c>.</summary>
+public enum HelloAuthMethod
+{
+    /// <summary>Developer/loopback-proof authentication against the process-lifetime one-time token.</summary>
+    OneTimeLocalToken,
+
+    /// <summary>No credential presented yet; admits a session restricted to the pairing/liveness allowlist.</summary>
+    Unpaired,
+
+    /// <summary>A persisted pairing credential, for an ordinary reconnect.</summary>
+    TrustedDeviceCredential,
+}
+
+/// <summary>The session-identity kind exposed in <c>hello_ack.clientIdentityKind</c>.</summary>
+public enum ClientIdentityKind
+{
+    /// <summary>A developer-authenticated or bootstrap-unpaired session, trust-restricted until pairing succeeds.</summary>
+    Unpaired,
+
+    /// <summary>A session admitted via, or upgraded to, a trusted persisted credential.</summary>
+    Paired,
+}
+
+/// <summary>The canonical machine-readable codes an <c>error</c> message's <c>code</c> field may carry.</summary>
+public enum PublicProtocolErrorCode
+{
+    /// <summary>The message failed structural, bound, or allowlist validation before interpretation.</summary>
+    MalformedMessage,
+
+    /// <summary>An inbound frame exceeded the maximum frame size before it could be safely decoded.</summary>
+    FrameTooLarge,
+
+    /// <summary>A requested capability, state area, or feature is not currently supported.</summary>
+    UnsupportedCapability,
+
+    /// <summary>Authentication failed for a reason that does not disclose which secret check failed.</summary>
+    Unauthenticated,
+
+    /// <summary>The session is not authorized to send this message.</summary>
+    Unauthorized,
+
+    /// <summary>A <c>trusted_device_credential</c> hello was rejected because the presented <c>clientId</c> was explicitly revoked.</summary>
+    Revoked,
+
+    /// <summary>An <c>unpaired</c> or <c>trusted_device_credential</c> hello was rejected because the presented <c>clientId</c> is a currently blocked Known Device.</summary>
+    Blocked,
+
+    /// <summary>A message carried a <c>messageId</c> already seen on this session.</summary>
+    ReplayedMessage,
+
+    /// <summary>A message carried a stale or foreign <c>sessionId</c>.</summary>
+    StaleSession,
+
+    /// <summary>The sender exceeded a rate or attempt limit.</summary>
+    RateLimited,
+
+    /// <summary>An unexpected internal failure occurred; no further detail is disclosed.</summary>
+    InternalError,
+}
