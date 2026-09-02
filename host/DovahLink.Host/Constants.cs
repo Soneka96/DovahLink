@@ -84,6 +84,19 @@ public static class Constants
     /// <summary>The rolling window over which failed token attempts are counted.</summary>
     public static readonly TimeSpan LocalConnectionTokenFailureWindow = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// The maximum number of failed <c>trusted_device_credential</c> hello attempts allowed within
+    /// <see cref="TrustedCredentialFailureWindow"/>, kept separate from
+    /// <see cref="LocalConnectionTokenMaxFailuresPerWindow"/> per
+    /// <c>ai/context/protocol/security.md</c>'s "Maintain a separate failed trusted-credential
+    /// throttle from the developer-token throttle." Mirrors the same 5-per-60-seconds shape already
+    /// established for both the developer-token throttle and the pairing wrong-attempt limit.
+    /// </summary>
+    public const int TrustedCredentialMaxFailuresPerWindow = 5;
+
+    /// <summary>The rolling window over which failed trusted-device-credential attempts are counted.</summary>
+    public static readonly TimeSpan TrustedCredentialFailureWindow = TimeSpan.FromSeconds(60);
+
     // ---- Sessions ----
 
     /// <summary>The maximum number of active client sessions admitted by the first host proof.</summary>
