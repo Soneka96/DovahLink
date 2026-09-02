@@ -23,7 +23,12 @@ public interface IPublicWebSocketConnection
     /// succeeded, failed, or timed out. Every implementation must complete within a bounded time
     /// under every one of these conditions -- <see cref="PublicWebSocketListener"/> awaits this call
     /// after its own accept loops stop, so an implementation that can hang here would hold the
-    /// listener's single connection admission slot open indefinitely.
+    /// listener's single connection admission slot open indefinitely. This bound is only as strong
+    /// as the injected <see cref="IPublicWebSocketMessageHandler"/>'s own contract: it can hold
+    /// hostage a handler call already in progress that ignores its cancellation, but it cannot
+    /// interrupt a handler that blocks the calling thread synchronously before ever returning
+    /// control -- see <see cref="IPublicWebSocketMessageHandler.HandleMessageAsync"/>'s documented
+    /// requirement not to do that.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
@@ -545,12 +550,15 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 return;
             }
 
-            // Bounded by cancellationToken rather than a bare await: a handler that ignores the
-            // token it was given and never returns must not be able to block this loop, and so
-            // RunAsync and the listener's admission slot, indefinitely. The abandoned call keeps
-            // running in the background -- unobserved task faults are not process-fatal on this
-            // runtime -- but it can no longer hold teardown hostage once this token fires, the same
-            // way a cooperative handler's own cancellation would already have unblocked this line.
+            // Bounded by cancellationToken rather than a bare await: once HandleMessageAsync has
+            // returned its Task, a handler whose Task ignores that token and never completes must
+            // not be able to block this loop -- and so RunAsync and the listener's admission slot --
+            // indefinitely. The abandoned Task keeps running in the background -- unobserved task
+            // faults are not process-fatal on this runtime -- but it can no longer hold teardown
+            // hostage once this token fires. This bounds only a returned-but-hanging Task; it cannot
+            // bound HandleMessageAsync itself blocking the calling thread synchronously before ever
+            // returning one, which is why that is a documented contract requirement on the interface
+            // instead of something this loop could otherwise guard against.
             Task handleTask = messageHandler.HandleMessageAsync(connectionContext, messageBuffer.AsMemory(0, messageLength), cancellationToken);
             await handleTask.WaitAsync(cancellationToken).ConfigureAwait(false);
             messageLength = 0;

@@ -57,9 +57,12 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
 
         if (HangOnHandleMessageIgnoringCancellation)
         {
-            // Deliberately awaits CancellationToken.None rather than the token this call received,
-            // simulating a handler that never returns and never honors cancellation -- the exact
-            // non-cooperative case the transport must not be blocked by.
+            // Deliberately awaits CancellationToken.None rather than the token this call received.
+            // This method still returns its Task promptly (this await is the first incomplete one
+            // reached), simulating a handler whose returned Task then never completes and ignores
+            // cancellation -- not a handler that blocks synchronously before ever returning one; that
+            // separate, unbounded case is a documented contract requirement, not something a test
+            // double can safely simulate without hanging the test runner itself.
             await Task.Delay(Timeout.InfiniteTimeSpan, CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -108,6 +111,6 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     /// <summary>When set, every <see cref="HandleMessageAsync"/> call sends this payload through the connection context it received.</summary>
     public byte[]? AutoRespondPayload { get; set; }
 
-    /// <summary>When <see langword="true"/>, <see cref="HandleMessageAsync"/> waits forever on a token it never observes, simulating a non-cooperative handler that never returns and ignores cancellation.</summary>
+    /// <summary>When <see langword="true"/>, <see cref="HandleMessageAsync"/> still returns its Task promptly but that Task then waits forever on a token it never observes, simulating a handler whose returned Task never completes and ignores cancellation.</summary>
     public bool HangOnHandleMessageIgnoringCancellation { get; set; }
 }

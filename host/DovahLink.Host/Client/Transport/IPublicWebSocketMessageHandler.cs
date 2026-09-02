@@ -8,7 +8,19 @@ namespace DovahLink.Host.Client.Transport;
 /// </summary>
 public interface IPublicWebSocketMessageHandler
 {
-    /// <summary>Handles one complete inbound text message, encoded exactly as received from the peer.</summary>
+    /// <summary>
+    /// Handles one complete inbound text message, encoded exactly as received from the peer. An
+    /// implementation must return its <see cref="Task"/> promptly and must not perform blocking
+    /// synchronous work before doing so -- for example blocking I/O, waiting on a lock under
+    /// contention, or synchronously waiting on another operation. The connection can only bound a
+    /// handler once it has actually returned a <see cref="Task"/> for the connection to await (see
+    /// <paramref name="cancellationToken"/>); a call that blocks its caller's thread before ever
+    /// returning one stalls the connection's read loop, and so
+    /// <see cref="IPublicWebSocketConnection.RunAsync"/> and the listener's admission slot, for as
+    /// long as the blocking work itself takes, regardless of how the eventual returned Task would
+    /// have behaved. Genuinely asynchronous work belongs after the method has returned control to its
+    /// caller, which correct use of <see langword="async"/>/<see langword="await"/> already provides.
+    /// </summary>
     /// <param name="connection">
     /// The narrow, per-connection capability scoped to the exact connection that delivered
     /// <paramref name="payload"/>: a response sent through it reaches this same connection's peer,
@@ -19,11 +31,13 @@ public interface IPublicWebSocketMessageHandler
     /// handler that needs the bytes beyond the synchronous extent of this call must copy them first.
     /// </param>
     /// <param name="cancellationToken">
-    /// The token used to stop waiting if handling itself awaits. A cooperative implementation
-    /// observes this and returns promptly once it is cancelled. An implementation that does not is
-    /// simply abandoned once the token fires: the connection stops waiting on it and proceeds with
-    /// its own teardown rather than letting a non-cooperative handler block it indefinitely, the same
-    /// way <see cref="HandleDisconnectedAsync"/> is bounded regardless of whether it cooperates.
+    /// The token used to stop waiting once handling has returned a <see cref="Task"/> that itself
+    /// awaits further work. A cooperative implementation observes this and returns promptly once it
+    /// is cancelled. An implementation whose already-returned <see cref="Task"/> does not is simply
+    /// abandoned once the token fires instead: the connection stops waiting on that <see cref="Task"/>
+    /// and proceeds with its own teardown, the same way <see cref="HandleDisconnectedAsync"/> is
+    /// bounded regardless of whether it cooperates. This offers no protection before the method
+    /// returns a <see cref="Task"/> in the first place -- see the summary above for that boundary.
     /// </param>
     Task HandleMessageAsync(IPublicConnectionContext connection, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
 

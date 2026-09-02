@@ -76,6 +76,35 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   not-yet-sent frame -- so `RequestClose` completes the outbound queue and defers that cancellation
   until the queue has had a bounded (`GracefulCloseTimeout`) opportunity to drain. All three concept
   files stayed within Concept 01's existing allowlist; no divergence was required.
+- Three further fresh-eyes findings against the transport-context corrective pass above were each
+  fixed in their own focused pass, all within Concept 01's existing allowlist:
+  - A `TrySend` rejected only because `RequestClose` had already completed the outbound queue was
+    misclassified as a genuine queue overflow and force-cancelled the writer, destroying an
+    already-admitted terminal frame's drain window. The same investigation found the drain wait
+    itself was bounded on the wrong signal (`outbound.Reader.Completion`, which fires the instant a
+    frame is dequeued, not once its send actually finishes) -- too early for a slow or blocked
+    writer, silently discarding the frame regardless of the first fix. `RequestClose` now marks an
+    `orderlyCloseInProgress` flag (checked by the forced-close helper) and waits on the writer
+    loop's own task (promoted from a `RunAsync`-local variable to a field) rather than the queue
+    merely emptying.
+  - `orderlyCloseInProgress` was a plain `bool` read and written from threads `TrySend`/`RequestClose`
+    both explicitly support running on concurrently; it now goes through `Volatile.Read`/`Write` so a
+    racing `TrySend` cannot observe a stale `false` and resurrect the just-fixed force-abort race.
+  - `ReadLoopAsync` awaited `HandleMessageAsync` with no bound of its own, so a handler whose
+    returned `Task` never completes and ignores cancellation could hold `RunAsync` -- and so the
+    listener's admission slot -- open indefinitely during shutdown. The wait is now bounded by the
+    same cancellation token already flowing through the read loop (`Task.WaitAsync(cancellationToken)`)
+    rather than a new configurable timeout, reusing `RunAsync`'s existing internal-vs-external
+    cancellation split unchanged. A follow-up review correctly noted this only bounds a handler once
+    it has actually returned that `Task`: it cannot protect against `HandleMessageAsync` itself
+    blocking the calling thread synchronously before ever returning one. That boundary is now an
+    explicit documented contract requirement on `IPublicWebSocketMessageHandler.HandleMessageAsync`
+    instead -- no code can bound a call that has not yet returned control, and introducing one would
+    mean a `Task.Run`-based redispatch this pass deliberately does not add. No runtime contract test
+    for that specific requirement exists: doing so would need to actually block a thread inside a
+    unit test (or the excluded `Task.Run` isolation), and this codebase has no existing precedent for
+    runtime-testing the negative case of a "must not block" contract (`HandleConnectionEnded()`'s own
+    "must never block on I/O" requirement has none either) -- documentation is the fix here.
 
 ## Decisions and approved deviations
 
@@ -141,6 +170,13 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `ThrowingPublicWebSocketConnection.cs`, `FakePublicWebSocketMessageHandler.cs`.
 - `ai/context/host/architecture.md`: recorded the general per-connection capability boundary invariant
   (no concrete type names) this corrective pass then implemented.
+- Three further focused fix passes, modified: `PublicWebSocketConnection.cs` (`orderlyCloseInProgress`
+  flag and its `Volatile` access, `writerTask` promoted to a field, `InterruptReadOnceOutboundDrainsAsync`
+  now waits on it, `ReadLoopAsync`'s `HandleMessageAsync` call bounded by `Task.WaitAsync(cancellationToken)`);
+  `IPublicWebSocketMessageHandler.cs` (`HandleMessageAsync`'s documented no-synchronous-blocking
+  contract); `PublicWebSocketConnectionTests.cs`; test doubles `BlockingAfterFirstWriteStream.cs`
+  (`Release()` now actually forwards the blocked write instead of discarding it) and
+  `FakePublicWebSocketMessageHandler.cs` (`HangOnHandleMessageIgnoringCancellation`).
 
 ## Verification
 
@@ -153,15 +189,24 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   claim replaced with a budgeted-with-headroom one, plus two tests pinning the approved 50s/5s split);
   638 passed after the transport-context corrective pass (14 new: the per-connection capability's
   forwarding/no-raw-transport-leak proof, `RequestClose`'s drain/idempotency/racing/bounded-fallback
-  behavior, and the handler-wiring/stale-context-isolation proofs), re-run five times with no flake
+  behavior, and the handler-wiring/stale-context-isolation proofs), re-run five times with no flake;
+  639 passed after the `TrySend`-misclassification/drain-wait fix (1 new: the blocked-writer
+  regression proving a late send rejected by an in-progress orderly close no longer aborts an
+  in-flight terminal frame), re-run eight times with no flake; unchanged at 639 after the
+  `orderlyCloseInProgress` `Volatile` fix (no behavior change, only cross-thread visibility), the
+  affected concurrency tests re-run eight times with no flake; 640 passed after the hung-handler
+  `Task.WaitAsync` fix (1 new: a handler whose returned Task never completes and ignores
+  cancellation no longer blocks `RunAsync` during shutdown), re-run three times with no flake;
+  unchanged at 640 after this documentation-boundary correction pass (one test renamed for
+  precision, no assertions changed)
 - `integration/DovahLinkValidationClient.Tests`, `ctest --test-dir adapter/build/windows-x64-debug`:
-  not re-run for the transport-context corrective pass -- it changes only
-  `host/DovahLink.Host`/`.Tests` C# transport internals, with no protocol, SDK, or native/adapter
-  change
+  not re-run since the transport-context corrective pass -- every pass since changes only
+  `host/DovahLink.Host`/`.Tests` C# transport internals and documentation, with no protocol, SDK, or
+  native/adapter change
 - `python -m unittest discover -s tooling -p "test_*.py"`: 93 passed, re-run during the
   transport-context corrective pass; unchanged
 - `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
-  during the transport-context corrective pass
+  after every pass since the transport-context corrective pass
 - `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release` and
   the resulting `DovahLink.Host.exe`: clean, re-run during the transport-context corrective pass
 - `host/PLAN.md` SHA-256: `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`
