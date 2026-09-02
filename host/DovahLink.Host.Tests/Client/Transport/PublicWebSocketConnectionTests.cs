@@ -1170,6 +1170,100 @@ public class PublicWebSocketConnectionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that concurrent <see cref="IPublicWebSocketConnection.TrySend"/> producers never cause
+    /// the writer to issue overlapping underlying writes -- the single-consumer channel loop is itself
+    /// the serialization mechanism, proven here by instrumenting the stream rather than only inferring
+    /// it from the writer loop's shape. Reuses the same 25-message concurrent-producer
+    /// pressure as <see cref="TrySend_ConcurrentCalls_DeliverAllPayloadsIntactToThePeer"/>, which proves
+    /// the complementary property (no loss/corruption) that this test does not re-check.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_ConcurrentCalls_NeverIssuesOverlappingUnderlyingWrites()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var trackingStream = new ConcurrentWriteTrackingStream(serverTcpClient.GetStream());
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            trackingStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        const int messageCount = 25;
+        await Task.WhenAll(Enumerable.Range(0, messageCount).Select(index =>
+            Task.Run(() => Assert.True(connection.TrySend(Encoding.UTF8.GetBytes($"message-{index}"))))));
+
+        var buffer = new byte[256];
+        for (int index = 0; index < messageCount; index++)
+        {
+            await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        listener.Stop();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Asserted only after RunAsync has fully torn down, so this also covers the final close-handshake
+        // write teardown emits -- it happens strictly after the writer task completes (see RunAsync's own
+        // ordering), so it must not push the observed maximum past 1 either.
+        Assert.Equal(1, trackingStream.MaxConcurrentWrites);
+    }
+
+    /// <summary>
+    /// Verifies FIFO delivery for a known, deterministic admission order -- not for genuinely
+    /// concurrent/racing callers, whose relative order is not a meaningful contract. Blocks the writer
+    /// mid-send on the first application frame so the next two sends are provably still queued behind
+    /// it, then releases and confirms all three drain in the order they were admitted.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_KnownAdmissionOrder_DeliversFifo()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Stream serverStream = serverTcpClient.GetStream();
+        var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            blockingStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; A is the second and blocks until released, so B
+        // and C are provably still sitting in the channel -- never yet reached by the writer loop --
+        // when they are admitted.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("A")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("B")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("C")));
+
+        blockingStream.Release();
+
+        var buffer = new byte[64];
+        var received = new List<string>();
+        for (int index = 0; index < 3; index++)
+        {
+            WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            received.Add(Encoding.UTF8.GetString(buffer, 0, result.Count));
+        }
+
+        Assert.Equal(["A", "B", "C"], received);
+
+        listener.Stop();
+        connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Verifies that a payload exactly at the outbound byte-budget bound is accepted, proving the budget rejects only what exceeds it.</summary>
     [Fact]
     public void TrySend_ExactlyAtOutboundQueueMaxBytes_ReturnsTrue()
