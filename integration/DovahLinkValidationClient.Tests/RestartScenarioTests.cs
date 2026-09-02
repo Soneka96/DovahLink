@@ -71,14 +71,17 @@ public class RestartScenarioTests
     }
 
     /// <summary>
-    /// Verifies that a paired client's trust survives a full bridge process restart -- covering
-    /// both Bridge and Windows restarts: persistent trust is stored outside the Skyrim/modpack files
-    /// and survives Bridge, Skyrim, and Windows restarts, per
-    /// ai/context/protocol/security.md's "Persistent local trust" contract. A fresh process launch
-    /// is the practical proof: only the DPAPI-encrypted trust-store file on disk survives a dead
-    /// process, not any in-memory state, which is exactly what distinguishes this from an ordinary
-    /// same-process reconnect (already proven by
-    /// PairingScenarioTests.FullPairingRoundTripUpgradesTheSessionAndAllowsSubscribe).
+    /// Verifies that a paired client's trust survives a simulated Bridge process restart: a second
+    /// <see cref="HarnessProcess"/> launched against the same trust-store file stands in for a real
+    /// Bridge restart, since persistent trust is stored outside the Skyrim/modpack files and
+    /// independent of any single process's lifetime, per ai/context/protocol/security.md's
+    /// "Persistent local trust" contract. A fresh process launch is the practical proof this test can
+    /// offer: only the DPAPI-encrypted trust-store file on disk survives a dead process, not any
+    /// in-memory state, which is exactly what distinguishes this from an ordinary same-process
+    /// reconnect (already proven by
+    /// PairingScenarioTests.FullPairingRoundTripUpgradesTheSessionAndAllowsSubscribe). This does not
+    /// exercise an actual Skyrim or Windows restart boundary; only a separate test that itself
+    /// restarts Skyrim or Windows would prove that.
     /// </summary>
     [Fact]
     public async Task PairedTrustSurvivesAFullHarnessProcessRestart()
