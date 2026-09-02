@@ -261,15 +261,17 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_HandshakeTimeout_EndsWithoutAcceptingOrThrowing()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, options: options, diagnostics: diagnostics);
 
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.HandshakeTimeout], diagnostics.Reports);
         client.Dispose();
     }
 
@@ -278,8 +280,9 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_MalformedHandshakeRequest_EndsWithoutAcceptingOrThrowing()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, diagnostics: diagnostics);
 
         byte[] request = Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
         await client.WriteAsync(request);
@@ -289,6 +292,7 @@ public class PublicWebSocketConnectionTests
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(0, handler.ConnectionEndedCalls);
         Assert.Equal(0, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.InvalidHandshake], diagnostics.Reports);
         client.Dispose();
     }
 
@@ -297,9 +301,10 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_OversizedHandshakeRequest_EndsWithoutAcceptingOrThrowing()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxHandshakeRequestBytes: 32);
-        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, options: options, diagnostics: diagnostics);
 
         // 40 bytes with no "\r\n\r\n" terminator, exceeding the 32-byte bound before headers complete.
         await client.WriteAsync(Encoding.ASCII.GetBytes(new string('a', 40)));
@@ -307,6 +312,7 @@ public class PublicWebSocketConnectionTests
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal([PublicWebSocketConnectionEndReason.InvalidHandshake], diagnostics.Reports);
         client.Dispose();
     }
 
@@ -359,6 +365,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_KeepAliveDeadlineWithSilentPeer_PongTimeoutAddsWaitAndDetectionStaysBounded()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -369,7 +376,7 @@ public class PublicWebSocketConnectionTests
         TimeSpan pongTimeout = TimeSpan.FromMilliseconds(300);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             keepAliveInterval: keepAliveInterval, keepAlivePongTimeout: pongTimeout);
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
         var stopwatch = Stopwatch.StartNew();
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -387,6 +394,7 @@ public class PublicWebSocketConnectionTests
             stopwatch.Elapsed > keepAliveInterval,
             $"Expected the pong timeout to add wait time beyond the {keepAliveInterval} interval alone, took {stopwatch.Elapsed}.");
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Silent-peer detection must not hang.");
+        Assert.Equal([PublicWebSocketConnectionEndReason.KeepAliveTimeout], diagnostics.Reports);
 
         listener.Stop();
     }
@@ -429,6 +437,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_OversizedFragmentedMessage_ClosesBeforeCompletionWithoutDeliveringToHandler()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -436,7 +445,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxMessageBytes: 16);
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -448,6 +457,7 @@ public class PublicWebSocketConnectionTests
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.MessageTooLarge], diagnostics.Reports);
         listener.Stop();
     }
 
@@ -456,6 +466,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_FragmentedMessageNeverCompletes_ForceClosesAfterAssemblyDeadline()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -463,7 +474,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -474,6 +485,7 @@ public class PublicWebSocketConnectionTests
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.FragmentAssemblyTimeout], diagnostics.Reports);
         listener.Stop();
     }
 
@@ -486,6 +498,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_RepeatedFragmentsBeforeExpiry_DoNotExtendAssemblyDeadline()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -493,7 +506,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -515,6 +528,7 @@ public class PublicWebSocketConnectionTests
             $"Connection took {stopwatch.Elapsed} to close; a per-fragment reset would push this past 550ms instead of the correct ~300ms.");
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.FragmentAssemblyTimeout], diagnostics.Reports);
         listener.Stop();
     }
 
@@ -595,6 +609,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_FragmentedMessage_CountsAsExactlyOneAgainstInboundRateLimit()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -602,7 +617,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxInboundMessagesPerSecond: 1);
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -620,6 +635,7 @@ public class PublicWebSocketConnectionTests
 
         Assert.Equal("frag"u8.ToArray(), Assert.Single(handler.ReceivedMessages));
         Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.InboundRateLimitExceeded], diagnostics.Reports);
         listener.Stop();
     }
 
@@ -693,8 +709,9 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_InvalidFraming_ClosesAsFramingViolation()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
 
         await CompleteRawHandshakeAsync(client);
@@ -718,6 +735,7 @@ public class PublicWebSocketConnectionTests
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.InvalidFraming], diagnostics.Reports);
         client.Dispose();
     }
 
@@ -726,14 +744,14 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_BinaryMessage_ClosesWithoutDeliveringToHandler()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = Fixtures.BuildPublicWebSocketConnection(
-            serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -744,6 +762,7 @@ public class PublicWebSocketConnectionTests
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.UnsupportedBinaryMessage], diagnostics.Reports);
         listener.Stop();
     }
 
@@ -752,6 +771,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_ClientClose_EndsGracefullyAndNotifiesDisconnected()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -759,7 +779,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(2));
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -769,6 +789,7 @@ public class PublicWebSocketConnectionTests
 
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Empty(diagnostics.Reports);
         listener.Stop();
     }
 
@@ -901,6 +922,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_ExternalCancellation_ThrowsOperationCanceledAndNotifiesDisconnected()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -908,7 +930,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -918,6 +940,7 @@ public class PublicWebSocketConnectionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Empty(diagnostics.Reports);
         listener.Stop();
     }
 
@@ -1067,8 +1090,9 @@ public class PublicWebSocketConnectionTests
     public void TrySend_BeyondOutboundQueueMaxMessages_ReturnsFalse()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
-        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options, diagnostics: diagnostics);
 
         for (int index = 0; index < 3; index++)
         {
@@ -1076,6 +1100,7 @@ public class PublicWebSocketConnectionTests
         }
 
         Assert.False(connection.TrySend(new byte[1]));
+        Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
     }
 
     /// <summary>Verifies that a send beyond the outbound byte-budget bound is rejected, when nothing drains the queue.</summary>
@@ -1083,11 +1108,13 @@ public class PublicWebSocketConnectionTests
     public void TrySend_BeyondOutboundQueueMaxBytes_ReturnsFalse()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
-        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options, diagnostics: diagnostics);
 
         Assert.True(connection.TrySend(new byte[6]));
         Assert.False(connection.TrySend(new byte[6]));
+        Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
     }
 
     /// <summary>
@@ -1273,6 +1300,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_InboundRateLimitExceeded_ClosesConnectionBeforeExcessMessage()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -1281,7 +1309,7 @@ public class PublicWebSocketConnectionTests
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var clock = new FakeClock();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxInboundMessagesPerSecond: 3);
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, clock, options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, clock, options, diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1295,6 +1323,7 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(3, handler.ReceivedMessages.Count);
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.InboundRateLimitExceeded], diagnostics.Reports);
         listener.Stop();
     }
 
@@ -1340,6 +1369,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_WriteFaultAfterHandshake_EndsWithoutHangingOrThrowing()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -1347,7 +1377,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var faultingStream = new FailAfterFirstWriteStream(serverTcpClient.GetStream());
-        var connection = Fixtures.BuildPublicWebSocketConnection(faultingStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(faultingStream, handler, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1358,6 +1388,7 @@ public class PublicWebSocketConnectionTests
 
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.WriteFailure], diagnostics.Reports);
         listener.Stop();
     }
 
@@ -1371,6 +1402,7 @@ public class PublicWebSocketConnectionTests
     public async Task RunAsync_WriteTimeoutWithoutExternalCancellation_EndsWithinBoundAndDisposesStream()
     {
         var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -1380,7 +1412,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, options: options, diagnostics: diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1398,6 +1430,7 @@ public class PublicWebSocketConnectionTests
             $"Teardown took {stopwatch.Elapsed}, far longer than the configured {options.GracefulCloseTimeout} write deadline.");
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
+        Assert.Equal([PublicWebSocketConnectionEndReason.WriteFailure], diagnostics.Reports);
         Assert.Throws<ObjectDisposedException>(() => serverStream.ReadByte());
         listener.Stop();
     }
@@ -1734,6 +1767,46 @@ public class PublicWebSocketConnectionTests
         Assert.True(
             stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Teardown took {stopwatch.Elapsed}, far longer than the configured {options.GracefulCloseTimeout} drain bound.");
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that an ordinary <see cref="IPublicWebSocketConnection.RequestClose"/> that has to
+    /// interrupt a read loop idling on a silent peer -- no message in flight, no fragment-assembly
+    /// deadline active -- reports no abnormal diagnostic. This is the key regression proof for the
+    /// generic keep-alive-timeout catch's <c>orderlyCloseInProgress</c> guard: that same catch also
+    /// fires when <see cref="IPublicWebSocketConnection.RequestClose"/> unblocks a pending
+    /// <see cref="System.Net.WebSockets.WebSocket.ReceiveAsync(Memory{byte}, CancellationToken)"/>
+    /// call, since <c>orderlyCloseRequested</c> is linked into the same cancellation token that catch
+    /// reacts to -- without the guard, this ordinary close would be misreported as
+    /// <see cref="PublicWebSocketConnectionEndReason.KeepAliveTimeout"/>.
+    /// </summary>
+    [Fact]
+    public async Task RequestClose_WhileReadLoopIdleWaitingOnSilentPeer_ReportsNoAbnormalDiagnostic()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(300));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The peer never sends anything further, so the read loop is genuinely parked in ReceiveAsync
+        // with no in-flight message and no fragment-assembly deadline -- a fixed small delay is enough
+        // to let it reach that wait since nothing else is racing this connection.
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+
+        connection.RequestClose();
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(diagnostics.Reports);
         listener.Stop();
     }
 
