@@ -88,12 +88,6 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// </summary>
     private long outboundQueuedBytes;
 
-    /// <summary>The reused buffer one inbound message is accumulated into, bounded to <see cref="PublicWebSocketTransportOptions.MaxMessageBytes"/>.</summary>
-    private readonly byte[] messageBuffer;
-
-    /// <summary>The chunk buffer one <see cref="WebSocket.ReceiveAsync(Memory{byte}, CancellationToken)"/> call reads into.</summary>
-    private readonly byte[] receiveChunk = new byte[ReceiveChunkBytes];
-
     /// <summary>The timestamps of inbound messages still inside the rate-limit window.</summary>
     private readonly Queue<DateTimeOffset> inboundMessageTimes = [];
 
@@ -194,7 +188,6 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         this.messageHandler = messageHandler;
         this.clock = clock;
         this.options = options;
-        messageBuffer = new byte[options.MaxMessageBytes];
         outbound = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(options.OutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
         connectionContext = new PublicConnectionContext(this);
@@ -214,7 +207,9 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             {
                 upgraded = true;
                 writerTask = WriterLoopAsync(webSocket, writerCancellation);
-                await ReadLoopAsync(webSocket, readCancellation.Token).ConfigureAwait(false);
+                byte[] messageBuffer = new byte[options.MaxMessageBytes];
+                byte[] receiveChunk = new byte[ReceiveChunkBytes];
+                await ReadLoopAsync(webSocket, messageBuffer, receiveChunk, readCancellation.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (readCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -527,14 +522,25 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>
     /// Serves inbound WebSocket messages after a successful upgrade until the connection ends.
-    /// Accumulates fragments into <see cref="messageBuffer"/> up to
+    /// Accumulates fragments into <paramref name="messageBuffer"/> up to
     /// <see cref="PublicWebSocketTransportOptions.MaxMessageBytes"/>, never allocating past that
     /// bound; rejects binary input as an unsupported message type; and enforces the inbound rate
     /// limit once a message completes.
     /// </summary>
     /// <param name="webSocket">The upgraded connection to read from.</param>
+    /// <param name="messageBuffer">
+    /// The buffer one inbound message is accumulated into, bounded to
+    /// <see cref="PublicWebSocketTransportOptions.MaxMessageBytes"/>. Owned by the caller as a local
+    /// scoped to this connection's post-upgrade lifetime rather than a connection-lifetime field, so
+    /// a connection that never completes the WebSocket upgrade never allocates it.
+    /// </param>
+    /// <param name="receiveChunk">
+    /// The chunk buffer one <see cref="WebSocket.ReceiveAsync(Memory{byte}, CancellationToken)"/>
+    /// call reads into. Owned by the caller for the same post-upgrade-only reason as
+    /// <paramref name="messageBuffer"/>.
+    /// </param>
     /// <param name="cancellationToken">The token used to stop the loop.</param>
-    private async Task ReadLoopAsync(WebSocket webSocket, CancellationToken cancellationToken)
+    private async Task ReadLoopAsync(WebSocket webSocket, byte[] messageBuffer, byte[] receiveChunk, CancellationToken cancellationToken)
     {
         int messageLength = 0;
         while (true)
