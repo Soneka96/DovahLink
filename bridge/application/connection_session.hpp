@@ -57,16 +57,26 @@ class ConnectionSession final : public IConnectionSession {
     ///  @param pairingSession Plugin-lifetime pairing challenge/pending-
     ///  credential state machine, notified of this connection's own
     ///  reconnect/disconnect.
+    ///  @param sessionManager Queried at teardown to tell a genuine session
+    ///  release apart from one an administrative caller (revoke/block/trust
+    ///  reset/factory reset, via `ActiveSessionController`) already performed
+    ///  on another thread before forcing this connection closed -- see
+    ///  `sessionReleaseNotificationSink`.
     ///  @param sessionReleaseNotificationSink Notified with this connection's
     ///  own `clientId` immediately after its session slot is actually
-    ///  released at teardown, so an observer (a reconnecting client, a test
-    ///  driver) can learn the slot is free without racing the release.
+    ///  released by this teardown, so an observer (a reconnecting client, a
+    ///  test driver) can learn the slot is free without racing the release.
+    ///  Not notified when an administrative caller already released the slot
+    ///  before this teardown ran: that caller's own response line is the
+    ///  authoritative signal for that case, and firing both would race one
+    ///  another on the same output stream with no defined order.
     ///  @param bridgeInstanceId This bridge process's identity, stamped onto
     ///  every response envelope; no value if generation failed at startup.
     ConnectionSession(IHandshakeHandler& handshakeHandler,
                       IMessageDispatcher& messageDispatcher,
                       const IActivePlayContextReader& activePlayContext,
                       security::IPairingSession& pairingSession,
+                      ISessionManager& sessionManager,
                       ISessionReleaseNotificationSink& sessionReleaseNotificationSink,
                       std::optional<std::string> bridgeInstanceId);
 
@@ -91,8 +101,12 @@ class ConnectionSession final : public IConnectionSession {
     ///  Plugin-lifetime pairing challenge/pending-credential state machine.
     security::IPairingSession& pairingSession_;
 
-    ///  Notified with this connection's own `clientId` immediately after its
-    ///  session slot is actually released at teardown.
+    ///  Queried at teardown to tell a genuine session release apart from one
+    ///  an administrative caller already performed on another thread.
+    ISessionManager& sessionManager_;
+
+    ///  Notified with this connection's own `clientId` when this teardown is
+    ///  the one that actually released its session slot.
     ISessionReleaseNotificationSink& sessionReleaseNotificationSink_;
 
     ///  This bridge process's identity, stamped onto every response envelope.

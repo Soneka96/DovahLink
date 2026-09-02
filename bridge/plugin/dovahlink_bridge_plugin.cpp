@@ -335,7 +335,8 @@ SKSEPluginInfo(
         activePlayContextReader, bridgeInstanceId);
     static dovahlink::application::ConnectionSession connectionSession(
         handshakeHandler, messageDispatcher, activePlayContextReader,
-        pairingSession, sessionReleaseNotificationSink, bridgeInstanceId);
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
+        bridgeInstanceId);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);

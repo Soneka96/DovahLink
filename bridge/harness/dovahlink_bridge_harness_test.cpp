@@ -462,6 +462,57 @@ TEST_CASE("dovahlink_bridge_harness reports SESSION_RELEASED for the "
     REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
 }
 
+TEST_CASE("dovahlink_bridge_harness's revoke command reports REVOKED "
+          "immediately, not a racing SESSION_RELEASED, for a client "
+          "revoked while still connected",
+          "[harness]") {
+    //  Regression test for the exact bug the ConnectionSession teardown gate
+    //  fixes (see connection_session.cpp's `releasedByThisTeardown` check):
+    //  revoke already invalidates the session and force-closes the socket
+    //  before printing its own REVOKED line, on the main command thread; the
+    //  disconnected connection's own worker thread wakes up afterward and
+    //  must not print a second, uncoordinated SESSION_RELEASED line racing
+    //  it -- integration/DovahLinkValidationClient.Tests observed exactly
+    //  that race (SESSION_RELEASED arriving where REVOKED was expected)
+    //  before this gate existed.
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+    std::uint16_t port = ReadHarnessPort(harness);
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        clientSocket.connect(boost::asio::ip::tcp::endpoint(
+                                 boost::asio::ip::make_address("127.0.0.1"), port),
+                             connectEc);
+        if (!connectEc) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+        std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessage());
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+
+    //  The client stays connected -- unlike the SESSION_RELEASED test above,
+    //  which closes it itself -- so revoke below is the one forcing teardown.
+    harness.WriteLine("revoke client-1");
+    CHECK(harness.ReadLine() == "REVOKED client-1");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+}
+
 TEST_CASE("dovahlink_bridge_harness shuts down cleanly when command input ends",
           "[harness]") {
     HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));

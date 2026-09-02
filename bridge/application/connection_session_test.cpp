@@ -258,7 +258,7 @@ void RunConnectionSession(
         activePlayContext, bridgeInstanceId);
     dovahlink::application::ConnectionSession connectionSession(
         handshakeHandler, messageDispatcher, activePlayContext, pairingSession,
-        sessionReleaseNotificationSink, bridgeInstanceId);
+        sessionManager, sessionReleaseNotificationSink, bridgeInstanceId);
     connectionSession.Run(ws, connection, std::move(steadyNow));
 }
 
@@ -1399,7 +1399,7 @@ TEST_CASE("ConnectionSession's real behavior is reachable through "
         activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, messageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt);
     IConnectionSession& contract = connectionSession;
 
@@ -1432,7 +1432,7 @@ TEST_CASE("RunConnectionSession makes no other session calls when Accept fails",
         activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, messageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
@@ -1468,7 +1468,7 @@ TEST_CASE("RunConnectionSession closes without writing when the hello read "
         activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, messageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
@@ -1540,10 +1540,11 @@ TEST_CASE("RunConnectionSession dispatches an inbound message through "
 
     PairingSession pairingSession;
     RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
+    SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
@@ -1615,10 +1616,11 @@ TEST_CASE("RunConnectionSession closes the connection when IMessageDispatcher "
 
     PairingSession pairingSession;
     RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
+    SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
@@ -1645,13 +1647,24 @@ TEST_CASE("RunConnectionSession notifies the session-release sink with the "
         EXPECT_CALL(mockWs, Close());
     }
 
+    SessionManager sessionManager;
     StrictMock<MockHandshakeHandler> mockHandshakeHandler;
     EXPECT_CALL(mockHandshakeHandler,
                 Handle(testing::_, testing::_, testing::_, testing::_))
         .WillOnce(testing::Invoke(
-            [](const Envelope&, dovahlink::application::ConnectionId,
-               dovahlink::application::IConnectionTimeoutTracker&,
-               std::chrono::steady_clock::time_point) {
+            [&sessionManager](const Envelope&,
+                              dovahlink::application::ConnectionId,
+                              dovahlink::application::IConnectionTimeoutTracker&,
+                              std::chrono::steady_clock::time_point) {
+                //  A real admission, not a bare ScopedRelease([] {}): the new
+                //  teardown gate checks ISessionManager::IsValidForConnection
+                //  against this exact SessionManager, so it must actually hold
+                //  the session for this notification to fire.
+                auto lease = sessionManager.TryCreateSession(
+                    /*connection=*/1, "session-1", "client-1",
+                    dovahlink::application::SessionTrustTier::kFull,
+                    dovahlink::application::SessionAuthMethod::kDeveloperToken);
+                REQUIRE(lease.has_value());
                 return dovahlink::application::HandshakeResult{
                     .response =
                         dovahlink::protocol::Envelope{
@@ -1662,7 +1675,7 @@ TEST_CASE("RunConnectionSession notifies the session-release sink with the "
                             .payload = boost::json::object{},
                             .clientId = std::string("client-1"),
                         },
-                    .sessionLease = dovahlink::shared::ScopedRelease([] {}),
+                    .sessionLease = std::move(*lease),
                     .closeConnection = false,
                 };
             }));
@@ -1673,7 +1686,7 @@ TEST_CASE("RunConnectionSession notifies the session-release sink with the "
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
@@ -1693,10 +1706,84 @@ TEST_CASE("RunConnectionSession does not notify the session-release sink "
 
     PairingSession pairingSession;
     RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
+    SessionManager sessionManager;
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::ConnectionSession connectionSession(
         mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt);
+
+    connectionSession.Run(mockWs, /*connection=*/1);
+
+    CHECK(sessionReleaseNotificationSink.releasedClientIds.empty());
+}
+
+TEST_CASE("RunConnectionSession does not notify the session-release sink "
+          "when another caller already invalidated the session before "
+          "teardown",
+          "[application][connection_session]") {
+    //  Reproduces the actual race this gate exists to close: an
+    //  administrative caller (ActiveSessionController, via
+    //  revoke/block/trust_reset/factory_reset) invalidates the session
+    //  directly -- on another thread in production, simulated here by calling
+    //  it inline before Handle() returns -- strictly before this connection's
+    //  own teardown runs.
+    std::string helloRaw = HelloMessage(kValidHexToken);
+
+    StrictMock<MockWebSocketSession> mockWs;
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(mockWs, Accept())
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_)).WillOnce(Return(helloRaw));
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  hello_ack
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, SwitchToIdleTimeout());
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  capabilities
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(std::unexpected(SessionError::kReadFailed)));
+        EXPECT_CALL(mockWs, Close());
+    }
+
+    SessionManager sessionManager;
+    StrictMock<MockHandshakeHandler> mockHandshakeHandler;
+    EXPECT_CALL(mockHandshakeHandler,
+                Handle(testing::_, testing::_, testing::_, testing::_))
+        .WillOnce(testing::Invoke(
+            [&sessionManager](const Envelope&,
+                              dovahlink::application::ConnectionId,
+                              dovahlink::application::IConnectionTimeoutTracker&,
+                              std::chrono::steady_clock::time_point) {
+                auto lease = sessionManager.TryCreateSession(
+                    /*connection=*/1, "session-1", "client-1",
+                    dovahlink::application::SessionTrustTier::kFull,
+                    dovahlink::application::SessionAuthMethod::kDeveloperToken);
+                REQUIRE(lease.has_value());
+                REQUIRE(sessionManager.InvalidateSession(
+                    /*connection=*/1, "session-1"));
+                return dovahlink::application::HandshakeResult{
+                    .response =
+                        dovahlink::protocol::Envelope{
+                            .messageType = "hello_ack",
+                            .messageId = "message-hello-ack-1",
+                            .sessionId = std::string("session-1"),
+                            .correlationId = std::nullopt,
+                            .payload = boost::json::object{},
+                            .clientId = std::string("client-1"),
+                        },
+                    .sessionLease = std::move(*lease),
+                    .closeConnection = false,
+                };
+            }));
+    StrictMock<MockMessageDispatcher> mockMessageDispatcher;
+
+    PairingSession pairingSession;
+    RecordingSessionReleaseNotificationSink sessionReleaseNotificationSink;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::ConnectionSession connectionSession(
+        mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);

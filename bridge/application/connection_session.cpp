@@ -30,12 +30,13 @@ void SendIfPossible(transport::IWebSocketSession& ws,
 ConnectionSession::ConnectionSession(
     IHandshakeHandler& handshakeHandler, IMessageDispatcher& messageDispatcher,
     const IActivePlayContextReader& activePlayContext,
-    security::IPairingSession& pairingSession,
+    security::IPairingSession& pairingSession, ISessionManager& sessionManager,
     ISessionReleaseNotificationSink& sessionReleaseNotificationSink,
     std::optional<std::string> bridgeInstanceId)
     : handshakeHandler_(handshakeHandler),
       messageDispatcher_(messageDispatcher),
       activePlayContext_(activePlayContext), pairingSession_(pairingSession),
+      sessionManager_(sessionManager),
       sessionReleaseNotificationSink_(sessionReleaseNotificationSink),
       bridgeInstanceId_(std::move(bridgeInstanceId)) {}
 
@@ -146,8 +147,16 @@ void ConnectionSession::Run(transport::IWebSocketSession& ws,
     if (clientId.has_value()) {
         pairingSession_.NotifyDisconnected(*clientId, steadyNow());
     }
+    //  An administrative caller (ActiveSessionController, on another thread)
+    //  can already have invalidated this same session before forcing this
+    //  connection's socket closed -- always strictly before that shutdown,
+    //  which is what unblocks this loop. Checking here, before releasing,
+    //  tells that case apart from this teardown being the one that actually
+    //  frees the slot; only the latter is worth an observer's notice.
+    bool releasedByThisTeardown =
+        sessionManager_.IsValidForConnection(sessionId, connection);
     sessionLease.reset();
-    if (clientId.has_value()) {
+    if (clientId.has_value() && releasedByThisTeardown) {
         sessionReleaseNotificationSink_.NotifySessionReleased(*clientId);
     }
     ws.Close();

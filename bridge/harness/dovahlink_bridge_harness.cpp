@@ -358,7 +358,8 @@ int main() {
         activePlayContextReader, bridgeInstanceId);
     dovahlink::application::ConnectionSession connectionSession(
         handshakeHandler, messageDispatcher, activePlayContextReader,
-        pairingSession, sessionReleaseNotificationSink, bridgeInstanceId);
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
+        bridgeInstanceId);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);

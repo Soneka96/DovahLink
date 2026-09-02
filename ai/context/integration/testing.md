@@ -82,11 +82,20 @@ for the Bridge to finish releasing the slot.
   released the previous session slot. Doing so races the Bridge's asynchronous release: if the new
   `hello()` arrives first, admission sees the slot still occupied and can return `unauthorized`.
 - The Skyrim-independent test harness (`bridge/harness/dovahlink_bridge_harness.cpp`) prints an
-  observable `SESSION_RELEASED <clientId>` stdout line the instant it actually releases a
-  torn-down connection's session slot (`ISessionReleaseNotificationSink`,
+  observable `SESSION_RELEASED <clientId>` stdout line the instant a connection's own teardown
+  actually releases its session slot (`ISessionReleaseNotificationSink`,
   `bridge/application/connection_session.hpp`). Such a test must wait for that line -- or another
   deterministic release-synchronization mechanism -- before reconnecting, rather than an arbitrary
   fixed sleep or a bounded blind retry against a timing-dependent rejection.
+- This line is scoped to a connection's own organic teardown only. `revoke`/`block`/`trust_reset`/
+  `factory_reset` invalidate an active session directly (`ActiveSessionController`, on the harness's
+  main command thread) before force-closing its socket, strictly before the connection's own worker
+  thread notices and unwinds; `ConnectionSession` checks `ISessionManager::IsValidForConnection`
+  immediately before releasing so it never re-announces a slot an administrative caller already
+  released. Do not expect `SESSION_RELEASED` after those commands -- their own existing response
+  line (`REVOKED <clientId>`, `BLOCKED <clientId>`, and so on) remains the sole, synchronous signal,
+  and both a real Bridge session and this harness's own command loop write to the same output
+  stream, so a second, uncoordinated line racing it would have no defined order.
 - This is a test-harness lifecycle race, not a production condition: do not broaden production
   `unauthorized` handling to be globally retryable to work around it, and do not treat the real
   Skyrim plugin as having an equivalent signal -- its own composition root wires a no-op

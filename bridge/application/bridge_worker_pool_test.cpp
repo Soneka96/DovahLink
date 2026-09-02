@@ -233,7 +233,7 @@ struct Fixture {
     ///  Runs each accepted connection's full session.
     ConnectionSession connectionSession{
         handshakeHandler, messageDispatcher, activePlayContext,
-        pairingSession, sessionReleaseNotificationSink,
+        pairingSession, sessionManager, sessionReleaseNotificationSink,
         /*bridgeInstanceId=*/std::nullopt};
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
