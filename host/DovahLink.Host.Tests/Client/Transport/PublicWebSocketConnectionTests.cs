@@ -313,6 +313,39 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
+    /// Verifies that a header with whitespace before its colon -- syntactically malformed grammar, as
+    /// opposed to a missing header -- still ends up as the same InvalidHandshake diagnostic and 400
+    /// response as any other malformed request, confirming Issue #9's response wiring is unaffected by
+    /// the parser's grammar hardening.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_HeaderWithSpaceBeforeColon_EndsWithInvalidHandshakeDiagnostic()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, diagnostics: diagnostics);
+
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host : 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+        await client.WriteAsync(request);
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal([PublicWebSocketConnectionEndReason.InvalidHandshake], diagnostics.Reports);
+
+        string response = Encoding.ASCII.GetString(await ReadUntilClosedAsync(client));
+        Assert.StartsWith("HTTP/1.1 400 Bad Request\r\n", response);
+        client.Dispose();
+    }
+
+    /// <summary>
     /// Verifies that an otherwise-valid handshake carrying an Origin header ends the connection with
     /// the distinct DisallowedOrigin diagnostic rather than InvalidHandshake, and that it is reported
     /// exactly once -- the single-element list equality below is itself the proof that no diagnostic

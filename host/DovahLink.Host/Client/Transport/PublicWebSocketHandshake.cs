@@ -41,7 +41,9 @@ internal static class PublicWebSocketHandshake
     /// </summary>
     /// <param name="requestBytes">
     /// The complete request line and headers, including the terminating blank line, as received from
-    /// the peer. Header names are matched case-insensitively per RFC 7230.
+    /// the peer. Header names are matched case-insensitively per RFC 7230, but must already be a
+    /// well-formed <c>token</c> as received -- see <see cref="IsValidHeaderName"/> -- with no
+    /// whitespace between the name and its colon; a name is never repaired by trimming.
     /// </param>
     /// <param name="acceptKey">The computed <c>Sec-WebSocket-Accept</c> value on success; otherwise empty.</param>
     /// <returns><see cref="HandshakeRejectReason.None"/> when the request is accepted; otherwise the reason it was rejected.</returns>
@@ -78,8 +80,13 @@ internal static class PublicWebSocketHandshake
                 return HandshakeRejectReason.Malformed;
             }
 
-            string name = line[..separator].Trim();
+            string name = line[..separator];
             string value = line[(separator + 1)..].Trim();
+
+            if (!IsValidHeaderName(name))
+            {
+                return HandshakeRejectReason.Malformed;
+            }
 
             if (SingletonHeaderNames.Contains(name))
             {
@@ -180,5 +187,32 @@ internal static class PublicWebSocketHandshake
     {
         string[] parts = requestLine.Split(' ');
         return parts.Length == 3 && parts[0] == "GET" && parts[1].Length > 0 && parts[2] == "HTTP/1.1";
+    }
+
+    /// <summary>
+    /// Whether <paramref name="name"/> is a well-formed HTTP header field name -- RFC 7230's
+    /// <c>token</c> grammar: one or more ASCII letters, digits, or <c>! # $ % &amp; ' * + - . ^ _ ` | ~</c>.
+    /// Rejects whitespace (so a name is never repaired by trimming surrounding whitespace before this
+    /// check runs), control characters, and the delimiter characters <c>token</c> excludes, including
+    /// <c>:</c> itself.
+    /// </summary>
+    /// <param name="name">The raw, untrimmed header name slice as received.</param>
+    private static bool IsValidHeaderName(string name)
+    {
+        if (name.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (char character in name)
+        {
+            bool isTokenChar = char.IsAsciiLetterOrDigit(character) || "!#$%&'*+-.^_`|~".Contains(character);
+            if (!isTokenChar)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

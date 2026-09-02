@@ -230,6 +230,168 @@ public class PublicWebSocketHandshakeTests
         Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
+    /// <summary>Verifies that whitespace between a header name and its colon is rejected rather than repaired by trimming.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_SpaceBeforeHeaderNameColon_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host : 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a tab between a header name and its colon is rejected the same as a space, not just space specifically.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_TabBeforeHeaderNameColon_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host\t: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>
+    /// Verifies that a space before the Origin header's colon is rejected as generically Malformed,
+    /// not DisallowedOrigin -- the malformed name must never be normalized into a recognized Origin
+    /// header in the first place, so the Origin-specific policy branch is never reached at all.
+    /// </summary>
+    [Fact]
+    public void TryParseUpgradeRequest_SpaceBeforeOriginHeaderNameColon_IsRejectedAsMalformedNotDisallowedOrigin()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "Origin : https://evil.example\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a header name containing a character outside the HTTP token grammar is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_HeaderNameWithInvalidTokenCharacter_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Ho(st: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a header name built entirely from permitted non-alphanumeric token characters is not rejected by the new grammar check.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_HeaderNameWithPermittedTokenCharacters_IsAccepted()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            "X-Custom!#$%&'*+-.^_`|~: value\r\n\r\n");
+
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+
+        Assert.Equal(HandshakeRejectReason.None, result);
+        Assert.NotEqual(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that whitespace after a header's colon still remains valid -- only whitespace before the colon (part of the name) is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_ExtraWhitespaceAfterHostColon_IsAccepted()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1\r\n" +
+            "Host:   127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        HandshakeRejectReason result = PublicWebSocketHandshake.TryParseUpgradeRequest(request, out string acceptKey);
+
+        Assert.Equal(HandshakeRejectReason.None, result);
+        Assert.NotEqual(string.Empty, acceptKey);
+    }
+
+    /// <summary>Verifies that a request line with two spaces between the method and target is rejected, not tolerated as equivalent to one.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_RequestLineWithDoubleSpace_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET  / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a request line using a tab instead of a space separator is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_RequestLineWithTabSeparator_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET\t/ HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a request line with leading whitespace before the method is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_RequestLineWithLeadingWhitespace_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            " GET / HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
+    /// <summary>Verifies that a request line with trailing whitespace after the HTTP version is rejected.</summary>
+    [Fact]
+    public void TryParseUpgradeRequest_RequestLineWithTrailingWhitespace_IsRejected()
+    {
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET / HTTP/1.1 \r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+
+        Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
+    }
+
     /// <summary>Verifies that completely empty input is rejected rather than throwing.</summary>
     [Fact]
     public void TryParseUpgradeRequest_EmptyInput_IsRejected()
