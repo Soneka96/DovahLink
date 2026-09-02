@@ -45,7 +45,7 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     public bool ReceivedTokenWasCancelled { get; private set; }
 
     /// <inheritdoc/>
-    public Task HandleMessageAsync(IPublicConnectionContext connection, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    public async Task HandleMessageAsync(IPublicConnectionContext connection, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         LastConnection = connection;
         ReceivedMessages.Enqueue(payload.ToArray());
@@ -55,7 +55,13 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
             connection.TrySend(AutoRespondPayload);
         }
 
-        return Task.CompletedTask;
+        if (HangOnHandleMessageIgnoringCancellation)
+        {
+            // Deliberately awaits CancellationToken.None rather than the token this call received,
+            // simulating a handler that never returns and never honors cancellation -- the exact
+            // non-cooperative case the transport must not be blocked by.
+            await Task.Delay(Timeout.InfiniteTimeSpan, CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
@@ -101,4 +107,7 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
 
     /// <summary>When set, every <see cref="HandleMessageAsync"/> call sends this payload through the connection context it received.</summary>
     public byte[]? AutoRespondPayload { get; set; }
+
+    /// <summary>When <see langword="true"/>, <see cref="HandleMessageAsync"/> waits forever on a token it never observes, simulating a non-cooperative handler that never returns and ignores cancellation.</summary>
+    public bool HangOnHandleMessageIgnoringCancellation { get; set; }
 }

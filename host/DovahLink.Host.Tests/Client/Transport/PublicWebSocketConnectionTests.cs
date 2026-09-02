@@ -109,6 +109,48 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
+    /// Regression test: a non-cooperative <see cref="IPublicWebSocketMessageHandler.HandleMessageAsync"/>
+    /// that never returns and ignores the cancellation token it receives must not be able to block
+    /// <see cref="PublicWebSocketConnection.RunAsync"/> -- and so the listener's admission slot -- from
+    /// ever completing during shutdown.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_HungNonCooperativeHandleMessageAsync_StillEndsPromptlyOnExternalCancellation()
+    {
+        var handler = new FakePublicWebSocketMessageHandler { HangOnHandleMessageIgnoringCancellation = true };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        using var cancellation = new CancellationTokenSource();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(300));
+        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await clientWebSocket.SendAsync("hello"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        // The handler is now hung forever inside HandleMessageAsync, ignoring cancellation entirely.
+        // Without the fix, RunAsync would never observe this because it would be stuck awaiting that
+        // call rather than the cancellation that is about to fire. The short graceful-close timeout
+        // above only bounds the unrelated close-handshake fallback this cancellation also triggers
+        // (matching RunAsync_CancellationWithUnresponsivePeer_FallsBackToAbortWithoutHanging), so this
+        // assertion is not accidentally measuring that instead of the fix under test.
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        listener.Stop();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(1),
+            $"RunAsync took {stopwatch.Elapsed}; a handler that ignores cancellation must not be able to block shutdown.");
+    }
+
+    /// <summary>
     /// Verifies that a connection context retained after its own connection has ended cannot affect
     /// a subsequently created connection: the stale context's <see cref="IPublicConnectionContext.TrySend"/>
     /// fails safely, and the new connection's own traffic is unaffected, proving the capability is

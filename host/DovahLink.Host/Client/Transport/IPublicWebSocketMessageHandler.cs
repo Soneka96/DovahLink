@@ -18,7 +18,13 @@ public interface IPublicWebSocketMessageHandler
     /// The complete message payload. Backed by a buffer the connection reuses for the next message; a
     /// handler that needs the bytes beyond the synchronous extent of this call must copy them first.
     /// </param>
-    /// <param name="cancellationToken">The token used to stop waiting if handling itself awaits.</param>
+    /// <param name="cancellationToken">
+    /// The token used to stop waiting if handling itself awaits. A cooperative implementation
+    /// observes this and returns promptly once it is cancelled. An implementation that does not is
+    /// simply abandoned once the token fires: the connection stops waiting on it and proceeds with
+    /// its own teardown rather than letting a non-cooperative handler block it indefinitely, the same
+    /// way <see cref="HandleDisconnectedAsync"/> is bounded regardless of whether it cooperates.
+    /// </param>
     Task HandleMessageAsync(IPublicConnectionContext connection, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
 
     /// <summary>

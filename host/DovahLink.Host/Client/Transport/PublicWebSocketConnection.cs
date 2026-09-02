@@ -545,7 +545,14 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 return;
             }
 
-            await messageHandler.HandleMessageAsync(connectionContext, messageBuffer.AsMemory(0, messageLength), cancellationToken).ConfigureAwait(false);
+            // Bounded by cancellationToken rather than a bare await: a handler that ignores the
+            // token it was given and never returns must not be able to block this loop, and so
+            // RunAsync and the listener's admission slot, indefinitely. The abandoned call keeps
+            // running in the background -- unobserved task faults are not process-fatal on this
+            // runtime -- but it can no longer hold teardown hostage once this token fires, the same
+            // way a cooperative handler's own cancellation would already have unblocked this line.
+            Task handleTask = messageHandler.HandleMessageAsync(connectionContext, messageBuffer.AsMemory(0, messageLength), cancellationToken);
+            await handleTask.WaitAsync(cancellationToken).ConfigureAwait(false);
             messageLength = 0;
         }
     }
