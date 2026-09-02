@@ -23,6 +23,27 @@ public interface ILocalConnectionTokenAuthenticator
     /// <param name="presentedToken">The token presented by a connecting client.</param>
     /// <returns><see langword="true"/> if the presented token matched the current, unexpired token.</returns>
     bool TryConsume(string presentedToken);
+
+    /// <summary>
+    /// Checks the current token the same way <see cref="TryConsume"/> does -- including recording a
+    /// failed attempt against the shared rate limit on a mismatch -- but does not itself consume a
+    /// match. A caller that receives <see langword="true"/> must call
+    /// <see cref="CommitConsumption"/> once its own admission succeeds; if admission fails for an
+    /// unrelated reason (for example the session slot is full), simply not committing leaves the
+    /// token valid for a legitimate retry, per <c>ai/context/protocol/security.md</c>'s "commit a
+    /// successful one-time developer token only after session admission succeeds" and "a full
+    /// session slot must not consume a retryable one-time token."
+    /// </summary>
+    /// <param name="presentedToken">The token presented by a connecting client.</param>
+    /// <returns><see langword="true"/> if the presented token matched the current, unexpired token.</returns>
+    bool TryValidate(string presentedToken);
+
+    /// <summary>
+    /// Consumes the token, ending its validity. Intended to follow a successful
+    /// <see cref="TryValidate"/> once the caller's own admission has succeeded. Idempotent and safe
+    /// to call even when nothing is currently issued.
+    /// </summary>
+    void CommitConsumption();
 }
 
 /// <inheritdoc cref="ILocalConnectionTokenAuthenticator"/>
@@ -66,33 +87,69 @@ public sealed class LocalConnectionTokenAuthenticator : ILocalConnectionTokenAut
     /// <inheritdoc/>
     public bool TryConsume(string presentedToken)
     {
-        ArgumentNullException.ThrowIfNull(presentedToken);
-
         lock (gate)
         {
-            PruneExpiredFailures();
-            if (recentFailures.Count >= Constants.LocalConnectionTokenMaxFailuresPerWindow)
+            if (!MatchesLocked(presentedToken))
             {
-                return false;
-            }
-
-            if (currentToken is null || clock.UtcNow > expiresAtUtc)
-            {
-                recentFailures.Enqueue(clock.UtcNow);
-                return false;
-            }
-
-            bool matches = CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(currentToken), Encoding.UTF8.GetBytes(presentedToken));
-            if (!matches)
-            {
-                recentFailures.Enqueue(clock.UtcNow);
                 return false;
             }
 
             currentToken = null;
             return true;
         }
+    }
+
+    /// <inheritdoc/>
+    public bool TryValidate(string presentedToken)
+    {
+        lock (gate)
+        {
+            return MatchesLocked(presentedToken);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void CommitConsumption()
+    {
+        lock (gate)
+        {
+            currentToken = null;
+        }
+    }
+
+    /// <summary>
+    /// Checks <paramref name="presentedToken"/> against the current token under
+    /// <see cref="gate"/>, recording a failed attempt on any mismatch, but never consuming a match
+    /// itself -- shared by <see cref="TryConsume"/> (which consumes immediately after) and
+    /// <see cref="TryValidate"/> (which leaves consumption to a later <see cref="CommitConsumption"/>).
+    /// </summary>
+    /// <param name="presentedToken">The token presented by a connecting client.</param>
+    /// <returns><see langword="true"/> if the presented token matched the current, unexpired token.</returns>
+    private bool MatchesLocked(string presentedToken)
+    {
+        ArgumentNullException.ThrowIfNull(presentedToken);
+
+        PruneExpiredFailures();
+        if (recentFailures.Count >= Constants.LocalConnectionTokenMaxFailuresPerWindow)
+        {
+            return false;
+        }
+
+        if (currentToken is null || clock.UtcNow > expiresAtUtc)
+        {
+            recentFailures.Enqueue(clock.UtcNow);
+            return false;
+        }
+
+        bool matches = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(currentToken), Encoding.UTF8.GetBytes(presentedToken));
+        if (!matches)
+        {
+            recentFailures.Enqueue(clock.UtcNow);
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>Drops failure timestamps that have aged out of the rate-limit window.</summary>

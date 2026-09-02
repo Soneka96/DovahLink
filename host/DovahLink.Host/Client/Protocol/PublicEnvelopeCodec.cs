@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -28,7 +29,7 @@ public interface IPublicEnvelopeCodec
     /// <see langword="true"/> when <paramref name="payload"/> is well-formed, within every bound, and
     /// carries every required envelope field with the correct type and a recognized message type.
     /// </returns>
-    bool TryDecode(ReadOnlyMemory<byte> payload, out PublicEnvelope? envelope);
+    bool TryDecode(ReadOnlyMemory<byte> payload, [NotNullWhen(true)] out PublicEnvelope? envelope);
 
     /// <summary>
     /// Attempts to decode an already-validated envelope's <see cref="PublicEnvelope.Payload"/> into a
@@ -41,7 +42,7 @@ public interface IPublicEnvelopeCodec
     /// <param name="envelope">The already-decoded envelope whose payload to interpret.</param>
     /// <param name="payload">The decoded payload on success; otherwise <see langword="null"/>.</param>
     /// <returns><see langword="true"/> when the payload matches <typeparamref name="TPayload"/>'s required shape.</returns>
-    bool TryDecodePayload<TPayload>(PublicEnvelope envelope, out TPayload? payload) where TPayload : class;
+    bool TryDecodePayload<TPayload>(PublicEnvelope envelope, [NotNullWhen(true)] out TPayload? payload) where TPayload : class;
 
     /// <summary>
     /// Encodes a host-originated message into its complete wire envelope.
@@ -87,7 +88,7 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
     };
 
     /// <inheritdoc/>
-    public bool TryDecode(ReadOnlyMemory<byte> payload, out PublicEnvelope? envelope)
+    public bool TryDecode(ReadOnlyMemory<byte> payload, [NotNullWhen(true)] out PublicEnvelope? envelope)
     {
         envelope = null;
 
@@ -138,7 +139,7 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
     }
 
     /// <inheritdoc/>
-    public bool TryDecodePayload<TPayload>(PublicEnvelope envelope, out TPayload? payload) where TPayload : class
+    public bool TryDecodePayload<TPayload>(PublicEnvelope envelope, [NotNullWhen(true)] out TPayload? payload) where TPayload : class
     {
         try
         {

@@ -202,4 +202,71 @@ public class LocalConnectionTokenAuthenticatorTests
 
         Assert.Single(results, succeeded => succeeded);
     }
+
+    /// <summary>Verifies that TryValidate succeeds for the correct token without consuming it.</summary>
+    [Fact]
+    public void TryValidate_CorrectToken_SucceedsWithoutConsuming()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+
+        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token));
+    }
+
+    /// <summary>Verifies that TryValidate fails for the wrong token and records the failure the same way TryConsume does.</summary>
+    [Fact]
+    public void TryValidate_WrongToken_FailsAndCountsTowardTheThrottle()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.False(authenticator.TryValidate("wrong"));
+        }
+
+        Assert.False(authenticator.TryValidate(token));
+    }
+
+    /// <summary>Verifies that CommitConsumption after a successful TryValidate ends the token's validity.</summary>
+    [Fact]
+    public void CommitConsumption_AfterSuccessfulValidate_EndsTokenValidity()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token));
+
+        authenticator.CommitConsumption();
+
+        Assert.False(authenticator.TryValidate(token));
+    }
+
+    /// <summary>
+    /// Verifies the exact scenario this two-phase split exists for: a validated token that is never
+    /// committed (because the caller's own admission failed for an unrelated reason) remains valid
+    /// for a legitimate retry.
+    /// </summary>
+    [Fact]
+    public void TryValidate_NotCommitted_TokenRemainsValidForRetry()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token));
+
+        // Simulated: the caller's own admission failed downstream, so it never calls CommitConsumption.
+
+        Assert.True(authenticator.TryValidate(token));
+        authenticator.CommitConsumption();
+        Assert.False(authenticator.TryValidate(token));
+    }
+
+    /// <summary>Verifies that CommitConsumption is safe to call even when nothing is currently issued.</summary>
+    [Fact]
+    public void CommitConsumption_NothingIssued_DoesNotThrow()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+
+        authenticator.CommitConsumption();
+    }
 }

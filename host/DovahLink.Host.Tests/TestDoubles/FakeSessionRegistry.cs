@@ -172,4 +172,16 @@ public sealed class FakeSessionRegistry : ISessionRegistry
 
         return sessionId;
     }
+
+    /// <summary>The current number of active sessions, mirroring <see cref="SessionRegistry.ActiveCount"/>.</summary>
+    public int ActiveCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return activeSessions.Count;
+            }
+        }
+    }
 }
