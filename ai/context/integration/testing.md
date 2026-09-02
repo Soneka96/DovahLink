@@ -69,3 +69,23 @@ Use a deterministic fake transport first. A real local connection check is requi
 The first real connection check must prove loopback-only binding and rejection of a non-loopback peer. LAN checks are not a substitute for pairing and authenticated-encryption tests when LAN support is eventually proposed.
 
 Do not use a running Skyrim process for tests that only verify protocol mapping, client decoding, or application state transitions.
+
+## Real-harness disconnect/reconnect timing
+
+A single-session Bridge process (`kMaxConnectedClients == 1`) releases its previous session slot
+asynchronously, across the process boundary, after processing a client's socket teardown. A
+client-side `disconnect()`/transport `close()` future only waits for that side's own teardown, not
+for the Bridge to finish releasing the slot.
+
+- A real-harness test that disconnects and then immediately reconnects to the *same* Bridge process
+  must not treat completion of the client-side `disconnect()` future as proof the Bridge has
+  released the previous session slot. Doing so races the Bridge's asynchronous release: if the new
+  `hello()` arrives first, admission sees the slot still occupied and can return `unauthorized`.
+- Such a test must use a bounded reconnect/admission retry, or another deterministic
+  release-synchronization mechanism, cleaning up each failed attempt before trying again. Do not use
+  an arbitrary fixed sleep, and do not loop unboundedly -- fail with a clear terminal error once the
+  retry budget is exhausted.
+- This is a test-harness lifecycle race, not a production condition: do not broaden production
+  `unauthorized` handling to be globally retryable to work around it. It also does not apply when a
+  test disposes the previous Bridge process and starts a fresh one before reconnecting -- a new
+  process has no prior session slot to race.

@@ -12,6 +12,21 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 - The token is supplied out of band by the maintainer during development and is never committed, persisted in source, or sent to a non-loopback peer.
 - LAN, Wi-Fi, or remote-device support is blocked until the maintainer approves a pairing and authentication design.
 - A configuration value or command-line flag must not silently bypass the loopback restriction.
+- The public WebSocket endpoint serves native DovahLink clients only. A handshake request carrying
+  an `Origin` header is rejected regardless of its value -- including `http://localhost` and
+  `null` -- because the supported native clients never send that header, not because an `Origin`
+  header proves a browser sent the request: a native client, test tool, or proxy can send one too,
+  and this policy rejects it exactly the same way. There is no origin allowlist: this is an
+  intentional no-browser-clients contract, not a placeholder for one, and a browser origin is never
+  treated as privileged merely because it happens to be loopback.
+- A complete handshake request the Host intentionally rejects (malformed, missing a required
+  header, a disallowed `Origin`, or an unsupported `Sec-WebSocket-Version`) receives a minimal HTTP
+  rejection instead of a silent close: `400 Bad Request` for a malformed or policy-rejected request,
+  or `426 Upgrade Required` with `Sec-WebSocket-Version: 13` for an unsupported version. Neither
+  response carries a body, parser detail, offending header values, or an `Origin` value. An
+  incomplete request -- a handshake timeout, a peer that disconnects before the request completes,
+  or a read failure -- still closes silently with no fabricated response, since the Host never
+  reached a complete request it could evaluate and reject.
 
 ## Persistent local trust
 
@@ -261,12 +276,12 @@ message shape. This phase is that phase; this section is the filled-in decision.
 - A session admitted via `unpaired` is a real, fully authenticated `sessionId` (it still obeys
   loopback, input-limit, protocol-validation, and single-connected-client rules), but it is
   trust-restricted: until pairing succeeds on that connection, the message dispatcher accepts only
-  `ping`, `capabilities`, `pairing_request`, and `pairing_confirm` from it — `subscribe` and
-  `snapshot_request` are rejected the same way any other message outside the allowlist is,
-  `malformed_message`, not a distinct error code. This mirrors `IsAllowedMessageType`'s existing
-  allowlist mechanism in `bridge/application/message_dispatcher.cpp`; a session's trust tier is a
-  second, narrower allowlist selector alongside "authenticated at all", not a parallel dispatch
-  path.
+  `ping`, `capabilities`, `pairing_request`, `pairing_confirm`, `pairing_ack`, `pairing_renotify`,
+  and `pairing_cancel` from it — `subscribe` and `snapshot_request` are rejected the same way any
+  other message outside the allowlist is, `malformed_message`, not a distinct error code. This
+  mirrors `IsAllowedMessageType`'s existing allowlist mechanism in
+  `bridge/application/message_dispatcher.cpp`; a session's trust tier is a second, narrower
+  allowlist selector alongside "authenticated at all", not a parallel dispatch path.
 - `hello_ack.clientIdentityKind` is `"unpaired"` for both developer-authenticated and
   bootstrap-`unpaired` sessions (no wire-visible difference; a developer-authenticated session is
   simply never trust-restricted, since developer authentication already implies full access per
@@ -302,6 +317,17 @@ message shape. This phase is that phase; this section is the filled-in decision.
   replacing the prior session's generation. Runtime tests must prove that normal close, force-
   close/crash, rapid restart, timeout, and Bridge restart all recover cleanly under this policy
   before same-client takeover semantics are considered.
+- WebSocket-level liveness answers whether the peer/socket is still alive; it does not answer
+  whether the peer has completed the required initial `hello`/session-admission transition, and
+  must never be treated as a substitute for that separate question. A peer that keeps answering
+  WebSocket Ping/Pong indefinitely without ever sending a valid `hello` is still transport-live, but
+  is not admitted, and is not exempt from the "Input limits" pre-authentication hello deadline
+  above solely because it remains transport-live. A valid `hello` accepted before that deadline
+  atomically cancels it, so a timeout racing an in-flight, already-accepted admission can never
+  close a connection that has, or is concurrently, completing admission; conversely a deadline that
+  fires first closes that exact connection and releases its slot without waiting for or accepting a
+  late `hello`. The deadline belongs to one exact connection's lifetime: it is never restarted,
+  reused, or allowed to affect a later reconnect on a new connection.
 
 ## Local-OS-user threat boundary
 
@@ -347,6 +373,13 @@ Do not invent cryptography or treat an unencrypted pairing code as authenticatio
 The transport rejects input before application decoding when it exceeds the approved limits:
 
 - maximum frame size: 1 MiB
+- fragmented-message assembly deadline: 5 seconds. Bounds how long one incomplete WebSocket message
+  may remain open, anchored to its first fragment and never extended by later fragments of the same
+  message. Independent of the maximum inbound message rate below (which only ever counts a message
+  once it is complete) and of the idle/liveness timeout (WebSocket-level Ping/Pong proves the socket
+  is alive, not that an in-progress message is making progress): without this bound, a peer could
+  hold one message open indefinitely by trickling it in one fragment at a time, occupying the
+  connection/admission slot without ever completing an application message.
 - maximum decoded nesting depth: 32
 - maximum string length: 4 KiB
 - maximum array length: 128 items
@@ -356,6 +389,15 @@ The transport rejects input before application decoding when it exceeds the appr
 - maximum connected clients during the first proof: 1
 - handshake timeout: 5 seconds
 - idle connection timeout: 60 seconds without a valid heartbeat or message
+- pre-authentication hello deadline: 10 seconds. This is a distinct third deadline, not a
+  restatement of either bound above: it begins only once the WebSocket upgrade has completed (the
+  5-second handshake timeout above governs establishing the WebSocket itself, not what follows),
+  and it bounds only the wait for the required initial `hello` (the 60-second idle/liveness timeout
+  above governs an established, admitted session's WebSocket-level liveness, and answering
+  WebSocket Ping/Pong does not satisfy this deadline). A connection that has completed the WebSocket
+  upgrade but has not had a valid `hello` accepted within 10 seconds is closed on that basis alone,
+  releasing its connection slot, even while it remains WebSocket-live. See "Connection liveness"
+  below for how this deadline relates to and races the required `hello` transition.
 - bounded outbound queue: 128 messages per client, with 16 reserved control/recovery slots, 108
   Normal data slots, and 4 reserved Heavy data slots. The data slots contain one pending keyed
   Snapshot slot per registered Snapshot state area, included in the applicable data-lane total, plus

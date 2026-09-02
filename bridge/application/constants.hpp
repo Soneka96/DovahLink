@@ -8,8 +8,7 @@ namespace dovahlink::application {
 //  ---- Capture ----
 
 ///  Maximum capture period for a `RateClass::kFast` value: 200 milliseconds.
-///  Rate classes are maximum capture frequencies, not publication or
-///  network-send cadences (roadmap/04-live-state-synchronization-foundation.md).
+///  Rate classes are maximum capture frequencies, not publication or network-send cadences.
 ///  A provisional scheduling hypothesis, subject to profiling rather than a
 ///  fixed protocol constant.
 inline constexpr std::chrono::milliseconds kFastCapturePeriod{200};

@@ -244,3 +244,73 @@ public enum IpcHelloRejectReason : byte
     /// <summary>The Hello's owning-Skyrim-lifetime identity did not match the value this host process was launched with.</summary>
     LifetimeMismatch = 3,
 }
+
+// ---- Client transport ----
+
+/// <summary>
+/// The authoritative root-cause reason one public WebSocket connection ended abnormally, reported
+/// through <see cref="Client.Transport.IPublicWebSocketTransportDiagnostics"/>. Host-local
+/// observability only -- never sent to the client, never a public protocol error. Not used for
+/// normal lifecycle events (peer close, host shutdown, external cancellation, or a caller-requested
+/// orderly close), which are not security/abnormal events and are never reported through this enum.
+/// </summary>
+public enum PublicWebSocketConnectionEndReason
+{
+    /// <summary>The WebSocket upgrade handshake did not complete within the configured deadline.</summary>
+    HandshakeTimeout,
+
+    /// <summary>The handshake request was malformed, missing required headers, or never produced a parseable request within the configured byte bound.</summary>
+    InvalidHandshake,
+
+    /// <summary>An established connection received a structurally invalid WebSocket frame.</summary>
+    InvalidFraming,
+
+    /// <summary>An established connection sent a binary message, which this transport does not support.</summary>
+    UnsupportedBinaryMessage,
+
+    /// <summary>An inbound message exceeded the configured maximum message size.</summary>
+    MessageTooLarge,
+
+    /// <summary>The connection exceeded the configured completed-message inbound rate limit.</summary>
+    InboundRateLimitExceeded,
+
+    /// <summary>An incomplete fragmented message was not completed within the configured assembly deadline.</summary>
+    FragmentAssemblyTimeout,
+
+    /// <summary>The connection missed a WebSocket-level keep-alive pong reply and was treated as unresponsive.</summary>
+    KeepAliveTimeout,
+
+    /// <summary>An outbound message could not be admitted onto the bounded outbound queue.</summary>
+    OutboundCapacityExceeded,
+
+    /// <summary>Sending a queued outbound frame to the peer failed.</summary>
+    WriteFailure,
+
+    /// <summary>The handshake request carried a browser <c>Origin</c> header, which this endpoint intentionally does not accept.</summary>
+    DisallowedOrigin,
+
+    /// <summary>The handshake request carried a <c>Sec-WebSocket-Version</c> value this transport does not support.</summary>
+    UnsupportedWebSocketVersion,
+}
+
+/// <summary>
+/// Why <see cref="Client.Transport.PublicWebSocketHandshake.TryParseUpgradeRequest"/> rejected an
+/// upgrade request, or that it did not.
+/// </summary>
+public enum HandshakeRejectReason
+{
+    /// <summary>The request was not rejected; used only when the handshake was accepted.</summary>
+    None,
+
+    /// <summary>The request was malformed, missing a required header, or otherwise not a well-formed WebSocket upgrade request.</summary>
+    Malformed,
+
+    /// <summary>
+    /// The request carried an <c>Origin</c> header. The public endpoint serves native DovahLink
+    /// clients only; a browser-originated request is rejected regardless of the header's value.
+    /// </summary>
+    DisallowedOrigin,
+
+    /// <summary>The request carried a <c>Sec-WebSocket-Version</c> header whose value is not <c>13</c>, the only version this transport supports.</summary>
+    UnsupportedVersion,
+}

@@ -68,6 +68,34 @@ def unstaged_paths(repository_root: Path) -> list[str]:
     return parse_git_paths(result.stdout)
 
 
+def comparison_paths(repository_root: Path, base_ref: str) -> list[str]:
+    """Return changed paths from a base ref plus local staged, unstaged, and untracked files."""
+    merge_base = run_git(repository_root, ["merge-base", base_ref, "HEAD"])
+    if merge_base.returncode != 0:
+        raise RuntimeError(merge_base.stderr.decode("utf-8").strip())
+    base = merge_base.stdout.decode("utf-8", errors="surrogateescape").strip()
+    committed = run_git(
+        repository_root,
+        ["diff", "--name-only", "-z", "--diff-filter=ACMR", f"{base}...HEAD"],
+    )
+    if committed.returncode != 0:
+        raise RuntimeError(committed.stderr.decode("utf-8").strip())
+    untracked = run_git(
+        repository_root,
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+    )
+    if untracked.returncode != 0:
+        raise RuntimeError(untracked.stderr.decode("utf-8").strip())
+    return sorted(
+        set(
+            parse_git_paths(committed.stdout)
+            + staged_paths(repository_root)
+            + unstaged_paths(repository_root)
+            + parse_git_paths(untracked.stdout)
+        )
+    )
+
+
 def partial_staged_paths(staged: list[str], unstaged: list[str]) -> list[str]:
     """Return paths that have both staged and unstaged tracked changes."""
     return sorted(set(staged).intersection(unstaged))
@@ -315,20 +343,34 @@ def parse_arguments(arguments: list[str] | None) -> argparse.Namespace:
         nargs=argparse.REMAINDER,
         help="format these repository-relative paths",
     )
+    parser.add_argument(
+        "--base-ref",
+        help="check files changed since this Git ref, including local changes",
+    )
     return parser.parse_args(arguments)
 
 
 def main(arguments: list[str] | None = None) -> int:
-    """Run the staged formatter hook or explicit-path check."""
+    """Run the staged formatter hook, an explicit-path check, or a base-ref check."""
     options = parse_arguments(arguments)
     repository_root = REPOSITORY_ROOT
     try:
+        if options.paths is not None and (
+            options.base_ref is not None
+            or any(
+                argument == "--base-ref" or argument.startswith("--base-ref=")
+                for argument in options.paths
+            )
+        ):
+            raise RuntimeError("Use either --paths or --base-ref, not both.")
         paths = (
             options.paths
             if options.paths is not None
+            else comparison_paths(repository_root, options.base_ref)
+            if options.base_ref is not None
             else staged_paths(repository_root)
         )
-        if options.paths is None:
+        if options.paths is None and options.base_ref is None:
             partial = supported_paths(
                 repository_root,
                 partial_staged_paths(paths, unstaged_paths(repository_root)),

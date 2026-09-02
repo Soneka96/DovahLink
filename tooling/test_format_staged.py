@@ -24,6 +24,52 @@ class FormatStagedTests(unittest.TestCase):
             ["bridge/main.cpp"],
         )
 
+    def test_comparison_paths_combines_branch_and_local_paths(self) -> None:
+        """Select committed, staged, unstaged, and untracked paths without losing duplicates."""
+        completed = lambda output: subprocess.CompletedProcess(
+            [], 0, stdout=output, stderr=b""
+        )
+        with patch.object(
+            format_staged,
+            "run_git",
+            side_effect=[
+                completed(b"base-sha\n"),
+                completed(b"app/main.dart\0"),
+                completed(b"tooling/new.py\0"),
+                completed(b"bridge/main.cpp\0"),
+                completed(b"app/main.dart\0"),
+            ],
+        ):
+            paths = format_staged.comparison_paths(Path("."), "main")
+
+        self.assertEqual(
+            paths,
+            ["app/main.dart", "bridge/main.cpp", "tooling/new.py"],
+        )
+
+    def test_comparison_paths_fails_closed_when_git_selection_fails(self) -> None:
+        """Reject a base-ref check when any Git path-selection command fails."""
+        successful = subprocess.CompletedProcess(
+            [], 0, stdout=b"base-sha\n", stderr=b""
+        )
+        diff_successful = subprocess.CompletedProcess(
+            [], 0, stdout=b"app/main.dart\0", stderr=b""
+        )
+        failed = subprocess.CompletedProcess([], 1, stdout=b"", stderr=b"git failed")
+        scenarios = (
+            [failed],
+            [successful, failed],
+            [successful, diff_successful, failed],
+        )
+
+        for responses in scenarios:
+            with (
+                self.subTest(responses=responses),
+                patch.object(format_staged, "run_git", side_effect=responses),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "git failed"):
+                    format_staged.comparison_paths(Path("."), "main")
+
     def test_formatter_group_selects_supported_extensions(self) -> None:
         """Map the selected core-language extensions and leave other files unsupported."""
         self.assertEqual(format_staged.formatter_group("app/main.dart"), "dart")
@@ -40,6 +86,13 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertTrue(options.check)
         self.assertEqual(options.paths, ["--fixture.py"])
+
+    def test_parse_arguments_accepts_a_base_ref(self) -> None:
+        """Capture a base ref used to select local pre-push formatter paths."""
+        options = format_staged.parse_arguments(["--check", "--base-ref", "main"])
+
+        self.assertTrue(options.check)
+        self.assertEqual(options.base_ref, "main")
 
     def test_parse_git_paths_preserves_non_utf8_bytes(self) -> None:
         """Decode Git paths without crashing on bytes outside UTF-8."""
@@ -217,6 +270,61 @@ class FormatStagedTests(unittest.TestCase):
             ["README.md"],
             False,
         )
+
+    def test_main_uses_base_ref_paths_for_an_explicit_check(self) -> None:
+        """Format paths selected from a base ref without applying staged-file restrictions."""
+        with (
+            patch.object(
+                format_staged,
+                "comparison_paths",
+                return_value=["app/lib/main.dart"],
+            ) as comparison_paths,
+            patch.object(format_staged, "format_paths", return_value=0) as format_paths,
+        ):
+            result = format_staged.main(["--check", "--base-ref", "main"])
+
+        self.assertEqual(result, 0)
+        comparison_paths.assert_called_once_with(format_staged.REPOSITORY_ROOT, "main")
+        format_paths.assert_called_once_with(
+            format_staged.REPOSITORY_ROOT,
+            ["app/lib/main.dart"],
+            True,
+        )
+
+    def test_main_rejects_paths_and_a_base_ref_together(self) -> None:
+        """Reject ambiguous selection between explicit paths and a base ref."""
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            result = format_staged.main(
+                ["--check", "--base-ref", "main", "--paths", "app/lib/main.dart"]
+            )
+
+        self.assertEqual(result, 1)
+        self.assertIn("Use either --paths or --base-ref", stderr.getvalue())
+
+    def test_main_rejects_a_base_ref_swallowed_into_paths_by_remainder(self) -> None:
+        """Reject --base-ref even when --paths' REMAINDER capture swallows it first."""
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            result = format_staged.main(
+                ["--check", "--paths", "app/lib/main.dart", "--base-ref", "main"]
+            )
+
+        self.assertEqual(result, 1)
+        self.assertIn("Use either --paths or --base-ref", stderr.getvalue())
+
+    def test_main_rejects_an_attached_base_ref_swallowed_into_paths_by_remainder(
+        self,
+    ) -> None:
+        """Reject the attached --base-ref=value spelling swallowed by REMAINDER too."""
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            result = format_staged.main(
+                ["--check", "--paths", "app/lib/main.dart", "--base-ref=main"]
+            )
+
+        self.assertEqual(result, 1)
+        self.assertIn("Use either --paths or --base-ref", stderr.getvalue())
 
     def test_format_paths_reports_changes_without_restaging(self) -> None:
         """Leave formatted files for review instead of adding them to the index."""

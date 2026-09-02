@@ -69,6 +69,12 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   Publication and Bounded Transport is next; it will establish the shared-authority, capacity-one
   session-registry boundary that later multi-client delivery will extend.
 
+The standalone host/adapter migration in `host/PLAN.md` is a parallel replacement track. Its
+Stage 4 — Host Client Boundary and Pairing may be planned and implemented without changing the
+product roadmap's Phase 4.2 status, but it does not close Phase 4.2, activate the replacement in
+production, or authorize removal of `bridge/`. Those outcomes remain gated by `host/PLAN.md`'s
+Stage 7 conformance gate and Stage 8 cutover.
+
 ## Ordered stages
 
 | Stage | Status | Detailed specification |

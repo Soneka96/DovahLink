@@ -69,6 +69,17 @@ The host is the sole new owner of:
 - Diagnostics, host availability, and host-side shutdown. Adapter-side
   discovery and reconnect coordination remain on the native adapter.
 
+## Per-connection capability boundary
+
+Application, session, and domain code above the transport never resolves which live connection it
+is acting on through a global or listener-owned "current connection" lookup. Any per-connection
+behavior -- sending a response, requesting that connection's termination, or anything else scoped to
+one accepted client -- is reached only through an explicit capability tied to that exact
+connection's own lifetime, handed to the caller by the transport itself. A capability that outlives
+its connection must never observably act on a later, unrelated connection. This is an ownership
+invariant, not a concrete interface or type shape; the transport layer choosing how to satisfy it is
+implementation work for the stage that introduces the first such capability.
+
 ## Boundary against Skyrim
 
 The host does not read Skyrim/CommonLib state, does not perform game-thread work, and does not
@@ -104,8 +115,9 @@ requests cleanly rather than hanging).
   host's in-memory authoritative published state and revisions do not survive a host restart -- they
   are not persisted, so a restarted host holds no authoritative state until it resynchronizes with
   the adapter and starts a fresh revision sequence for every affected state area.
-- **Adapter restart** (an SKSE plugin reload or a Skyrim process restart) creates a new
-  `adapterInstanceId`. The host observes the IPC connection drop and reconnect and
+- **Adapter restart** means a Skyrim process restart; live SKSE plugin unload/reload is not a
+  supported lifecycle boundary, per `ARCHITECTURE.md`'s runtime and identity model. It creates a
+  new `adapterInstanceId`. The host observes the IPC connection drop and reconnect and
   treats any state associated with the previous adapter connection as stale until it is
   resynchronized; it never continues publishing the old connection's state as current across an
   adapter restart.

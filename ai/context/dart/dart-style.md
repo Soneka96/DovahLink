@@ -77,8 +77,11 @@ result/outcome value class) still gets its own file under the normal one-type-pe
 ## Class organization
 
 No private named classes in Dart production or test code. The only exceptions are generated JSON
-serialization code and private Flutter `State<T>` lifecycle subclasses. ViewModels are allowed only
-as named classes in their own files.
+serialization code and private Flutter `State<T>` lifecycle subclasses. A Flutter widget may keep
+one private, widget-local `_<WidgetName>ViewModel` in its own file when that type is only the
+widget's `StoreConnector` presentation value. Document the ViewModel declaration, constructor, and
+fields like every other handwritten type. Other ViewModels are allowed only as named classes in
+their own files.
 
 Private fields remain the normal way to express internal state and invariants. Avoid private methods:
 a method with its own responsibility -- transforming data, generating a value, performing I/O,

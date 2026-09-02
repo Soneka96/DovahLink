@@ -800,8 +800,9 @@ public class PairingScenarioTests
     /// <summary>
     /// Verifies the auto-renotify path: when a client submits an incorrect code,
     /// the outcome is "invalid" (challenge persists), the bridge auto-redisplays the code via
-    /// in-game notification (harness signals this with PAIRING_CODE_INCORRECT line), and the expiry
-    /// is refreshed. The owning client may continue attempting with the original code.
+    /// in-game notification (harness signals this with PAIRING_CODE_INCORRECT line), and the original
+    /// expiry deadline is preserved, not extended or reset. The owning client may continue attempting
+    /// with the original code.
     /// </summary>
     [Fact]
     public async Task WrongCodeTriggersAutoRenotifyWithoutConsumingAttempt()
@@ -846,8 +847,8 @@ public class PairingScenarioTests
         Assert.Equal(correctCode, autoRenotifySignal.AsSpan()["PAIRING_CODE_INCORRECT ".Length..].ToString());
 
         // Query pairing status: should be "in_progress" (same client owns active challenge).
-        // A wrong code leaves the challenge, code, and expiry in place (ROADMAP.md) -- it does
-        // NOT refresh/extend the deadline, distinct from the code being freshly generated.
+        // A wrong code leaves the challenge, code, and expiry in place -- it does NOT refresh or
+        // extend the deadline, distinct from the code being freshly generated.
         await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
         Envelope statusAfterWrongCode = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", statusAfterWrongCode.MessageType);

@@ -328,12 +328,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("if: needs.build-and-test.result != 'success'", workflow)
 
     def test_app_ci_covers_flutter_quality_and_windows_build(self) -> None:
-        """Require Flutter generation, analysis, tests, and desktop build coverage."""
+        """Require SDK and Flutter generation, analysis, tests, and desktop build coverage."""
         workflow = self._read(".github/workflows/app-ci.yml")
         expected_paths = {
             '- "app/**"',
+            '- "bridge/**"',
             '- "protocol/**"',
             '- "sdk/dart/dovahlink_client/**"',
+            '- "tooling/vcpkg-ports/**"',
             '- ".github/workflows/app-ci.yml"',
         }
 
@@ -364,7 +366,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "          persist-credentials: false",
         )
         self.assertIn("    runs-on: windows-2022", workflow)
-        self.assertIn("    timeout-minutes: 20", workflow)
+        self.assertIn("    timeout-minutes: 30", workflow)
         self.assertIn("        shell: pwsh", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertIn(
@@ -389,6 +391,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 "sdk/dart/dovahlink_client",
                 "dart run build_runner build",
             ),
+            ("Analyze Dart SDK", "sdk/dart/dovahlink_client", "dart analyze"),
+            ("Test Dart SDK", "sdk/dart/dovahlink_client", "dart test"),
             ("Restore Flutter dependencies", "app", "flutter pub get"),
             ("Generate Dart sources", "app", "dart run build_runner build"),
             ("Analyze Flutter client", "app", "flutter analyze"),
@@ -930,11 +934,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "if (-not $vcpkgAlreadyBootstrapped) {",
             "$LASTEXITCODE -ne 0",
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"',
+            '"tooling/format_staged.py", "--check", "--base-ref", "main"',
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(',
             '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"',
             '$hostExecutablePath = Join-Path $repoRoot "host\\DovahLink.Host\\bin\\Release\\net9.0-windows\\DovahLink.Host.exe"',
             "Test-Path -LiteralPath $hostExecutablePath -PathType Leaf",
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")',
+            'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("analyze")',
+            'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("test")',
             '$appBuildCache = Join-Path $appDirectory ".dart_tool',
             "if (Test-Path -LiteralPath $appBuildCache) {",
             "Remove-Item -LiteralPath $appBuildCache -Recurse -Force",
@@ -942,10 +949,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("build", "windows", "--debug")',
-            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")',
             'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")',
             'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")',
-            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")',
             'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")',
             '"--test-dir", "build/windows-x64-release", "--output-on-failure"',
             '"restore", "integration/DovahLinkValidation.sln"',
@@ -988,6 +995,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"'
             ),
+            script.index('"tooling/format_staged.py", "--check", "--base-ref", "main"'),
             script.index('Write-Host "=== host-ci ==="'),
             script.index(
                 '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"'
@@ -1001,6 +1009,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ),
             script.index(
                 '"-p:GenerateDocumentationFile=true", "-p:TreatWarningsAsErrors=true"'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("pub", "get")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("analyze")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("test")'
             ),
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'
@@ -1019,7 +1039,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("build", "windows", "--debug")'
             ),
             script.index(
-                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")'
+                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")'
             ),
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")'
@@ -1028,7 +1048,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")'
             ),
             script.index(
-                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")'
+                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")'
             ),
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")'
@@ -1771,6 +1791,67 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "repository",
             flutter_dart_style,
         )
+
+    def test_convention_updates_have_one_owner_and_no_planning_document_references(
+        self,
+    ) -> None:
+        """Keep the approved lifecycle, file, and source-comment convention updates aligned."""
+        architecture = self._read("ARCHITECTURE.md")
+        host_architecture = self._read("ai/context/host/architecture.md")
+        dotnet_style = self._read("ai/context/dotnet/csharp-style.md")
+        common = self._read("ai/context/common.md")
+        dart_style = self._read("ai/context/dart/dart-style.md")
+        flutter_architecture = self._read("ai/context/flutter/architecture.md")
+
+        self.assertIn(
+            "plugin unload/reload is not a supported lifecycle boundary", architecture
+        )
+        self.assertIn(
+            "**Adapter restart** means a Skyrim process restart; live SKSE plugin unload/reload is not a\n"
+            "  supported lifecycle boundary",
+            host_architecture,
+        )
+        self.assertNotIn(
+            "an SKSE plugin reload or a Skyrim process restart", host_architecture
+        )
+        self.assertIn("host process and its tests", dotnet_style)
+        self.assertIn("One Flutter-specific grouping exception is a feature's", common)
+        self.assertNotIn("The Flutter-specific exception is", common)
+        self.assertIn("`<feature>.actions.dart` file", common)
+        self.assertIn("exception in `ai/context/common.md`", flutter_architecture)
+        self.assertNotIn("sole Flutter-specific", flutter_architecture)
+        self.assertIn("one private, widget-local `_<WidgetName>ViewModel`", dart_style)
+
+        for source_path, widget_name in (
+            (
+                "app/lib/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart",
+                "PairingRenotifyButton",
+            ),
+            (
+                "app/lib/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart",
+                "PairingCancelButton",
+            ),
+        ):
+            source = self._read(source_path)
+            self.assertIn(f"class _{widget_name}ViewModel", source)
+            self.assertIn(
+                f"/// Widget-local presentation values consumed by [{widget_name}]",
+                source,
+            )
+
+        for source_path in (
+            "bridge/security/factory_reset_challenge.hpp",
+            "bridge/application/constants.hpp",
+            "bridge/application/revision_tracker.hpp",
+            "adapter/tests/plugin/dovahlink_adapter_plugin_test.cpp",
+            "bridge/application/handshake_handler.cpp",
+            "integration/DovahLinkValidationClient.Tests/RestartScenarioTests.cs",
+            "integration/DovahLinkValidationClient.Tests/PairingScenarioTests.cs",
+        ):
+            source = self._read(source_path)
+            self.assertNotIn("roadmap/", source)
+            self.assertNotIn("plans/", source)
+            self.assertNotIn("ROADMAP.md", source)
 
     def test_sdk_conventions_cover_architecture_api_persistence_and_testing(
         self,

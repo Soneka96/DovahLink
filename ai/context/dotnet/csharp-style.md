@@ -1,13 +1,17 @@
 # C# style
 
-These conventions apply to handwritten C# in integration clients, tests, and repository tooling.
+These conventions apply to handwritten C# in the host process and its tests, integration clients
+and tests, and repository tooling.
 
 ## Files and types
 
 One primary public class, record, struct, or interface per file, per `ai/context/common.md`'s
-shared file-organization rule. Its two exceptions apply per project (`DovahLinkValidationClient`,
-`DovahLinkValidationClient.Tests`, and `tooling/BridgeBuilder` each get their own, never shared
-across a project boundary): every enum for that project belongs in that project's `Enums.cs`, and
+shared file-organization rule. An interface and its one concrete implementation are the paired
+declaration exception: they share the implementation's owning file and no unrelated public type may
+be placed there. Its two additional grouping exceptions apply per project (`DovahLink.Host`,
+`DovahLink.Host.Tests`, `DovahLinkValidationClient`, `DovahLinkValidationClient.Tests`, and
+`tooling/BridgeBuilder` each get their own, never shared across a project boundary): every enum
+for that project belongs in that project's `Enums.cs`, and
 every small cross-cutting constant value (timeouts, limits, and similar) belongs in that project's
 `Constants.cs`. Within either file, group entries by the area they belong to, each preceded by a
 `// ---- <Area> ----` comment banner.

@@ -192,4 +192,121 @@ public static class Constants
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
     public static string ShutdownEventName(OwnerLifetimeId ownerLifetimeId) =>
         $@"Local\DovahLink.Host.Shutdown.{ownerLifetimeId.Format()}";
+
+    // ---- Client transport ----
+
+    /// <summary>
+    /// The approved public loopback port reserved for the eventual production public WebSocket
+    /// listener composition, per <c>ai/context/host/migration-audit.md</c>'s "Default loopback port
+    /// 58231". Not activated by Stage 4; an isolated development/test composition injects a
+    /// different explicit loopback port instead of this value.
+    /// </summary>
+    public const int PublicWebSocketPort = 58231;
+
+    /// <summary>
+    /// The maximum number of public WebSocket connections served concurrently, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum connected clients during the first proof: 1".
+    /// </summary>
+    public const int PublicWebSocketMaxConcurrentConnections = 1;
+
+    /// <summary>The pending-connection backlog for each of the public listener's two loopback-address sockets.</summary>
+    public const int PublicWebSocketAcceptBacklog = 8;
+
+    /// <summary>
+    /// How long the public listener's accept loop waits before retrying after a failed accept caused
+    /// by something other than the listening socket being disposed, so a persistent failure cannot
+    /// spin the loop without bound.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketAcceptRetryDelay = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// The maximum byte length of the raw HTTP Upgrade request line and headers a connection will
+    /// buffer while completing the WebSocket handshake.
+    /// </summary>
+    public const int PublicWebSocketMaxHandshakeRequestBytes = 8192;
+
+    /// <summary>
+    /// How long a newly accepted public connection may take to complete the WebSocket upgrade
+    /// handshake, per <c>ai/context/protocol/security.md</c>'s "handshake timeout: 5 seconds".
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketHandshakeTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The approved liveness ceiling for detecting an unresponsive established connection, matching
+    /// <c>ai/context/protocol/security.md</c>'s "Input limits" ("idle connection timeout: 60 seconds
+    /// without a valid heartbeat or message"). <see cref="PublicWebSocketKeepAliveInterval"/> and
+    /// <see cref="PublicWebSocketKeepAlivePongTimeout"/> are configured with intentional headroom
+    /// below this ceiling rather than summing to it exactly, because .NET's managed WebSocket
+    /// keep-alive scheduler polls on a <c>Timer</c> tick (<c>min(interval, timeout) / 4</c>) instead
+    /// of firing at an exact instant, so both ping dispatch and pong-timeout detection can each land
+    /// up to one tick late. This is a budgeted ceiling under normal runtime scheduling, not an exact
+    /// stopwatch guarantee against arbitrary scheduler or OS delay.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketLivenessTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// How long an established connection waits for a keep-alive ping's pong reply before the
+    /// connection is treated as unresponsive and torn down. This is WebSocket-native Ping/Pong; no
+    /// separate application-level heartbeat is used.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketKeepAlivePongTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The interval of inbound silence after which an established connection sends a WebSocket-level
+    /// keep-alive ping. Fixed at 50 seconds rather than derived by subtracting <see
+    /// cref="PublicWebSocketKeepAlivePongTimeout"/> from <see cref="PublicWebSocketLivenessTimeout"/>,
+    /// so the configured budget (55s) intentionally leaves roughly 5 seconds of headroom below the
+    /// 60-second ceiling for the managed WebSocket keep-alive scheduler's own polling jitter -- see
+    /// <see cref="PublicWebSocketLivenessTimeout"/> for why an exact 55s+5s=60s sum is not relied on.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketKeepAliveInterval = TimeSpan.FromSeconds(50);
+
+    /// <summary>
+    /// The maximum byte length of one accumulated inbound WebSocket message, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum frame size: 1 MiB".
+    /// </summary>
+    public const int PublicWebSocketMaxMessageBytes = 1024 * 1024;
+
+    /// <summary>
+    /// The maximum number of inbound messages accepted per second per public connection, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum inbound messages: 100 per second per client".
+    /// </summary>
+    public const int PublicWebSocketMaxMessagesPerSecond = 100;
+
+    /// <summary>The rolling window used for the public connection's inbound message-rate limit.</summary>
+    public static readonly TimeSpan PublicWebSocketMessageRateWindow = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// The maximum number of outbound messages queued per public connection, per
+    /// <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy.
+    /// </summary>
+    public const int PublicWebSocketOutboundQueueMaxMessages = 128;
+
+    /// <summary>
+    /// The maximum total encoded byte size of the outbound queue per public connection, per
+    /// <c>ai/context/protocol/security.md</c>'s "outbound queue byte budget: 2 MiB per client".
+    /// </summary>
+    public const long PublicWebSocketOutboundQueueMaxBytes = 2L * 1024 * 1024;
+
+    /// <summary>The maximum time a graceful WebSocket close handshake may take before falling back to an abort.</summary>
+    public static readonly TimeSpan PublicWebSocketGracefulCloseTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The maximum time a connection waits for its injected message handler's disconnect
+    /// notification before proceeding with teardown regardless. A hanging or failing handler must
+    /// never prevent the underlying socket from being released or hold the listener's single
+    /// connection admission slot open.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketDisconnectNotificationTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The maximum time one incomplete fragmented inbound WebSocket message may remain open, anchored
+    /// to its first fragment and never extended by later fragments of the same message. Closes a
+    /// resource-exhaustion gap distinct from <see cref="PublicWebSocketMaxMessagesPerSecond"/> (which
+    /// only counts completed messages) and <see cref="PublicWebSocketMaxMessageBytes"/> (which bounds
+    /// total bytes but not assembly time): without this bound, a peer could keep one message open
+    /// indefinitely by sending it one tiny fragment at a time. Maintainer-approved value, not reused
+    /// from any other transport deadline.
+    /// </summary>
+    public static readonly TimeSpan PublicWebSocketFragmentAssemblyTimeout = TimeSpan.FromSeconds(5);
 }

@@ -94,9 +94,10 @@ this audit authorizes deleting or silently replacing that reference.
 - **Hello authentication and trust tiers** (`one_time_local_token`, `unpaired`, and
   `trusted_device_credential`; restricted unpaired allowlist; one-time upgrade to paired) --
   **Retained.** Owner: host. The host admits bootstrap sessions only for `ping`, `capabilities`,
-  `pairing_request`, and `pairing_confirm`; developer-token sessions are wire-identified as
-  `unpaired` but remain unrestricted and are not Known Devices for Block or Revoke. A session
-  becomes paired only when the pairing state machine succeeds, never because of another message.
+  `pairing_request`, `pairing_confirm`, `pairing_ack`, `pairing_renotify`, and `pairing_cancel`;
+  developer-token sessions are wire-identified as `unpaired` but remain unrestricted and are not
+  Known Devices for Block or Revoke. A session becomes paired only when the pairing state machine
+  succeeds, never because of another message.
 
 ## Failure handling and diagnostics
 

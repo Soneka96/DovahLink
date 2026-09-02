@@ -23,6 +23,7 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 - `ai/context/protocol/` — canonical cross-side contract; read for message or schema work
 - `ai/context/protocol/security.md` — transport exposure, pairing, authentication, and input limits
 - `ai/context/integration/` — tests that verify the client and bridge meet at the contract
+- `ai/context/tooling/` — repository tooling and local CI bootstrap conventions; read for `tooling/` work
 
 ## Non-negotiable rules
 

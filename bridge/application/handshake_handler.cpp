@@ -48,10 +48,9 @@
 //  - A kBlocked clientId is rejected with `blocked` before any
 //  auth-method-specific work runs
 //    (throttle bookkeeping, credential comparison), not folded into the
-//    trusted_device_credential branch's existing `revoked` check: ROADMAP.md's
-//    "3.2 Known Device & Trust Administration" requires blocking to reject "as
-//    early as hello" for *both* trusted_device_credential and unpaired attempts
-//    (an unpaired session is how a blocked device would otherwise reach
+//    trusted_device_credential branch's existing `revoked` check: blocking must
+//    reject *both* trusted_device_credential and unpaired attempts as early as
+//    hello (an unpaired session is how a blocked device would otherwise reach
 //    pairing_request again), and `blocked` must never be conflated with
 //    `revoked`. Developer-token (one_time_local_token) authentication is exempt
 //    -- it stays a separate provider never redefined as a paired device by Known

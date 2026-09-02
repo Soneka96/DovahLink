@@ -127,9 +127,8 @@ TEST_CASE("the adapter plugin derives and reuses one owner-lifetime identity",
 
 TEST_CASE("adapter/CMakeLists.txt never links or builds a bridge/ target",
           "[plugin][structural][boundary]") {
-  //  Proof obligation: "Independent adapter configuration/build does not
-  //  link or include bridge/", per
-  //  plans/stage-3-thin-native-adapter-private-ipc/03-native-adapter-core.md.
+  //  Proof obligation: independent adapter configuration/build does not link
+  //  or include bridge/.
   //  Checks actual build directives, not prose: this file's own comments
   //  legitimately reference bridge/CMakeLists.txt as documentation (the same
   //  way ai/context/adapter/architecture.md does), which is not a link or
