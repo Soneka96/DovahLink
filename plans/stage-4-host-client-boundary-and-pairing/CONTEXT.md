@@ -439,9 +439,11 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   707 after Step 4 (9 new: the credential throttle, including a corrected staggered-pruning boundary
   test caught by its own fresh-eyes pass); 765 after Step 5 (58 new: the envelope codec and payload
   DTOs, including the exhaustive 20-value `PublicMessageType` round-trip theory and the UTF-8-byte-
-  vs-char-count boundary test its fresh-eyes pass added); 806 after Step 6 (36 new: the core
-  admission handler, including the `clientIdentityKind` bug the same pass's fresh-eyes review caught
-  and fixed); 833 after Step 7 (27 new: post-admission dispatch and the allowlist, plus the
+  vs-char-count boundary test its fresh-eyes pass added); 806 after Step 6 (41 new: 5 in
+  `LocalConnectionTokenAuthenticatorTests` for the new `TryValidate`/`CommitConsumption` pair, 36 in
+  the new `PublicHelloAdmissionTests` after its fresh-eyes pass, which caught the
+  `clientIdentityKind` bug and fixed it); 833 after Step 7 (27 new: post-admission dispatch and the
+  allowlist, plus the
   `admissionDeadlineCts` locking fix). Timing-sensitive suites (`PublicHelloAdmissionTests`,
   `LocalConnectionTokenAuthenticatorTests`) re-run five times at Steps 1, 6, and 7 with no flake.
 - `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
