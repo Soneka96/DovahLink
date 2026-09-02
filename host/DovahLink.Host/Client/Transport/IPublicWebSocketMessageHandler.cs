@@ -64,4 +64,23 @@ public interface IPublicWebSocketMessageHandler
     /// </summary>
     /// <param name="cancellationToken">The token used to stop waiting if the notification itself awaits.</param>
     Task HandleDisconnectedAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Notifies the handler that this connection's WebSocket upgrade has just completed, before any
+    /// inbound message can exist to reach <see cref="HandleMessageAsync"/>. Called exactly once per
+    /// connection that completes the upgrade, synchronously inside
+    /// <see cref="IPublicWebSocketConnection.RunAsync"/> before its read loop starts. This is the only
+    /// point at which a handler can obtain <paramref name="connection"/> before the peer has sent
+    /// anything -- for example to arm a bounded admission deadline that must be able to close the
+    /// connection even if it never sends a single message. Like <see cref="HandleConnectionEnded"/>,
+    /// this member must be a fast, deterministic, non-blocking operation and must not throw: a bug
+    /// here is tolerated by the transport (the read loop still starts) but must never be relied on for
+    /// application-lifecycle correctness the same way <see cref="HandleConnectionEnded"/> is.
+    /// </summary>
+    /// <param name="connection">
+    /// The narrow, per-connection capability scoped to this exact connection for its entire lifetime --
+    /// the same instance later passed to every <see cref="HandleMessageAsync"/> call for this
+    /// connection.
+    /// </param>
+    void HandleConnectionEstablished(IPublicConnectionContext connection);
 }

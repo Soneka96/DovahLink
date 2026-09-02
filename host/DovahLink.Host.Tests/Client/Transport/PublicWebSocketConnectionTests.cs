@@ -981,7 +981,7 @@ public class PublicWebSocketConnectionTests
 
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
-        Assert.Equal(["ConnectionEnded", "Disconnected"], handler.CallOrder);
+        Assert.Equal(["ConnectionEstablished", "ConnectionEnded", "Disconnected"], handler.CallOrder);
         listener.Stop();
     }
 
@@ -2160,6 +2160,164 @@ public class PublicWebSocketConnectionTests
 
         Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late")));
         Assert.Empty(diagnostics.Reports);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that a valid handshake calls <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/>
+    /// exactly once, before any <see cref="IPublicWebSocketMessageHandler.HandleMessageAsync"/> call,
+    /// and hands it the same connection capability instance later passed to <c>HandleMessageAsync</c> --
+    /// proving a handler can obtain a usable capability before the peer has sent anything.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ValidHandshake_CallsConnectionEstablishedBeforeAnyMessage()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await WaitUntilAsync(() => handler.ConnectionEstablishedCalls > 0, runTask);
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.NotNull(handler.EstablishedConnection);
+        Assert.Empty(handler.ReceivedMessages);
+
+        await clientWebSocket.SendAsync("hello"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        Assert.Same(handler.EstablishedConnection, handler.LastConnection);
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.Equal(["ConnectionEstablished"], handler.CallOrder.Take(1));
+
+        listener.Stop();
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a peer who never completes the handshake never causes
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/> to be called -- the
+    /// hook is scoped to a connection that actually reached an upgraded WebSocket, not merely accepted.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_HandshakeNeverCompletes_DoesNotCallConnectionEstablished()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200));
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, options: options);
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, handler.ConnectionEstablishedCalls);
+        Assert.Null(handler.EstablishedConnection);
+        client.Dispose();
+    }
+
+    /// <summary>
+    /// Verifies that a handler whose <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/>
+    /// throws still lets the connection's read loop start and deliver messages normally -- mirroring
+    /// the same tolerance <see cref="RunAsync_ConnectionEndedThrows_StillTearsDownConnection"/> proves
+    /// for <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ConnectionEstablishedThrows_StillStartsReadLoop()
+    {
+        var handler = new FakePublicWebSocketMessageHandler { EstablishedFailure = new InvalidOperationException("Simulated handler failure.") };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await WaitUntilAsync(() => handler.ConnectionEstablishedCalls > 0, runTask);
+
+        byte[] payload = Encoding.UTF8.GetBytes("still works");
+        await clientWebSocket.SendAsync(payload, WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        Assert.Equal(payload, Assert.Single(handler.ReceivedMessages));
+
+        listener.Stop();
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies the connection capability handed to <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/>
+    /// stays usable from background work scheduled during that synchronous call -- the exact shape a
+    /// bounded admission deadline needs (arm a delayed close from establishment, before any message
+    /// exists) -- and that scheduling it does not block the establishment call or the read loop that
+    /// follows it.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ConnectionEstablishedSchedulesDelayedRequestClose_LaterClosesTheConnection()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        handler.OnConnectionEstablished = connection =>
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+                connection.RequestClose();
+            });
+        };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The establishment call itself must not have blocked waiting for the delayed work above.
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal(["ConnectionEstablished", "ConnectionEnded", "Disconnected"], handler.CallOrder);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that a handler calling <see cref="IPublicConnectionContext.RequestClose"/> synchronously,
+    /// from inside <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/> itself --
+    /// before <see cref="PublicWebSocketConnection.RunAsync"/> has assigned the real writer loop task --
+    /// still tears the connection down cleanly and within a bounded time, rather than hanging on the
+    /// not-yet-started writer.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ConnectionEstablishedCallsRequestCloseSynchronously_ConnectionClosesWithoutHanging()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        handler.OnConnectionEstablished = connection => connection.RequestClose();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
         listener.Stop();
     }
 
