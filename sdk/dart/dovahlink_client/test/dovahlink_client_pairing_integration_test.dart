@@ -30,6 +30,42 @@ Future<String> _readPairingCode(HarnessProcess harness) async {
   return line.substring(prefix.length);
 }
 
+/// Reads and validates the harness's `SESSION_RELEASED <clientId>` report line, printed by
+/// `StdoutSessionReleaseNotificationSink` the instant a torn-down connection's session slot is
+/// actually released -- the signal [_reconnectAfterSessionReleased] waits on.
+Future<String> _readSessionReleasedClientId(HarnessProcess harness) async {
+  const String prefix = 'SESSION_RELEASED ';
+  final String line = await harness.readLine();
+  if (!line.startsWith(prefix)) {
+    throw StateError(
+      'Harness did not report a released session: $line. Stderr: ${harness.stderrOutput}',
+    );
+  }
+  return line.substring(prefix.length);
+}
+
+/// Reconnects a fresh `DovahLinkClient` sharing [storage] to [bridgeUri], after first waiting for
+/// [harness] to confirm the previous connection's session slot is actually free.
+///
+/// The Bridge (`kMaxConnectedClients == 1`) releases its previous session slot asynchronously,
+/// across the process boundary, only once it has processed that connection's own socket teardown --
+/// a moment this SDK's `disconnect()` future, which only waits for client-side teardown, cannot
+/// observe. Reconnecting to the *same* harness process immediately after `disconnect()` without
+/// this wait races that release and can see a spurious `unauthorized` rejection
+/// (`ai/context/integration/testing.md`). Call this only after `disconnect()` has already been
+/// awaited on the connection whose slot is being waited for.
+Future<(DovahLinkClient, HelloResult)> _reconnectAfterSessionReleased(
+  HarnessProcess harness,
+  IClientStorage storage,
+  Uri bridgeUri,
+) async {
+  await _readSessionReleasedClientId(harness);
+  final DovahLinkClient client = DovahLinkClient(storage: storage);
+  await client.connect(bridgeUri);
+  final HelloResult result = await client.hello();
+  return (client, result);
+}
+
 /// Starts an isolated harness, ready for a pairing scenario against it.
 Future<HarnessProcess> _startHarness() async {
   final HarnessProcess harness = await HarnessProcess.start(
@@ -96,10 +132,15 @@ void main() {
         // the same storage (simulating an app restart on the same installation), proving both the
         // bridge's trust store and this SDK's own persistence actually kept it.
         await client.disconnect();
-        final DovahLinkClient reconnected = DovahLinkClient(storage: storage);
+        final (
+          DovahLinkClient reconnected,
+          HelloResult reconnectResult,
+        ) = await _reconnectAfterSessionReleased(
+          harness,
+          storage,
+          harness.bridgeUri,
+        );
         addTearDown(reconnected.disconnect);
-        await reconnected.connect(harness.bridgeUri);
-        final HelloResult reconnectResult = await reconnected.hello();
 
         expect(reconnectResult.trustState, DovahLinkTrustState.trusted);
       },
@@ -171,10 +212,15 @@ void main() {
         // A new DovahLinkClient instance sharing the same storage simulates the app relaunching
         // on the same installation. It must hello as unpaired -- the bridge has not committed the
         // pending credential as trusted yet -- then recover the interrupted confirmation.
-        final DovahLinkClient relaunched = DovahLinkClient(storage: storage);
+        final (
+          DovahLinkClient relaunched,
+          HelloResult helloResult,
+        ) = await _reconnectAfterSessionReleased(
+          harness,
+          storage,
+          harness.bridgeUri,
+        );
         addTearDown(relaunched.disconnect);
-        await relaunched.connect(harness.bridgeUri);
-        final HelloResult helloResult = await relaunched.hello();
         expect(helloResult.trustState, DovahLinkTrustState.unpaired);
 
         final DovahLinkTrustState recovered = await relaunched

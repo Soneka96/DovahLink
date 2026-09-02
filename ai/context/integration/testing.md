@@ -69,3 +69,27 @@ Use a deterministic fake transport first. A real local connection check is requi
 The first real connection check must prove loopback-only binding and rejection of a non-loopback peer. LAN checks are not a substitute for pairing and authenticated-encryption tests when LAN support is eventually proposed.
 
 Do not use a running Skyrim process for tests that only verify protocol mapping, client decoding, or application state transitions.
+
+## Real-harness disconnect/reconnect timing
+
+A single-session Bridge process (`kMaxConnectedClients == 1`) releases its previous session slot
+asynchronously, across the process boundary, after processing a client's socket teardown. A
+client-side `disconnect()`/transport `close()` future only waits for that side's own teardown, not
+for the Bridge to finish releasing the slot.
+
+- A real-harness test that disconnects and then immediately reconnects to the *same* Bridge process
+  must not treat completion of the client-side `disconnect()` future as proof the Bridge has
+  released the previous session slot. Doing so races the Bridge's asynchronous release: if the new
+  `hello()` arrives first, admission sees the slot still occupied and can return `unauthorized`.
+- The Skyrim-independent test harness (`bridge/harness/dovahlink_bridge_harness.cpp`) prints an
+  observable `SESSION_RELEASED <clientId>` stdout line the instant it actually releases a
+  torn-down connection's session slot (`ISessionReleaseNotificationSink`,
+  `bridge/application/connection_session.hpp`). Such a test must wait for that line -- or another
+  deterministic release-synchronization mechanism -- before reconnecting, rather than an arbitrary
+  fixed sleep or a bounded blind retry against a timing-dependent rejection.
+- This is a test-harness lifecycle race, not a production condition: do not broaden production
+  `unauthorized` handling to be globally retryable to work around it, and do not treat the real
+  Skyrim plugin as having an equivalent signal -- its own composition root wires a no-op
+  implementation of the same interface, since gameplay has no use for it. This section also does not
+  apply when a test disposes the previous Bridge process and starts a fresh one before reconnecting
+  -- a new process has no prior session slot to race.
