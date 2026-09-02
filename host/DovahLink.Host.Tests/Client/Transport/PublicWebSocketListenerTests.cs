@@ -248,9 +248,15 @@ public class PublicWebSocketListenerTests
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
+        // The fake connection's teardown waits out this same teardownDelay via Task.Delay, whose
+        // own timer is not exact against Stopwatch's independent clock -- a real, observed CI
+        // failure landed 1.3ms short of the raw bound. This tolerance absorbs that timer slop
+        // without weakening the actual proof: RunAsync must still wait out nearly the whole delay,
+        // not return as soon as cancellation is requested.
+        var timerSlop = TimeSpan.FromMilliseconds(20);
         Assert.True(
-            stopwatch.Elapsed >= teardownDelay,
-            $"RunAsync returned after {stopwatch.Elapsed}, before the connection's {teardownDelay} teardown delay elapsed.");
+            stopwatch.Elapsed >= teardownDelay - timerSlop,
+            $"RunAsync returned after {stopwatch.Elapsed}, before the connection's {teardownDelay} teardown delay (- {timerSlop} timer slop) elapsed.");
     }
 
     /// <summary>Verifies that a connection failing with an unexpected exception does not end the accept loop for later connections.</summary>
