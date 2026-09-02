@@ -13,9 +13,12 @@ namespace DovahLink.Host.Client.Authentication;
 /// Implements the public protocol's authentication and session-admission boundary: decodes and
 /// validates the required initial <c>hello</c>, authenticates it through the three approved methods,
 /// admits a fresh session with the correct trust tier, enforces the pre-authentication admission
-/// deadline, replay protection, and the protocol-violation close policy. Message dispatch beyond
-/// admission and authorization -- pairing, liveness, rename, capabilities, and state requests --
-/// belongs to a later concept; this type only decides whether a message may proceed.
+/// deadline, replay protection, and the protocol-violation close policy. Enforces the per-tier
+/// inbound message allowlist and directly answers the mechanical post-admission exchanges that need
+/// no other service -- <c>capabilities</c>, <c>subscribe</c>, and <c>snapshot_request</c>, all
+/// currently answered uniformly since no capability or state area is registered. Mapping pairing,
+/// liveness, and rename messages to their owning services belongs to a later concept; an allowed
+/// message of one of those types is authorized here but produces no response yet.
 /// </summary>
 /// <remarks>
 /// One instance is constructed per accepted connection and holds this connection's own admission
@@ -59,7 +62,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>This connection's own identity, minted once for its entire lifetime.</summary>
     private readonly ConnectionId connectionId = ConnectionId.NewId();
 
-    /// <summary>Guards every mutable field below against the admission-deadline task's own thread.</summary>
+    /// <summary>
+    /// Guards every mutable field below against the admission-deadline task's own thread, except
+    /// <see cref="admissionOutcome"/>, which uses <see cref="Interlocked"/> instead so exactly one of
+    /// a successful <c>hello</c> or the deadline can claim it without either ever blocking on this
+    /// lock.
+    /// </summary>
     private readonly object gate = new();
 
     /// <summary>Every client <c>messageId</c> already seen on this connection, bounded to <see cref="Constants.PublicProtocolMaxSessionMessages"/>.</summary>
@@ -75,7 +83,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// Which of <see cref="OutcomePending"/>, <see cref="OutcomeAdmitted"/>, or
     /// <see cref="OutcomeDeadlineExpired"/> has been claimed. Exactly one caller -- a successful
     /// <c>hello</c> or the admission-deadline task -- ever wins the transition away from
-    /// <see cref="OutcomePending"/>.
+    /// <see cref="OutcomePending"/>. Guarded by <see cref="Interlocked"/>, not <see cref="gate"/>.
     /// </summary>
     private int admissionOutcome;
 
@@ -84,6 +92,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
     /// <summary>This connection's admitted session identity, valid only once <see cref="admitted"/> is <see langword="true"/>.</summary>
     private SessionId sessionId;
+
+    /// <summary>This connection's admitted message-authorization tier, valid only once <see cref="admitted"/> is <see langword="true"/>.</summary>
+    private SessionTrustTier trustTier;
 
     /// <summary>Creates a hello-admission handler for one accepted connection.</summary>
     /// <param name="codec">Decodes and encodes every message this handler sends or receives.</param>
@@ -118,7 +129,11 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     public void HandleConnectionEstablished(IPublicConnectionContext connection)
     {
         var deadlineCts = new CancellationTokenSource();
-        admissionDeadlineCts = deadlineCts;
+        lock (gate)
+        {
+            admissionDeadlineCts = deadlineCts;
+        }
+
         _ = RunAdmissionDeadlineAsync(connection, deadlineCts);
     }
 
@@ -185,8 +200,124 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return Task.CompletedTask;
         }
 
-        // Per-tier message authorization and dispatch beyond this point is a later concept's scope.
+        SessionTrustTier currentTier;
+        lock (gate)
+        {
+            currentTier = trustTier;
+        }
+
+        if (!IsAllowedForTier(envelope.MessageType, currentTier))
+        {
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message type is not allowed on this session.");
+            return Task.CompletedTask;
+        }
+
+        switch (envelope.MessageType)
+        {
+            case PublicMessageType.Capabilities:
+                HandleCapabilities(connectionContext, envelope);
+                break;
+            case PublicMessageType.Subscribe:
+                HandleSubscribe(connectionContext, envelope);
+                break;
+            case PublicMessageType.SnapshotRequest:
+                HandleSnapshotRequest(connectionContext, envelope);
+                break;
+            default:
+                // ping, pairing_*, and rename_request are authorized by the allowlist above, but
+                // mapping them to their owning services is a later concept's scope.
+                break;
+        }
+
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Reports whether <paramref name="messageType"/> is a client-originated message this session's
+    /// trust tier may send, per <c>ai/context/protocol/security.md</c>'s "Hello authentication and
+    /// session trust tiers". A server-originated type (<c>hello_ack</c>, <c>pairing_status</c>,
+    /// <c>pairing_outcome</c>, <c>rename_outcome</c>, <c>subscription_ack</c>, <c>state_snapshot</c>,
+    /// <c>state_event</c>, <c>error</c>, <c>session_invalidated</c>, <c>pong</c>) is never allowed
+    /// from a client, in either tier; neither is a bare <c>hello</c> once a session already exists.
+    /// </summary>
+    private static bool IsAllowedForTier(PublicMessageType messageType, SessionTrustTier tier) => tier switch
+    {
+        SessionTrustTier.Restricted => messageType
+            is PublicMessageType.Ping
+            or PublicMessageType.Capabilities
+            or PublicMessageType.PairingRequest
+            or PublicMessageType.PairingConfirm
+            or PublicMessageType.PairingAck
+            or PublicMessageType.PairingRenotify
+            or PublicMessageType.PairingCancel,
+        SessionTrustTier.Full => messageType
+            is PublicMessageType.Ping
+            or PublicMessageType.Capabilities
+            or PublicMessageType.RenameRequest
+            or PublicMessageType.Subscribe
+            or PublicMessageType.SnapshotRequest,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Answers a <c>capabilities</c> advertisement: an empty list gets no response, per the schema's
+    /// "a client may send an empty capabilities advertisement with no response"; a non-empty list is
+    /// rejected as unsupported, since no capability is currently registered.
+    /// </summary>
+    private void HandleCapabilities(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
+    {
+        if (!codec.TryDecodePayload(envelope, out CapabilitiesPayload? payload))
+        {
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The capabilities message is malformed.");
+            return;
+        }
+
+        if (payload.Capabilities.Count == 0)
+        {
+            return;
+        }
+
+        RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.UnsupportedCapability, "No capability is currently supported.");
+    }
+
+    /// <summary>Answers a <c>subscribe</c> request: every requested area is rejected, since no state area is currently registered.</summary>
+    private void HandleSubscribe(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
+    {
+        if (!codec.TryDecodePayload(envelope, out SubscribePayload? payload))
+        {
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The subscribe message is malformed.");
+            return;
+        }
+
+        SessionId currentSessionId;
+        lock (gate)
+        {
+            currentSessionId = sessionId;
+        }
+
+        var ackPayload = new SubscriptionAckPayload { AcceptedStateAreas = [], RejectedStateAreas = payload.StateAreas };
+        PlayContextSnapshot snapshot = playContextTracker.GetSnapshot();
+        byte[] bytes = codec.Encode(
+            PublicMessageType.SubscriptionAck,
+            NewMessageId(),
+            currentSessionId.ToString(),
+            envelope.MessageId,
+            snapshot.Current?.ToString(),
+            null,
+            ackPayload);
+        connectionContext.TrySend(bytes);
+    }
+
+    /// <summary>Answers a <c>snapshot_request</c>: always rejected as unsupported, since no state area is currently registered.</summary>
+    private void HandleSnapshotRequest(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
+    {
+        if (!codec.TryDecodePayload(envelope, out SnapshotRequestPayload? _))
+        {
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The snapshot_request message is malformed.");
+            return;
+        }
+
+        RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.UnsupportedCapability, "No state area is currently registered.");
     }
 
     /// <summary>
@@ -331,7 +462,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         }
 
         tokenAuthenticator.CommitConsumption();
-        Admit(connectionContext, envelope, requestedClientId, newSessionId, SessionAuthenticationSource.OneTimeLocalToken);
+        Admit(connectionContext, envelope, requestedClientId, newSessionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full);
     }
 
     /// <summary>
@@ -416,7 +547,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
-        Admit(connectionContext, envelope, requestedClientId, newSessionId, source);
+        Admit(connectionContext, envelope, requestedClientId, newSessionId, source, tier);
     }
 
     /// <summary>
@@ -436,15 +567,23 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// per <c>ai/context/protocol/security.md</c>'s "Hello authentication and session trust tiers".
     /// </summary>
     private void Admit(
-        IPublicConnectionContext connectionContext, PublicEnvelope helloEnvelope, ClientId admittedClientId, SessionId newSessionId, SessionAuthenticationSource source)
+        IPublicConnectionContext connectionContext,
+        PublicEnvelope helloEnvelope,
+        ClientId admittedClientId,
+        SessionId newSessionId,
+        SessionAuthenticationSource source,
+        SessionTrustTier tier)
     {
+        CancellationTokenSource? deadlineCts;
         lock (gate)
         {
             admitted = true;
             sessionId = newSessionId;
+            trustTier = tier;
+            deadlineCts = admissionDeadlineCts;
         }
 
-        admissionDeadlineCts?.Cancel();
+        deadlineCts?.Cancel();
 
         ClientIdentityKind identityKind = source == SessionAuthenticationSource.TrustedDeviceCredential
             ? ClientIdentityKind.Paired
@@ -481,15 +620,17 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <inheritdoc/>
     public void HandleConnectionEnded()
     {
-        admissionDeadlineCts?.Cancel();
-
         bool wasAdmitted;
         SessionId currentSessionId;
+        CancellationTokenSource? deadlineCts;
         lock (gate)
         {
             wasAdmitted = admitted;
             currentSessionId = sessionId;
+            deadlineCts = admissionDeadlineCts;
         }
+
+        deadlineCts?.Cancel();
 
         if (wasAdmitted)
         {

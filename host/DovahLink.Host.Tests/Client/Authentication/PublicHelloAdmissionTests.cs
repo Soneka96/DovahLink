@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using DovahLink.Host;
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
@@ -294,7 +296,7 @@ public class PublicHelloAdmissionTests
             {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{Guid.NewGuid()}}"},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
             """;
 
-        context.Handler.HandleMessageAsync(context.Connection, System.Text.Encoding.UTF8.GetBytes(json), CancellationToken.None);
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -417,6 +419,217 @@ public class PublicHelloAdmissionTests
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
+    }
+
+    // ---- Post-admission dispatch: capabilities ----
+
+    /// <summary>Verifies that an empty post-admission capabilities advertisement gets no response.</summary>
+    [Fact]
+    public void HandleMessageAsync_EmptyCapabilitiesPostAdmission_NoResponse()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+        int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, null, new CapabilitiesPayload { Capabilities = [] });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>Verifies that a non-empty post-admission capabilities advertisement is rejected as unsupported_capability.</summary>
+    [Fact]
+    public void HandleMessageAsync_NonEmptyCapabilitiesPostAdmission_RejectsAsUnsupported()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+
+        using JsonDocument document = JsonDocument.Parse("{}");
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, null,
+            new CapabilitiesPayload { Capabilities = [document.RootElement.Clone()] });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.UnsupportedCapability, error.Code);
+    }
+
+    /// <summary>Verifies that capabilities dispatch also works on a full (paired) session, not only a restricted one.</summary>
+    [Fact]
+    public void HandleMessageAsync_EmptyCapabilitiesPostAdmission_FullSession_NoResponse()
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, null, new CapabilitiesPayload { Capabilities = [] });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>Verifies that a malformed post-admission capabilities message is rejected as malformed_message.</summary>
+    [Fact]
+    public void HandleMessageAsync_MalformedCapabilitiesPostAdmission_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+        string json = $$"""
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    // ---- Post-admission dispatch: subscribe and snapshot_request ----
+
+    /// <summary>Verifies that subscribe rejects every requested area, since no state area is currently registered.</summary>
+    [Fact]
+    public void HandleMessageAsync_SubscribePostAdmission_RejectsEveryRequestedArea()
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, null,
+            new SubscribePayload { StateAreas = ["area_one", "area_two"] });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (PublicEnvelope ackEnvelope, SubscriptionAckPayload ack) = DecodeSent<SubscriptionAckPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicMessageType.SubscriptionAck, ackEnvelope.MessageType);
+        Assert.Equal("msg-2", ackEnvelope.CorrelationId);
+        Assert.Empty(ack.AcceptedStateAreas);
+        Assert.Equal(["area_one", "area_two"], ack.RejectedStateAreas);
+    }
+
+    /// <summary>Verifies that a malformed post-admission subscribe message is rejected as malformed_message.</summary>
+    [Fact]
+    public void HandleMessageAsync_MalformedSubscribePostAdmission_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        string json = $$"""
+            {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>Verifies that snapshot_request is always rejected as unsupported_capability, since no state area is currently registered.</summary>
+    [Fact]
+    public void HandleMessageAsync_SnapshotRequestPostAdmission_RejectsAsUnsupported()
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.SnapshotRequest, "msg-2", sessionId, null, null, null,
+            new SnapshotRequestPayload { StateArea = "area_one" });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.UnsupportedCapability, error.Code);
+    }
+
+    /// <summary>Verifies that a malformed post-admission snapshot_request message is rejected as malformed_message.</summary>
+    [Fact]
+    public void HandleMessageAsync_MalformedSnapshotRequestPostAdmission_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        string json = $$"""
+            {"messageType":"snapshot_request","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    // ---- Post-admission dispatch: per-tier allowlist ----
+
+    /// <summary>Verifies that a restricted session's approved pairing/liveness messages pass the allowlist and produce no response yet (dispatch is a later concept's scope).</summary>
+    [Theory]
+    [InlineData(PublicMessageType.Ping)]
+    [InlineData(PublicMessageType.PairingRequest)]
+    [InlineData(PublicMessageType.PairingConfirm)]
+    [InlineData(PublicMessageType.PairingAck)]
+    [InlineData(PublicMessageType.PairingRenotify)]
+    [InlineData(PublicMessageType.PairingCancel)]
+    public void HandleMessageAsync_RestrictedSessionAllowedType_PassesAllowlistWithNoResponse(PublicMessageType messageType)
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+        int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
+
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>Verifies that a restricted session's full-session-only or server-originated messages are rejected as malformed_message.</summary>
+    [Theory]
+    [InlineData(PublicMessageType.RenameRequest)]
+    [InlineData(PublicMessageType.Subscribe)]
+    [InlineData(PublicMessageType.SnapshotRequest)]
+    [InlineData(PublicMessageType.HelloAck)]
+    [InlineData(PublicMessageType.Error)]
+    [InlineData(PublicMessageType.Pong)]
+    public void HandleMessageAsync_RestrictedSessionDisallowedType_RejectsAsMalformed(PublicMessageType messageType)
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>Verifies that a full session's approved liveness/rename messages pass the allowlist, and rename_request produces no response yet (dispatch is a later concept's scope).</summary>
+    [Theory]
+    [InlineData(PublicMessageType.Ping)]
+    [InlineData(PublicMessageType.RenameRequest)]
+    public void HandleMessageAsync_FullSessionAllowedType_PassesAllowlistWithNoResponse(PublicMessageType messageType)
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
+
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>Verifies that a full (already-paired) session's restricted-only pairing messages are rejected as malformed_message, since it has no reason to re-pair.</summary>
+    [Theory]
+    [InlineData(PublicMessageType.PairingRequest)]
+    [InlineData(PublicMessageType.PairingConfirm)]
+    [InlineData(PublicMessageType.PairingAck)]
+    [InlineData(PublicMessageType.PairingRenotify)]
+    [InlineData(PublicMessageType.PairingCancel)]
+    public void HandleMessageAsync_FullSessionDisallowedType_RejectsAsMalformed(PublicMessageType messageType)
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
     }
 
     // ---- Replay protection ----
@@ -616,6 +829,19 @@ public class PublicHelloAdmissionTests
     private static void AdmitViaUnpairedHello(TestContext context, out string sessionId)
     {
         byte[] hello = BuildHello(context.Codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+        (PublicEnvelope ackEnvelope, _) = DecodeSent<HelloAckPayload>(context.Codec, context.FakeConnection.SentPayloads[0]);
+        sessionId = ackEnvelope.SessionId!;
+    }
+
+    /// <summary>Admits a full (paired) session via a matching trusted_device_credential hello, seeding the trust store first, and returns the wire session id assigned.</summary>
+    private static void AdmitViaTrustedDeviceCredentialHello(TestContext context, out string sessionId)
+    {
+        string clientId = Guid.NewGuid().ToString();
+        const string credential = "the-real-credential";
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, credential));
+        byte[] hello = BuildHello(
+            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = credential });
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
         (PublicEnvelope ackEnvelope, _) = DecodeSent<HelloAckPayload>(context.Codec, context.FakeConnection.SentPayloads[0]);
         sessionId = ackEnvelope.SessionId!;
