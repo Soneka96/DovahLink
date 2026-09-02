@@ -78,8 +78,12 @@ function Repair-CorruptVcpkgVersioningCache {
         return
     }
 
-    $portVersionCheckouts = Get-ChildItem -LiteralPath $versionsRoot -Directory -Recurse -ErrorAction SilentlyContinue |
-        Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Directory -ErrorAction SilentlyContinue) }
+    # Exactly two levels deep from $versionsRoot (<port>\<tree-sha>), never recursing into a
+    # checkout's own contents: a valid checkout can itself contain nested subdirectories (source
+    # trees, generated build files) that have no manifest of their own and would otherwise be
+    # mistaken for corrupt checkout roots by a full recursive leaf scan.
+    $portVersionCheckouts = Get-ChildItem -LiteralPath $versionsRoot -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Directory -ErrorAction SilentlyContinue }
     $isCorrupt = $false
     foreach ($checkout in $portVersionCheckouts) {
         $hasManifest = (Test-Path -LiteralPath (Join-Path $checkout.FullName "vcpkg.json") -PathType Leaf) -or
