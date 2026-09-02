@@ -25,7 +25,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -60,7 +60,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -89,7 +89,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -130,7 +130,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -172,7 +172,7 @@ public class PublicWebSocketConnectionTests
         Task connectTaskA = clientWebSocketA.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClientA = await acceptTaskA.WaitAsync(TimeSpan.FromSeconds(5));
-        var connectionA = new PublicWebSocketConnection(
+        var connectionA = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClientA.GetStream(), handlerA, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTaskA = connectionA.RunAsync(CancellationToken.None);
         await connectTaskA.WaitAsync(TimeSpan.FromSeconds(5));
@@ -195,7 +195,7 @@ public class PublicWebSocketConnectionTests
         Task connectTaskB = clientWebSocketB.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClientB = await acceptTaskB.WaitAsync(TimeSpan.FromSeconds(5));
-        var connectionB = new PublicWebSocketConnection(
+        var connectionB = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClientB.GetStream(), handlerB, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         using var cancellationB = new CancellationTokenSource();
         Task runTaskB = connectionB.RunAsync(cancellationB.Token);
@@ -231,7 +231,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -263,7 +263,7 @@ public class PublicWebSocketConnectionTests
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), options);
 
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -279,7 +279,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
 
         byte[] request = Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
         await client.WriteAsync(request);
@@ -299,7 +299,7 @@ public class PublicWebSocketConnectionTests
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxHandshakeRequestBytes: 32);
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), options);
 
         // 40 bytes with no "\r\n\r\n" terminator, exceeding the 32-byte bound before headers complete.
         await client.WriteAsync(Encoding.ASCII.GetBytes(new string('a', 40)));
@@ -316,7 +316,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         using var cancellation = new CancellationTokenSource();
 
         Task runTask = connection.RunAsync(cancellation.Token);
@@ -336,7 +336,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
 
         await client.WriteAsync(Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\n"));
         client.Dispose();
@@ -369,7 +369,7 @@ public class PublicWebSocketConnectionTests
         TimeSpan pongTimeout = TimeSpan.FromMilliseconds(300);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             keepAliveInterval: keepAliveInterval, keepAlivePongTimeout: pongTimeout);
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         var stopwatch = Stopwatch.StartNew();
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -404,7 +404,7 @@ public class PublicWebSocketConnectionTests
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             keepAliveInterval: TimeSpan.FromMilliseconds(100), keepAlivePongTimeout: TimeSpan.FromMilliseconds(100));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -436,7 +436,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxMessageBytes: 16);
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -463,7 +463,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -493,7 +493,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -531,7 +531,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -567,7 +567,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -602,7 +602,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxInboundMessagesPerSecond: 1);
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -642,7 +642,7 @@ public class PublicWebSocketConnectionTests
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             fragmentAssemblyTimeout: TimeSpan.FromSeconds(5), gracefulCloseTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -673,7 +673,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxMessageBytes: 16);
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -694,7 +694,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
 
         await CompleteRawHandshakeAsync(client);
@@ -732,7 +732,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -759,7 +759,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(2));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -790,7 +790,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -819,7 +819,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         Stream serverStream = serverTcpClient.GetStream();
-        var connection = new PublicWebSocketConnection(serverStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -845,7 +845,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         Stream serverStream = serverTcpClient.GetStream();
-        var connection = new PublicWebSocketConnection(serverStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -873,7 +873,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var disconnectNotificationTimeout = TimeSpan.FromMilliseconds(200);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(disconnectNotificationTimeout: disconnectNotificationTimeout);
-        var connection = new PublicWebSocketConnection(serverStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -908,7 +908,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -932,7 +932,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -957,7 +957,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
@@ -996,7 +996,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
-        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         Assert.True(connection.TrySend(new byte[10]));
     }
@@ -1007,7 +1007,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
-        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         for (int index = 0; index < 3; index++)
         {
@@ -1021,7 +1021,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200)));
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200)));
 
         // No handshake request is ever sent, so the connection ends via the handshake timeout.
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
@@ -1043,7 +1043,7 @@ public class PublicWebSocketConnectionTests
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             outboundQueueMaxBytes: 4, handshakeTimeout: TimeSpan.FromSeconds(30));
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), options);
 
         // Overflow the queue before RunAsync is ever called. The client never sends a handshake
         // request, so if this request were lost, RunAsync would otherwise sit waiting for the full
@@ -1068,7 +1068,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
-        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         for (int index = 0; index < 3; index++)
         {
@@ -1084,7 +1084,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
-        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         Assert.True(connection.TrySend(new byte[6]));
         Assert.False(connection.TrySend(new byte[6]));
@@ -1101,7 +1101,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 4);
-        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         Assert.False(connection.TrySend(new byte[8]));
         Assert.True(connection.TrySend(new byte[4]));
@@ -1132,7 +1132,7 @@ public class PublicWebSocketConnectionTests
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
-        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1176,7 +1176,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
-        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1214,7 +1214,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 4, outboundQueueMaxBytes: 1024);
-        var connection = new PublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         const int attempts = 50;
         bool[] results = await Task.WhenAll(Enumerable.Range(0, attempts)
@@ -1243,7 +1243,7 @@ public class PublicWebSocketConnectionTests
         // A generous message-count bound ensures only the byte budget can ever reject a send here.
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 6, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
-        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1281,7 +1281,7 @@ public class PublicWebSocketConnectionTests
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var clock = new FakeClock();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(maxInboundMessagesPerSecond: 3);
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, clock, options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, clock, options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1312,7 +1312,7 @@ public class PublicWebSocketConnectionTests
         var clock = new FakeClock();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
             maxInboundMessagesPerSecond: 2, inboundMessageRateWindow: TimeSpan.FromSeconds(1));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, clock, options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, clock, options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1347,7 +1347,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var faultingStream = new FailAfterFirstWriteStream(serverTcpClient.GetStream());
-        var connection = new PublicWebSocketConnection(faultingStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        var connection = Fixtures.BuildPublicWebSocketConnection(faultingStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1380,7 +1380,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(200));
-        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1420,7 +1420,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(30));
-        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1460,7 +1460,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         using var cancellation = new CancellationTokenSource();
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1491,7 +1491,7 @@ public class PublicWebSocketConnectionTests
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var options = Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromSeconds(30));
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), options);
 
         // Requested before RunAsync is ever called. The client never sends a handshake request, so if
         // this request were lost, RunAsync would otherwise sit waiting for the full 30-second
@@ -1521,7 +1521,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1551,7 +1551,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(2));
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1588,7 +1588,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1637,7 +1637,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 200, outboundQueueMaxBytes: 1024 * 1024);
-        var connection = new PublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1667,7 +1667,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var connection = new PublicWebSocketConnection(
+        var connection = Fixtures.BuildPublicWebSocketConnection(
             serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1686,7 +1686,7 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var connection = new PublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200)));
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200)));
 
         // No handshake request is ever sent, so the connection ends via the handshake timeout, fully
         // disposing its internally owned cancellation sources.
@@ -1717,7 +1717,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = new PublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 

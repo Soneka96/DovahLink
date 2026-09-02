@@ -1,4 +1,6 @@
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Tests.TestDoubles;
+using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Tests;
 
@@ -40,4 +42,22 @@ public static class Fixtures
             DisconnectNotificationTimeout = disconnectNotificationTimeout ?? Constants.PublicWebSocketDisconnectNotificationTimeout,
             FragmentAssemblyTimeout = fragmentAssemblyTimeout ?? Constants.PublicWebSocketFragmentAssemblyTimeout,
         };
+
+    /// <summary>
+    /// Builds a <see cref="PublicWebSocketConnection"/> with representative collaborator defaults; a
+    /// test that does not care about the clock, options, or diagnostics passes only what it needs to
+    /// override.
+    /// </summary>
+    public static PublicWebSocketConnection BuildPublicWebSocketConnection(
+        Stream stream,
+        IPublicWebSocketMessageHandler messageHandler,
+        IClock? clock = null,
+        PublicWebSocketTransportOptions? options = null,
+        IPublicWebSocketTransportDiagnostics? diagnostics = null) =>
+        new(
+            stream,
+            messageHandler,
+            clock ?? new SystemClock(),
+            options ?? BuildPublicWebSocketTransportOptions(),
+            diagnostics ?? new FakePublicWebSocketTransportDiagnostics());
 }

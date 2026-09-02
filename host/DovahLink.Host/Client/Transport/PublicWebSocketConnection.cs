@@ -77,6 +77,9 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The bounded configuration this connection enforces.</summary>
     private readonly PublicWebSocketTransportOptions options;
 
+    /// <summary>The Host-local abnormal-termination reporting sink this connection reports its root-cause end reason through, at most once.</summary>
+    private readonly IPublicWebSocketTransportDiagnostics diagnostics;
+
     /// <summary>The bounded outbound frame queue drained by the writer loop.</summary>
     private readonly Channel<byte[]> outbound;
 
@@ -176,21 +179,52 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// </summary>
     private int outboundOutstandingMessages;
 
+    /// <summary>
+    /// Guards <see cref="ReportAbnormalEnd"/> so at most one root-cause reason ever reaches
+    /// <see cref="diagnostics"/> for this connection, even when concurrent paths (for example a
+    /// <see cref="TrySend"/> rejection on one thread cascading into the read or writer loop's own
+    /// cancellation reaction) could otherwise each attempt to attribute a different reason to the
+    /// same underlying failure.
+    /// </summary>
+    private int diagnosticReported;
+
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="messageHandler">The handler this connection delegates inbound messages and disconnection to.</param>
     /// <param name="clock">The clock used to enforce the inbound message rate.</param>
     /// <param name="options">The bounded configuration this connection enforces.</param>
+    /// <param name="diagnostics">The Host-local abnormal-termination reporting sink this connection reports its root-cause end reason through, at most once.</param>
     public PublicWebSocketConnection(
-        Stream stream, IPublicWebSocketMessageHandler messageHandler, IClock clock, PublicWebSocketTransportOptions options)
+        Stream stream,
+        IPublicWebSocketMessageHandler messageHandler,
+        IClock clock,
+        PublicWebSocketTransportOptions options,
+        IPublicWebSocketTransportDiagnostics diagnostics)
     {
         this.stream = stream;
         this.messageHandler = messageHandler;
         this.clock = clock;
         this.options = options;
+        this.diagnostics = diagnostics;
         outbound = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(options.OutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
         connectionContext = new PublicConnectionContext(this);
+    }
+
+    /// <summary>
+    /// Reports <paramref name="reason"/> as this connection's authoritative root-cause abnormal-end
+    /// reason, but only the first time this is called for this connection instance -- every later
+    /// call is a silent no-op, so a race between multiple paths independently deciding the connection
+    /// must end abnormally can never produce more than one diagnostic report, and whichever call wins
+    /// is treated as the true root cause.
+    /// </summary>
+    /// <param name="reason">The structured, non-sensitive reason enforcement occurred.</param>
+    private void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
+    {
+        if (Interlocked.CompareExchange(ref diagnosticReported, 1, 0) == 0)
+        {
+            diagnostics.ReportAbnormalEnd(reason);
+        }
     }
 
     /// <inheritdoc/>
@@ -385,6 +419,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
 
         forceCloseRequested = true;
+        ReportAbnormalEnd(PublicWebSocketConnectionEndReason.OutboundCapacityExceeded);
         try
         {
             selfRequestedClose.Cancel();
@@ -461,6 +496,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             {
                 if (length == requestBuffer.Length)
                 {
+                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.InvalidHandshake);
                     return null;
                 }
 
@@ -490,11 +526,13 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
         catch (OperationCanceledException) when (handshakeDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
+            ReportAbnormalEnd(PublicWebSocketConnectionEndReason.HandshakeTimeout);
             return null;
         }
 
         if (!PublicWebSocketHandshake.TryParseUpgradeRequest(requestBuffer.AsSpan(0, length), out string acceptKey))
         {
+            ReportAbnormalEnd(PublicWebSocketConnectionEndReason.InvalidHandshake);
             return null;
         }
 
@@ -505,6 +543,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
         catch (OperationCanceledException) when (handshakeDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
+            ReportAbnormalEnd(PublicWebSocketConnectionEndReason.HandshakeTimeout);
             return null;
         }
         catch (Exception exception) when (exception is IOException or ObjectDisposedException)
@@ -578,18 +617,28 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 {
                     // The fragment-assembly deadline elapsed before this message reached EndOfMessage.
                     forceCloseRequested = true;
+                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.FragmentAssemblyTimeout);
                     return;
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
-                    // The keep-alive watchdog aborted the connection after a missed pong reply; the
-                    // passed token was never itself cancelled, so this is a peer-liveness failure.
+                    // This also catches an ordinary RequestClose() unblocking this read: orderlyCloseRequested
+                    // is linked into the same readCancellation token this catch reacts to, so a caller-requested
+                    // orderly close and a genuine missed-pong keep-alive abort both land here. Only the latter
+                    // is a reportable abnormal reason -- orderlyCloseInProgress (set synchronously by
+                    // RequestClose() before it ever cancels anything) distinguishes the two.
                     forceCloseRequested = true;
+                    if (!Volatile.Read(ref orderlyCloseInProgress))
+                    {
+                        ReportAbnormalEnd(PublicWebSocketConnectionEndReason.KeepAliveTimeout);
+                    }
+
                     return;
                 }
                 catch (WebSocketException)
                 {
                     forceCloseRequested = true;
+                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.InvalidFraming);
                     return;
                 }
 
@@ -601,12 +650,14 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 if (result.MessageType == WebSocketMessageType.Binary)
                 {
                     forceCloseRequested = true;
+                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.UnsupportedBinaryMessage);
                     return;
                 }
 
                 if (messageLength + result.Count > messageBuffer.Length)
                 {
                     forceCloseRequested = true;
+                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.MessageTooLarge);
                     return;
                 }
 
@@ -628,6 +679,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 if (!TryAcceptInboundMessage())
                 {
                     forceCloseRequested = true;
+                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.InboundRateLimitExceeded);
                     return;
                 }
 
@@ -703,6 +755,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 catch (Exception)
                 {
                     writerFaulted = true;
+                    ReportAbnormalEnd(PublicWebSocketConnectionEndReason.WriteFailure);
                     writerCancellation.Cancel();
                     return;
                 }

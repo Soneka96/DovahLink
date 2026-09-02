@@ -120,7 +120,7 @@ public class PublicWebSocketListenerTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         using var listener = new PublicWebSocketListener(0, stream =>
-            new PublicWebSocketConnection(stream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions()));
+            Fixtures.BuildPublicWebSocketConnection(stream, handler));
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 

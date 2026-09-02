@@ -244,3 +244,45 @@ public enum IpcHelloRejectReason : byte
     /// <summary>The Hello's owning-Skyrim-lifetime identity did not match the value this host process was launched with.</summary>
     LifetimeMismatch = 3,
 }
+
+// ---- Client transport ----
+
+/// <summary>
+/// The authoritative root-cause reason one public WebSocket connection ended abnormally, reported
+/// through <see cref="Client.Transport.IPublicWebSocketTransportDiagnostics"/>. Host-local
+/// observability only -- never sent to the client, never a public protocol error. Not used for
+/// normal lifecycle events (peer close, host shutdown, external cancellation, or a caller-requested
+/// orderly close), which are not security/abnormal events and are never reported through this enum.
+/// </summary>
+public enum PublicWebSocketConnectionEndReason
+{
+    /// <summary>The WebSocket upgrade handshake did not complete within the configured deadline.</summary>
+    HandshakeTimeout,
+
+    /// <summary>The handshake request was malformed, missing required headers, or never produced a parseable request within the configured byte bound.</summary>
+    InvalidHandshake,
+
+    /// <summary>An established connection received a structurally invalid WebSocket frame.</summary>
+    InvalidFraming,
+
+    /// <summary>An established connection sent a binary message, which this transport does not support.</summary>
+    UnsupportedBinaryMessage,
+
+    /// <summary>An inbound message exceeded the configured maximum message size.</summary>
+    MessageTooLarge,
+
+    /// <summary>The connection exceeded the configured completed-message inbound rate limit.</summary>
+    InboundRateLimitExceeded,
+
+    /// <summary>An incomplete fragmented message was not completed within the configured assembly deadline.</summary>
+    FragmentAssemblyTimeout,
+
+    /// <summary>The connection missed a WebSocket-level keep-alive pong reply and was treated as unresponsive.</summary>
+    KeepAliveTimeout,
+
+    /// <summary>An outbound message could not be admitted onto the bounded outbound queue.</summary>
+    OutboundCapacityExceeded,
+
+    /// <summary>Sending a queued outbound frame to the peer failed.</summary>
+    WriteFailure,
+}
