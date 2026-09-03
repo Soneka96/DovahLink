@@ -1019,7 +1019,7 @@ public class PublicHelloAdmissionTests
         Task admissionTask = Task.Run(() => handler.HandleMessageAsync(connection, hello, CancellationToken.None));
         Assert.True(sessionCreated.Wait(TimeSpan.FromSeconds(5)));
 
-        sessionRegistry.InvalidateAll();
+        sessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
         releaseAfterInvalidate.Set();
         await admissionTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1058,7 +1058,7 @@ public class PublicHelloAdmissionTests
         Task admissionTask = Task.Run(() => handler.HandleMessageAsync(connection, hello, CancellationToken.None));
         Assert.True(sessionCreated.Wait(TimeSpan.FromSeconds(5)));
 
-        sessionRegistry.InvalidateAll();
+        sessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
         releaseAfterInvalidate.Set();
         await admissionTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1102,7 +1102,7 @@ public class PublicHelloAdmissionTests
         Task admissionTask = Task.Run(() => handler.HandleMessageAsync(connection, hello, CancellationToken.None));
         Assert.True(sessionCreated.Wait(TimeSpan.FromSeconds(5)));
 
-        sessionRegistry.InvalidateAllForClient(new ClientId(Guid.Parse(clientIdText)));
+        sessionRegistry.InvalidateAllForClient(new ClientId(Guid.Parse(clientIdText)), SessionInvalidationReason.Revoked);
         releaseAfterInvalidate.Set();
         await admissionTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1137,7 +1137,7 @@ public class PublicHelloAdmissionTests
         Task admissionTask = Task.Run(() => handler.HandleMessageAsync(connection, hello, CancellationToken.None));
         Assert.True(sessionCreated.Wait(TimeSpan.FromSeconds(5)));
 
-        sessionRegistry.InvalidateAll();
+        sessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
         releaseAfterInvalidate.Set();
         await admissionTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1181,7 +1181,7 @@ public class PublicHelloAdmissionTests
         Assert.Equal(1, sessionRegistry.ActiveCount);
         Assert.False(tokenAuthenticator.TryValidate(token, out _));
 
-        sessionRegistry.InvalidateAll();
+        sessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
         byte[] message = codec.Encode(PublicMessageType.Ping, "msg-2", ackEnvelope.SessionId, null, null, ackEnvelope.ClientId, new object());
         handler.HandleMessageAsync(connection, message, CancellationToken.None);
@@ -1247,7 +1247,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
 
-        context.SessionRegistry.InvalidateAll();
+        context.SessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
         byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, null, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
@@ -1263,7 +1263,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string admittedSessionId, out _);
 
-        context.SessionRegistry.InvalidateAll();
+        context.SessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
         byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, null, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
@@ -2368,13 +2368,14 @@ public class PublicHelloAdmissionTests
         public void Invalidate(SessionId sessionId, ConnectionId connectionId) => inner.Invalidate(sessionId, connectionId);
 
         /// <inheritdoc/>
-        public void InvalidateAllForClient(ClientId clientId) => inner.InvalidateAllForClient(clientId);
+        public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason) =>
+            inner.InvalidateAllForClient(clientId, reason);
 
         /// <inheritdoc/>
         public bool IsActive(SessionId sessionId, ConnectionId connectionId) => inner.IsActive(sessionId, connectionId);
 
         /// <inheritdoc/>
-        public void InvalidateAll() => inner.InvalidateAll();
+        public IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason) => inner.InvalidateAll(reason);
 
         /// <inheritdoc/>
         public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
@@ -2382,7 +2383,7 @@ public class PublicHelloAdmissionTests
             if (!triggered)
             {
                 triggered = true;
-                inner.InvalidateAll();
+                inner.InvalidateAll(SessionInvalidationReason.FactoryReset);
             }
 
             return inner.TryFinalizeAdmission(sessionId, connectionId);
@@ -2432,7 +2433,7 @@ public class PublicHelloAdmissionTests
                 triggered = true;
                 TrustRecord? initialValue = inner.TryGet(clientId);
                 inner.ClearAsync().GetAwaiter().GetResult();
-                sessionRegistry.InvalidateAll();
+                sessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
                 return initialValue;
             }
 

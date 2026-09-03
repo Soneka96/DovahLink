@@ -174,7 +174,7 @@ public sealed class TrustAdminService : ITrustAdminService
         pairingCoordinator.CancelAll();
         foreach (ClientId clientId in affected)
         {
-            sessionRegistry.InvalidateAllForClient(clientId);
+            sessionRegistry.InvalidateAllForClient(clientId, SessionInvalidationReason.TrustReset);
         }
 
         return affected;
@@ -203,7 +203,7 @@ public sealed class TrustAdminService : ITrustAdminService
         if (outcome == TrustMutationOutcome.Changed)
         {
             pairingCoordinator.Cancel(clientId);
-            sessionRegistry.InvalidateAllForClient(clientId);
+            sessionRegistry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
         }
 
         return outcome;
@@ -216,7 +216,7 @@ public sealed class TrustAdminService : ITrustAdminService
         if (outcome == TrustMutationOutcome.Changed)
         {
             pairingCoordinator.Cancel(clientId);
-            sessionRegistry.InvalidateAllForClient(clientId);
+            sessionRegistry.InvalidateAllForClient(clientId, SessionInvalidationReason.Blocked);
         }
 
         return outcome;

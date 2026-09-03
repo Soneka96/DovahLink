@@ -126,7 +126,7 @@ public sealed class TrustResetService : ITrustResetService
 
             await trustStore.ClearAsync(cancellationToken);
             pairingCoordinator.CancelAll();
-            sessionRegistry.InvalidateAll();
+            sessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
             lock (gate)
             {

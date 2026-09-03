@@ -34,9 +34,14 @@ public interface ISessionRegistry
     /// a developer-token session is never a Known Device and must not be disconnected merely because
     /// its self-declared <see cref="ClientId"/> matches a client-scoped administrative mutation's
     /// target. Use <see cref="InvalidateAll"/> for Factory Reset's unconditional invalidation instead.
+    /// The returned snapshot is captured while this registry's internal lock is held and handed back
+    /// only after it is released, so a caller can safely use it to attempt transport work afterward
+    /// without ever running that work under this registry's lock.
     /// </summary>
     /// <param name="clientId">The client whose sessions should be invalidated.</param>
-    void InvalidateAllForClient(ClientId clientId);
+    /// <param name="reason">The authoritative reason these sessions are being invalidated.</param>
+    /// <returns>An immutable snapshot of every session this call actually invalidated.</returns>
+    IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason);
 
     /// <summary>
     /// Reports whether a session is active on its owning connection. For the one-time admission
@@ -48,8 +53,15 @@ public interface ISessionRegistry
     /// <returns><see langword="true"/> if the session belongs to the connection and remains active.</returns>
     bool IsActive(SessionId sessionId, ConnectionId connectionId);
 
-    /// <summary>Unconditionally invalidates every currently active session.</summary>
-    void InvalidateAll();
+    /// <summary>
+    /// Unconditionally invalidates every currently active session. The returned snapshot is captured
+    /// while this registry's internal lock is held and handed back only after it is released, so a
+    /// caller can safely use it to attempt transport work afterward without ever running that work
+    /// under this registry's lock.
+    /// </summary>
+    /// <param name="reason">The authoritative reason every session is being invalidated.</param>
+    /// <returns>An immutable snapshot of every session this call invalidated.</returns>
+    IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason);
 
     /// <summary>
     /// Atomically confirms that a session <see cref="TryCreate"/> admitted is still active on its
@@ -177,18 +189,23 @@ public sealed class SessionRegistry : ISessionRegistry
     }
 
     /// <inheritdoc/>
-    public void InvalidateAllForClient(ClientId clientId)
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason)
     {
         lock (gate)
         {
+            var targets = new List<SessionInvalidationTarget>();
             foreach (SessionId sessionId in sessionsById
                 .Where(pair => pair.Value.ClientId.Equals(clientId) &&
                     pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())
             {
+                ActiveSessionRecord record = sessionsById[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason));
                 sessionsById.Remove(sessionId);
             }
+
+            return targets;
         }
     }
 
@@ -204,11 +221,15 @@ public sealed class SessionRegistry : ISessionRegistry
     }
 
     /// <inheritdoc/>
-    public void InvalidateAll()
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason)
     {
         lock (gate)
         {
+            List<SessionInvalidationTarget> targets = sessionsById.Values
+                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason))
+                .ToList();
             sessionsById.Clear();
+            return targets;
         }
     }
 

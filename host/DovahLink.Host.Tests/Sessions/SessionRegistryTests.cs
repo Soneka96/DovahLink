@@ -91,7 +91,7 @@ public class SessionRegistryTests
         Assert.True(registry.TryCreate(
             ClientId.NewId(), otherConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId otherSession));
 
-        registry.InvalidateAllForClient(targetClient);
+        registry.InvalidateAllForClient(targetClient, SessionInvalidationReason.Revoked);
 
         Assert.False(registry.IsActive(firstSession, firstConnection));
         Assert.False(registry.IsActive(secondSession, secondConnection));
@@ -117,7 +117,7 @@ public class SessionRegistryTests
         Assert.True(registry.TryCreate(
             clientId, trustedConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId trustedSession));
 
-        registry.InvalidateAllForClient(clientId);
+        registry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
 
         Assert.True(registry.IsActive(developerSession, developerConnection));
         Assert.False(registry.IsActive(trustedSession, trustedConnection));
@@ -137,7 +137,7 @@ public class SessionRegistryTests
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId sessionId));
 
-        registry.InvalidateAll();
+        registry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
         Assert.False(registry.IsActive(sessionId, connectionId));
         Assert.Equal(0, registry.ActiveCount);
@@ -163,7 +163,7 @@ public class SessionRegistryTests
         Assert.True(registry.TryCreate(
             clientId, otherConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId otherSession));
 
-        registry.InvalidateAllForClient(clientId);
+        registry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
 
         bool expectedExempt = authenticationSource == SessionAuthenticationSource.OneTimeLocalToken;
         Assert.Equal(expectedExempt, registry.IsActive(sessionId, connectionId));
@@ -240,7 +240,7 @@ public class SessionRegistryTests
 
         Task[] operations = sessions
             .Select(session => Task.Run(() => registry.Invalidate(session.SessionId, session.ConnectionId)))
-            .Append(Task.Run(() => registry.InvalidateAllForClient(clientId)))
+            .Append(Task.Run(() => registry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked)))
             .ToArray();
 
         await Task.WhenAll(operations);
@@ -270,7 +270,7 @@ public class SessionRegistryTests
                 }
                 else
                 {
-                    registry.InvalidateAllForClient(clientId);
+                    registry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
                 }
             }))
             .ToArray();
@@ -292,7 +292,7 @@ public class SessionRegistryTests
         Assert.True(registry.TryCreate(
             ClientId.NewId(), secondConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId secondSession));
 
-        registry.InvalidateAll();
+        registry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
         Assert.Equal(0, registry.ActiveCount);
         Assert.False(registry.IsActive(firstSession, firstConnection));
@@ -353,7 +353,7 @@ public class SessionRegistryTests
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
 
-        registry.InvalidateAll();
+        registry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
         Assert.False(registry.TryFinalizeAdmission(sessionId, connectionId));
     }
@@ -368,7 +368,7 @@ public class SessionRegistryTests
         Assert.True(registry.TryCreate(
             clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
 
-        registry.InvalidateAllForClient(clientId);
+        registry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
 
         Assert.False(registry.TryFinalizeAdmission(sessionId, connectionId));
     }
@@ -409,7 +409,7 @@ public class SessionRegistryTests
 
         Task[] operations = sessions
             .Select(session => Task.Run(() => registry.TryFinalizeAdmission(session.SessionId, session.ConnectionId)))
-            .Append(Task.Run(() => registry.InvalidateAll()))
+            .Append(Task.Run(() => { registry.InvalidateAll(SessionInvalidationReason.FactoryReset); }))
             .ToArray();
 
         await Task.WhenAll(operations);
@@ -493,7 +493,7 @@ public class SessionRegistryTests
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
-        registry.InvalidateAllForClient(clientId);
+        registry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
 
         Assert.False(registry.TryUpgradeToFullTrust(sessionId, connectionId));
     }
@@ -506,7 +506,7 @@ public class SessionRegistryTests
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
-        registry.InvalidateAll();
+        registry.InvalidateAll(SessionInvalidationReason.FactoryReset);
 
         Assert.False(registry.TryUpgradeToFullTrust(sessionId, connectionId));
     }

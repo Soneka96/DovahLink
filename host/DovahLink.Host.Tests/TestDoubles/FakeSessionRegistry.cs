@@ -27,8 +27,8 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         this.maxActiveSessions = maxActiveSessions;
     }
 
-    /// <summary>Every client id passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
-    private readonly List<ClientId> invalidateAllForClientCalls = [];
+    /// <summary>Every client id and reason passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
+    private readonly List<(ClientId ClientId, SessionInvalidationReason Reason)> invalidateAllForClientCalls = [];
 
     /// <summary>
     /// When set, invoked synchronously by <see cref="TryCreate"/> after the new session record is
@@ -45,8 +45,8 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     /// </summary>
     public Action<string>? OnMutationApplied { get; set; }
 
-    /// <summary>A synchronized snapshot of client-wide invalidation calls.</summary>
-    public IReadOnlyList<ClientId> InvalidateAllForClientCalls
+    /// <summary>A synchronized snapshot of client-wide invalidation calls and their exact reasons.</summary>
+    public IReadOnlyList<(ClientId ClientId, SessionInvalidationReason Reason)> InvalidateAllForClientCalls
     {
         get
         {
@@ -117,22 +117,27 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     }
 
     /// <inheritdoc/>
-    public void InvalidateAllForClient(ClientId clientId)
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason)
     {
+        List<SessionInvalidationTarget> targets;
         lock (gate)
         {
-            invalidateAllForClientCalls.Add(clientId);
+            invalidateAllForClientCalls.Add((clientId, reason));
+            targets = [];
             foreach (SessionId sessionId in activeSessions
                 .Where(pair => pair.Value.ClientId.Equals(clientId) &&
                     pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())
             {
+                ActiveSessionRecord record = activeSessions[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason));
                 activeSessions.Remove(sessionId);
             }
         }
 
         OnMutationApplied?.Invoke("InvalidateAllForClient");
+        return targets;
     }
 
     /// <inheritdoc/>
@@ -168,15 +173,20 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     private int invalidateAllCallCount;
 
     /// <inheritdoc/>
-    public void InvalidateAll()
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason)
     {
+        List<SessionInvalidationTarget> targets;
         lock (gate)
         {
             invalidateAllCallCount++;
+            targets = activeSessions.Values
+                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason))
+                .ToList();
             activeSessions.Clear();
         }
 
         OnMutationApplied?.Invoke("InvalidateAll");
+        return targets;
     }
 
     /// <summary>Creates a fake session with an explicit connection identity, authentication source, and trust tier.</summary>

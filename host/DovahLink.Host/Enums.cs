@@ -69,6 +69,26 @@ public enum SessionTrustTier
     Full,
 }
 
+/// <summary>
+/// The authoritative reason an administrative trust mutation invalidates one or more sessions.
+/// Carried through to the terminal <c>session_invalidated</c> notification a later concept sends
+/// before forcing the affected connection closed.
+/// </summary>
+public enum SessionInvalidationReason
+{
+    /// <summary>A trusted device's credential was explicitly revoked.</summary>
+    Revoked,
+
+    /// <summary>A known device was blocked from pairing or reconnecting.</summary>
+    Blocked,
+
+    /// <summary>Reset Trust reset every trusted device back to unpaired.</summary>
+    TrustReset,
+
+    /// <summary>Factory Reset unconditionally cleared every known device.</summary>
+    FactoryReset,
+}
+
 // ---- Pairing ----
 
 /// <summary>The host's pairing state machine, per <c>ai/context/host/migration-audit.md</c>'s "Pairing state machine".</summary>
