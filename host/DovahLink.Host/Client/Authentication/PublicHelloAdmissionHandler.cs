@@ -572,8 +572,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// Authenticates a <c>one_time_local_token</c> hello. Validates and reserves the token without
     /// consuming it (<see cref="ILocalConnectionTokenAuthenticator.TryValidate"/>), rolling the
     /// reservation back on every failure branch after that (a full session slot, losing the race
-    /// against the pre-authentication deadline, or losing the race against an unconditional Factory
-    /// Reset) so a retryable failure never burns the token, and commits consumption only once
+    /// against the pre-authentication deadline, or losing <see
+    /// cref="ISessionRegistry.TryFinalizeAdmission"/>'s linearized race against an unconditional
+    /// Factory Reset) so a retryable failure never burns the token, and commits consumption only once
     /// admission has fully succeeded. The Factory Reset branch also requests this connection's close:
     /// its one-shot admission outcome is already consumed by that point, so the connection can never
     /// complete admission again and must not be left open with no path to teardown.
@@ -601,11 +602,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
-        if (!sessionRegistry.IsActive(newSessionId, connectionId))
+        if (!sessionRegistry.TryFinalizeAdmission(newSessionId, connectionId))
         {
-            // An unconditional invalidation (Factory Reset) raced ahead of this admission between the
-            // reservation above and this point. Reject rather than send hello_ack for a session the
-            // authoritative registry no longer knows about. TryClaimAdmission already consumed this
+            // TryFinalizeAdmission is the sole linearization point between this admission and a
+            // concurrent unconditional invalidation (Factory Reset): an invalidation that reached the
+            // registry before this call decides the outcome here, so this branch means the session is
+            // already gone and must not be admitted. TryClaimAdmission already consumed this
             // connection's one-shot admission outcome (deliberately never reset back to Pending, so a
             // concurrently racing deadline task can never mistake this for still-pending admission),
             // so this connection can never complete admission again; close it explicitly rather than
@@ -636,12 +638,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// ordinary unrecognized-credential/unpaired path". This recheck compares directly rather than
     /// through <see cref="credentialThrottle"/>: it re-validates an attempt already accounted for by the
     /// initial check above, so re-throttling it here would let unrelated concurrent failures spuriously
-    /// fail an otherwise-legitimate admission. Also rechecks the session registry itself immediately
-    /// before claiming admission's final outcome, so an unconditional Factory Reset that invalidates
-    /// every session between this reservation and that point can never result in a <c>hello_ack</c> for
-    /// a session the authoritative registry no longer knows about; that branch also requests this
-    /// connection's close, since its one-shot admission outcome is already consumed and it can never
-    /// complete admission again.
+    /// fail an otherwise-legitimate admission. Also calls <see
+    /// cref="ISessionRegistry.TryFinalizeAdmission"/> as the last registry interaction before claiming
+    /// admission's final outcome -- the linearization point between this admission and a concurrent
+    /// unconditional Factory Reset -- so an invalidation that reached the registry first can never
+    /// result in a <c>hello_ack</c> for a session the authoritative registry no longer knows about;
+    /// that branch also requests this connection's close, since its one-shot admission outcome is
+    /// already consumed and it can never complete admission again.
     /// </summary>
     private void HandleTrustBackedHello(
         IPublicConnectionContext connectionContext,
@@ -728,11 +731,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
-        if (!sessionRegistry.IsActive(newSessionId, connectionId))
+        if (!sessionRegistry.TryFinalizeAdmission(newSessionId, connectionId))
         {
-            // An unconditional invalidation (Factory Reset) raced ahead of this admission between the
-            // reservation above and this point. Reject rather than send hello_ack for a session the
-            // authoritative registry no longer knows about. TryClaimAdmission already consumed this
+            // TryFinalizeAdmission is the sole linearization point between this admission and a
+            // concurrent unconditional invalidation (Factory Reset): an invalidation that reached the
+            // registry before this call decides the outcome here, so this branch means the session is
+            // already gone and must not be admitted. TryClaimAdmission already consumed this
             // connection's one-shot admission outcome (deliberately never reset back to Pending, so a
             // concurrently racing deadline task can never mistake this for still-pending admission),
             // so this connection can never complete admission again; close it explicitly rather than
