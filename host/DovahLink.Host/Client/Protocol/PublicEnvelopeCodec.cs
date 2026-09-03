@@ -197,11 +197,17 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
     }
 
     /// <summary>
-    /// Recursively enforces the approved array-length, object-member-count, and string-length bounds
-    /// over an already depth-bounded parsed document. Nesting depth itself needs no separate check
-    /// here: <see cref="DocumentOptions"/> already rejected anything deeper than
-    /// <see cref="Constants.PublicProtocolMaxJsonDepth"/> during parsing, so this walk can never
-    /// recurse past that same bound.
+    /// Recursively enforces the approved array-length, object-member-count, and string-length bounds,
+    /// and rejects a duplicate property name within any one object, over an already depth-bounded
+    /// parsed document. Nesting depth itself needs no separate check here: <see cref="DocumentOptions"/>
+    /// already rejected anything deeper than <see cref="Constants.PublicProtocolMaxJsonDepth"/> during
+    /// parsing, so this walk can never recurse past that same bound. Duplicate-name rejection applies
+    /// uniformly to every object in the document -- the common envelope's own top-level object and every
+    /// nested payload object alike -- rather than special-casing only security-sensitive fields: <see
+    /// cref="JsonElement.EnumerateObject"/> yields every occurrence in document order, including
+    /// duplicates, since <see cref="System.Text.Json.JsonDocument"/> itself does not deduplicate them
+    /// during parsing; leaving a security-sensitive field's effective value dependent on which
+    /// occurrence a later consumer happens to read back is rejected outright instead.
     /// </summary>
     private static bool IsWithinBounds(JsonElement element)
     {
@@ -209,11 +215,13 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
         {
             case JsonValueKind.Object:
                 int memberCount = 0;
+                HashSet<string> seenPropertyNames = [];
                 foreach (JsonProperty property in element.EnumerateObject())
                 {
                     memberCount++;
                     if (memberCount > Constants.PublicProtocolMaxJsonObjectMembers ||
-                        !IsStringWithinBounds(property.Name) || !IsWithinBounds(property.Value))
+                        !IsStringWithinBounds(property.Name) || !seenPropertyNames.Add(property.Name) ||
+                        !IsWithinBounds(property.Value))
                     {
                         return false;
                     }

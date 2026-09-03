@@ -536,6 +536,56 @@ public class PublicEnvelopeCodecTests
         Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
     }
 
+    // ---- Bounds: duplicate properties ----
+
+    /// <summary>
+    /// Verifies that a duplicate JSON property name is rejected wherever it occurs -- envelope-level
+    /// (<c>messageType</c>, <c>messageId</c>, <c>sessionId</c>, <c>clientId</c>) and within a nested
+    /// payload object (<c>auth.method</c>, <c>auth.token</c>) alike -- rather than leaving a
+    /// security-sensitive field's effective value dependent on parser/property-lookup behavior.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        """{"messageType":"ping","messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+    [InlineData(
+        """{"messageType":"ping","messageId":"m1","messageId":"m2","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+    [InlineData(
+        """{"messageType":"ping","messageId":"m1","sessionId":null,"sessionId":"s2","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+    [InlineData(
+        """{"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null,"clientId":"c2"}""")]
+    [InlineData(
+        """{"messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"c1","auth":{"method":"unpaired","method":"trusted_device_credential"}},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+    [InlineData(
+        """{"messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"c1","auth":{"method":"trusted_device_credential","token":"a","token":"b"}},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+    public void TryDecode_DuplicateProperty_ReturnsFalse(string json)
+    {
+        Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
+    /// <summary>Verifies that an otherwise-identical, non-duplicated envelope still decodes, so the duplicate-rejection cases above are proven against a genuine well-formed baseline.</summary>
+    [Fact]
+    public void TryDecode_NoDuplicateProperties_StillDecodes()
+    {
+        string json = """{"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""";
+
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
+    /// <summary>
+    /// Verifies that duplicate-property rejection is scoped to one object at a time, not the whole
+    /// document: two sibling objects inside the same array may each reuse the same property names (here,
+    /// two capability descriptors each carrying their own <c>id</c>/<c>version</c>) without either being
+    /// treated as a duplicate of the other's fields.
+    /// </summary>
+    [Fact]
+    public void TryDecodePayload_TwoCapabilityDescriptorsReusingTheSameFieldNames_StillDecodes()
+    {
+        string json = BuildEnvelopeJson("capabilities", """{"capabilities":[{"id":"a","version":"1"},{"id":"b","version":"1"}]}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.True(Codec.TryDecodePayload(envelope!, out CapabilitiesPayload? _));
+    }
+
     // ---- Helpers ----
 
     /// <summary>Builds a complete, otherwise-valid envelope JSON string wrapping the given raw payload JSON.</summary>
