@@ -2285,6 +2285,11 @@ public class PublicWebSocketConnectionTests
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
+        // The client's ConnectAsync can complete as soon as the HTTP 101 upgrade is visible, which is
+        // not itself proof the server's own NotifyConnectionEstablished continuation has run yet; wait
+        // for it deterministically rather than assuming that scheduling order.
+        await WaitUntilAsync(() => handler.ConnectionEstablishedCalls > 0, runTask);
+
         // The establishment call itself must not have blocked waiting for the delayed work above.
         Assert.Equal(1, handler.ConnectionEstablishedCalls);
 
