@@ -1441,8 +1441,8 @@ public class PublicWebSocketConnectionTests
     /// <summary>
     /// Verifies that the one allowed message slot releases only once the writer has actually finished
     /// sending the in-flight frame -- not merely once it was dequeued from the channel -- by blocking
-    /// the first send, releasing it, waiting for the peer to receive it, and proving a second send now
-    /// succeeds where it would otherwise still be occupying the single-message bound.
+    /// the first send, releasing it, waiting for the peer to receive it, and polling for a second send
+    /// to succeed where it would otherwise still be occupying the single-message bound.
     /// </summary>
     [Fact]
     public async Task TrySend_MessageSlotReleasedOnlyAfterWriterFinishesSend_AllowsLaterAdmission()
@@ -1473,10 +1473,13 @@ public class PublicWebSocketConnectionTests
         WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("first", Encoding.UTF8.GetString(buffer, 0, result.Count));
 
-        // The peer only receives bytes the server has already finished sending, so the writer's own
-        // release of the one message slot -- which happens synchronously right after that send
-        // completes -- is guaranteed to have already run by this point.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+        // The peer receiving "first" only proves the server had already sent it -- it does not prove
+        // the writer's own message-slot release has run yet. That release happens in a `finally`
+        // block on the writer loop's own continuation after its send completes, which races the
+        // peer's independent receive-completion continuation on the shared thread pool with no
+        // ordering guarantee between the two. Poll the actual condition under test -- the slot
+        // becoming available again -- instead of inferring it from that unrelated event.
+        await WaitUntilAsync(() => connection.TrySend(Encoding.UTF8.GetBytes("second")), runTask);
 
         listener.Stop();
         connection.RequestClose();
