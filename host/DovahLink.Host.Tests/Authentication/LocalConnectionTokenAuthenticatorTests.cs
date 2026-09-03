@@ -244,6 +244,53 @@ public class LocalConnectionTokenAuthenticatorTests
         Assert.True(authenticator.TryValidate(token));
     }
 
+    /// <summary>
+    /// Verifies the exact mixed-path hazard this fix closes: a reservation held by TryValidate
+    /// cannot be bypassed by calling TryConsume instead, and once the reservation is released,
+    /// TryConsume works normally again.
+    /// </summary>
+    [Fact]
+    public void TryConsume_ReservationOutstandingFromTryValidate_FailsUntilRolledBack()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token));
+
+        Assert.False(authenticator.TryConsume(token));
+
+        authenticator.RollbackReservation();
+        Assert.True(authenticator.TryConsume(token));
+    }
+
+    /// <summary>Verifies that TryConsume rejects even the correct token while a reservation is outstanding, without recording a rate-limit failure (the reservation guard runs before the secret comparison).</summary>
+    [Fact]
+    public void TryConsume_WrongTokenWhileReserved_FailsWithoutRecordingAFailure()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token));
+
+        for (int i = 0; i < 10; i++)
+        {
+            Assert.False(authenticator.TryConsume("wrong"));
+        }
+
+        authenticator.RollbackReservation();
+        Assert.True(authenticator.TryConsume(token));
+    }
+
+    /// <summary>Verifies that TryConsume still fails after a reservation is committed, since CommitConsumption already nulled the token.</summary>
+    [Fact]
+    public void TryConsume_AfterCommitConsumption_Fails()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token));
+        authenticator.CommitConsumption();
+
+        Assert.False(authenticator.TryConsume(token));
+    }
+
     /// <summary>Verifies that TryValidate fails for the wrong token and records the failure the same way TryConsume does.</summary>
     [Fact]
     public void TryValidate_WrongToken_FailsAndCountsTowardTheThrottle()

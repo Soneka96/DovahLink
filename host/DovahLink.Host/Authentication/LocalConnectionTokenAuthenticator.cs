@@ -18,10 +18,12 @@ public interface ILocalConnectionTokenAuthenticator
 
     /// <summary>
     /// Atomically checks and consumes the current token: at most one caller can successfully
-    /// consume a given token.
+    /// consume a given token. Also fails while a <see cref="TryValidate"/> reservation is
+    /// outstanding, so this method can never consume a token out from under a caller that is still
+    /// deciding whether to <see cref="CommitConsumption"/> or <see cref="RollbackReservation"/> it.
     /// </summary>
     /// <param name="presentedToken">The token presented by a connecting client.</param>
-    /// <returns><see langword="true"/> if the presented token matched the current, unexpired token.</returns>
+    /// <returns><see langword="true"/> if the presented token matched the current, unexpired token and no reservation was outstanding.</returns>
     bool TryConsume(string presentedToken);
 
     /// <summary>
@@ -114,6 +116,14 @@ public sealed class LocalConnectionTokenAuthenticator : ILocalConnectionTokenAut
     {
         lock (gate)
         {
+            if (reserved)
+            {
+                // A TryValidate reservation is already outstanding: this call must not consume the
+                // token out from under it, and this is not a wrong-secret attempt, so no failure is
+                // recorded against the rate limit.
+                return false;
+            }
+
             if (!MatchesLocked(presentedToken))
             {
                 return false;
