@@ -389,18 +389,38 @@ public sealed class PairingCoordinator : IPairingCoordinator
         }
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Finalizes a matching pending credential after the client durably saved it. Never holds
+    /// <see cref="operationSemaphore"/> while awaiting <see cref="trustStore"/>'s persistence: it
+    /// reserves the exact pending credential to commit under the lock, releases it, awaits persistence
+    /// unguarded, then finalizes through <see cref="ClearPending"/>'s own <see cref="gate"/>-scoped
+    /// compare-and-swap against that captured reservation. A slow or blocked write can therefore never
+    /// synchronously block unrelated pairing lifecycle work -- <see cref="Cancel"/>,
+    /// <see cref="NotifyDisconnected"/>, <see cref="CancelAll"/>, or another coordinator operation
+    /// racing it during connection teardown. The trust store's own mutation-generation fencing, checked
+    /// both before and during <see cref="ITrustStore.TryUpsertIfGenerationAsync"/>, remains the sole
+    /// authority for whether this exact pending credential is still valid to persist; a concurrent
+    /// <see cref="Cancel"/>/<see cref="CancelAll"/> that clears <see cref="pendingCredential"/> in the
+    /// meantime cannot resurrect it, since <see cref="ClearPending"/> only clears a reference still
+    /// equal to the one this call reserved.
+    /// </summary>
+    /// <param name="clientId">The client that owns the pending credential.</param>
+    /// <param name="credential">The raw credential echoed by the client.</param>
+    /// <param name="cancellationToken">The token used to cancel persistence.</param>
     public async Task<PairingCommitResult> CommitPendingAsync(
         ClientId clientId,
         string credential,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(credential);
+
+        PendingCredential? pending;
+        TrustRecord? existingRecord;
+        string? shortId;
         await operationSemaphore.WaitAsync(cancellationToken);
         try
         {
             DateTimeOffset now = clock.UtcNow;
-            PendingCredential? pending;
             lock (gate)
             {
                 ExpirePendingIfNeeded(now);
@@ -437,56 +457,60 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
             }
 
-            TrustRecord? existingRecord = trustStore.TryGet(clientId);
-            string? shortId = existingRecord?.ShortId ?? GenerateUniqueShortId();
+            existingRecord = trustStore.TryGet(clientId);
+            shortId = existingRecord?.ShortId ?? GenerateUniqueShortId();
             if (shortId is null)
             {
                 return new PairingCommitResult(PairingCommitOutcome.GeneratorFailed);
             }
-            string? effectiveDisplayName = pending.DisplayName ?? existingRecord?.DisplayName;
-            var record = new TrustRecord(
-                clientId,
-                shortId,
-                effectiveDisplayName,
-                KnownDeviceState.Trusted,
-                CredentialHasher.Hash(pending.Credential),
-                existingRecord?.PairedAtUtc ?? pending.CreatedAtUtc);
-
-            bool committed;
-            try
-            {
-                committed = await trustStore.TryUpsertIfGenerationAsync(
-                    record,
-                    pending.MutationGeneration,
-                    cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                return new PairingCommitResult(PairingCommitOutcome.PersistenceFailed);
-            }
-
-            if (!committed)
-            {
-                ClearPending(pending);
-                return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
-            }
-
-            ClearPending(pending);
-            return new PairingCommitResult(
-                PairingCommitOutcome.Trusted,
-                clientId,
-                pending.Credential,
-                record.ShortId,
-                record.DisplayName);
         }
         finally
         {
             operationSemaphore.Release();
         }
+
+        // Every branch above either returned already or left `pending`/`shortId` non-null -- the
+        // reservation this call now commits without holding operationSemaphore across the await below.
+        PendingCredential reserved = pending!;
+        string? effectiveDisplayName = reserved.DisplayName ?? existingRecord?.DisplayName;
+        var record = new TrustRecord(
+            clientId,
+            shortId!,
+            effectiveDisplayName,
+            KnownDeviceState.Trusted,
+            CredentialHasher.Hash(reserved.Credential),
+            existingRecord?.PairedAtUtc ?? reserved.CreatedAtUtc);
+
+        bool committed;
+        try
+        {
+            committed = await trustStore.TryUpsertIfGenerationAsync(
+                record,
+                reserved.MutationGeneration,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return new PairingCommitResult(PairingCommitOutcome.PersistenceFailed);
+        }
+
+        if (!committed)
+        {
+            ClearPending(reserved);
+            return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
+        }
+
+        ClearPending(reserved);
+        return new PairingCommitResult(
+            PairingCommitOutcome.Trusted,
+            clientId,
+            reserved.Credential,
+            record.ShortId,
+            record.DisplayName);
     }
 
     /// <inheritdoc/>

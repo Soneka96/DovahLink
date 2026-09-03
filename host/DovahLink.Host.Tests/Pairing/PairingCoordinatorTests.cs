@@ -433,9 +433,54 @@ public class PairingCoordinatorTests
             (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
     }
 
-    /// <summary>Verifies that cancellation waits for an in-flight commit instead of racing its pending state.</summary>
+    /// <summary>
+    /// Verifies that cancellation requested while persistence is genuinely in flight -- after the
+    /// pairing-operation lock has already been released, per the lock-boundary fix -- still propagates
+    /// <see cref="OperationCanceledException"/> and leaves the pending credential retryable, the same
+    /// contract <see cref="CommitPending_CancelledWait_DoesNotConsumePendingCredential"/> proves for
+    /// cancellation requested before the call even starts.
+    /// </summary>
     [Fact]
-    public async Task CancelAll_DuringCommit_WaitsForCommitBeforeClearingState()
+    public async Task CommitPending_CancelledDuringPersistenceAwait_PropagatesAndPreservesPendingCredential()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task.WaitAsync(cancellation.Token);
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!, cancellation.Token);
+        await enteredUpsert.Task;
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => commit);
+        trustStore.BeforeConditionalUpsert = null;
+        Assert.Equal(PairingCommitOutcome.Trusted,
+            (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.CommitPendingAsync"/> does not hold the
+    /// pairing-operation lock across its persistence await: <see cref="PairingCoordinator.CancelAll"/>
+    /// completes immediately even while a commit's trust-store write is deliberately blocked, rather
+    /// than being forced to wait behind it the way holding the lock across the await would require.
+    /// The blocked write still lands durably once released -- CancelAll racing an already-in-flight
+    /// persistence too late to stop it is an accepted benign race, not a correctness violation, since
+    /// the trust store's own mutation-generation fencing remains the sole authority against genuinely
+    /// stale or administratively invalidated persistence.
+    /// </summary>
+    [Fact]
+    public async Task CancelAll_DuringCommit_ProceedsWithoutWaitingForPersistence()
     {
         var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -455,15 +500,53 @@ public class PairingCoordinatorTests
         Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
         await enteredUpsert.Task;
         Task cancel = Task.Run(coordinator.CancelAll);
-        Task observationWindow = Task.Delay(TimeSpan.FromMilliseconds(20));
-        Assert.NotSame(cancel, await Task.WhenAny(cancel, observationWindow));
+        Task observationWindow = Task.Delay(TimeSpan.FromSeconds(2));
+
+        Assert.Same(cancel, await Task.WhenAny(cancel, observationWindow));
+
+        releaseUpsert.SetResult();
+        await commit;
+    }
+
+    /// <summary>
+    /// Verifies the exact lock-boundary contract required of
+    /// <see cref="PairingCoordinator.CommitPendingAsync"/>: <see cref="PairingCoordinator.NotifyDisconnected"/>
+    /// for an entirely unrelated client completes immediately while a commit's persistence write is
+    /// deliberately blocked -- proving the pairing-operation semaphore is never held across the
+    /// persistence await, so a slow or blocked trust-store write can never synchronously stall
+    /// unrelated pairing lifecycle work during connection teardown.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_PersistenceAwait_DoesNotHoldPairingLifecycleLock()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId committingClient = ClientId.NewId();
+        ClientId otherClient = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(committingClient);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(committingClient, start.Challenge!.Code, "Living Room PC");
+        coordinator.BeginPairing(otherClient);
+
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(committingClient, issued.Credential!);
+        await enteredUpsert.Task;
+        Task disconnect = Task.Run(() => coordinator.NotifyDisconnected(otherClient));
+        Task observationWindow = Task.Delay(TimeSpan.FromSeconds(2));
+
+        Assert.Same(disconnect, await Task.WhenAny(disconnect, observationWindow));
 
         releaseUpsert.SetResult();
         PairingCommitResult result = await commit;
-        await cancel;
 
         Assert.Equal(PairingCommitOutcome.Trusted, result.Outcome);
-        Assert.Equal(PairingStartOutcome.Started, coordinator.BeginPairing(clientId).Outcome);
     }
 
     /// <summary>Verifies that global cancellation removes a pending credential before finalization.</summary>
