@@ -470,3 +470,84 @@ public enum PublicProtocolErrorCode
     /// <summary>An unexpected internal failure occurred; no further detail is disclosed.</summary>
     InternalError,
 }
+
+/// <summary>
+/// The wire values of <c>pairing_status.state</c>, per <c>protocol/schema/README.md</c>'s
+/// "<c>pairing_status</c>" section.
+/// </summary>
+public enum PairingStatusWireState
+{
+    /// <summary>No displayable challenge exists for the requesting client.</summary>
+    Unavailable,
+
+    /// <summary>A fresh code was just generated and its adapter display was accepted.</summary>
+    Available,
+
+    /// <summary>The requesting client already owns an active challenge or pending credential.</summary>
+    InProgress,
+
+    /// <summary>A different client currently owns the active challenge or pending credential.</summary>
+    OtherDevicePairing,
+}
+
+/// <summary>
+/// The wire values of <c>pairing_outcome.outcome</c>, per <c>protocol/schema/README.md</c>'s
+/// "<c>pairing_outcome</c>" section.
+/// </summary>
+public enum PairingOutcomeWireValue
+{
+    /// <summary>Reply to <c>pairing_confirm</c>: the credential was issued and awaits final confirmation.</summary>
+    CredentialIssued,
+
+    /// <summary>Reply to <c>pairing_ack</c>: the credential became trusted.</summary>
+    Trusted,
+
+    /// <summary>Reply to <c>pairing_ack</c>: a previously completed pairing was safely retried.</summary>
+    AlreadyTrusted,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the active challenge expired before evaluation.</summary>
+    Expired,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the submitted code did not match.</summary>
+    Invalid,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the attempt arrived before the pacing interval elapsed.</summary>
+    PacingLimited,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the wrong-attempt hard limit cancelled the challenge.</summary>
+    HardLimitReached,
+
+    /// <summary>Reply to <c>pairing_ack</c>: no matching in-memory pending credential remained.</summary>
+    PendingNotFound,
+
+    /// <summary>Reply to <c>pairing_ack</c>: an administrative trust mutation invalidated the pending credential.</summary>
+    PairingInvalidated,
+
+    /// <summary>Reply to <c>pairing_renotify</c>: the code was redisplayed.</summary>
+    Renotified,
+
+    /// <summary>Reply to <c>pairing_renotify</c>: the manual redisplay cooldown is still active.</summary>
+    RenotifyCooldown,
+
+    /// <summary>Reply to <c>pairing_cancel</c>: an owned challenge or pending credential was cancelled.</summary>
+    Cancelled,
+
+    /// <summary>Reply to <c>pairing_renotify</c> or <c>pairing_cancel</c>: the requesting client owned no active pairing operation.</summary>
+    AlreadyIdle,
+}
+
+/// <summary>
+/// The wire values of <c>rename_outcome.outcome</c>, per <c>protocol/schema/README.md</c>'s
+/// "<c>rename_outcome</c>" section.
+/// </summary>
+public enum RenameOutcomeWireValue
+{
+    /// <summary>The device's display name was updated.</summary>
+    Renamed,
+
+    /// <summary>The presented display name failed the trust store's length or control-character bound.</summary>
+    InvalidDisplayName,
+
+    /// <summary>The requesting identity is unrecognized or not currently trusted.</summary>
+    NotTrusted,
+}
