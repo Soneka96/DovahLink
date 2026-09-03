@@ -876,19 +876,214 @@ public class ClientMessageDispatcherTests
         Assert.Empty(fakeConnection.SentPayloads);
     }
 
-    // ---- unhandled message types ----
+    // ---- pairing_renotify ----
+
+    /// <summary>Verifies that an eligible redisplay the adapter accepts sends renotified and commits the cooldown.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyEligible_AdapterAccepts_SendsRenotifiedAndCommitsCooldown()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
+        Assert.Equal("msg-1", outcomeEnvelope.CorrelationId);
+        Assert.Equal(PairingOutcomeWireValue.Renotified, outcome.Outcome);
+        Assert.Equal([start.Challenge!.Code], adapterNotifier.RedisplayedCodes);
+        // Cooldown was committed: a second immediate peek reports Cooldown, not Renotified.
+        Assert.Equal(PairingRenotifyOutcome.Cooldown, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that an active cooldown sends renotify_cooldown without ever contacting the adapter.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyDuringCooldown_SendsRenotifyCooldownWithoutContactingAdapter()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitRenotify(clientId);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.RenotifyCooldown, outcome.Outcome);
+        Assert.Equal(5, outcome.RetryAfterSeconds);
+        Assert.Empty(adapterNotifier.RedisplayedCodes);
+    }
+
+    /// <summary>Verifies that a client owning no active challenge sends already_idle without contacting the adapter.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyNoOwnedChallenge_SendsAlreadyIdleWithoutContactingAdapter()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
+        Assert.Empty(adapterNotifier.RedisplayedCodes);
+    }
 
     /// <summary>
-    /// Verifies that a pairing_* message type not yet mapped by this step sends nothing and reports no
-    /// side effect -- authorized by the connection handler's allowlist, mapped by a later step.
+    /// Verifies that an adapter rejection sends a retryable internal_error and never commits the
+    /// cooldown -- a following renotify remains eligible rather than falsely rate-limited by a
+    /// redisplay that never actually happened.
     /// </summary>
     [Fact]
-    public async Task DispatchAsync_NotYetMappedPairingMessageType_SendsNothing()
+    public async Task DispatchAsync_PairingRenotifyAdapterRejects_SendsRetryableErrorAndPreservesEligibility()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = false };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that a malformed pairing_renotify sends a malformed_message error and reports a protocol violation.</summary>
+    [Fact]
+    public async Task DispatchAsync_MalformedPairingRenotify_SendsErrorAndReportsViolation()
     {
         var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+        PublicEnvelope envelope = BuildRawEnvelope("pairing_renotify", "msg-1", "session-1", """{"unexpectedField":true}""");
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.True(result.IsProtocolViolation);
+    }
+
+    // ---- pairing_cancel ----
+
+    /// <summary>Verifies that cancelling an owned active challenge sends cancelled.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingCancelOwnedActiveChallenge_SendsCancelled()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
+        Assert.Equal("msg-1", outcomeEnvelope.CorrelationId);
+        Assert.Equal(PairingOutcomeWireValue.Cancelled, outcome.Outcome);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that cancelling an owned pending credential also sends cancelled.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingCancelOwnedPendingCredential_SendsCancelled()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Cancelled, outcome.Outcome);
+    }
+
+    /// <summary>Verifies that cancelling with no owned pairing operation sends already_idle without pretending anything was cleared.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingCancelNothingOwned_SendsAlreadyIdle()
+    {
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
+    }
+
+    /// <summary>Verifies that a malformed pairing_cancel sends a malformed_message error and reports a protocol violation.</summary>
+    [Fact]
+    public async Task DispatchAsync_MalformedPairingCancel_SendsErrorAndReportsViolation()
+    {
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildRawEnvelope("pairing_cancel", "msg-1", "session-1", """{"unexpectedField":true}""");
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.True(result.IsProtocolViolation);
+    }
+
+    // ---- unhandled message types ----
+
+    /// <summary>
+    /// Verifies that a server-originated message type -- structurally unable to reach this dispatcher
+    /// in production, since the connection handler's per-tier allowlist never authorizes a
+    /// server-originated type from a client -- falls into the default case as a safe no-op rather than
+    /// throwing or sending anything. Every client-originated message type this dispatcher owns
+    /// (ping, every pairing_* message, and rename_request) is mapped as of this step.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_ServerOriginatedMessageType_SendsNothing()
+    {
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.Pong, "msg-1", "session-1", new EmptyPayload());
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
             ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);

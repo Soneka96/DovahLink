@@ -99,9 +99,14 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return HandlePairingConfirmAsync(clientId, sessionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingAck:
                 return HandlePairingAckAsync(clientId, sessionId, connection, envelope, cancellationToken);
+            case PublicMessageType.PairingRenotify:
+                return HandlePairingRenotifyAsync(clientId, sessionId, connection, envelope, cancellationToken);
+            case PublicMessageType.PairingCancel:
+                return HandlePairingCancelAsync(clientId, sessionId, connection, envelope);
             default:
-                // Every pairing_* message type is authorized by the connection handler's per-tier
-                // allowlist but mapped to its owning service by a later step of this same concept.
+                // Every client-originated message type this dispatcher owns is mapped above. A
+                // server-originated type can never actually reach here: the connection handler's
+                // per-tier allowlist never authorizes one from a client.
                 return Task.FromResult(new ClientDispatchResult());
         }
     }
@@ -422,5 +427,81 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to commit trust.", retryable: true);
                 return new ClientDispatchResult();
         }
+    }
+
+    /// <summary>
+    /// Answers a <c>pairing_renotify</c> with <c>pairing_outcome</c>. Applies the same atomic-display
+    /// rule as <c>pairing_request</c>'s initial display: <see cref="IPairingCoordinator.TryRenotify"/>
+    /// only peeks eligibility, the adapter is awaited outside any coordinator lock, and
+    /// <see cref="IPairingCoordinator.CommitRenotify"/> -- which alone applies the manual-redisplay
+    /// cooldown -- is called only once the adapter accepts. A rejected redisplay leaves the challenge
+    /// and cooldown state exactly as they were and reports a retryable error rather than a fabricated
+    /// <c>renotified</c> or a silently discarded challenge.
+    /// </summary>
+    private async Task<ClientDispatchResult> HandlePairingRenotifyAsync(
+        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+    {
+        if (!codec.TryDecodePayload(envelope, out EmptyPayload? _))
+        {
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_renotify message is malformed.");
+            return new ClientDispatchResult(IsProtocolViolation: true);
+        }
+
+        PairingRenotifyResult peek = pairingCoordinator.TryRenotify(clientId);
+        if (peek.Outcome != PairingRenotifyOutcome.Renotified)
+        {
+            SendPairingOutcome(connection, sessionId, envelope.MessageId, MapRenotifyOutcome(peek));
+            return new ClientDispatchResult();
+        }
+
+        string? code = pairingCoordinator.TryGetOwnedChallenge(clientId)?.Code;
+        if (code is null)
+        {
+            // The owned challenge vanished between the peek above and here (for example an
+            // administrative cancellation) -- report that fresh reality rather than a stale success.
+            SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.AlreadyIdle });
+            return new ClientDispatchResult();
+        }
+
+        bool accepted = await adapterNotifier.TryNotifyRedisplayAsync(code, cancellationToken);
+        if (!accepted)
+        {
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
+            return new ClientDispatchResult();
+        }
+
+        PairingRenotifyResult commit = pairingCoordinator.CommitRenotify(clientId);
+        SendPairingOutcome(connection, sessionId, envelope.MessageId, MapRenotifyOutcome(commit));
+        return new ClientDispatchResult();
+    }
+
+    /// <summary>Maps a <see cref="PairingRenotifyResult"/> -- from either a peek or a commit -- to its wire outcome.</summary>
+    private PairingOutcomePayload MapRenotifyOutcome(PairingRenotifyResult result) => result.Outcome switch
+    {
+        PairingRenotifyOutcome.Renotified => new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.Renotified },
+        PairingRenotifyOutcome.Cooldown => new PairingOutcomePayload
+        {
+            Outcome = PairingOutcomeWireValue.RenotifyCooldown,
+            RetryAfterSeconds = RoundUpSeconds(result.RetryAfter!.Value),
+        },
+        _ => new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.AlreadyIdle },
+    };
+
+    /// <summary>Answers a <c>pairing_cancel</c> with <c>pairing_outcome</c>. Never touches persisted trust or the adapter.</summary>
+    private Task<ClientDispatchResult> HandlePairingCancelAsync(
+        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope)
+    {
+        if (!codec.TryDecodePayload(envelope, out EmptyPayload? _))
+        {
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_cancel message is malformed.");
+            return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
+        }
+
+        PairingCancelOutcome cancelOutcome = pairingCoordinator.Cancel(clientId);
+        PairingOutcomeWireValue wireOutcome = cancelOutcome == PairingCancelOutcome.Cancelled
+            ? PairingOutcomeWireValue.Cancelled
+            : PairingOutcomeWireValue.AlreadyIdle;
+        SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = wireOutcome });
+        return Task.FromResult(new ClientDispatchResult());
     }
 }
