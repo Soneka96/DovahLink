@@ -426,19 +426,28 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         }
     }
 
-    /// <summary>Validates <c>auth.token</c>'s required-or-absent shape for the presented method, per <c>protocol/schema/README.md</c>'s "<c>hello</c>" section.</summary>
+    /// <summary>
+    /// Validates <c>auth.token</c>'s required-or-absent shape for the presented method, per
+    /// <c>protocol/schema/README.md</c>'s "<c>hello</c>" section. A <c>trusted_device_credential</c>
+    /// token's wire shape -- exactly <see cref="Constants.PairingCredentialLength"/> hex characters --
+    /// is validated here, before the credential ever reaches <see cref="CredentialHasher.Hash"/> or
+    /// the credential throttle, so a malformed presented credential is rejected as malformed protocol
+    /// input rather than as an ordinary failed secret comparison.
+    /// </summary>
     private static bool IsValidAuth(HelloAuthPayload auth) => auth.Method switch
     {
         HelloAuthMethod.Unpaired => auth.Token is null,
         HelloAuthMethod.OneTimeLocalToken => !string.IsNullOrEmpty(auth.Token),
-        HelloAuthMethod.TrustedDeviceCredential => !string.IsNullOrEmpty(auth.Token),
+        HelloAuthMethod.TrustedDeviceCredential => CredentialHasher.IsValidHexCredential(auth.Token, Constants.PairingCredentialLength),
         _ => false,
     };
 
     /// <summary>
-    /// Authenticates a <c>one_time_local_token</c> hello. Validates the token without consuming it
-    /// (<see cref="ILocalConnectionTokenAuthenticator.TryValidate"/>) so a full session slot never
-    /// burns a retryable token, and commits consumption only once admission has fully succeeded.
+    /// Authenticates a <c>one_time_local_token</c> hello. Validates and reserves the token without
+    /// consuming it (<see cref="ILocalConnectionTokenAuthenticator.TryValidate"/>), rolling the
+    /// reservation back on every failure branch after that (a full session slot, or losing the race
+    /// against the pre-authentication deadline) so a retryable failure never burns the token, and
+    /// commits consumption only once admission has fully succeeded.
     /// </summary>
     private void HandleOneTimeLocalTokenHello(
         IPublicConnectionContext connectionContext, PublicEnvelope envelope, ClientId requestedClientId, string token)
@@ -451,12 +460,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         if (!sessionRegistry.TryCreate(requestedClientId, connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId newSessionId))
         {
+            tokenAuthenticator.RollbackReservation();
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
             return;
         }
 
         if (!TryClaimAdmission())
         {
+            tokenAuthenticator.RollbackReservation();
             sessionRegistry.Invalidate(newSessionId, connectionId);
             return;
         }
@@ -500,15 +511,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 return;
             }
 
-            if (!credentialThrottle.IsAllowed())
+            if (!credentialThrottle.TryAttempt(() => CredentialHasher.FixedTimeEquals(record.CredentialVerifier, CredentialHasher.Hash(credential!))))
             {
-                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Unauthenticated, "Authentication failed.");
-                return;
-            }
-
-            if (!CredentialHasher.FixedTimeEquals(record.CredentialVerifier, CredentialHasher.Hash(credential!)))
-            {
-                credentialThrottle.RecordFailure();
                 RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Unauthenticated, "Authentication failed.");
                 return;
             }

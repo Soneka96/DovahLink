@@ -15,6 +15,12 @@ namespace DovahLink.Host.Tests.Client.Authentication;
 /// <summary>Tests for <see cref="PublicHelloAdmissionHandler"/>.</summary>
 public class PublicHelloAdmissionTests
 {
+    /// <summary>A well-formed <c>trusted_device_credential</c> value (exactly <see cref="Constants.PairingCredentialLength"/> hex characters) used wherever a test needs a credential that passes wire-format validation regardless of whether it matches a seeded trust record.</summary>
+    private const string ValidCredential = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    /// <summary>A second well-formed credential, distinct from <see cref="ValidCredential"/>, used wherever a test needs a wire-valid credential that does not match a seeded trust record.</summary>
+    private const string WrongButValidCredential = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
     // ---- Successful admission ----
 
     /// <summary>Verifies that an unpaired hello admits a restricted session and sends hello_ack then capabilities.</summary>
@@ -52,10 +58,9 @@ public class PublicHelloAdmissionTests
     {
         var context = new TestContext();
         string clientId = Guid.NewGuid().ToString();
-        string credential = "the-real-credential";
-        context.TrustStore.Seed(BuildTrustedRecord(clientId, credential));
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         byte[] hello = BuildHello(
-            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = credential });
+            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
 
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
@@ -125,7 +130,12 @@ public class PublicHelloAdmissionTests
         Assert.Equal(0, context.SessionRegistry.ActiveCount);
     }
 
-    /// <summary>Malformed hello shapes: wrong endpoint, non-GUID clientId, unpaired with a token present, and a token-requiring method with no token.</summary>
+    /// <summary>
+    /// Malformed hello shapes: wrong endpoint, non-GUID clientId, unpaired with a token present, a
+    /// token-requiring method with no token, an empty trusted-device credential, a trusted-device
+    /// credential of the wrong length, and a trusted-device credential of the right length containing
+    /// a non-hex character.
+    /// </summary>
     public static IEnumerable<object[]> MalformedHelloCases()
     {
         yield return [new HelloPayload { Endpoint = "server", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } }];
@@ -133,6 +143,9 @@ public class PublicHelloAdmissionTests
         yield return [new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired, Token = "should-not-be-present" } }];
         yield return [new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken } }];
         yield return [new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "" } }];
+        yield return [new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = null } }];
+        yield return [new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "abcd" } }];
+        yield return [new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "not-a-hex-credential-of-length32" } }];
     }
 
     // ---- Rejected hello: authentication failures ----
@@ -159,10 +172,10 @@ public class PublicHelloAdmissionTests
     {
         var context = new TestContext();
         string clientId = Guid.NewGuid().ToString();
-        context.TrustStore.Seed(BuildTrustedRecord(clientId, "correct-credential"));
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         string devToken = context.TokenAuthenticator.IssueToken();
         byte[] hello = BuildHello(
-            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "wrong-credential" });
+            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
 
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
@@ -188,7 +201,7 @@ public class PublicHelloAdmissionTests
     {
         var context = new TestContext();
         byte[] hello = BuildHello(
-            context.Codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "anything" });
+            context.Codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
 
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
@@ -205,7 +218,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         string clientId = Guid.NewGuid().ToString();
         context.TrustStore.Seed(new TrustRecord(new ClientId(Guid.Parse(clientId)), "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-        var auth = new HelloAuthPayload { Method = method, Token = method == HelloAuthMethod.Unpaired ? null : "anything" };
+        var auth = new HelloAuthPayload { Method = method, Token = method == HelloAuthMethod.Unpaired ? null : WrongButValidCredential };
         byte[] hello = BuildHello(context.Codec, clientId, "hello-1", auth);
 
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
@@ -223,7 +236,7 @@ public class PublicHelloAdmissionTests
         string clientId = Guid.NewGuid().ToString();
         context.TrustStore.Seed(new TrustRecord(new ClientId(Guid.Parse(clientId)), "AB12", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
         byte[] hello = BuildHello(
-            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "anything" });
+            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
 
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
@@ -241,13 +254,13 @@ public class PublicHelloAdmissionTests
     {
         var context = new TestContext();
         string clientId = Guid.NewGuid().ToString();
-        context.TrustStore.Seed(BuildTrustedRecord(clientId, "the-credential"));
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         for (int i = 0; i < 5; i++)
         {
             context.CredentialThrottle.RecordFailure();
         }
         byte[] hello = BuildHello(
-            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "the-credential" });
+            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
 
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
@@ -268,7 +281,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new FakeSessionRegistry();
         var innerTrustStore = new FakeTrustStore();
         string clientId = Guid.NewGuid().ToString();
-        innerTrustStore.Seed(BuildTrustedRecord(clientId, "the-credential"));
+        innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(
             innerTrustStore, new TrustRecord(new ClientId(Guid.Parse(clientId)), "AB12", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
         var codec = new PublicEnvelopeCodec();
@@ -278,7 +291,7 @@ public class PublicHelloAdmissionTests
             new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
-        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "the-credential" });
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
 
         handler.HandleMessageAsync(connection, hello, CancellationToken.None);
 
@@ -334,15 +347,104 @@ public class PublicHelloAdmissionTests
         var context = new TestContext(maxActiveSessions: 1);
         context.SessionRegistry.Create(ClientId.NewId());
         string clientId = Guid.NewGuid().ToString();
-        context.TrustStore.Seed(BuildTrustedRecord(clientId, "the-credential"));
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         byte[] hello = BuildHello(
-            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "the-credential" });
+            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
 
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.RateLimited, error.Code);
         Assert.Equal(1, context.SessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies the invariant the token's reservation lifecycle exists to guarantee at the admission
+    /// level: of many concurrent connections presenting one issued one-time token through separate
+    /// handler instances sharing the same collaborators (as production composition would), only one is
+    /// ever admitted, the rest are rejected as unauthenticated, and the token is unusable afterward.
+    /// Session capacity is configured well above the concurrent attempt count specifically so this
+    /// bound cannot be accidentally enforced by session capacity instead of the token's own single-use
+    /// guarantee.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_ConcurrentOneTimeLocalTokenHellosWithSameToken_OnlyOneAdmitted()
+    {
+        const int concurrentAttempts = 10;
+        var sessionRegistry = new FakeSessionRegistry(concurrentAttempts);
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = tokenAuthenticator.IssueToken();
+        var trustStore = new FakeTrustStore();
+        var credentialThrottle = new TrustedCredentialFailureThrottle(new FakeClock());
+        var playContextTracker = new FakePlayContextTracker();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+
+        var fakeConnections = new FakePublicWebSocketConnection[concurrentAttempts];
+        var tasks = new Task[concurrentAttempts];
+        for (int i = 0; i < concurrentAttempts; i++)
+        {
+            var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+            fakeConnections[i] = fakeConnection;
+            var connection = new PublicConnectionContext(fakeConnection);
+            var handler = new PublicHelloAdmissionHandler(
+                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock);
+            byte[] hello = BuildHello(
+                codec, Guid.NewGuid().ToString(), $"hello-{i}", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
+
+            tasks[i] = Task.Run(() => handler.HandleMessageAsync(connection, hello, CancellationToken.None));
+        }
+
+        await Task.WhenAll(tasks);
+
+        int admittedCount = fakeConnections.Count(connection =>
+            connection.SentPayloads.Count > 0 &&
+            codec.TryDecode(connection.SentPayloads[0], out PublicEnvelope? envelope) &&
+            envelope.MessageType == PublicMessageType.HelloAck);
+        Assert.Equal(1, admittedCount);
+        Assert.Equal(1, sessionRegistry.ActiveCount);
+        Assert.False(tokenAuthenticator.TryValidate(token));
+    }
+
+    /// <summary>
+    /// Verifies the credential throttle's atomic check-verify-record fix holds through the full
+    /// admission wiring, not merely at the throttle's own unit level: of many concurrent
+    /// trusted_device_credential hellos all presenting the same wrong (but wire-valid) credential
+    /// against one seeded trusted identity, no more than the configured five-failure budget is ever
+    /// consumed, and the credential throttle ends up exhausted rather than having let more attempts
+    /// through than the bound allows.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_ConcurrentMismatchedTrustedDeviceCredentialHellos_NeverExceedsTheThrottleBound()
+    {
+        const int concurrentAttempts = 10;
+        var sessionRegistry = new FakeSessionRegistry(concurrentAttempts);
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        var trustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var credentialThrottle = new TrustedCredentialFailureThrottle(new FakeClock());
+        var playContextTracker = new FakePlayContextTracker();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+
+        var tasks = new Task[concurrentAttempts];
+        for (int i = 0; i < concurrentAttempts; i++)
+        {
+            var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+            var connection = new PublicConnectionContext(fakeConnection);
+            var handler = new PublicHelloAdmissionHandler(
+                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock);
+            byte[] hello = BuildHello(
+                codec, clientId, $"hello-{i}", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
+
+            tasks[i] = Task.Run(() => handler.HandleMessageAsync(connection, hello, CancellationToken.None));
+        }
+
+        await Task.WhenAll(tasks);
+
+        Assert.Equal(0, sessionRegistry.ActiveCount);
+        Assert.False(credentialThrottle.IsAllowed());
     }
 
     // ---- Trust recheck race after admission ----
@@ -358,7 +460,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new FakeSessionRegistry();
         var innerTrustStore = new FakeTrustStore();
         string clientId = Guid.NewGuid().ToString();
-        innerTrustStore.Seed(BuildTrustedRecord(clientId, "the-credential"));
+        innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(
             innerTrustStore, new TrustRecord(new ClientId(Guid.Parse(clientId)), "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var codec = new PublicEnvelopeCodec();
@@ -368,7 +470,7 @@ public class PublicHelloAdmissionTests
             new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
-        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "the-credential" });
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
 
         handler.HandleMessageAsync(connection, hello, CancellationToken.None);
 
@@ -838,10 +940,9 @@ public class PublicHelloAdmissionTests
     private static void AdmitViaTrustedDeviceCredentialHello(TestContext context, out string sessionId)
     {
         string clientId = Guid.NewGuid().ToString();
-        const string credential = "the-real-credential";
-        context.TrustStore.Seed(BuildTrustedRecord(clientId, credential));
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         byte[] hello = BuildHello(
-            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = credential });
+            context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
         (PublicEnvelope ackEnvelope, _) = DecodeSent<HelloAckPayload>(context.Codec, context.FakeConnection.SentPayloads[0]);
         sessionId = ackEnvelope.SessionId!;
