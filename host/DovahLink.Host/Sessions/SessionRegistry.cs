@@ -38,7 +38,11 @@ public interface ISessionRegistry
     /// <param name="clientId">The client whose sessions should be invalidated.</param>
     void InvalidateAllForClient(ClientId clientId);
 
-    /// <summary>Reports whether a session is active on its owning connection.</summary>
+    /// <summary>
+    /// Reports whether a session is active on its owning connection. For the one-time admission
+    /// commit itself, use <see cref="TryFinalizeAdmission"/> instead: this method is for an ongoing,
+    /// repeatable liveness check on an already-admitted session.
+    /// </summary>
     /// <param name="sessionId">The session to check.</param>
     /// <param name="connectionId">The connection claiming ownership of the session.</param>
     /// <returns><see langword="true"/> if the session belongs to the connection and remains active.</returns>
@@ -46,6 +50,28 @@ public interface ISessionRegistry
 
     /// <summary>Unconditionally invalidates every currently active session.</summary>
     void InvalidateAll();
+
+    /// <summary>
+    /// Atomically confirms that a session <see cref="TryCreate"/> admitted is still active on its
+    /// owning connection, as the sole authoritative linearization point between an in-flight
+    /// admission and a concurrent <see cref="Invalidate"/>, <see cref="InvalidateAllForClient"/>, or
+    /// <see cref="InvalidateAll"/> call racing against it: because this check and every invalidation
+    /// method serialize on the same internal lock, whichever reaches this exact session first decides
+    /// its outcome for every check made after it. A caller must call this exactly once, as the last
+    /// registry interaction before performing an admission side effect that would be wrong to perform
+    /// for an already-invalidated session (sending <c>hello_ack</c>, committing a reserved one-time
+    /// token), and must not perform that side effect when this returns <see langword="false"/>.
+    /// Because the side effect itself necessarily runs after this method returns and releases the
+    /// lock, an invalidation that begins only after this call already returned <see langword="true"/>
+    /// is not observed by that call: such a session is invalidated within nanoseconds of admission and
+    /// is rejected on its very next message by <see cref="IsActive"/>, so no persistently usable or
+    /// inconsistent session can result, but the one <c>hello_ack</c>/<c>capabilities</c> pair already
+    /// in flight at that point cannot be recalled.
+    /// </summary>
+    /// <param name="sessionId">The session to finalize.</param>
+    /// <param name="connectionId">The connection claiming ownership of the session.</param>
+    /// <returns><see langword="true"/> if the session still belongs to the connection and remains active.</returns>
+    bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId);
 }
 
 /// <inheritdoc cref="ISessionRegistry"/>
@@ -160,6 +186,17 @@ public sealed class SessionRegistry : ISessionRegistry
         lock (gate)
         {
             sessionsById.Clear();
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
+    {
+        lock (gate)
+        {
+            return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) &&
+                record.ConnectionId == connectionId &&
+                record.State == SessionState.Active;
         }
     }
 }

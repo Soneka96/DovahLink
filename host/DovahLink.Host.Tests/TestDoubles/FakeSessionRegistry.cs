@@ -30,6 +30,13 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     /// <summary>Every client id passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
     private readonly List<ClientId> invalidateAllForClientCalls = [];
 
+    /// <summary>
+    /// When set, invoked synchronously by <see cref="TryCreate"/> after the new session record is
+    /// stored and <see cref="gate"/> is released, letting a test deterministically run a concurrent
+    /// invalidation against the just-created session before the caller's own next step observes it.
+    /// </summary>
+    public Action? AfterCreate { get; set; }
+
     /// <summary>A synchronized snapshot of client-wide invalidation calls.</summary>
     public IReadOnlyList<ClientId> InvalidateAllForClientCalls
     {
@@ -62,8 +69,10 @@ public sealed class FakeSessionRegistry : ISessionRegistry
             activeSessions[sessionId] = new ActiveSessionRecord(
                 sessionId, clientId, connectionId, SessionState.Active, authenticationSource, trustTier);
             sessionConnections[sessionId] = connectionId;
-            return true;
         }
+
+        AfterCreate?.Invoke();
+        return true;
     }
 
     /// <inheritdoc/>
@@ -182,6 +191,15 @@ public sealed class FakeSessionRegistry : ISessionRegistry
             {
                 return activeSessions.Count;
             }
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
+    {
+        lock (gate)
+        {
+            return activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) && record.ConnectionId == connectionId;
         }
     }
 }

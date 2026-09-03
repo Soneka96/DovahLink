@@ -305,4 +305,116 @@ public class SessionRegistryTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new SessionRegistry(0));
     }
+
+    /// <summary>Verifies that a freshly created session finalizes for its owner.</summary>
+    [Fact]
+    public void TryFinalizeAdmission_OwnedActiveSession_ReturnsTrue()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+
+        Assert.True(registry.TryFinalizeAdmission(sessionId, connectionId));
+    }
+
+    /// <summary>Verifies that an unknown session cannot finalize.</summary>
+    [Fact]
+    public void TryFinalizeAdmission_UnknownSession_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+
+        Assert.False(registry.TryFinalizeAdmission(SessionId.NewId(), ConnectionId.NewId()));
+    }
+
+    /// <summary>Verifies that a session cannot finalize on a connection other than its owner.</summary>
+    [Fact]
+    public void TryFinalizeAdmission_WrongConnection_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId owner = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), owner, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+
+        Assert.False(registry.TryFinalizeAdmission(sessionId, ConnectionId.NewId()));
+    }
+
+    /// <summary>
+    /// Verifies the linearization guarantee <see cref="ISessionRegistry.TryFinalizeAdmission"/>
+    /// exists for: a session removed by <see cref="ISessionRegistry.InvalidateAll"/> (Factory Reset)
+    /// after it was reserved can never finalize, regardless of how much earlier the reservation
+    /// itself succeeded.
+    /// </summary>
+    [Fact]
+    public void TryFinalizeAdmission_SessionInvalidatedByInvalidateAll_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+
+        registry.InvalidateAll();
+
+        Assert.False(registry.TryFinalizeAdmission(sessionId, connectionId));
+    }
+
+    /// <summary>Verifies the same linearization guarantee against a targeted per-client invalidation.</summary>
+    [Fact]
+    public void TryFinalizeAdmission_SessionInvalidatedByInvalidateAllForClient_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+        ClientId clientId = ClientId.NewId();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+
+        registry.InvalidateAllForClient(clientId);
+
+        Assert.False(registry.TryFinalizeAdmission(sessionId, connectionId));
+    }
+
+    /// <summary>Verifies the same linearization guarantee against the owner's own targeted invalidation.</summary>
+    [Fact]
+    public void TryFinalizeAdmission_SessionInvalidatedByOwner_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+
+        registry.Invalidate(sessionId, connectionId);
+
+        Assert.False(registry.TryFinalizeAdmission(sessionId, connectionId));
+    }
+
+    /// <summary>
+    /// Verifies that concurrent admission finalization and an unconditional global invalidation never
+    /// leave the registry internally inconsistent: whichever order the two operations actually run in
+    /// for a given session, <see cref="ISessionRegistry.InvalidateAll"/> having completed means every
+    /// session is unconditionally gone, regardless of how many concurrent finalize calls raced it.
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentFinalizeAdmissionAndInvalidateAll_LeavesRegistryConsistent()
+    {
+        var registry = new SessionRegistry(32);
+        (SessionId SessionId, ConnectionId ConnectionId)[] sessions = Enumerable.Range(0, 16)
+            .Select(_ =>
+            {
+                ConnectionId connectionId = ConnectionId.NewId();
+                registry.TryCreate(
+                    ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
+                return (sessionId, connectionId);
+            })
+            .ToArray();
+
+        Task[] operations = sessions
+            .Select(session => Task.Run(() => registry.TryFinalizeAdmission(session.SessionId, session.ConnectionId)))
+            .Append(Task.Run(() => registry.InvalidateAll()))
+            .ToArray();
+
+        await Task.WhenAll(operations);
+
+        Assert.Equal(0, registry.ActiveCount);
+        Assert.All(sessions, session => Assert.False(registry.IsActive(session.SessionId, session.ConnectionId)));
+    }
 }

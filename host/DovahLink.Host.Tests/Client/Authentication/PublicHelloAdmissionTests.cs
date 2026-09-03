@@ -1990,6 +1990,9 @@ public class PublicHelloAdmissionTests
 
         /// <inheritdoc/>
         public void InvalidateAll() => inner.InvalidateAll();
+
+        /// <inheritdoc/>
+        public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId) => inner.TryFinalizeAdmission(sessionId, connectionId);
     }
 
     /// <summary>
