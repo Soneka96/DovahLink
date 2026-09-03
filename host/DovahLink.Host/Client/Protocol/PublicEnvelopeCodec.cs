@@ -89,12 +89,19 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
     /// handler later dereferences. With this option, deserializing an explicit <c>null</c> into any
     /// non-nullable member throws <see cref="JsonException"/>, which <see cref="TryDecodePayload{TPayload}"/>
     /// already turns into a decode failure.
+    /// <see cref="JsonSerializerOptions.UnmappedMemberHandling"/> rejects an unrecognized nested
+    /// property the same way: <c>protocol/schema/README.md</c> documents forward-compatible extension
+    /// only for the common envelope's own top-level fields (handled leniently by <see cref="TryDecode"/>'s
+    /// own <c>JsonElement.TryGetProperty</c>-based reads below, which this option does not affect), not
+    /// for any nested payload object -- so every message-specific payload type sharing these options is
+    /// strict about its own members.
     /// </summary>
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
         RespectNullableAnnotations = true,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
     /// <inheritdoc/>

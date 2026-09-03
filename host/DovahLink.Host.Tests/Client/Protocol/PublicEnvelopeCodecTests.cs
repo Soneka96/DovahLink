@@ -383,6 +383,51 @@ public class PublicEnvelopeCodecTests
         Assert.False(Codec.TryDecodePayload(envelope!, out SubscribePayload? _));
     }
 
+    /// <summary>
+    /// Verifies that an unrecognized nested property fails payload decoding for every message-specific
+    /// payload type: no payload object -- unlike the common envelope's own top-level fields -- is
+    /// documented as reserving extension fields for forward compatibility.
+    /// </summary>
+    [Theory]
+    [InlineData("hello", """{"endpoint":"client","clientId":"c1","auth":{"method":"unpaired"},"unexpectedField":true}""")]
+    [InlineData("hello", """{"endpoint":"client","clientId":"c1","auth":{"method":"unpaired","unexpectedField":true}}""")]
+    [InlineData("subscribe", """{"stateAreas":["area_one"],"unexpectedField":true}""")]
+    [InlineData("snapshot_request", """{"stateArea":"area_one","unexpectedField":true}""")]
+    [InlineData("capabilities", """{"capabilities":[],"unexpectedField":true}""")]
+    [InlineData("capabilities", """{"capabilities":[{"id":"x","version":"1","unexpectedField":true}]}""")]
+    public void TryDecodePayload_UnknownNestedField_ReturnsFalse(string messageType, string payloadJson)
+    {
+        string json = BuildEnvelopeJson(messageType, payloadJson);
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        bool decoded = messageType switch
+        {
+            "hello" => Codec.TryDecodePayload(envelope!, out HelloPayload? _),
+            "subscribe" => Codec.TryDecodePayload(envelope!, out SubscribePayload? _),
+            "snapshot_request" => Codec.TryDecodePayload(envelope!, out SnapshotRequestPayload? _),
+            "capabilities" => Codec.TryDecodePayload(envelope!, out CapabilitiesPayload? _),
+            _ => throw new InvalidOperationException($"Unhandled messageType '{messageType}' in test data."),
+        };
+        Assert.False(decoded);
+    }
+
+    /// <summary>
+    /// Verifies that the common envelope itself still tolerates an unrecognized top-level field,
+    /// unaffected by the nested-payload strictness above: <c>protocol/schema/README.md</c> documents
+    /// forward-compatible extension for the envelope's own top-level fields specifically, and
+    /// <see cref="PublicEnvelopeCodec.TryDecode"/> reads named fields individually rather than
+    /// rejecting a document for carrying an extra one.
+    /// </summary>
+    [Fact]
+    public void TryDecode_EnvelopeWithUnknownTopLevelField_StillDecodes()
+    {
+        string json = """
+            {"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null,"unexpectedTopLevelField":true}
+            """;
+
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
     // ---- Bounds: nesting depth ----
 
     /// <summary>Verifies that a payload nested exactly to the approved 32-level depth is accepted.</summary>
