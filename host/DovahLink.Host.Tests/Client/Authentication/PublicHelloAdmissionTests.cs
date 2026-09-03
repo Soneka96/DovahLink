@@ -316,6 +316,102 @@ public class PublicHelloAdmissionTests
         Assert.Equal(0, context.SessionRegistry.ActiveCount);
     }
 
+    // ---- Pre-authentication hello envelope identity ----
+
+    /// <summary>
+    /// Verifies that a pre-authentication hello carrying a non-null envelope sessionId is rejected as
+    /// malformed_message and admits no session -- a structurally valid JSON string in a field the
+    /// schema requires to be null before a session exists, not a wrong JSON type.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_HelloWithNonNullEnvelopeSessionId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        byte[] hello = context.Codec.Encode(
+            PublicMessageType.Hello, "hello-1", Guid.NewGuid().ToString(), null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+    }
+
+    /// <summary>Verifies that a pre-authentication hello carrying a non-null envelope correlationId is rejected as malformed_message.</summary>
+    [Fact]
+    public void HandleMessageAsync_HelloWithNonNullEnvelopeCorrelationId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        byte[] hello = context.Codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, "some-prior-message-id", null, null,
+            new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+    }
+
+    /// <summary>Verifies that a pre-authentication hello carrying a non-null envelope playContextId is rejected as malformed_message -- play context is host-authoritative, never a value a client asserts.</summary>
+    [Fact]
+    public void HandleMessageAsync_HelloWithNonNullEnvelopePlayContextId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        byte[] hello = context.Codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, Guid.NewGuid().ToString(), null,
+            new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies that a pre-authentication hello carrying a non-null envelope-level clientId is
+    /// rejected as malformed_message, distinct from the payload-level <c>hello.clientId</c> (which is
+    /// required and separately validated) -- the envelope identity is not yet established before a
+    /// session exists.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_HelloWithNonNullEnvelopeClientId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        byte[] hello = context.Codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, Guid.NewGuid().ToString(),
+            new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies that a pre-authentication hello carrying a non-null envelope bridgeInstanceId is
+    /// rejected as malformed_message. Built from raw JSON since <see cref="PublicEnvelopeCodec.Encode"/>
+    /// always encodes bridgeInstanceId as null (the approved D1 transition-boundary limitation) and so
+    /// cannot itself produce this otherwise-well-formed wire shape.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_HelloWithNonNullEnvelopeBridgeInstanceId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        string json = $$$"""
+            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{{Guid.NewGuid()}}}","auth":{"method":"unpaired"}},"bridgeInstanceId":"a-bridge-instance-id","playContextId":null,"clientId":null}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+    }
+
     // ---- Admission ordering: full slot must not consume a retryable one-time token ----
 
     /// <summary>
@@ -521,6 +617,73 @@ public class PublicHelloAdmissionTests
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
+    }
+
+    // ---- Post-admission envelope identity ----
+
+    /// <summary>
+    /// Verifies that a post-admission message carrying a foreign envelope-level clientId -- a
+    /// structurally valid GUID that simply is not this connection's own admitted identity -- is
+    /// rejected as malformed_message rather than silently accepted.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionForeignClientId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId);
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, Guid.NewGuid().ToString(), new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>Verifies that a post-admission message repeating this connection's own admitted clientId in the envelope is accepted (not rejected).</summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionMatchingClientId_IsNotRejected()
+    {
+        var context = new TestContext();
+        string clientId = Guid.NewGuid().ToString();
+        byte[] hello = BuildHello(context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+        (PublicEnvelope ackEnvelope, _) = DecodeSent<HelloAckPayload>(context.Codec, context.FakeConnection.SentPayloads[0]);
+        string admittedSessionId = ackEnvelope.SessionId!;
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, clientId, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
+    }
+
+    /// <summary>Verifies that a post-admission message carrying a non-null envelope bridgeInstanceId is rejected as malformed_message. Built from raw JSON for the same reason as the pre-authentication equivalent.</summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionNonNullBridgeInstanceId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId);
+        string json = $$"""
+            {"messageType":"ping","messageId":"msg-2","sessionId":"{{admittedSessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":"a-bridge-instance-id","playContextId":null,"clientId":null}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>Verifies that a post-admission message carrying a non-null envelope playContextId is rejected as malformed_message -- play context is host-authoritative, never a value a client asserts.</summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionNonNullPlayContextId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId);
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, Guid.NewGuid().ToString(), null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
     }
 
     // ---- Post-admission dispatch: capabilities ----

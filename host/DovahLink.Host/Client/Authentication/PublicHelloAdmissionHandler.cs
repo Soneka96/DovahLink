@@ -96,6 +96,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>This connection's admitted message-authorization tier, valid only once <see cref="admitted"/> is <see langword="true"/>.</summary>
     private SessionTrustTier trustTier;
 
+    /// <summary>This connection's admitted client identity, valid only once <see cref="admitted"/> is <see langword="true"/>.</summary>
+    private ClientId admittedClientId;
+
     /// <summary>Creates a hello-admission handler for one accepted connection.</summary>
     /// <param name="codec">Decodes and encodes every message this handler sends or receives.</param>
     /// <param name="sessionRegistry">Admits and invalidates this connection's session.</param>
@@ -190,8 +193,22 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 return Task.CompletedTask;
             }
 
+            if (!IsValidPreAuthEnvelopeIdentity(envelope))
+            {
+                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The hello envelope carries an identity or context field that is not yet established.");
+                return Task.CompletedTask;
+            }
+
             HandleHello(connectionContext, envelope);
             return Task.CompletedTask;
+        }
+
+        ClientId currentClientId;
+        SessionTrustTier currentTier;
+        lock (gate)
+        {
+            currentClientId = admittedClientId;
+            currentTier = trustTier;
         }
 
         if (envelope.SessionId != currentSessionId.ToString())
@@ -200,10 +217,11 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return Task.CompletedTask;
         }
 
-        SessionTrustTier currentTier;
-        lock (gate)
+        if (envelope.BridgeInstanceId is not null || envelope.PlayContextId is not null ||
+            (envelope.ClientId is not null && envelope.ClientId != currentClientId.ToString()))
         {
-            currentTier = trustTier;
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message carries an invalid envelope identity or context field.");
+            return Task.CompletedTask;
         }
 
         if (!IsAllowedForTier(envelope.MessageType, currentTier))
@@ -231,6 +249,24 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Reports whether a pre-authentication <c>hello</c> envelope carries only the identity/context
+    /// fields <c>protocol/schema/README.md</c>'s common envelope allows before a session exists:
+    /// <c>sessionId</c>, <c>bridgeInstanceId</c>, the envelope-level <c>clientId</c>, and
+    /// <c>correlationId</c> must all be <see langword="null"/> (none of them are established yet), and
+    /// <c>playContextId</c> is host-authoritative, never a value a client asserts. This is separate
+    /// from <see cref="HandleHello"/>'s own payload-level validation (<c>hello.clientId</c>,
+    /// <c>endpoint</c>, <c>auth</c>): a structurally valid payload can still carry a semantically
+    /// invalid envelope, per the contract to reject malformed envelope identity fields before calling
+    /// authentication services.
+    /// </summary>
+    private static bool IsValidPreAuthEnvelopeIdentity(PublicEnvelope envelope) =>
+        envelope.SessionId is null &&
+        envelope.BridgeInstanceId is null &&
+        envelope.ClientId is null &&
+        envelope.CorrelationId is null &&
+        envelope.PlayContextId is null;
 
     /// <summary>
     /// Reports whether <paramref name="messageType"/> is a client-originated message this session's
@@ -584,6 +620,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             admitted = true;
             sessionId = newSessionId;
             trustTier = tier;
+            this.admittedClientId = admittedClientId;
             deadlineCts = admissionDeadlineCts;
         }
 
