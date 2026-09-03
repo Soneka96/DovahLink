@@ -211,8 +211,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             currentTier = trustTier;
         }
 
-        if (envelope.SessionId != currentSessionId.ToString())
+        if (envelope.SessionId != currentSessionId.ToString() || !sessionRegistry.IsActive(currentSessionId, connectionId))
         {
+            // The second condition catches a session this connection still believes is admitted but
+            // that the authoritative registry no longer considers active -- for example, invalidated
+            // by a concurrent Factory Reset after this connection's own admission completed. Local
+            // admitted state alone must never be treated as authorization forever.
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.StaleSession, "This sessionId is not valid on this connection.");
             return Task.CompletedTask;
         }
@@ -527,6 +531,16 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
+        if (!sessionRegistry.IsActive(newSessionId, connectionId))
+        {
+            // An unconditional invalidation (Factory Reset) raced ahead of this admission between the
+            // reservation above and this point. Reject rather than send hello_ack for a session the
+            // authoritative registry no longer knows about.
+            tokenAuthenticator.RollbackReservation();
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
+            return;
+        }
+
         tokenAuthenticator.CommitConsumption();
         Admit(connectionContext, envelope, requestedClientId, newSessionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full);
     }
@@ -535,7 +549,10 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// Authenticates an <c>unpaired</c> or <c>trusted_device_credential</c> hello against persisted
     /// trust, rechecking trust once more after the session slot is reserved so a losing race against
     /// a concurrent administrative Block/Revoke never leaves a session admitted for an identity that
-    /// no longer qualifies.
+    /// no longer qualifies. Also rechecks the session registry itself immediately before claiming
+    /// admission's final outcome, so an unconditional Factory Reset that invalidates every session
+    /// between this reservation and that point can never result in a <c>hello_ack</c> for a session
+    /// the authoritative registry no longer knows about.
     /// </summary>
     private void HandleTrustBackedHello(
         IPublicConnectionContext connectionContext,
@@ -603,6 +620,15 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         if (!TryClaimAdmission())
         {
             sessionRegistry.Invalidate(newSessionId, connectionId);
+            return;
+        }
+
+        if (!sessionRegistry.IsActive(newSessionId, connectionId))
+        {
+            // An unconditional invalidation (Factory Reset) raced ahead of this admission between the
+            // reservation above and this point. Reject rather than send hello_ack for a session the
+            // authoritative registry no longer knows about.
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
             return;
         }
 

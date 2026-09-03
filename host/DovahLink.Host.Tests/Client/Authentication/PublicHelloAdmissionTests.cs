@@ -543,7 +543,7 @@ public class PublicHelloAdmissionTests
         Assert.False(credentialThrottle.IsAllowed());
     }
 
-    // ---- Trust recheck race after admission ----
+    // ---- Trust recheck and Factory Reset races after admission ----
 
     /// <summary>
     /// Verifies the recheck-after-admission race: an identity that passed the initial trust check but
@@ -573,6 +573,63 @@ public class PublicHelloAdmissionTests
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.Blocked, error.Code);
         Assert.Equal(0, sessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies the Factory Reset admission race: an unconditional <see cref="ISessionRegistry.InvalidateAll"/>
+    /// landing between this connection's session reservation and its final registry-liveness recheck
+    /// must not result in a successful admission -- no hello_ack is sent, the rejection is the
+    /// retryable rate-limited code (mirroring the full-slot case, since no more specific code exists
+    /// for this outcome), and the registry ends with no active session at all.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_FactoryResetBetweenReservationAndRecheck_RejectsWithoutAdmitting()
+    {
+        var innerSessionRegistry = new FakeSessionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstIsActiveCall(innerSessionRegistry);
+        var trustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.RateLimited, error.Code);
+        Assert.True(error.Retryable);
+        Assert.Equal(0, innerSessionRegistry.ActiveCount);
+    }
+
+    /// <summary>Verifies the same Factory Reset admission race for a one_time_local_token hello, which rolls back the token reservation instead of a trust-store recheck.</summary>
+    [Fact]
+    public void HandleMessageAsync_FactoryResetBetweenReservationAndRecheck_OneTimeLocalToken_RollsBackTokenAndRejects()
+    {
+        var innerSessionRegistry = new FakeSessionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstIsActiveCall(innerSessionRegistry);
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = tokenAuthenticator.IssueToken();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.RateLimited, error.Code);
+        Assert.Equal(0, innerSessionRegistry.ActiveCount);
+        Assert.True(tokenAuthenticator.TryValidate(token));
     }
 
     // ---- Pre-admission allowlist ----
@@ -617,6 +674,44 @@ public class PublicHelloAdmissionTests
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
+    }
+
+    /// <summary>
+    /// Verifies that this connection's own local <c>admitted == true</c> state is never treated as
+    /// authorization forever: once the authoritative registry no longer considers the session active
+    /// (simulated here by <see cref="ISessionRegistry.InvalidateAll"/>, as a concurrent Factory Reset
+    /// would cause), a post-admission message carrying the exact sessionId this connection was
+    /// admitted with is still rejected as stale_session.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionSessionInvalidatedExternally_RejectsAsStaleSession()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId);
+
+        context.SessionRegistry.InvalidateAll();
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+    }
+
+    /// <summary>Verifies the same external-invalidation rejection for a full (paired) session, for symmetry with the restricted-session case above.</summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionSessionInvalidatedExternally_FullSession_RejectsAsStaleSession()
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string admittedSessionId);
+
+        context.SessionRegistry.InvalidateAll();
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
     }
 
     // ---- Post-admission envelope identity ----
@@ -1285,5 +1380,54 @@ public class PublicHelloAdmissionTests
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// A narrow <see cref="ISessionRegistry"/> decorator used only to simulate the Factory Reset
+    /// admission race deterministically: the first call to <see cref="IsActive"/> -- exactly the
+    /// handler's own post-reservation registry-liveness recheck -- first invalidates every session on
+    /// the wrapped registry, as if an administrative Factory Reset landed in that exact window, then
+    /// answers with the wrapped registry's now-accurate result. Every other member delegates directly.
+    /// </summary>
+    private sealed class SessionRegistryThatInvalidatesAllOnFirstIsActiveCall : ISessionRegistry
+    {
+        /// <summary>The real registry every member delegates to.</summary>
+        private readonly ISessionRegistry inner;
+
+        /// <summary>Whether the simulated Factory Reset has already been triggered.</summary>
+        private bool triggered;
+
+        /// <summary>Creates a decorator that triggers a full invalidation on its first <see cref="IsActive"/> call.</summary>
+        /// <param name="inner">The real registry every member delegates to.</param>
+        public SessionRegistryThatInvalidatesAllOnFirstIsActiveCall(ISessionRegistry inner)
+        {
+            this.inner = inner;
+        }
+
+        /// <inheritdoc/>
+        public bool TryCreate(
+            ClientId clientId, ConnectionId connectionId, SessionAuthenticationSource authenticationSource, SessionTrustTier trustTier, out SessionId sessionId) =>
+            inner.TryCreate(clientId, connectionId, authenticationSource, trustTier, out sessionId);
+
+        /// <inheritdoc/>
+        public void Invalidate(SessionId sessionId, ConnectionId connectionId) => inner.Invalidate(sessionId, connectionId);
+
+        /// <inheritdoc/>
+        public void InvalidateAllForClient(ClientId clientId) => inner.InvalidateAllForClient(clientId);
+
+        /// <inheritdoc/>
+        public bool IsActive(SessionId sessionId, ConnectionId connectionId)
+        {
+            if (!triggered)
+            {
+                triggered = true;
+                inner.InvalidateAll();
+            }
+
+            return inner.IsActive(sessionId, connectionId);
+        }
+
+        /// <inheritdoc/>
+        public void InvalidateAll() => inner.InvalidateAll();
     }
 }
