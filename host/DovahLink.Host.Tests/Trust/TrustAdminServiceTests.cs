@@ -446,4 +446,103 @@ public class TrustAdminServiceTests
         Assert.Equal(TrustMutationOutcome.Changed, await admin.ForgetByShortIdAsync("12345"));
         Assert.Null(trustStore.TryGet(clientId));
     }
+
+    /// <summary>
+    /// Verifies the exact security-mandated ordering for Revoke: the authoritative trust-store
+    /// mutation happens before pairing is cancelled, which happens before the session is invalidated
+    /// -- per <c>ai/context/protocol/security.md</c>'s "authoritative state change, credential
+    /// invalidation where applicable, future authentication/pairing enforcement, ... then forced
+    /// close" ordering.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_AppliesSideEffectsInTheMandatedOrder()
+    {
+        List<string> order = [];
+        var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
+        var sessions = new FakeSessionRegistry { OnMutationApplied = order.Add };
+        var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
+        sessions.Create(clientId);
+        var admin = new TrustAdminService(trustStore, sessions, pairing);
+
+        await admin.RevokeAsync(clientId);
+
+        Assert.Equal(["Revoke", "Cancel", "InvalidateAllForClient"], order);
+    }
+
+    /// <summary>Verifies the same mandated ordering for Block.</summary>
+    [Fact]
+    public async Task BlockAsync_AppliesSideEffectsInTheMandatedOrder()
+    {
+        List<string> order = [];
+        var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
+        var sessions = new FakeSessionRegistry { OnMutationApplied = order.Add };
+        var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
+        sessions.Create(clientId);
+        var admin = new TrustAdminService(trustStore, sessions, pairing);
+
+        await admin.BlockAsync(clientId);
+
+        Assert.Equal(["Block", "Cancel", "InvalidateAllForClient"], order);
+    }
+
+    /// <summary>Verifies the same mandated ordering for Reset Trust, including per-affected-device invalidation.</summary>
+    [Fact]
+    public async Task ResetTrustAsync_AppliesSideEffectsInTheMandatedOrder()
+    {
+        List<string> order = [];
+        var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
+        var sessions = new FakeSessionRegistry { OnMutationApplied = order.Add };
+        var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
+        sessions.Create(clientId);
+        var admin = new TrustAdminService(trustStore, sessions, pairing);
+
+        await admin.ResetTrustAsync();
+
+        Assert.Equal(["ResetTrust", "CancelAll", "InvalidateAllForClient"], order);
+    }
+
+    /// <summary>
+    /// Verifies that Reset Trust with no trusted devices still cancels pairing (proven by the existing
+    /// <see cref="ResetTrustAsync_NoTrustedDevices_StillCancelsPairing"/> test) without the store ever
+    /// reporting a mutation that did not occur.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_NoTrustedDevices_StoreReportsNoMutation()
+    {
+        List<string> order = [];
+        var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
+        var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), pairing);
+
+        await admin.ResetTrustAsync();
+
+        Assert.Equal(["CancelAll"], order);
+    }
+
+    /// <summary>
+    /// Verifies the mandated ordering for Forget: the authoritative trust-store mutation happens
+    /// before pairing is cancelled. Forget never invalidates a session -- unlike Revoke, Block, and
+    /// Reset Trust, it carries no session-invalidation side effect to order against.
+    /// </summary>
+    [Fact]
+    public async Task ForgetAsync_AppliesSideEffectsInTheMandatedOrder()
+    {
+        List<string> order = [];
+        var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
+        var sessions = new FakeSessionRegistry { OnMutationApplied = order.Add };
+        var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        var admin = new TrustAdminService(trustStore, sessions, pairing);
+
+        await admin.ForgetAsync(clientId);
+
+        Assert.Equal(["Forget", "Cancel"], order);
+    }
 }

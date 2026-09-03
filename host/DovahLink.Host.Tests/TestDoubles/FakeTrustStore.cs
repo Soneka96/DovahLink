@@ -30,6 +30,15 @@ public sealed class FakeTrustStore : ITrustStore
     /// <summary>Optional asynchronous work used to hold a conditional upsert in flight during concurrency tests.</summary>
     public Func<Task>? BeforeConditionalUpsert { get; set; }
 
+    /// <summary>
+    /// Optional hook invoked with a short label immediately after a mutation successfully applies
+    /// (<c>"Revoke"</c>, <c>"Block"</c>, <c>"Unblock"</c>, <c>"Forget"</c>, <c>"ResetTrust"</c>, or
+    /// <c>"Clear"</c>), letting a test build a cross-collaborator call-order timeline together with
+    /// <see cref="FakePairingCoordinator.OnMutationApplied"/> and
+    /// <see cref="FakeSessionRegistry.OnMutationApplied"/>.
+    /// </summary>
+    public Action<string>? OnMutationApplied { get; set; }
+
     /// <summary>Seeds the fake with a record as if it had already been upserted.</summary>
     /// <param name="record">The record to seed.</param>
     public void Seed(TrustRecord record) => recordsByClientId[record.ClientId] = record;
@@ -70,6 +79,7 @@ public sealed class FakeTrustStore : ITrustStore
         recordsByClientId.Clear();
         ClearCallCount++;
         MutationGeneration++;
+        OnMutationApplied?.Invoke("Clear");
     }
 
     /// <inheritdoc/>
@@ -137,6 +147,7 @@ public sealed class FakeTrustStore : ITrustStore
             BlockedAtUtc = null,
         };
         MutationGeneration++;
+        OnMutationApplied?.Invoke("Revoke");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
@@ -163,6 +174,7 @@ public sealed class FakeTrustStore : ITrustStore
             BlockedAtUtc = DateTimeOffset.UtcNow,
         };
         MutationGeneration++;
+        OnMutationApplied?.Invoke("Block");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
@@ -188,6 +200,7 @@ public sealed class FakeTrustStore : ITrustStore
             BlockedAtUtc = null,
         };
         MutationGeneration++;
+        OnMutationApplied?.Invoke("Unblock");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
@@ -209,6 +222,7 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId.Remove(clientId);
         MutationGeneration++;
+        OnMutationApplied?.Invoke("Forget");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
@@ -236,6 +250,7 @@ public sealed class FakeTrustStore : ITrustStore
         if (affected.Count > 0)
         {
             MutationGeneration++;
+            OnMutationApplied?.Invoke("ResetTrust");
         }
         return Task.FromResult<IReadOnlyList<ClientId>>(affected);
     }

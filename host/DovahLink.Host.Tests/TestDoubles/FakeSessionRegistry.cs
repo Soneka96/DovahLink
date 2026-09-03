@@ -37,6 +37,14 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     /// </summary>
     public Action? AfterCreate { get; set; }
 
+    /// <summary>
+    /// Optional hook invoked with a short label immediately after <see cref="InvalidateAllForClient"/>
+    /// or <see cref="InvalidateAll"/> applies (<c>"InvalidateAllForClient"</c> or <c>"InvalidateAll"</c>),
+    /// letting a test build a cross-collaborator call-order timeline together with
+    /// <see cref="FakeTrustStore.OnMutationApplied"/> and <see cref="FakePairingCoordinator.OnMutationApplied"/>.
+    /// </summary>
+    public Action<string>? OnMutationApplied { get; set; }
+
     /// <summary>A synchronized snapshot of client-wide invalidation calls.</summary>
     public IReadOnlyList<ClientId> InvalidateAllForClientCalls
     {
@@ -123,6 +131,8 @@ public sealed class FakeSessionRegistry : ISessionRegistry
                 activeSessions.Remove(sessionId);
             }
         }
+
+        OnMutationApplied?.Invoke("InvalidateAllForClient");
     }
 
     /// <inheritdoc/>
@@ -165,6 +175,8 @@ public sealed class FakeSessionRegistry : ISessionRegistry
             invalidateAllCallCount++;
             activeSessions.Clear();
         }
+
+        OnMutationApplied?.Invoke("InvalidateAll");
     }
 
     /// <summary>Creates a fake session with an explicit connection identity, authentication source, and trust tier.</summary>

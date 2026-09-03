@@ -11,6 +11,14 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
     /// <summary>The clients whose pairing operations were cancelled.</summary>
     public List<DovahLink.Host.Identity.ClientId> CancelledClientIds { get; } = [];
 
+    /// <summary>
+    /// Optional hook invoked with a short label immediately after <see cref="Cancel"/> or
+    /// <see cref="CancelAll"/> applies (<c>"Cancel"</c> or <c>"CancelAll"</c>), letting a test build a
+    /// cross-collaborator call-order timeline together with <see cref="FakeTrustStore.OnMutationApplied"/>
+    /// and <see cref="FakeSessionRegistry.OnMutationApplied"/>.
+    /// </summary>
+    public Action<string>? OnMutationApplied { get; set; }
+
     /// <inheritdoc/>
     public PairingStartResult BeginPairing(DovahLink.Host.Identity.ClientId clientId) =>
         new(PairingStartOutcome.OtherDeviceActive, null);
@@ -42,12 +50,17 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
     public void NotifyReconnected(DovahLink.Host.Identity.ClientId clientId) { }
 
     /// <inheritdoc/>
-    public void CancelAll() => CancelAllCallCount++;
+    public void CancelAll()
+    {
+        CancelAllCallCount++;
+        OnMutationApplied?.Invoke("CancelAll");
+    }
 
     /// <summary>Records one client-specific cancellation and returns the fake outcome.</summary>
     private PairingCancelOutcome CancelAndRecord(DovahLink.Host.Identity.ClientId clientId)
     {
         CancelledClientIds.Add(clientId);
+        OnMutationApplied?.Invoke("Cancel");
         return PairingCancelOutcome.Cancelled;
     }
 }

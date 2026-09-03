@@ -228,4 +228,30 @@ public class TrustResetServiceTests
         Assert.Single(results, result => !result);
         Assert.Equal(1, trustStore.ClearCallCount);
     }
+
+    /// <summary>
+    /// Verifies the exact security-mandated ordering for a confirmed Factory Reset: the trust store is
+    /// cleared before pairing is cancelled, which happens before every session is unconditionally
+    /// invalidated -- per <c>ai/context/protocol/security.md</c>'s "authoritative state change,
+    /// credential invalidation where applicable, future authentication/pairing enforcement, ... then
+    /// forced close" ordering.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_CorrectCode_AppliesSideEffectsInTheMandatedOrder()
+    {
+        List<string> order = [];
+        var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
+        var sessionRegistry = new FakeSessionRegistry { OnMutationApplied = order.Add };
+        var pairingCoordinator = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        var clock = new FakeClock();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", clock.UtcNow));
+        sessionRegistry.Create(clientId);
+        var service = new TrustResetService(trustStore, sessionRegistry, pairingCoordinator, clock);
+        FactoryResetChallenge challenge = service.BeginReset();
+
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+
+        Assert.Equal(["Clear", "CancelAll", "InvalidateAll"], order);
+    }
 }
