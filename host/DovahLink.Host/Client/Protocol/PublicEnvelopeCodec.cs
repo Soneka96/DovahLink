@@ -79,12 +79,22 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
 
     /// <summary>
     /// The serializer options used for message-specific payload (de)serialization: camelCase field
-    /// names matching the canonical schema, and snake_case wire values for every protocol enum.
+    /// names matching the canonical schema, snake_case wire values for every protocol enum, and strict
+    /// wire validation of every required field. <see cref="JsonSerializerOptions.RespectNullableAnnotations"/>
+    /// makes a schema-required reference/collection member's C# nullable-reference annotation (every
+    /// payload type in this project enables nullable reference types) into real wire validation: the
+    /// C# <c>required</c> keyword alone only checks that a property was present in the document, not
+    /// that its value was not JSON <c>null</c>, so <c>{"auth": null}</c> would otherwise satisfy
+    /// <see cref="HelloPayload.Auth"/>'s presence check while still producing a null reference a
+    /// handler later dereferences. With this option, deserializing an explicit <c>null</c> into any
+    /// non-nullable member throws <see cref="JsonException"/>, which <see cref="TryDecodePayload{TPayload}"/>
+    /// already turns into a decode failure.
     /// </summary>
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+        RespectNullableAnnotations = true,
     };
 
     /// <inheritdoc/>

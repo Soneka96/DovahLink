@@ -372,8 +372,11 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>Answers a <c>subscribe</c> request: every requested area is rejected, since no state area is currently registered.</summary>
     private void HandleSubscribe(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
     {
-        if (!codec.TryDecodePayload(envelope, out SubscribePayload? payload))
+        if (!codec.TryDecodePayload(envelope, out SubscribePayload? payload) || payload.StateAreas.Any(stateArea => stateArea is null))
         {
+            // A null element within stateAreas is a schema violation the .NET nullable-annotation-aware
+            // deserializer does not catch on its own: it validates a property's own value against its
+            // declared nullability, not the nullability of a collection's individual elements.
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The subscribe message is malformed.");
             return;
         }

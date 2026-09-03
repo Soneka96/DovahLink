@@ -349,6 +349,40 @@ public class PublicEnvelopeCodecTests
         Assert.False(Codec.TryDecodePayload(envelope!, out ErrorPayload? _));
     }
 
+    /// <summary>
+    /// Verifies that a required reference-type field explicitly present as JSON <c>null</c> fails
+    /// payload decoding rather than satisfying the C# <c>required</c> keyword's presence-only check:
+    /// <c>hello.auth</c> is present in the document, but its value is <c>null</c>.
+    /// </summary>
+    [Fact]
+    public void TryDecodePayload_HelloAuthExplicitNull_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("hello", """{"endpoint":"client","clientId":"c1","auth":null}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out HelloPayload? _));
+    }
+
+    /// <summary>Verifies that a required list-typed field explicitly present as JSON <c>null</c> fails payload decoding, for <c>capabilities</c>.</summary>
+    [Fact]
+    public void TryDecodePayload_CapabilitiesListExplicitNull_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("capabilities", """{"capabilities":null}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out CapabilitiesPayload? _));
+    }
+
+    /// <summary>Verifies that a required list-typed field explicitly present as JSON <c>null</c> fails payload decoding, for <c>subscribe</c>'s <c>stateAreas</c>.</summary>
+    [Fact]
+    public void TryDecodePayload_SubscribeStateAreasExplicitNull_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("subscribe", """{"stateAreas":null}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out SubscribePayload? _));
+    }
+
     // ---- Bounds: nesting depth ----
 
     /// <summary>Verifies that a payload nested exactly to the approved 32-level depth is accepted.</summary>

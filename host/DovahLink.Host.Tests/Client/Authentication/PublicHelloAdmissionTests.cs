@@ -316,6 +316,27 @@ public class PublicHelloAdmissionTests
         Assert.Equal(0, context.SessionRegistry.ActiveCount);
     }
 
+    /// <summary>
+    /// Verifies that a hello whose required <c>auth</c> field is explicitly JSON <c>null</c> -- present,
+    /// satisfying the C# <c>required</c> keyword's presence-only check, but not a value the handler can
+    /// dereference -- is rejected as malformed_message without ever throwing a
+    /// <see cref="NullReferenceException"/> or admitting a session.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_HelloAuthExplicitlyNull_RejectsAsMalformedWithoutThrowing()
+    {
+        var context = new TestContext();
+        string json = $$"""
+            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{Guid.NewGuid()}}","auth":null},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+    }
+
     // ---- Pre-authentication hello envelope identity ----
 
     /// <summary>
@@ -1113,6 +1134,27 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
     }
 
+    /// <summary>
+    /// Verifies that a capabilities message whose required <c>capabilities</c> field is explicitly
+    /// JSON <c>null</c> is rejected as malformed_message rather than throwing a
+    /// <see cref="NullReferenceException"/> out of <see cref="PublicHelloAdmissionHandler"/>'s own
+    /// <c>payload.Capabilities.Count</c> dereference.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_CapabilitiesExplicitlyNull_RejectsAsMalformedWithoutThrowing()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
+        string json = $$"""
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":null},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
     // ---- Post-admission dispatch: subscribe and snapshot_request ----
 
     /// <summary>Verifies that subscribe rejects every requested area, since no state area is currently registered.</summary>
@@ -1142,6 +1184,27 @@ public class PublicHelloAdmissionTests
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
         string json = $$"""
             {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies that a subscribe message whose <c>stateAreas</c> array contains a <c>null</c> element --
+    /// a schema violation .NET's nullable-annotation-aware deserializer does not catch on its own, since
+    /// it validates a property's own value, not a collection's individual elements -- is rejected as
+    /// malformed_message.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_SubscribeStateAreasContainsNull_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+        string json = $$"""
+            {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"stateAreas":["area_one",null]},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
