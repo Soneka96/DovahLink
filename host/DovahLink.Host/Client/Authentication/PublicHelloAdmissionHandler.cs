@@ -592,12 +592,24 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// Authenticates an <c>unpaired</c> or <c>trusted_device_credential</c> hello against persisted
     /// trust, rechecking trust once more after the session slot is reserved so a losing race against
     /// a concurrent administrative Block/Revoke never leaves a session admitted for an identity that
-    /// no longer qualifies. Also rechecks the session registry itself immediately before claiming
-    /// admission's final outcome, so an unconditional Factory Reset that invalidates every session
-    /// between this reservation and that point can never result in a <c>hello_ack</c> for a session
-    /// the authoritative registry no longer knows about; that branch also requests this connection's
-    /// close, since its one-shot admission outcome is already consumed and it can never complete
-    /// admission again.
+    /// no longer qualifies. For <c>trusted_device_credential</c> specifically, the recheck also
+    /// requires the authoritative current record to still exist, still be <see
+    /// cref="KnownDeviceState.Trusted"/>, and still validate the presented credential against its
+    /// current <see cref="TrustRecord.CredentialVerifier"/> -- not merely the absence of Blocked/Revoked
+    /// -- so a Factory Reset that deletes the record, or an administrative credential rotation, between
+    /// the initial check and this recheck can never admit a session for a credential that is no longer
+    /// current. A deleted record is rejected the same way as a never-paired identity (<see
+    /// cref="PublicProtocolErrorCode.Unauthenticated"/>), per <c>ai/context/protocol/security.md</c>'s
+    /// "Because Factory Reset deletes every Known Device record ... the Bridge rejects it through the
+    /// ordinary unrecognized-credential/unpaired path". This recheck compares directly rather than
+    /// through <see cref="credentialThrottle"/>: it re-validates an attempt already accounted for by the
+    /// initial check above, so re-throttling it here would let unrelated concurrent failures spuriously
+    /// fail an otherwise-legitimate admission. Also rechecks the session registry itself immediately
+    /// before claiming admission's final outcome, so an unconditional Factory Reset that invalidates
+    /// every session between this reservation and that point can never result in a <c>hello_ack</c> for
+    /// a session the authoritative registry no longer knows about; that branch also requests this
+    /// connection's close, since its one-shot admission outcome is already consumed and it can never
+    /// complete admission again.
     /// </summary>
     private void HandleTrustBackedHello(
         IPublicConnectionContext connectionContext,
@@ -659,6 +671,19 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         {
             sessionRegistry.Invalidate(newSessionId, connectionId);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Revoked, "This client's trust has been revoked.");
+            return;
+        }
+
+        if (source == SessionAuthenticationSource.TrustedDeviceCredential &&
+            (recheck is null || recheck.State != KnownDeviceState.Trusted ||
+             !CredentialHasher.FixedTimeEquals(recheck.CredentialVerifier, CredentialHasher.Hash(credential!))))
+        {
+            // The authoritative record was deleted (Factory Reset), demoted, or its verifier rotated
+            // between the initial check above and this point. A deleted record is classified the same
+            // as a never-paired identity, not Blocked/Revoked, per this method's own documented
+            // Factory Reset contract.
+            sessionRegistry.Invalidate(newSessionId, connectionId);
+            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Unauthenticated, "Authentication failed.");
             return;
         }
 

@@ -737,6 +737,102 @@ public class PublicHelloAdmissionTests
         Assert.Equal(1, innerSessionRegistry.ActiveCount);
     }
 
+    /// <summary>
+    /// Verifies the exact Factory Reset gap the null/Trusted/verifier recheck exists to close: a
+    /// trust record deleted between the initial credential check and the post-reservation recheck (for
+    /// example by Factory Reset clearing the trust store) must not admit, since a deleted record is
+    /// neither Blocked nor Revoked and would otherwise fall through both of those explicit checks.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_TrustRecordRemovedBetweenValidationAndRecheck_RejectsAsUnauthenticated()
+    {
+        var sessionRegistry = new FakeSessionRegistry();
+        var innerTrustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(innerTrustStore, recordAfterFirstLookup: null);
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.Unauthenticated, error.Code);
+        Assert.Equal(0, sessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies that a credential which validated against the initially-read record cannot admit once
+    /// the authoritative record's verifier has changed by the time of the post-reservation recheck (for
+    /// example an administrative credential rotation racing this admission): the presented (now stale)
+    /// credential must be rejected even though the record is still <see cref="KnownDeviceState.Trusted"/>.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_CredentialVerifierReplacedBetweenValidationAndRecheck_RejectsOldCredential()
+    {
+        var sessionRegistry = new FakeSessionRegistry();
+        var innerTrustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(
+            innerTrustStore, BuildTrustedRecord(clientId, WrongButValidCredential));
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.Unauthenticated, error.Code);
+        Assert.Equal(0, sessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies the finding's named Factory Reset interleaving deterministically, against the real
+    /// collaborator ordering rather than a canned substitute value: <see cref="TrustResetService"/>
+    /// clears the trust store and then unconditionally invalidates every session, in that order. A
+    /// connection whose credential validated against the trust store exactly before that reset ran must
+    /// not be able to create a session that was never touched by the (already-completed) invalidation
+    /// sweep and slip through as authenticated -- the recheck's own record-deleted check must catch it
+    /// independently of session-registry liveness.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_FactoryResetClearsTrustBeforeProvisionalSessionCreated_RejectsWithoutAdmitting()
+    {
+        var sessionRegistry = new FakeSessionRegistry();
+        var trustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var raceTrustStore = new TrustStoreThatTriggersFactoryResetOnFirstLookup(trustStore, sessionRegistry);
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        Assert.DoesNotContain(fakeConnection.SentPayloads, payload =>
+            codec.TryDecode(payload, out PublicEnvelope? sentEnvelope) && sentEnvelope.MessageType == PublicMessageType.HelloAck);
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.Unauthenticated, error.Code);
+        Assert.Equal(0, sessionRegistry.ActiveCount);
+    }
+
     // ---- Pre-admission allowlist ----
 
     /// <summary>Verifies that any non-hello message before admission is rejected as malformed_message.</summary>
@@ -1567,25 +1663,26 @@ public class PublicHelloAdmissionTests
     /// <summary>
     /// A narrow <see cref="ITrustStore"/> decorator used only to simulate the recheck-after-admission
     /// race: returns the wrapped store's real value on the first <see cref="TryGet"/> call and a
-    /// fixed replacement record on every call after, as if an administrative mutation landed between
-    /// this handler's initial check and its post-reservation recheck. The handler under test never
-    /// calls any other <see cref="ITrustStore"/> member, so those are not implemented.
+    /// fixed replacement record (or <see langword="null"/>, simulating a deleted record) on every call
+    /// after, as if an administrative mutation landed between this handler's initial check and its
+    /// post-reservation recheck. The handler under test never calls any other <see cref="ITrustStore"/>
+    /// member, so those are not implemented.
     /// </summary>
     private sealed class TrustStoreThatChangesOnSecondLookup : ITrustStore
     {
         /// <summary>The real store backing the first <see cref="TryGet"/> call.</summary>
         private readonly ITrustStore inner;
 
-        /// <summary>The record returned by every <see cref="TryGet"/> call after the first.</summary>
-        private readonly TrustRecord recordAfterFirstLookup;
+        /// <summary>The record returned by every <see cref="TryGet"/> call after the first, or <see langword="null"/> to simulate a deleted record.</summary>
+        private readonly TrustRecord? recordAfterFirstLookup;
 
         /// <summary>The number of <see cref="TryGet"/> calls made so far.</summary>
         private int callCount;
 
         /// <summary>Creates a decorator that changes its answer starting from the second lookup.</summary>
         /// <param name="inner">The real store backing the first call.</param>
-        /// <param name="recordAfterFirstLookup">The record returned by every call after the first.</param>
-        public TrustStoreThatChangesOnSecondLookup(ITrustStore inner, TrustRecord recordAfterFirstLookup)
+        /// <param name="recordAfterFirstLookup">The record returned by every call after the first, or <see langword="null"/> to simulate a deleted record.</param>
+        public TrustStoreThatChangesOnSecondLookup(ITrustStore inner, TrustRecord? recordAfterFirstLookup)
         {
             this.inner = inner;
             this.recordAfterFirstLookup = recordAfterFirstLookup;
@@ -1679,5 +1776,86 @@ public class PublicHelloAdmissionTests
 
         /// <inheritdoc/>
         public void InvalidateAll() => inner.InvalidateAll();
+    }
+
+    /// <summary>
+    /// A narrow <see cref="ITrustStore"/> decorator used only to simulate the exact Factory Reset
+    /// interleaving named by the admission handler's own Factory Reset contract, against the real
+    /// wrapped collaborators rather than a canned substitute value: the first <see cref="TryGet"/> call
+    /// (the handler's initial credential check) returns the wrapped store's real value, then
+    /// synchronously runs <see cref="ITrustStore.ClearAsync"/> followed by
+    /// <see cref="ISessionRegistry.InvalidateAll"/> on the wrapped collaborators -- the same order
+    /// <see cref="TrustResetService.ConfirmResetAsync"/> uses -- before returning, as if a Factory Reset
+    /// landed in that exact window. Every call after the first delegates to the now-cleared wrapped
+    /// store. The handler under test never calls any other <see cref="ITrustStore"/> member, so those
+    /// are not implemented.
+    /// </summary>
+    private sealed class TrustStoreThatTriggersFactoryResetOnFirstLookup : ITrustStore
+    {
+        /// <summary>The real store backing every <see cref="TryGet"/> call, cleared after the first.</summary>
+        private readonly ITrustStore inner;
+
+        /// <summary>The session registry unconditionally invalidated alongside the simulated reset.</summary>
+        private readonly ISessionRegistry sessionRegistry;
+
+        /// <summary>Whether the simulated Factory Reset has already been triggered.</summary>
+        private bool triggered;
+
+        /// <summary>Creates a decorator that triggers a simulated Factory Reset on its first lookup.</summary>
+        /// <param name="inner">The real store backing every call, cleared after the first.</param>
+        /// <param name="sessionRegistry">The session registry unconditionally invalidated alongside the simulated reset.</param>
+        public TrustStoreThatTriggersFactoryResetOnFirstLookup(ITrustStore inner, ISessionRegistry sessionRegistry)
+        {
+            this.inner = inner;
+            this.sessionRegistry = sessionRegistry;
+        }
+
+        /// <inheritdoc/>
+        public TrustRecord? TryGet(ClientId clientId)
+        {
+            if (!triggered)
+            {
+                triggered = true;
+                TrustRecord? initialValue = inner.TryGet(clientId);
+                inner.ClearAsync().GetAwaiter().GetResult();
+                sessionRegistry.InvalidateAll();
+                return initialValue;
+            }
+
+            return inner.TryGet(clientId);
+        }
+
+        /// <summary>Not called by the handler under test.</summary>
+        public IReadOnlyList<TrustRecord> List() => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task UpsertAsync(TrustRecord record, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task ClearAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public long MutationGeneration => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<bool> TryUpsertIfGenerationAsync(TrustRecord record, long expectedGeneration, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public TrustRecord? TryGetByShortId(string shortId) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
