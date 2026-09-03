@@ -332,10 +332,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         workflow = self._read(".github/workflows/app-ci.yml")
         expected_paths = {
             '- "app/**"',
-            '- "bridge/**"',
             '- "protocol/**"',
             '- "sdk/dart/dovahlink_client/**"',
-            '- "tooling/vcpkg-ports/**"',
             '- ".github/workflows/app-ci.yml"',
         }
 

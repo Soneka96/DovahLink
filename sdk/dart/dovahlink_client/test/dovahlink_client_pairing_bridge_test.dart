@@ -1,3 +1,6 @@
+@Tags(<String>['legacy_bridge'])
+library;
+
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -105,7 +108,13 @@ Future<DovahLinkClient> _startUnpairedSession(
   return client;
 }
 
-/// Runs real bridge-harness pairing integration tests.
+/// Legacy Bridge compatibility coverage: proves real end-to-end pairing -- challenge, code
+/// confirmation, trust persistence, and recovery across a simulated app relaunch or Bridge restart
+/// -- against a live `dovahlink_bridge_harness` process, per `ARCHITECTURE.md`'s "Bridge migration
+/// and cutover" and `ai/context/sdk/testing.md`'s "Transport fidelity". Tagged `legacy_bridge` and
+/// skipped by default (see `dart_test.yaml`) -- not part of default SDK/App CI. Run explicitly with
+/// `dart test --tags legacy_bridge --run-skipped` after building the harness (`cmake --build
+/// --preset windows-x64-debug --target dovahlink_bridge_harness` in `bridge/`).
 void main() {
   group('Behavior end-to-end pairing behaves correctly', () {
     test(
