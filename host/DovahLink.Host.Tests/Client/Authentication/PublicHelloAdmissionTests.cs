@@ -209,7 +209,12 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.Unauthenticated, error.Code);
     }
 
-    /// <summary>Verifies that a blocked identity is rejected the same way for both unpaired and trusted-device hellos.</summary>
+    /// <summary>
+    /// Verifies that a blocked identity is rejected the same way for both unpaired and trusted-device
+    /// hellos, and -- for the trusted-device case -- that this fast, explicit rejection never touches
+    /// <see cref="ITrustedCredentialFailureThrottle"/>'s global budget: Blocked stays on its own
+    /// unthrottled path, unaffected by the clientId-rotation throttle fix.
+    /// </summary>
     [Theory]
     [InlineData(HelloAuthMethod.Unpaired)]
     [InlineData(HelloAuthMethod.TrustedDeviceCredential)]
@@ -226,9 +231,15 @@ public class PublicHelloAdmissionTests
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.Blocked, error.Code);
         Assert.Equal(0, context.SessionRegistry.ActiveCount);
+        Assert.True(context.CredentialThrottle.IsAllowed());
     }
 
-    /// <summary>Verifies that a revoked identity presenting a trusted_device_credential is rejected as revoked, distinct from a never-paired identity's unauthenticated rejection.</summary>
+    /// <summary>
+    /// Verifies that a revoked identity presenting a trusted_device_credential is rejected as revoked,
+    /// distinct from a never-paired identity's unauthenticated rejection, and that this fast, explicit
+    /// rejection never touches <see cref="ITrustedCredentialFailureThrottle"/>'s global budget: Revoked
+    /// stays on its own unthrottled path, unaffected by the clientId-rotation throttle fix.
+    /// </summary>
     [Fact]
     public void HandleMessageAsync_RevokedIdentityTrustedDeviceCredential_RejectsAsRevoked()
     {
@@ -242,6 +253,7 @@ public class PublicHelloAdmissionTests
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.Revoked, error.Code);
+        Assert.True(context.CredentialThrottle.IsAllowed());
     }
 
     /// <summary>
@@ -265,6 +277,61 @@ public class PublicHelloAdmissionTests
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.Unauthenticated, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies that a never-paired identity's failed trusted_device_credential attempt consumes
+    /// <see cref="ITrustedCredentialFailureThrottle"/>'s global budget the same way a known client's
+    /// wrong credential does, rather than short-circuiting before the throttle is ever consulted.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_NeverPairedTrustedDeviceCredential_ConsumesThrottleBudget()
+    {
+        var context = new TestContext();
+        byte[] hello = BuildHello(
+            context.Codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        // The never-paired attempt recorded exactly one failure against the credential throttle: the
+        // remaining attempts exhaust its budget, proving it was not bypassed entirely.
+        for (int i = 0; i < Constants.TrustedCredentialMaxFailuresPerWindow - 1; i++)
+        {
+            context.CredentialThrottle.RecordFailure();
+        }
+
+        Assert.False(context.CredentialThrottle.IsAllowed());
+    }
+
+    /// <summary>
+    /// Verifies the exact clientId-rotation bypass the finding describes cannot evade the global
+    /// credential failure budget: <see cref="Constants.TrustedCredentialMaxFailuresPerWindow"/> failed
+    /// trusted_device_credential attempts, each presenting a different random, never-seeded clientId,
+    /// still exhaust the shared throttle -- and a subsequent attempt with a genuinely trusted, correct
+    /// credential is rejected while that exhausted budget has not yet reset.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_UnknownClientIdRotationAcrossManyAttempts_StillExhaustsGlobalThrottle()
+    {
+        var context = new TestContext();
+        for (int i = 0; i < Constants.TrustedCredentialMaxFailuresPerWindow; i++)
+        {
+            byte[] hello = BuildHello(
+                context.Codec, Guid.NewGuid().ToString(), $"hello-{i}", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
+            context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+        }
+
+        Assert.False(context.CredentialThrottle.IsAllowed());
+
+        string clientId = Guid.NewGuid().ToString();
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        byte[] finalHello = BuildHello(
+            context.Codec, clientId, "hello-final", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+        context.Handler.HandleMessageAsync(context.Connection, finalHello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
         Assert.Equal(PublicProtocolErrorCode.Unauthenticated, error.Code);
         Assert.Equal(0, context.SessionRegistry.ActiveCount);
     }

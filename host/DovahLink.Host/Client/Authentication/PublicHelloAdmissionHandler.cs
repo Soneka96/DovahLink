@@ -35,6 +35,15 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>The pre-authentication deadline claimed the admission outcome before any <c>hello</c> succeeded.</summary>
     private const int OutcomeDeadlineExpired = 2;
 
+    /// <summary>
+    /// A fixed, valid-shaped verifier a <c>trusted_device_credential</c> attempt against a nonexistent
+    /// or untrusted <c>clientId</c> compares against, so that path's credential comparison always runs
+    /// with the same shape (and consumes <see cref="credentialThrottle"/>'s budget the same way) as a
+    /// genuine wrong-credential attempt against a known, trusted client -- closing the clientId-rotation
+    /// throttle bypass this otherwise-unreachable comparison would leave open.
+    /// </summary>
+    private static readonly string DummyCredentialVerifier = CredentialHasher.Hash("dummy-credential-verifier-never-matches-a-real-one");
+
     /// <summary>Decodes and encodes every message this handler sends or receives.</summary>
     private readonly IPublicEnvelopeCodec codec;
 
@@ -653,13 +662,16 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 return;
             }
 
-            if (record is null || record.State != KnownDeviceState.Trusted)
-            {
-                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Unauthenticated, "Authentication failed.");
-                return;
-            }
-
-            if (!credentialThrottle.TryAttempt(() => CredentialHasher.FixedTimeEquals(record.CredentialVerifier, CredentialHasher.Hash(credential!))))
+            // A nonexistent/untrusted record compares against DummyCredentialVerifier instead of
+            // short-circuiting before credentialThrottle.TryAttempt: otherwise an attacker could evade
+            // the global failure budget entirely by rotating clientId, since a random unseeded clientId
+            // would never reach the throttle at all. isEligible is combined with the bitwise `&`, not
+            // the short-circuiting `&&`, so CredentialHasher.FixedTimeEquals always actually runs even
+            // when isEligible is false -- keeping this path's timing shape identical to a genuine
+            // wrong-credential comparison against a known, trusted client.
+            bool isEligible = record is not null && record.State == KnownDeviceState.Trusted;
+            string verifierToCompare = isEligible ? record!.CredentialVerifier : DummyCredentialVerifier;
+            if (!credentialThrottle.TryAttempt(() => isEligible & CredentialHasher.FixedTimeEquals(verifierToCompare, CredentialHasher.Hash(credential!))))
             {
                 RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Unauthenticated, "Authentication failed.");
                 return;
