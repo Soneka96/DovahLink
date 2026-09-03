@@ -33,8 +33,20 @@ public interface IPairingCoordinator
         string credential,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Requests a rate-limited redisplay of the owner's active code.</summary>
+    /// <summary>
+    /// Evaluates a redisplay request for <paramref name="clientId"/>'s owned active challenge without
+    /// committing the manual-redisplay cooldown. A caller that intends to actually redisplay the code
+    /// must await its own adapter notification outside any lock this coordinator holds, then call
+    /// <see cref="CommitRenotify"/> only once that notification is accepted -- this method alone never
+    /// changes coordinator state.
+    /// </summary>
     /// <param name="clientId">The client requesting redisplay.</param>
+    /// <returns>
+    /// <see cref="PairingRenotifyOutcome.Renotified"/> when <paramref name="clientId"/> owns an active
+    /// challenge outside cooldown and redisplay may proceed; <see cref="PairingRenotifyOutcome.Cooldown"/>
+    /// with the remaining wait while the cooldown is still active; <see cref="PairingRenotifyOutcome.AlreadyIdle"/>
+    /// when <paramref name="clientId"/> owns no active challenge.
+    /// </returns>
     PairingRenotifyResult TryRenotify(ClientId clientId);
 
     /// <summary>Cancels the pairing operation owned by one client.</summary>
@@ -51,6 +63,34 @@ public interface IPairingCoordinator
 
     /// <summary>Cancels every active challenge and pending credential.</summary>
     void CancelAll();
+
+    /// <summary>
+    /// Commits a redisplay <see cref="TryRenotify"/> found eligible, applying the manual-redisplay
+    /// cooldown only now that the caller's adapter notification succeeded. Re-evaluates ownership,
+    /// cooldown, and challenge activity from current state rather than trusting the earlier
+    /// <see cref="TryRenotify"/> result: if the challenge was cancelled, expired, or its cooldown was
+    /// otherwise already consumed between the two calls, this reports that fresh outcome instead of
+    /// committing a cooldown against state that no longer matches it.
+    /// </summary>
+    /// <param name="clientId">The client committing its previously evaluated redisplay.</param>
+    /// <returns>
+    /// <see cref="PairingRenotifyOutcome.Renotified"/> once the cooldown is committed; otherwise the
+    /// same outcome shape <see cref="TryRenotify"/> would report for the current state, uncommitted.
+    /// </returns>
+    PairingRenotifyResult CommitRenotify(ClientId clientId);
+
+    /// <summary>
+    /// Returns <paramref name="clientId"/>'s still-active challenge, without generating, displaying,
+    /// or otherwise mutating anything. Used to obtain the code for an adapter notification -- initial
+    /// display, manual or automatic redisplay -- without exposing it through any public outcome.
+    /// </summary>
+    /// <param name="clientId">The client whose ownership to check.</param>
+    /// <returns>
+    /// The active challenge if <paramref name="clientId"/> owns it and it has not expired; otherwise
+    /// <see langword="null"/> -- <paramref name="clientId"/> may still separately own a pending
+    /// credential, which has no code left to redisplay.
+    /// </returns>
+    PairingChallenge? TryGetOwnedChallenge(ClientId clientId);
 }
 
 /// <inheritdoc cref="IPairingCoordinator"/>
@@ -369,17 +409,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 DateTimeOffset now = clock.UtcNow;
                 ExpireChallengeIfNeeded(now);
-                if (activeChallenge is null || activeChallenge.OwnerClientId != clientId)
-                {
-                    return new PairingRenotifyResult(PairingRenotifyOutcome.AlreadyIdle);
-                }
-                if (renotifyCooldownUntilUtc is { } cooldown && now < cooldown)
-                {
-                    return new PairingRenotifyResult(PairingRenotifyOutcome.Cooldown, cooldown - now);
-                }
-
-                renotifyCooldownUntilUtc = now + Constants.PairingRenotifyCooldown;
-                return new PairingRenotifyResult(PairingRenotifyOutcome.Renotified);
+                return EvaluateRenotify(clientId, now);
             }
         }
         finally
@@ -480,6 +510,70 @@ public sealed class PairingCoordinator : IPairingCoordinator
         {
             operationSemaphore.Release();
         }
+    }
+
+    /// <inheritdoc/>
+    public PairingRenotifyResult CommitRenotify(ClientId clientId)
+    {
+        operationSemaphore.Wait();
+        try
+        {
+            lock (gate)
+            {
+                DateTimeOffset now = clock.UtcNow;
+                ExpireChallengeIfNeeded(now);
+                PairingRenotifyResult evaluation = EvaluateRenotify(clientId, now);
+                if (evaluation.Outcome == PairingRenotifyOutcome.Renotified)
+                {
+                    renotifyCooldownUntilUtc = now + Constants.PairingRenotifyCooldown;
+                }
+
+                return evaluation;
+            }
+        }
+        finally
+        {
+            operationSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public PairingChallenge? TryGetOwnedChallenge(ClientId clientId)
+    {
+        operationSemaphore.Wait();
+        try
+        {
+            lock (gate)
+            {
+                DateTimeOffset now = clock.UtcNow;
+                ExpireChallengeIfNeeded(now);
+                return activeChallenge is { } challenge && challenge.OwnerClientId == clientId ? challenge : null;
+            }
+        }
+        finally
+        {
+            operationSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Evaluates a redisplay request against current state without committing anything, shared by
+    /// <see cref="TryRenotify"/>'s pure peek and <see cref="CommitRenotify"/>'s re-validation before
+    /// committing. Callers must already hold <see cref="gate"/> and have called
+    /// <see cref="ExpireChallengeIfNeeded"/> for <paramref name="now"/>.
+    /// </summary>
+    private PairingRenotifyResult EvaluateRenotify(ClientId clientId, DateTimeOffset now)
+    {
+        if (activeChallenge is null || activeChallenge.OwnerClientId != clientId)
+        {
+            return new PairingRenotifyResult(PairingRenotifyOutcome.AlreadyIdle);
+        }
+        if (renotifyCooldownUntilUtc is { } cooldown && now < cooldown)
+        {
+            return new PairingRenotifyResult(PairingRenotifyOutcome.Cooldown, cooldown - now);
+        }
+
+        return new PairingRenotifyResult(PairingRenotifyOutcome.Renotified);
     }
 
     /// <summary>Clears only the active challenge and its attempt/cooldown state.</summary>

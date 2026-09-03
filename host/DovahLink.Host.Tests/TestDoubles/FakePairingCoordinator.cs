@@ -56,6 +56,13 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
         OnMutationApplied?.Invoke("CancelAll");
     }
 
+    /// <inheritdoc/>
+    public PairingRenotifyResult CommitRenotify(DovahLink.Host.Identity.ClientId clientId) =>
+        new(PairingRenotifyOutcome.AlreadyIdle);
+
+    /// <inheritdoc/>
+    public PairingChallenge? TryGetOwnedChallenge(DovahLink.Host.Identity.ClientId clientId) => null;
+
     /// <summary>Records one client-specific cancellation and returns the fake outcome.</summary>
     private PairingCancelOutcome CancelAndRecord(DovahLink.Host.Identity.ClientId clientId)
     {

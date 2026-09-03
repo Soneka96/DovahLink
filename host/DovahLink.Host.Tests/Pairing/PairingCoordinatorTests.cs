@@ -497,36 +497,39 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
     }
 
-    /// <summary>Verifies that manual redisplay is owner-bound and rate-limited.</summary>
+    /// <summary>
+    /// Verifies that a peek is owner-bound and never itself commits anything: repeating it while
+    /// still eligible keeps reporting <see cref="PairingRenotifyOutcome.Renotified"/> rather than
+    /// falling into a cooldown it never actually applied.
+    /// </summary>
     [Fact]
-    public void TryRenotify_IsOwnerBoundAndRateLimited()
+    public void TryRenotify_IsOwnerBoundAndDoesNotCommitCooldown()
     {
-        var clock = new FakeClock();
-        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
         coordinator.BeginPairing(owner);
 
         PairingRenotifyResult first = coordinator.TryRenotify(owner);
-        PairingRenotifyResult cooldown = coordinator.TryRenotify(owner);
+        PairingRenotifyResult second = coordinator.TryRenotify(owner);
         PairingRenotifyResult other = coordinator.TryRenotify(ClientId.NewId());
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, first.Outcome);
-        Assert.Equal(PairingRenotifyOutcome.Cooldown, cooldown.Outcome);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, second.Outcome);
         Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, other.Outcome);
     }
 
-    /// <summary>Verifies that manual redisplay is allowed exactly at the cooldown boundary.</summary>
+    /// <summary>Verifies that committing a redisplay is allowed again exactly at the cooldown boundary.</summary>
     [Fact]
-    public void TryRenotify_AtExactCooldownBoundary_IsAllowed()
+    public void CommitRenotify_AtExactCooldownBoundary_IsAllowed()
     {
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
         coordinator.BeginPairing(clientId);
-        coordinator.TryRenotify(clientId);
+        coordinator.CommitRenotify(clientId);
         clock.Advance(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.CommitRenotify(clientId).Outcome);
     }
 
     /// <summary>Verifies that cancellation only clears the requesting client's pairing operation.</summary>
@@ -629,5 +632,123 @@ public class PairingCoordinatorTests
         coordinator.CancelAll();
 
         Assert.Equal(PairingStartOutcome.Started, coordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that committing a redisplay applies the cooldown, rate-limiting a further commit.</summary>
+    [Fact]
+    public void CommitRenotify_AppliesCooldownAndRateLimitsFurtherCommits()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        coordinator.BeginPairing(owner);
+
+        PairingRenotifyResult first = coordinator.CommitRenotify(owner);
+        PairingRenotifyResult cooldown = coordinator.CommitRenotify(owner);
+        PairingRenotifyResult peekDuringCooldown = coordinator.TryRenotify(owner);
+
+        Assert.Equal(PairingRenotifyOutcome.Renotified, first.Outcome);
+        Assert.Equal(PairingRenotifyOutcome.Cooldown, cooldown.Outcome);
+        Assert.NotNull(cooldown.RetryAfter);
+        Assert.Equal(PairingRenotifyOutcome.Cooldown, peekDuringCooldown.Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.CommitRenotify"/> re-validates current state rather
+    /// than trusting an earlier peek: a challenge cancelled between the peek and the commit reports
+    /// the fresh outcome instead of committing a cooldown against state that no longer exists.
+    /// </summary>
+    [Fact]
+    public void CommitRenotify_ChallengeCancelledAfterPeek_ReportsFreshOutcome()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        coordinator.BeginPairing(owner);
+        PairingRenotifyResult peek = coordinator.TryRenotify(owner);
+        coordinator.Cancel(owner);
+
+        PairingRenotifyResult commit = coordinator.CommitRenotify(owner);
+
+        Assert.Equal(PairingRenotifyOutcome.Renotified, peek.Outcome);
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, commit.Outcome);
+    }
+
+    /// <summary>Verifies that the owned-challenge lookup returns the challenge only for its actual owner.</summary>
+    [Fact]
+    public void TryGetOwnedChallenge_ReturnsChallengeOnlyForOwner()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        ClientId other = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(owner);
+
+        Assert.Equal(start.Challenge, coordinator.TryGetOwnedChallenge(owner));
+        Assert.Null(coordinator.TryGetOwnedChallenge(other));
+    }
+
+    /// <summary>
+    /// Verifies that a client holding only a pending credential -- its code already consumed by a
+    /// correct <see cref="PairingCoordinator.ConfirmCode"/> -- has no active challenge left to return.
+    /// </summary>
+    [Fact]
+    public void TryGetOwnedChallenge_PendingCredentialOnly_ReturnsNull()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.ConfirmCode(owner, start.Challenge!.Code, "Living Room PC");
+
+        Assert.Null(coordinator.TryGetOwnedChallenge(owner));
+    }
+
+    /// <summary>Verifies that an expired challenge is never returned as still owned.</summary>
+    [Fact]
+    public void TryGetOwnedChallenge_ExpiredChallenge_ReturnsNull()
+    {
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId owner = ClientId.NewId();
+        coordinator.BeginPairing(owner);
+        clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
+
+        Assert.Null(coordinator.TryGetOwnedChallenge(owner));
+    }
+
+    /// <summary>Verifies that a disconnected owner still within reconnect grace keeps its challenge returnable.</summary>
+    [Fact]
+    public void TryGetOwnedChallenge_DuringReconnectGrace_StillReturnsChallenge()
+    {
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId owner = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.NotifyDisconnected(owner);
+        clock.Advance(TimeSpan.FromSeconds(9));
+
+        Assert.Equal(start.Challenge, coordinator.TryGetOwnedChallenge(owner));
+    }
+
+    /// <summary>Verifies that a non-owner committing a redisplay it never peeked reports AlreadyIdle, symmetric with <see cref="TryRenotify_IsOwnerBoundAndDoesNotCommitCooldown"/>.</summary>
+    [Fact]
+    public void CommitRenotify_NonOwner_ReturnsAlreadyIdle()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        coordinator.BeginPairing(owner);
+
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, coordinator.CommitRenotify(ClientId.NewId()).Outcome);
+    }
+
+    /// <summary>Verifies that a peek honors the exact cooldown boundary the same way <see cref="CommitRenotify_AtExactCooldownBoundary_IsAllowed"/> proves for a commit.</summary>
+    [Fact]
+    public void TryRenotify_AtExactCooldownBoundary_ReportsRenotified()
+    {
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        coordinator.BeginPairing(clientId);
+        coordinator.CommitRenotify(clientId);
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
     }
 }
