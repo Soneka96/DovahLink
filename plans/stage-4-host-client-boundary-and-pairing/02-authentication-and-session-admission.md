@@ -44,8 +44,11 @@ and rejection/close decisions.
   or add a fallback on this phase branch; an eventual host-release naming change belongs to an
   explicit later compatibility decision.
 - Maintain a separate failed trusted-credential throttle from the developer-token throttle. A
-  malformed or non-matching trusted credential consumes only the credential failure budget; an
-  `unpaired` hello has no credential budget to consume.
+  structurally valid but non-matching trusted credential consumes only the trusted-credential
+  failure budget; an `unpaired` hello has no credential budget to consume. A structurally malformed
+  credential (wrong shape, not exactly the approved hex length) is rejected during protocol
+  validation before it ever reaches the throttle and contributes only to the protocol-violation
+  policy -- it is a shape failure, not a failed secret comparison.
 - Reject malformed `clientId`, endpoint, auth method, token presence, and envelope identity fields
   before calling authentication services. Authentication failures return the correct canonical
   pre-session error (`unauthenticated`, `revoked`, or `blocked`) without revealing which secret
@@ -92,16 +95,21 @@ and rejection/close decisions.
   releases its slot without admitting a late `hello`. The deadline is scoped to one connection's
   exact lifetime and is never reused, restarted, or capable of affecting a later reconnect's own
   connection/deadline.
-- Recheck `SessionRegistry.IsActive(sessionId, connectionId)` immediately before finalizing admission
-  on every hello authentication path, not only the trust-backed recheck against Block/Revoke: an
-  unconditional `SessionRegistry.InvalidateAll()` (Factory Reset) can land in the same window and is
-  not itself a trust-store condition the earlier recheck would catch. A losing race here rolls back
-  any reserved one-time token, rejects the connection, and requests its close, without ever sending
-  `hello_ack` for a session the registry no longer knows about. The close is required, not optional:
-  this connection's one-shot admission outcome is already consumed at that point (claimed
-  `Pending -> Admitted` before the losing recheck ran) and is deliberately never reset back to
-  `Pending`, so without an explicit close the connection would have no path to ever being torn down
-  -- the pre-authentication deadline's own claim attempt can no longer succeed either.
+- Call `SessionRegistry.TryFinalizeAdmission(sessionId, connectionId)` as the last registry
+  interaction before finalizing admission on every hello authentication path, not only the
+  trust-backed recheck against Block/Revoke: an unconditional `SessionRegistry.InvalidateAll()`
+  (Factory Reset) can land in the same window and is not itself a trust-store condition the earlier
+  recheck would catch. `TryFinalizeAdmission` is the sole linearization point between this admission
+  and a concurrent invalidation -- because it and every `SessionRegistry` invalidation method
+  serialize on the same internal lock, whichever reaches this exact session first decides the
+  outcome, rather than a plain `IsActive` read whose result the caller could act on after the fact.
+  A losing race here rolls back any reserved one-time token, rejects the connection, and requests
+  its close, without ever sending `hello_ack` for a session the registry no longer knows about. The
+  close is required, not optional: this connection's one-shot admission outcome is already consumed
+  at that point (claimed `Pending -> Admitted` before the losing check ran) and is deliberately
+  never reset back to `Pending`, so without an explicit close the connection would have no path to
+  ever being torn down -- the pre-authentication deadline's own claim attempt can no longer succeed
+  either.
 - Classify a structurally valid client message the current session's trust tier does not authorize as
   `unauthorized`, distinct from a protocol shape/direction violation -- a server-originated message
   type, or `hello` received after a session already exists -- which remains `malformed_message` since
@@ -167,7 +175,10 @@ Expected focused test files:
   revoked identity remains eligible to re-pair; a blocked identity is rejected for both unpaired and
   trusted-device admission, while developer-token admission is not classified by Known Device state.
 - Each successful authentication method yields the correct trust tier and fresh session identity.
-- Restricted sessions cannot access non-pairing messages; successful pairing upgrades exactly once.
+- Restricted sessions cannot access non-pairing messages. (The pairing-upgrade-exactly-once
+  invariant is owned by `03-pairing-and-client-dispatch.md`, which implements pairing dispatch and
+  the trust-tier upgrade; this concept only authorizes pairing message types on a restricted
+  session, it does not act on them.)
 - Developer-token sessions remain unaffected by client-scoped Block/Revoke while Factory Reset still
   invalidates them.
 - The transitional `bridgeVersion` is present and non-empty, while no implementation treats
