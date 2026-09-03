@@ -76,6 +76,19 @@ criteria implement:
   the production implementation -- deletion never happens in the same change that first proves the
   replacement works.
 
+This production-compatibility guarantee is not a development-time testing requirement. Ongoing App
+and Dart Client SDK development is not required to preserve forward compatibility with the frozen
+`bridge/` reference: App/SDK CI validates the current App/SDK architecture -- transport-independent
+SDK/App correctness, and, once `host/PLAN.md`'s relevant stages land, Host compatibility -- not
+continued operation against `bridge/`. The currently released App and the currently released
+`bridge/` remain a valid, frozen release pairing on their own; a new App/SDK change breaking that
+specific pairing's forward compatibility is acceptable when the Host migration requires it, and
+does not by itself indicate a defect. This does not excuse an unrelated App/SDK regression:
+transport-independent SDK/App behavior keeps being tested normally, and once the Stage 7/8 cutover
+gates above pass, Host + SDK + App compatibility becomes mandatory again. `bridge-ci.yml` and
+`integration-ci.yml` continue validating `bridge/` itself against `protocol/` regressions; neither
+gates unrelated App/SDK development.
+
 ## Target shape
 
 ```text

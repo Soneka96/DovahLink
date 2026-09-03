@@ -36,10 +36,21 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
 
 ## Test ownership boundaries
 
-SDK tests own: canonical contract encoding/decoding, semantic validation, Bridge compatibility
-checks, session identity, Bridge identity, play-context identity, revision handling, stale
-suppression, subscription state, snapshot recovery, reconnect, late-message handling, pairing
-client recovery, SDK persistence, and cache correctness.
+SDK tests own: canonical contract encoding/decoding, semantic validation, session identity, Bridge
+identity, play-context identity, revision handling, stale suppression, subscription state, snapshot
+recovery, reconnect, late-message handling, pairing client recovery, SDK persistence, and cache
+correctness. This list is unconditional: it runs in every SDK/App CI pass, regardless of what
+backend it will eventually run against.
+
+Legacy Bridge compatibility checks (proving the SDK's own wire code round-trips against a real,
+running `dovahlink_bridge_harness`) remain SDK-owned, but are not part of that unconditional set:
+per `ARCHITECTURE.md`'s "Bridge migration and cutover", `bridge/` is a frozen production reference,
+not an ongoing App/SDK development target. That coverage lives in files tagged `legacy_bridge`
+(`dart_test.yaml` skips them by default); run it explicitly with `dart test --tags legacy_bridge
+--run-skipped` against a locally built harness. It stays available for a developer doing manual
+Bridge/SDK verification, but is not required to pass for default SDK/App CI, and a change that
+breaks it is not by itself a defect. As `host/PLAN.md`'s Stage 7 conformance work lands, Host
+compatibility becomes the SDK's authoritative live-integration target in its place.
 
 Phase 3.3 also requires SDK/client coverage for continuous observation of long-lived connection
 loss, distinction between ordinary transport failure and `session_invalidated(reason)`, typed
@@ -59,9 +70,11 @@ consume them rather than redefining equivalent examples.
 ## Transport fidelity
 
 Use a controllable, thread-safe fake transport for state-machine, compatibility, session, and
-recovery tests; a real local connection check is required only when transport framing or platform
-networking changes, mirroring `ai/context/integration/testing.md`'s end-to-end boundary. Do not
-depend on a running Skyrim process for behavior that can be proven deterministically without Skyrim.
+recovery tests; a real local socket check -- against a fake local WebSocket server (see
+`test/support/fake_websocket_server.dart`), not the Bridge harness -- is required only when
+transport framing or platform networking changes, mirroring `ai/context/integration/testing.md`'s
+end-to-end boundary. Do not depend on a running Skyrim process, and do not depend on the Bridge
+harness, for behavior that can be proven deterministically without either.
 
 ## The independent validator stays independent
 
