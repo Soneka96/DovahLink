@@ -171,7 +171,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return Task.CompletedTask;
         }
 
-        if (!TryRecordMessageId(connectionContext, envelope.MessageId, out bool boundAlreadyExceeded))
+        if (!TryRecordMessageId(envelope.MessageId, out bool boundAlreadyExceeded, out bool reachedBound))
         {
             if (!boundAlreadyExceeded)
             {
@@ -185,94 +185,109 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return Task.CompletedTask;
         }
 
-        bool isAdmitted;
-        SessionId currentSessionId;
-        lock (gate)
+        try
         {
-            isAdmitted = admitted;
-            currentSessionId = sessionId;
-        }
-
-        if (!isAdmitted)
-        {
-            if (envelope.MessageType != PublicMessageType.Hello)
+            bool isAdmitted;
+            SessionId currentSessionId;
+            lock (gate)
             {
-                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "Only hello is accepted before a session is admitted.");
+                isAdmitted = admitted;
+                currentSessionId = sessionId;
+            }
+
+            if (!isAdmitted)
+            {
+                if (envelope.MessageType != PublicMessageType.Hello)
+                {
+                    RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "Only hello is accepted before a session is admitted.");
+                    return Task.CompletedTask;
+                }
+
+                if (!IsValidPreAuthEnvelopeIdentity(envelope))
+                {
+                    RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The hello envelope carries an identity or context field that is not yet established.");
+                    return Task.CompletedTask;
+                }
+
+                HandleHello(connectionContext, envelope);
                 return Task.CompletedTask;
             }
 
-            if (!IsValidPreAuthEnvelopeIdentity(envelope))
+            ClientId currentClientId;
+            SessionTrustTier currentTier;
+            lock (gate)
             {
-                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The hello envelope carries an identity or context field that is not yet established.");
+                currentClientId = admittedClientId;
+                currentTier = trustTier;
+            }
+
+            if (envelope.SessionId != currentSessionId.ToString() || !sessionRegistry.IsActive(currentSessionId, connectionId))
+            {
+                // The second condition catches a session this connection still believes is admitted but
+                // that the authoritative registry no longer considers active -- for example, invalidated
+                // by a concurrent Factory Reset after this connection's own admission completed. Local
+                // admitted state alone must never be treated as authorization forever.
+                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.StaleSession, "This sessionId is not valid on this connection.");
                 return Task.CompletedTask;
             }
 
-            HandleHello(connectionContext, envelope);
+            if (envelope.BridgeInstanceId is not null || envelope.PlayContextId is not null ||
+                !Guid.TryParse(envelope.ClientId, out Guid presentedClientId) || presentedClientId != currentClientId.Value)
+            {
+                // Per `PLAN.md`'s "After admission, client messages carry the socket-bound sessionId and
+                // their declared clientId", clientId is required (not merely permitted) once a session
+                // exists. Comparing the parsed Guid value rather than envelope.ClientId's raw wire string
+                // against currentClientId.ToString() avoids reintroducing a textual-representation-aliasing
+                // gap: Guid.TryParse accepts several equivalent textual forms (braces, hyphenless, etc.)
+                // for the same identity, and a client is not required to reuse hello's exact wire form on
+                // every later message.
+                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message carries an invalid envelope identity or context field.");
+                return Task.CompletedTask;
+            }
+
+            if (!IsAllowedForTier(envelope.MessageType, currentTier))
+            {
+                PublicProtocolErrorCode code = IsPostAdmissionClientMessageType(envelope.MessageType)
+                    ? PublicProtocolErrorCode.Unauthorized
+                    : PublicProtocolErrorCode.MalformedMessage;
+                string message = code == PublicProtocolErrorCode.Unauthorized
+                    ? "This session is not authorized to send this message."
+                    : "This message type is not allowed on this session.";
+                RecordViolationAndReject(connectionContext, envelope.MessageId, code, message);
+                return Task.CompletedTask;
+            }
+
+            switch (envelope.MessageType)
+            {
+                case PublicMessageType.Capabilities:
+                    HandleCapabilities(connectionContext, envelope);
+                    break;
+                case PublicMessageType.Subscribe:
+                    HandleSubscribe(connectionContext, envelope);
+                    break;
+                case PublicMessageType.SnapshotRequest:
+                    HandleSnapshotRequest(connectionContext, envelope);
+                    break;
+                default:
+                    // ping, pairing_*, and rename_request are authorized by the allowlist above, but
+                    // mapping them to their owning services is a later concept's scope.
+                    break;
+            }
+
             return Task.CompletedTask;
         }
-
-        ClientId currentClientId;
-        SessionTrustTier currentTier;
-        lock (gate)
+        finally
         {
-            currentClientId = admittedClientId;
-            currentTier = trustTier;
+            // The message that reaches the session message bound is itself still accepted, per
+            // ai/context/protocol/security.md's "the bridge closes the session before this bound is
+            // exceeded": everything above -- including a response this exact message triggers, via
+            // either a successful dispatch or RecordViolationAndReject's own error send -- has already
+            // had its chance to enqueue onto the outbound queue before the orderly close begins here.
+            if (reachedBound)
+            {
+                connectionContext.RequestClose();
+            }
         }
-
-        if (envelope.SessionId != currentSessionId.ToString() || !sessionRegistry.IsActive(currentSessionId, connectionId))
-        {
-            // The second condition catches a session this connection still believes is admitted but
-            // that the authoritative registry no longer considers active -- for example, invalidated
-            // by a concurrent Factory Reset after this connection's own admission completed. Local
-            // admitted state alone must never be treated as authorization forever.
-            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.StaleSession, "This sessionId is not valid on this connection.");
-            return Task.CompletedTask;
-        }
-
-        if (envelope.BridgeInstanceId is not null || envelope.PlayContextId is not null ||
-            !Guid.TryParse(envelope.ClientId, out Guid presentedClientId) || presentedClientId != currentClientId.Value)
-        {
-            // Per `PLAN.md`'s "After admission, client messages carry the socket-bound sessionId and
-            // their declared clientId", clientId is required (not merely permitted) once a session
-            // exists. Comparing the parsed Guid value rather than envelope.ClientId's raw wire string
-            // against currentClientId.ToString() avoids reintroducing a textual-representation-aliasing
-            // gap: Guid.TryParse accepts several equivalent textual forms (braces, hyphenless, etc.)
-            // for the same identity, and a client is not required to reuse hello's exact wire form on
-            // every later message.
-            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message carries an invalid envelope identity or context field.");
-            return Task.CompletedTask;
-        }
-
-        if (!IsAllowedForTier(envelope.MessageType, currentTier))
-        {
-            PublicProtocolErrorCode code = IsPostAdmissionClientMessageType(envelope.MessageType)
-                ? PublicProtocolErrorCode.Unauthorized
-                : PublicProtocolErrorCode.MalformedMessage;
-            string message = code == PublicProtocolErrorCode.Unauthorized
-                ? "This session is not authorized to send this message."
-                : "This message type is not allowed on this session.";
-            RecordViolationAndReject(connectionContext, envelope.MessageId, code, message);
-            return Task.CompletedTask;
-        }
-
-        switch (envelope.MessageType)
-        {
-            case PublicMessageType.Capabilities:
-                HandleCapabilities(connectionContext, envelope);
-                break;
-            case PublicMessageType.Subscribe:
-                HandleSubscribe(connectionContext, envelope);
-                break;
-            case PublicMessageType.SnapshotRequest:
-                HandleSnapshotRequest(connectionContext, envelope);
-                break;
-            default:
-                // ping, pairing_*, and rename_request are authorized by the allowlist above, but
-                // mapping them to their owning services is a later concept's scope.
-                break;
-        }
-
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -395,28 +410,33 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     }
 
     /// <summary>
-    /// Records <paramref name="messageId"/> as seen, rejecting a repeat as replay. Closes the
-    /// connection once the session-lifetime message bound is reached, per
-    /// <c>ai/context/protocol/security.md</c>'s "the bridge closes the session before this bound is
-    /// exceeded" -- the message that reaches the bound is still accepted; only a later one is not.
-    /// Checks the bound before recording, not only after: <see cref="IPublicConnectionContext.RequestClose"/>
-    /// requests an orderly close that lets an already-admitted outbound frame drain rather than
-    /// tearing the connection down synchronously, so a message already in flight through the read loop
-    /// when the bound is reached could otherwise still reach this method and be recorded. Checking the
-    /// bound first means such a message is never added and never dispatched, regardless of how quickly
-    /// the requested close actually takes effect.
+    /// Records <paramref name="messageId"/> as seen, rejecting a repeat as replay. Reports, without
+    /// itself requesting the connection's close, when this message recording reaches the
+    /// session-lifetime message bound, per <c>ai/context/protocol/security.md</c>'s "the bridge closes
+    /// the session before this bound is exceeded" -- the message that reaches the bound is still
+    /// accepted; only a later one is not. The caller alone decides when to actually request the close:
+    /// it must first let this message's own dispatch and any response it produces reach the outbound
+    /// queue, since <see cref="IPublicConnectionContext.RequestClose"/> completes that queue immediately
+    /// rather than only once teardown finishes. Checks the bound before recording, not only after: a
+    /// message already in flight through the read loop when the bound is reached could otherwise still
+    /// reach this method and be recorded before the requested close actually takes effect. Checking the
+    /// bound first means such a message is never added and never dispatched, regardless of timing.
     /// </summary>
-    /// <param name="connectionContext">The connection to close once the bound is reached.</param>
     /// <param name="messageId">The message id to record.</param>
     /// <param name="boundAlreadyExceeded">
-    /// Set when this call was rejected only because an earlier message already reached the bound and
-    /// requested this connection's close -- distinct from an ordinary replay, since <paramref name="messageId"/>
-    /// itself was never seen before.
+    /// Set when this call was rejected only because an earlier message already reached the bound --
+    /// distinct from an ordinary replay, since <paramref name="messageId"/> itself was never seen before.
     /// </param>
-    private bool TryRecordMessageId(IPublicConnectionContext connectionContext, string messageId, out bool boundAlreadyExceeded)
+    /// <param name="reachedBound">
+    /// Set when this exact call's recording brought the session to its message bound; the caller must
+    /// request this connection's close only after this message's own response, if any, has already had
+    /// its chance to enqueue.
+    /// </param>
+    private bool TryRecordMessageId(string messageId, out bool boundAlreadyExceeded, out bool reachedBound)
     {
         lock (gate)
         {
+            reachedBound = false;
             if (seenMessageIds.Count >= Constants.PublicProtocolMaxSessionMessages)
             {
                 boundAlreadyExceeded = true;
@@ -429,11 +449,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 return false;
             }
 
-            if (seenMessageIds.Count >= Constants.PublicProtocolMaxSessionMessages)
-            {
-                connectionContext.RequestClose();
-            }
-
+            reachedBound = seenMessageIds.Count >= Constants.PublicProtocolMaxSessionMessages;
             return true;
         }
     }
