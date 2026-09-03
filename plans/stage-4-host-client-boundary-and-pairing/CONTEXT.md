@@ -314,6 +314,57 @@ branch, D1/D2/D3 status, and clean scope before implementation.
       `SessionId`, `ConnectionId`, `ClientId`, `PlayContextId`, `AdapterInstanceId` -- already generates
       the same way); introducing an injected generator here would be a deviation from that convention,
       not an alignment with it.
+  - Second post-completion corrective pass (`/step-build`, four steps, 2026-09-03): a second
+    maintainer-directed re-review of the first corrective pass, this time against the merged working
+    tree rather than only the diff, found three further real defects the first pass's own fresh-eyes
+    reviews and tests did not catch. All three verified directly against the current code (not
+    assumed from the review) before any fix, and one review claim was independently checked and
+    found unsupported before acting on it (see Step 3 below).
+    - Step 1: `ILocalConnectionTokenAuthenticator.TryConsume` never checked the `reserved` flag
+      `TryValidate` introduced in the first pass's Step 2, so it could consume a token out from under
+      an outstanding `TryValidate` reservation. `TryConsume` has zero production callers today (only
+      `TryValidate`/`CommitConsumption`/`RollbackReservation` are wired into
+      `PublicHelloAdmissionHandler`), so this was a latent hygiene gap rather than an active exploit,
+      but leaving an inconsistent single-use guarantee on a security-critical type was a live footgun
+      for any future caller. Fixed to also return `false` while reserved, without recording a
+      rate-limit failure for that case.
+    - Step 2: found and fixed the genuine blocking defect the first pass's own Factory Reset race
+      fix (Step 6 of the first pass) left behind. `TryClaimAdmission()` claims this connection's
+      one-shot `admissionOutcome` (`Pending -> Admitted`) *before* the registry-liveness recheck runs;
+      when that recheck then loses to a concurrent Factory Reset, the existing code rolled back and
+      rejected but never requested the connection's close, and `admissionOutcome` is deliberately
+      never reset back to `Pending`. The connection was left with no path to ever being torn down: the
+      pre-authentication deadline's own `CompareExchange(..., Pending)` could never fire again, and a
+      retried `hello` on the same socket hit `!TryClaimAdmission()` and silently no-opped forever
+      instead of failing loudly or succeeding. Fixed by calling `connectionContext.RequestClose()` in
+      that losing branch in both hello authentication paths, deliberately without resetting the
+      outcome. New tests prove the losing connection is actually requested to close, a second `hello`
+      on that same doomed connection creates no new session (both hello methods), and the token
+      remains usable through a genuinely separate second connection, not merely via a direct
+      `TryValidate` call.
+    - Step 3: post-admission envelope `clientId` was wrongly optional
+      (`envelope.ClientId is not null && envelope.ClientId != currentClientId.ToString()` let a null
+      value through) and, when present, was string-compared against the admitted identity's canonical
+      `ToString()` form rather than parsed and compared structurally -- reopening exactly the
+      GUID-textual-form aliasing gap the first pass's own Step 8 traceability note had just declared
+      closed everywhere, since that note was written before this specific post-admission comparison
+      was audited. The reviewer's claimed quote for "clientId is required post-admission" was checked
+      against `protocol/schema/README.md` and `security.md` first and found unsupported there; it was
+      only confirmed by finding the actual authoritative sentence in `PLAN.md:184-185` ("After
+      admission, client messages carry the socket-bound sessionId and their declared clientId"), a
+      file the first pass's review had not checked. Fixed to require a non-null `clientId`, parse it,
+      and compare the parsed `Guid` against `admittedClientId.Value`. This was the largest fixture
+      change in either pass: `AdmitViaUnpairedHello`/`AdmitViaTrustedDeviceCredentialHello` now also
+      return the admitted `clientId`, and every post-admission test that expects a message to actually
+      be processed -- including the four message-bound hot-loop tests sending thousands of messages
+      each -- now carries it; tests expecting an already-correct rejection for an unrelated earlier
+      reason (foreign/stale session, externally invalidated session, malformed raw-JSON payloads) were
+      deliberately left unchanged. New tests cover a missing clientId, a non-GUID shape, and the
+      admitted identity presented in braces and compact (no-hyphens) textual forms, both still
+      accepted.
+    - Step 4 (this entry): full suite and repeated-concurrency-suite verification, docs+warnings
+      build, tooling suite, and this traceability update. No further defects found on this pass's own
+      fresh-eyes review of the three fixes.
 
 ## Decisions and approved deviations
 
@@ -345,6 +396,9 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   corrective pass's seven fixes and eight-step plan, following a same-day `/think` review. See
   `DIVERGENCES.md`'s D4 for the startup trust-persistence completion-criterion handoff to Concept 04
   this pass also made.
+- Approved via direct maintainer instruction in the current task on 2026-09-03: the second
+  post-completion corrective pass's three fixes and four-step plan, following a same-day second
+  `/think` re-review that found real defects in the first pass's own fixes.
 
 ## Deferred debt
 
@@ -491,6 +545,24 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   startup trust-persistence proof obligation and completion criterion); `DIVERGENCES.md` (new D4);
   this `CONTEXT.md` (this decision entry, this file list, the verification counts below). No public
   schema, SDK, or Concept 03 file touched.
+- Second post-completion corrective pass, Step 1, modified:
+  `host/DovahLink.Host/Authentication/LocalConnectionTokenAuthenticator.cs` (`TryConsume`'s `reserved`
+  check); test file `LocalConnectionTokenAuthenticatorTests.cs` (three new tests).
+- Second post-completion corrective pass, Step 2, modified: `PublicHelloAdmissionHandler.cs`
+  (`connectionContext.RequestClose()` added to the losing Factory Reset recheck branch in both hello
+  authentication paths); test file `PublicHelloAdmissionTests.cs` (both existing races extended with
+  a `RequestCloseCalls` assertion; three new tests: second-hello-creates-no-session for each hello
+  method, and token-usable-on-a-genuinely-separate-connection).
+- Second post-completion corrective pass, Step 3, modified: `PublicHelloAdmissionHandler.cs` (the
+  post-admission `clientId` check now requires a non-null value and compares the parsed `Guid`
+  against `admittedClientId.Value`); test file `PublicHelloAdmissionTests.cs` (the two `Admit*Hello`
+  helpers now also return the admitted `clientId`; every post-admission test expecting a message to
+  be processed updated to carry it; five new tests for missing/non-GUID/foreign/alternate-textual-form
+  clientId).
+- Second post-completion corrective pass, Step 4 (this pass), modified:
+  `02-authentication-and-session-admission.md` (three new Contracts bullets and three new Proof
+  obligations bullets covering these fixes); this `CONTEXT.md` (this decision entry, this file list,
+  the verification counts below). No public schema, SDK, or Concept 03 file touched.
 
 ## Verification
 
@@ -594,6 +666,30 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 - `git branch --show-current`: `feature/4-host-client-boundary-and-pairing`, unchanged; `git status`
   clean except this pass's own documentation edits at the time of writing; no file outside this
   concept's allowlist and this phase's planning package was touched.
+- Second post-completion corrective pass: 876 passed at this pass's baseline (unchanged from the
+  first corrective pass's own close). Step 1 was verified against its own affected test file
+  (`LocalConnectionTokenAuthenticatorTests`, 28 passed including the 3 new tests) rather than an
+  isolated full-suite run; the first full-suite checkpoint after it, taken at the close of Step 2,
+  landed at 882 passed (+6 across both steps: 3 `TryConsume` reservation tests plus 3 Factory Reset
+  `RequestClose`/no-new-session/separate-connection tests). 886 passed after Step 3 (+4: missing,
+  non-GUID, and two alternate-textual-form clientId tests -- the large fixture-update itself added no
+  new test count, only changed existing calls). Final full-suite run at the close of Step 4: 886
+  passed, 0 failed, unchanged (documentation-only). Timing/concurrency-sensitive suites
+  (`PublicHelloAdmissionTests`, `LocalConnectionTokenAuthenticatorTests`,
+  `TrustedCredentialFailureThrottleTests`, 137 tests combined) re-run five times at the close of Step
+  4 with no flake.
+- `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
+  after every one of this second pass's four steps.
+- `python -m unittest discover -s tooling -p "test_*.py"`: 95 passed, re-run at this pass's close;
+  unchanged (documentation-only planning-package edits, no `security.md` or schema phrase altered).
+- `integration/DovahLinkValidationClient.Tests`, `ctest --test-dir adapter/build/windows-x64-debug`:
+  not re-run -- every change in this pass is confined to `host/DovahLink.Host`/`.Tests` C# application
+  code and this phase's own planning documents, with no protocol, SDK, or native/adapter file touched.
+- Fresh traceability pass at this pass's close: every Contracts/Invariants/Proof-obligations/
+  Non-goals/Completion-criteria line in `02-authentication-and-session-admission.md`, including the
+  three new bullets this pass added, is satisfied by the current implementation and covered by a
+  passing regression test. `git status`: clean except this pass's own documentation edits at the
+  time of writing.
 
 ## Handoff
 

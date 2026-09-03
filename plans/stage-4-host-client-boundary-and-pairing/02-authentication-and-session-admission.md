@@ -88,12 +88,23 @@ and rejection/close decisions.
   on every hello authentication path, not only the trust-backed recheck against Block/Revoke: an
   unconditional `SessionRegistry.InvalidateAll()` (Factory Reset) can land in the same window and is
   not itself a trust-store condition the earlier recheck would catch. A losing race here rolls back
-  any reserved one-time token and rejects the connection without ever sending `hello_ack` for a
-  session the registry no longer knows about.
+  any reserved one-time token, rejects the connection, and requests its close, without ever sending
+  `hello_ack` for a session the registry no longer knows about. The close is required, not optional:
+  this connection's one-shot admission outcome is already consumed at that point (claimed
+  `Pending -> Admitted` before the losing recheck ran) and is deliberately never reset back to
+  `Pending`, so without an explicit close the connection would have no path to ever being torn down
+  -- the pre-authentication deadline's own claim attempt can no longer succeed either.
 - Classify a structurally valid client message the current session's trust tier does not authorize as
   `unauthorized`, distinct from a protocol shape/direction violation -- a server-originated message
   type, or `hello` received after a session already exists -- which remains `malformed_message` since
   no trust tier could ever authorize it.
+- Require a non-null envelope `clientId` on every post-admission client message, per `PLAN.md`'s
+  "After admission, client messages carry the socket-bound sessionId and their declared clientId."
+  Parse the presented value and compare it as a `ClientId`/`Guid` against the connection's admitted
+  identity; do not compare the raw wire string against the admitted identity's own canonical string
+  form, since `Guid.TryParse` accepts several equivalent textual forms (braces, hyphenless, etc.) for
+  the same identity and a client is not required to reuse `hello`'s exact wire form on every later
+  message.
 
 ## Invariants
 
@@ -183,7 +194,15 @@ Expected focused test files:
   seen `messageId`.
 - An unconditional `SessionRegistry.InvalidateAll()` landing between a connection's session
   reservation and its final admission recheck results in no `hello_ack`, no consumed one-time token,
-  and no active session, for every hello authentication method.
+  no active session, and a requested close of the losing connection, for every hello authentication
+  method; a second `hello` sent on that same now-doomed connection can never create or leave active
+  another session, while the same token remains usable through a genuinely separate connection.
+- A post-admission client message with a missing, non-GUID, or foreign envelope `clientId` is
+  rejected as `malformed_message`; the admitted identity presented in a different
+  `Guid.TryParse`-accepted textual form than `hello` used is still accepted.
+- `ILocalConnectionTokenAuthenticator.TryConsume` cannot consume a token while a separate
+  `TryValidate` reservation on it is outstanding, closing the gap between the two APIs' otherwise
+  independent single-use guarantees.
 
 ## Non-goals
 
