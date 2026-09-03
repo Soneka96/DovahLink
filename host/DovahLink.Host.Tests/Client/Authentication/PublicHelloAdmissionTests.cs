@@ -1098,6 +1098,84 @@ public class PublicHelloAdmissionTests
         Assert.Equal(sentBeforeLoop, context.FakeConnection.SentPayloads.Count); // none of the bound-filling messages were rejected
     }
 
+    /// <summary>Verifies the exact boundary one message before the bound: message 9,999 (the hello counts as message 1) is accepted and does not request a close.</summary>
+    [Fact]
+    public void HandleMessageAsync_MessageNineThousandNineHundredNinetyNine_DoesNotCloseConnection()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+        int sentBeforeLoop = context.FakeConnection.SentPayloads.Count;
+
+        // The admitting hello already counts as message 1 of the bound; send the next 9,998 so the
+        // last message sent here is message 9,999 -- one short of the 10,000 bound.
+        for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 2; i++)
+        {
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, null, new object());
+            context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+        }
+
+        Assert.Equal(0, context.FakeConnection.RequestCloseCalls);
+        Assert.Equal(sentBeforeLoop, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>
+    /// Verifies the exact race this bound must close: a fresh, never-before-seen message 10,001
+    /// arriving after the bound was already reached by message 10,000 -- simulating one already in
+    /// flight through the read loop when the requested close had not yet taken effect -- is neither
+    /// recorded, dispatched, nor answered, and does not request a second close.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_MessageAfterBoundAlreadyReached_IsNeitherDispatchedNorAnswered()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+
+        for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 1; i++)
+        {
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, null, new object());
+            context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+        }
+
+        Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
+        int sentBeforeExtraMessage = context.FakeConnection.SentPayloads.Count;
+
+        // A Subscribe would normally produce a subscription_ack if dispatched; using it here proves
+        // the message was dropped outright, not merely skipped for lack of a response.
+        byte[] messageAfterBound = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-after-bound", sessionId, null, null, null, new SubscribePayload { StateAreas = ["area_one"] });
+        context.Handler.HandleMessageAsync(context.Connection, messageAfterBound, CancellationToken.None);
+
+        Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
+        Assert.Equal(sentBeforeExtraMessage, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>
+    /// Verifies that once the bound is already reached, a repeated (previously seen) messageId is
+    /// also silently dropped rather than answered as replayed_message: the bound check runs before the
+    /// replay check, so a message arriving after the connection is already closing is never classified
+    /// as an ordinary protocol violation.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_RepeatedMessageIdAfterBoundAlreadyReached_IsDroppedNotClassifiedAsReplayed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+
+        for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 1; i++)
+        {
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, null, new object());
+            context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+        }
+
+        int sentBeforeRepeat = context.FakeConnection.SentPayloads.Count;
+
+        byte[] repeatedMessage = context.Codec.Encode(PublicMessageType.Ping, "msg-0", sessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, repeatedMessage, CancellationToken.None);
+
+        Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
+        Assert.Equal(sentBeforeRepeat, context.FakeConnection.SentPayloads.Count);
+    }
+
     // ---- Protocol-violation close policy ----
 
     /// <summary>Verifies that the third protocol violation within the close-policy window closes the connection.</summary>

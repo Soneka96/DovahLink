@@ -171,9 +171,17 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return Task.CompletedTask;
         }
 
-        if (!TryRecordMessageId(connectionContext, envelope.MessageId))
+        if (!TryRecordMessageId(connectionContext, envelope.MessageId, out bool boundAlreadyExceeded))
         {
-            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.ReplayedMessage, "This messageId was already used on this session.");
+            if (!boundAlreadyExceeded)
+            {
+                RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.ReplayedMessage, "This messageId was already used on this session.");
+            }
+
+            // A message arriving after the session's message bound was already reached is silently
+            // dropped rather than answered: the connection is already closing, per the security
+            // contract's "do not retry invalid input indefinitely," and this message was never
+            // recorded or dispatched.
             return Task.CompletedTask;
         }
 
@@ -384,11 +392,31 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// connection once the session-lifetime message bound is reached, per
     /// <c>ai/context/protocol/security.md</c>'s "the bridge closes the session before this bound is
     /// exceeded" -- the message that reaches the bound is still accepted; only a later one is not.
+    /// Checks the bound before recording, not only after: <see cref="IPublicConnectionContext.RequestClose"/>
+    /// requests an orderly close that lets an already-admitted outbound frame drain rather than
+    /// tearing the connection down synchronously, so a message already in flight through the read loop
+    /// when the bound is reached could otherwise still reach this method and be recorded. Checking the
+    /// bound first means such a message is never added and never dispatched, regardless of how quickly
+    /// the requested close actually takes effect.
     /// </summary>
-    private bool TryRecordMessageId(IPublicConnectionContext connectionContext, string messageId)
+    /// <param name="connectionContext">The connection to close once the bound is reached.</param>
+    /// <param name="messageId">The message id to record.</param>
+    /// <param name="boundAlreadyExceeded">
+    /// Set when this call was rejected only because an earlier message already reached the bound and
+    /// requested this connection's close -- distinct from an ordinary replay, since <paramref name="messageId"/>
+    /// itself was never seen before.
+    /// </param>
+    private bool TryRecordMessageId(IPublicConnectionContext connectionContext, string messageId, out bool boundAlreadyExceeded)
     {
         lock (gate)
         {
+            if (seenMessageIds.Count >= Constants.PublicProtocolMaxSessionMessages)
+            {
+                boundAlreadyExceeded = true;
+                return false;
+            }
+
+            boundAlreadyExceeded = false;
             if (!seenMessageIds.Add(messageId))
             {
                 return false;
