@@ -22,7 +22,7 @@ public class TrustResetServiceTests
         trustStore.Seed(new TrustRecord(secondClient, "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", clock.UtcNow));
         SessionId firstSession = sessionRegistry.Create(firstClient);
         SessionId secondSession = sessionRegistry.Create(secondClient);
-        var service = new TrustResetService(trustStore, sessionRegistry, pairingCoordinator, clock);
+        var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), pairingCoordinator, clock);
         FactoryResetChallenge challenge = service.BeginReset();
 
         bool result = await service.ConfirmResetAsync(challenge.Code);
@@ -47,7 +47,7 @@ public class TrustResetServiceTests
         var clock = new FakeClock();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", clock.UtcNow));
-        var service = new TrustResetService(trustStore, sessionRegistry, pairingCoordinator, clock);
+        var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), pairingCoordinator, clock);
         FactoryResetChallenge challenge = service.BeginReset();
 
         bool result = await service.ConfirmResetAsync("wrong-code");
@@ -67,7 +67,7 @@ public class TrustResetServiceTests
         var trustStore = new FakeTrustStore();
         var sessionRegistry = new FakeSessionRegistry();
         var clock = new FakeClock();
-        var service = new TrustResetService(trustStore, sessionRegistry, new FakePairingCoordinator(), clock);
+        var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), new FakePairingCoordinator(), clock);
         FactoryResetChallenge challenge = service.BeginReset();
 
         clock.Advance(TimeSpan.FromSeconds(61));
@@ -82,7 +82,7 @@ public class TrustResetServiceTests
     public void BeginReset_UsesSixDigitCodeAndSixtySecondLifetime()
     {
         var clock = new FakeClock();
-        var service = new TrustResetService(new FakeTrustStore(), new FakeSessionRegistry(), new FakePairingCoordinator(), clock);
+        var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), clock);
 
         FactoryResetChallenge challenge = service.BeginReset();
 
@@ -95,7 +95,7 @@ public class TrustResetServiceTests
     [Fact]
     public async Task ConfirmResetAsync_NoChallengeIssued_Rejects()
     {
-        var service = new TrustResetService(new FakeTrustStore(), new FakeSessionRegistry(), new FakePairingCoordinator(), new FakeClock());
+        var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
 
         bool result = await service.ConfirmResetAsync("anything");
 
@@ -107,7 +107,7 @@ public class TrustResetServiceTests
     public async Task ConfirmResetAsync_CalledTwiceWithSameCode_SecondCallRejects()
     {
         var trustStore = new FakeTrustStore();
-        var service = new TrustResetService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator(), new FakeClock());
+        var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
         FactoryResetChallenge challenge = service.BeginReset();
 
         bool first = await service.ConfirmResetAsync(challenge.Code);
@@ -121,7 +121,7 @@ public class TrustResetServiceTests
     [Fact]
     public async Task BeginReset_CalledAgain_InvalidatesThePriorChallengesCode()
     {
-        var service = new TrustResetService(new FakeTrustStore(), new FakeSessionRegistry(), new FakePairingCoordinator(), new FakeClock());
+        var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
         FactoryResetChallenge firstChallenge = service.BeginReset();
         service.BeginReset();
 
@@ -135,7 +135,7 @@ public class TrustResetServiceTests
     public async Task ConfirmResetAsync_NoKnownDevices_StillSucceedsAndInvalidatesSessions()
     {
         var sessionRegistry = new FakeSessionRegistry();
-        var service = new TrustResetService(new FakeTrustStore(), sessionRegistry, new FakePairingCoordinator(), new FakeClock());
+        var service = new TrustResetService(new FakeTrustStore(), Invalidator(sessionRegistry), new FakePairingCoordinator(), new FakeClock());
         FactoryResetChallenge challenge = service.BeginReset();
 
         bool result = await service.ConfirmResetAsync(challenge.Code);
@@ -149,7 +149,7 @@ public class TrustResetServiceTests
     public async Task ConfirmResetAsync_AtExactExpiryMoment_StillAccepted()
     {
         var clock = new FakeClock();
-        var service = new TrustResetService(new FakeTrustStore(), new FakeSessionRegistry(), new FakePairingCoordinator(), clock);
+        var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), clock);
         FactoryResetChallenge challenge = service.BeginReset();
 
         clock.UtcNow = challenge.ExpiresAtUtc;
@@ -162,7 +162,7 @@ public class TrustResetServiceTests
     [Fact]
     public async Task ConfirmResetAsync_NullCode_ThrowsArgumentNullException()
     {
-        var service = new TrustResetService(new FakeTrustStore(), new FakeSessionRegistry(), new FakePairingCoordinator(), new FakeClock());
+        var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
         service.BeginReset();
 
         await Assert.ThrowsAsync<ArgumentNullException>(() => service.ConfirmResetAsync(null!));
@@ -180,7 +180,7 @@ public class TrustResetServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var pairingCoordinator = new FakePairingCoordinator();
-        var service = new TrustResetService(trustStore, sessionRegistry, pairingCoordinator, new FakeClock());
+        var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), pairingCoordinator, new FakeClock());
         FactoryResetChallenge challenge = service.BeginReset();
 
         trustStore.ThrowOnClear = new IOException("disk full");
@@ -212,7 +212,7 @@ public class TrustResetServiceTests
         };
         var service = new TrustResetService(
             trustStore,
-            new FakeSessionRegistry(),
+            Invalidator(new FakeSessionRegistry()),
             new FakePairingCoordinator(),
             new FakeClock());
         FactoryResetChallenge challenge = service.BeginReset();
@@ -231,10 +231,11 @@ public class TrustResetServiceTests
 
     /// <summary>
     /// Verifies the exact security-mandated ordering for a confirmed Factory Reset: the trust store is
-    /// cleared before pairing is cancelled, which happens before every session is unconditionally
-    /// invalidated -- per <c>ai/context/protocol/security.md</c>'s "authoritative state change,
-    /// credential invalidation where applicable, future authentication/pairing enforcement, ... then
-    /// forced close" ordering.
+    /// cleared before pairing is cancelled, before every session becomes unauthorized in the registry,
+    /// before its best-effort terminal notification carries the exact <c>factory_reset</c> reason --
+    /// per <c>ai/context/protocol/security.md</c>'s "authoritative state change, credential
+    /// invalidation where applicable, future authentication/pairing enforcement, ... then forced
+    /// close" ordering.
     /// </summary>
     [Fact]
     public async Task ConfirmResetAsync_CorrectCode_AppliesSideEffectsInTheMandatedOrder()
@@ -243,15 +244,24 @@ public class TrustResetServiceTests
         var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
         var sessionRegistry = new FakeSessionRegistry { OnMutationApplied = order.Add };
         var pairingCoordinator = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        var notifier = new FakeSessionTerminationNotifier { OnNotify = target => order.Add($"Notified:{target.Reason}") };
         var clock = new FakeClock();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", clock.UtcNow));
         sessionRegistry.Create(clientId);
-        var service = new TrustResetService(trustStore, sessionRegistry, pairingCoordinator, clock);
+        var service = new TrustResetService(trustStore, new ClientSessionInvalidator(sessionRegistry, notifier), pairingCoordinator, clock);
         FactoryResetChallenge challenge = service.BeginReset();
 
         Assert.True(await service.ConfirmResetAsync(challenge.Code));
 
-        Assert.Equal(["Clear", "CancelAll", "InvalidateAll"], order);
+        Assert.Equal(["Clear", "CancelAll", "InvalidateAll", "Notified:FactoryReset"], order);
     }
+
+    /// <summary>
+    /// Wraps <paramref name="sessionRegistry"/> in a real <see cref="ClientSessionInvalidator"/> with a
+    /// discardable notifier, for tests that only need actual session removal proven -- not the
+    /// notifier itself, which the ordering test wires up explicitly where it matters.
+    /// </summary>
+    private static IClientSessionInvalidator Invalidator(FakeSessionRegistry sessionRegistry) =>
+        new ClientSessionInvalidator(sessionRegistry, new FakeSessionTerminationNotifier());
 }

@@ -57,20 +57,20 @@ public sealed class TrustAdminService : ITrustAdminService
     /// <summary>The durable trust domain administered by this service.</summary>
     private readonly ITrustStore trustStore;
 
-    /// <summary>The active sessions invalidated by successful security mutations.</summary>
-    private readonly ISessionRegistry sessionRegistry;
+    /// <summary>The seam through which successful security mutations invalidate active sessions.</summary>
+    private readonly IClientSessionInvalidator sessionInvalidator;
 
     /// <summary>The pairing state cancelled by successful security mutations.</summary>
     private readonly IPairingCoordinator pairingCoordinator;
 
     /// <summary>Creates a trust administration service.</summary>
     /// <param name="trustStore">The durable trust domain.</param>
-    /// <param name="sessionRegistry">The active session registry.</param>
+    /// <param name="sessionInvalidator">The seam used to invalidate sessions on security mutations.</param>
     /// <param name="pairingCoordinator">The pairing state to cancel on security mutations.</param>
-    public TrustAdminService(ITrustStore trustStore, ISessionRegistry sessionRegistry, IPairingCoordinator pairingCoordinator)
+    public TrustAdminService(ITrustStore trustStore, IClientSessionInvalidator sessionInvalidator, IPairingCoordinator pairingCoordinator)
     {
         this.trustStore = trustStore;
-        this.sessionRegistry = sessionRegistry;
+        this.sessionInvalidator = sessionInvalidator;
         this.pairingCoordinator = pairingCoordinator;
     }
 
@@ -174,7 +174,7 @@ public sealed class TrustAdminService : ITrustAdminService
         pairingCoordinator.CancelAll();
         foreach (ClientId clientId in affected)
         {
-            sessionRegistry.InvalidateAllForClient(clientId, SessionInvalidationReason.TrustReset);
+            await sessionInvalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.TrustReset, cancellationToken);
         }
 
         return affected;
@@ -203,7 +203,7 @@ public sealed class TrustAdminService : ITrustAdminService
         if (outcome == TrustMutationOutcome.Changed)
         {
             pairingCoordinator.Cancel(clientId);
-            sessionRegistry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
+            await sessionInvalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked, cancellationToken);
         }
 
         return outcome;
@@ -216,7 +216,7 @@ public sealed class TrustAdminService : ITrustAdminService
         if (outcome == TrustMutationOutcome.Changed)
         {
             pairingCoordinator.Cancel(clientId);
-            sessionRegistry.InvalidateAllForClient(clientId, SessionInvalidationReason.Blocked);
+            await sessionInvalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Blocked, cancellationToken);
         }
 
         return outcome;

@@ -18,7 +18,7 @@ public class TrustAdminServiceTests
         TrustRecord blocked = new(ClientId.NewId(), "00001", "Blocked", KnownDeviceState.Blocked, string.Empty, older.AddHours(1));
         trustStore.Seed(trusted);
         trustStore.Seed(blocked);
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         Assert.Equal([trusted, blocked], admin.List());
         Assert.Equal([trusted], admin.List("trust"));
@@ -35,7 +35,7 @@ public class TrustAdminServiceTests
         TrustRecord second = new(ClientId.NewId(), "00002", "Same Name", KnownDeviceState.Trusted, "hash2", oldest.AddDays(1));
         trustStore.Seed(first);
         trustStore.Seed(second);
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         IReadOnlyList<TrustRecord> listed = admin.List();
 
@@ -49,7 +49,7 @@ public class TrustAdminServiceTests
     [Fact]
     public void Help_ContainsCompleteCommandSurface()
     {
-        var admin = new TrustAdminService(new FakeTrustStore(), new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         string help = admin.Help();
 
@@ -67,7 +67,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         trustStore.Seed(original);
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await admin.RenameAsync(clientId, "Bedroom PC");
         await admin.RenameAsync(clientId, string.Empty);
@@ -83,7 +83,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await Assert.ThrowsAsync<ArgumentException>(() => admin.RenameAsync(clientId, "Bad\nName"));
     }
@@ -95,7 +95,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => admin.RenameAsync(clientId, "New Name"));
     }
@@ -110,7 +110,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         SessionId session = sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         await admin.RevokeAsync(clientId);
 
@@ -132,7 +132,7 @@ public class TrustAdminServiceTests
         trustStore.Seed(new TrustRecord(other, "12346", null, KnownDeviceState.Trusted, "hash2", DateTimeOffset.UtcNow));
         SessionId targetSession = sessions.Create(target);
         SessionId otherSession = sessions.Create(other);
-        var admin = new TrustAdminService(trustStore, sessions, new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), new FakePairingCoordinator());
 
         await admin.RevokeAsync(target);
 
@@ -147,7 +147,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await admin.BlockAsync(clientId);
 
@@ -166,7 +166,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         SessionId session = sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         await admin.BlockAsync(clientId);
 
@@ -182,7 +182,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await admin.BlockAsync(clientId);
 
@@ -197,7 +197,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow));
         var pairing = new FakePairingCoordinator();
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), pairing);
 
         await admin.BlockAsync(clientId);
 
@@ -211,7 +211,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await admin.UnblockAsync(clientId);
 
@@ -228,7 +228,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await Assert.ThrowsAsync<KeyNotFoundException>(() => admin.UnblockAsync(ClientId.NewId()));
         await admin.UnblockAsync(clientId);
@@ -242,7 +242,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await admin.ForgetAsync(clientId);
 
@@ -257,7 +257,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         TrustRecord record = new(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         trustStore.Seed(record);
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => admin.ForgetAsync(clientId));
 
@@ -272,7 +272,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         TrustRecord record = new(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         trustStore.Seed(record);
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => admin.ForgetAsync(clientId));
 
@@ -287,7 +287,7 @@ public class TrustAdminServiceTests
         var pairing = new FakePairingCoordinator();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), pairing);
 
         await admin.ForgetAsync(clientId);
 
@@ -304,7 +304,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         SessionId session = sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         await Assert.ThrowsAsync<IOException>(() => admin.RevokeAsync(clientId));
 
@@ -325,7 +325,7 @@ public class TrustAdminServiceTests
         trustStore.Seed(new TrustRecord(trusted, "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         trustStore.Seed(new TrustRecord(blocked, "12346", "Blocked", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         SessionId session = sessions.Create(trusted);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         await admin.ResetTrustAsync();
 
@@ -335,12 +335,44 @@ public class TrustAdminServiceTests
         Assert.False(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
     }
 
+    /// <summary>
+    /// Verifies that Reset Trust's per-affected-client loop invalidates and notifies every trusted
+    /// device it revokes, not just the first -- each with its own <c>trust_reset</c> reason, not a
+    /// single call that only reaches one of them.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_MultipleTrustedDevices_NotifiesEachWithTrustReset()
+    {
+        var trustStore = new FakeTrustStore();
+        var sessions = new FakeSessionRegistry(2);
+        var pairing = new FakePairingCoordinator();
+        var notifier = new FakeSessionTerminationNotifier();
+        ClientId first = ClientId.NewId();
+        ClientId second = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(first, "12345", "First", KnownDeviceState.Trusted, "hash1", DateTimeOffset.UtcNow));
+        trustStore.Seed(new TrustRecord(second, "12346", "Second", KnownDeviceState.Trusted, "hash2", DateTimeOffset.UtcNow));
+        SessionId firstSession = sessions.Create(first);
+        SessionId secondSession = sessions.Create(second);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
+
+        IReadOnlyList<ClientId> affected = await admin.ResetTrustAsync();
+
+        Assert.Equal(2, affected.Count);
+        Assert.False(sessions.IsActive(firstSession, sessions.ConnectionIdFor(firstSession)));
+        Assert.False(sessions.IsActive(secondSession, sessions.ConnectionIdFor(secondSession)));
+        Assert.Equal(2, notifier.NotifiedTargets.Count);
+        Assert.All(notifier.NotifiedTargets, target => Assert.Equal(SessionInvalidationReason.TrustReset, target.Reason));
+        Assert.Equal(
+            new[] { first, second }.OrderBy(id => id.Value),
+            notifier.NotifiedTargets.Select(target => target.ClientId).OrderBy(id => id.Value));
+    }
+
     /// <summary>Verifies that Reset Trust cancels pairing even when no trusted device needs revocation.</summary>
     [Fact]
     public async Task ResetTrustAsync_NoTrustedDevices_StillCancelsPairing()
     {
         var pairing = new FakePairingCoordinator();
-        var admin = new TrustAdminService(new FakeTrustStore(), new FakeSessionRegistry(), pairing);
+        var admin = new TrustAdminService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), pairing);
 
         IReadOnlyList<ClientId> affected = await admin.ResetTrustAsync();
 
@@ -358,7 +390,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         SessionId session = sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         await Assert.ThrowsAsync<IOException>(() => admin.ResetTrustAsync());
 
@@ -379,7 +411,7 @@ public class TrustAdminServiceTests
         trustStore.Seed(new TrustRecord(trustedClient, "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         trustStore.Seed(new TrustRecord(revokedClient, "12346", "Revoked", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
         SessionId session = sessions.Create(trustedClient);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         IReadOnlyList<ClientId> affected = await admin.ResetTrustAsync();
 
@@ -397,7 +429,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         TrustMutationOutcome outcome = await admin.RevokeByShortIdAsync("12345");
 
@@ -409,7 +441,7 @@ public class TrustAdminServiceTests
     [Fact]
     public async Task BlockByShortIdAsync_UnknownId_ReturnsNotFound()
     {
-        var admin = new TrustAdminService(new FakeTrustStore(), new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         Assert.Equal(TrustMutationOutcome.NotFound, await admin.BlockByShortIdAsync("99999"));
     }
@@ -424,7 +456,7 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         SessionId session = sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         Assert.Equal(TrustMutationOutcome.Changed, await admin.BlockByShortIdAsync("12345"));
 
@@ -440,7 +472,7 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), new FakePairingCoordinator());
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         Assert.Equal(TrustMutationOutcome.Changed, await admin.UnblockByShortIdAsync("12345"));
         Assert.Equal(TrustMutationOutcome.Changed, await admin.ForgetByShortIdAsync("12345"));
@@ -449,7 +481,8 @@ public class TrustAdminServiceTests
 
     /// <summary>
     /// Verifies the exact security-mandated ordering for Revoke: the authoritative trust-store
-    /// mutation happens before pairing is cancelled, which happens before the session is invalidated
+    /// mutation happens before pairing is cancelled, before the session becomes unauthorized in the
+    /// registry, before its best-effort terminal notification carries the exact <c>revoked</c> reason
     /// -- per <c>ai/context/protocol/security.md</c>'s "authoritative state change, credential
     /// invalidation where applicable, future authentication/pairing enforcement, ... then forced
     /// close" ordering.
@@ -461,14 +494,15 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
         var sessions = new FakeSessionRegistry { OnMutationApplied = order.Add };
         var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        var notifier = new FakeSessionTerminationNotifier { OnNotify = target => order.Add($"Notified:{target.Reason}") };
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
 
         await admin.RevokeAsync(clientId);
 
-        Assert.Equal(["Revoke", "Cancel", "InvalidateAllForClient"], order);
+        Assert.Equal(["Revoke", "Cancel", "InvalidateAllForClient", "Notified:Revoked"], order);
     }
 
     /// <summary>Verifies the same mandated ordering for Block.</summary>
@@ -479,14 +513,15 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
         var sessions = new FakeSessionRegistry { OnMutationApplied = order.Add };
         var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        var notifier = new FakeSessionTerminationNotifier { OnNotify = target => order.Add($"Notified:{target.Reason}") };
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
 
         await admin.BlockAsync(clientId);
 
-        Assert.Equal(["Block", "Cancel", "InvalidateAllForClient"], order);
+        Assert.Equal(["Block", "Cancel", "InvalidateAllForClient", "Notified:Blocked"], order);
     }
 
     /// <summary>Verifies the same mandated ordering for Reset Trust, including per-affected-device invalidation.</summary>
@@ -497,14 +532,15 @@ public class TrustAdminServiceTests
         var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
         var sessions = new FakeSessionRegistry { OnMutationApplied = order.Add };
         var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
+        var notifier = new FakeSessionTerminationNotifier { OnNotify = target => order.Add($"Notified:{target.Reason}") };
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         sessions.Create(clientId);
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
 
         await admin.ResetTrustAsync();
 
-        Assert.Equal(["ResetTrust", "CancelAll", "InvalidateAllForClient"], order);
+        Assert.Equal(["ResetTrust", "CancelAll", "InvalidateAllForClient", "Notified:TrustReset"], order);
     }
 
     /// <summary>
@@ -518,7 +554,7 @@ public class TrustAdminServiceTests
         List<string> order = [];
         var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
         var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
-        var admin = new TrustAdminService(trustStore, new FakeSessionRegistry(), pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), pairing);
 
         await admin.ResetTrustAsync();
 
@@ -539,10 +575,18 @@ public class TrustAdminServiceTests
         var pairing = new FakePairingCoordinator { OnMutationApplied = order.Add };
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, sessions, pairing);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
         await admin.ForgetAsync(clientId);
 
         Assert.Equal(["Forget", "Cancel"], order);
     }
+
+    /// <summary>
+    /// Wraps <paramref name="sessions"/> in a real <see cref="ClientSessionInvalidator"/> with a
+    /// discardable notifier, for tests that only need actual session removal proven -- not the
+    /// notifier itself, which the ordering tests wire up explicitly where it matters.
+    /// </summary>
+    private static IClientSessionInvalidator Invalidator(FakeSessionRegistry sessions) =>
+        new ClientSessionInvalidator(sessions, new FakeSessionTerminationNotifier());
 }

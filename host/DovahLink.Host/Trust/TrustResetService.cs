@@ -32,8 +32,8 @@ public sealed class TrustResetService : ITrustResetService
     /// <summary>The trust records cleared back to unpaired by a confirmed reset.</summary>
     private readonly ITrustStore trustStore;
 
-    /// <summary>The sessions unconditionally invalidated by a confirmed reset.</summary>
-    private readonly ISessionRegistry sessionRegistry;
+    /// <summary>The seam through which every session is unconditionally invalidated by a confirmed reset.</summary>
+    private readonly IClientSessionInvalidator sessionInvalidator;
 
     /// <summary>The pairing state cancelled by a confirmed reset.</summary>
     private readonly IPairingCoordinator pairingCoordinator;
@@ -52,13 +52,13 @@ public sealed class TrustResetService : ITrustResetService
 
     /// <summary>Creates a factory-reset service.</summary>
     /// <param name="trustStore">The trust records to reset.</param>
-    /// <param name="sessionRegistry">The session registry to invalidate on a confirmed reset.</param>
+    /// <param name="sessionInvalidator">The seam used to unconditionally invalidate every session on a confirmed reset.</param>
     /// <param name="pairingCoordinator">The pairing state to cancel after a confirmed reset.</param>
     /// <param name="clock">The time source used for challenge issuance and expiry.</param>
-    public TrustResetService(ITrustStore trustStore, ISessionRegistry sessionRegistry, IPairingCoordinator pairingCoordinator, IClock clock)
+    public TrustResetService(ITrustStore trustStore, IClientSessionInvalidator sessionInvalidator, IPairingCoordinator pairingCoordinator, IClock clock)
     {
         this.trustStore = trustStore;
-        this.sessionRegistry = sessionRegistry;
+        this.sessionInvalidator = sessionInvalidator;
         this.pairingCoordinator = pairingCoordinator;
         this.clock = clock;
     }
@@ -126,7 +126,7 @@ public sealed class TrustResetService : ITrustResetService
 
             await trustStore.ClearAsync(cancellationToken);
             pairingCoordinator.CancelAll();
-            sessionRegistry.InvalidateAll(SessionInvalidationReason.FactoryReset);
+            await sessionInvalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset, cancellationToken);
 
             lock (gate)
             {
