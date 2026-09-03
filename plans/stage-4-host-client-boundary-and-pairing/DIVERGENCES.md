@@ -93,3 +93,40 @@ Decision source: Direct maintainer instruction in the current task on 2026-09-01
 /step-build for the real findings"), following a Concept 01 review that proposed this deviation and
 noted "I agree with the simplification"; consistent with `PublicWebSocketTransportOptions.cs`'s and
 `CONTEXT.md`'s existing rationale for the flat pool.
+
+## D4 — Startup trust-persistence proof belongs to Concept 04, not Concept 02
+
+Original requirement: `02-authentication-and-session-admission.md`'s completion criteria required
+"startup tests prove trust persistence is loaded before admission, missing persistence means an
+empty store, and malformed/undecryptable persistence prevents silent client admission."
+
+Observed conflict: A fresh-eyes review of this concept found `Program.cs` composes no part of the
+public listener/admission stack yet -- Stage 4's concept graph assigns completing the host
+composition root to Concept 04 (`04-adapter-notification-and-composition.md`'s Contracts: "Composition
+injects the public listener, adapter channel, trust store, pairing coordinator, authentication
+providers, session registry, dispatcher, and shutdown lifecycle once each"). A startup-ordering proof
+about when persistence loads relative to client admission is structurally a property of that
+composition root, which does not exist until Concept 04; Concept 02's own `PublicHelloAdmissionHandler`
+only ever consumes an already-constructed `ITrustStore` handed to it through constructor injection and
+performs no persistence loading, decryption, or startup-ordering decision of its own.
+
+Decision: Concept 02's completion criteria are amended to require only that its admission boundary is
+composition-ready -- it depends on an already-loaded authoritative `ITrustStore` and introduces no
+persistence-loading responsibility of its own. The startup trust-persistence proof (loads before
+admission; missing persistence means an empty store; malformed/undecryptable persistence fails
+closed) moves to Concept 04's own completion criteria and proof obligations, where the composition
+root that the proof is actually about gets built.
+
+Impact: Concept 02 can be marked complete without pretending a criterion was satisfied that its own
+files structurally cannot satisfy yet. Concept 04 gains an explicit, traceable obligation to prove
+fail-closed startup ordering once it composes the production trust store and public listener
+together; this divergence does not waive that proof, only relocates which concept owns demonstrating
+it.
+
+Status: approved
+
+Decision source: Direct maintainer instruction in the current task on 2026-09-03 ("Yes. Switch to a
+build session and fix the confirmed Concept 02 issues"), explicitly including "Update the
+planning/traceability docs so the startup-order/fail-closed persistence proof is explicitly owned by
+Concept 04 if that is the actual architecture" -- following a `/think` review the same day that found
+`Program.cs` composes none of the public admission stack yet.

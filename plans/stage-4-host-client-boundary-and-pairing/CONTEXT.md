@@ -238,6 +238,82 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   - Every step's fresh-eyes subagent pass and full-suite run are recorded under "Verification" below;
     no divergence from `DIVERGENCES.md` was required, and no file outside Concept 02's allowlist was
     touched except the flagged Step 1 amendment above.
+  - Post-completion corrective pass (`/step-build`, eight steps, 2026-09-03): a maintainer-directed
+    `/think` review against the merged PR found seven real defects and confirmed several other
+    suspected issues were already correctly handled; each real defect was fixed in its own step with
+    focused regression tests, all within Concept 02's existing allowlist.
+    - Step 1: `CredentialHasher.IsValidHexCredential` validates a presented `trusted_device_credential`
+      as exactly `Constants.PairingCredentialLength` hex characters before it ever reaches hashing, and
+      `ITrustedCredentialFailureThrottle` gained `TryAttempt(Func<bool>)`, running the failure-window
+      check, the credential comparison, and any failure recording under one lock -- closing a real
+      TOCTOU race the previous `IsAllowed()`/compare/`RecordFailure()` split left open, where several
+      concurrent callers could each observe the window as open before any outcome was recorded and so
+      exceed the configured five-failure bound. A concurrency test proves the verify callback is
+      invoked at most five times across fifty concurrent failing attempts.
+    - Step 2: `ILocalConnectionTokenAuthenticator` gained `RollbackReservation()`, and `TryValidate`
+      now atomically reserves a matched token so a second concurrent `TryValidate` call presenting the
+      identical correct token fails while the reservation is outstanding -- a real latent race
+      previously masked only by `Constants.MaxActiveSessions == 1`, never itself tested as the security
+      mechanism. Two existing tests that encoded the old implicit-non-consumption behavior were
+      rewritten around the new explicit rollback contract; a concurrency test proves only one of ten
+      simultaneous callers presenting the same token succeeds.
+    - Step 3: wired both primitives into `PublicHelloAdmissionHandler` -- `IsValidAuth` now rejects a
+      malformed-shape credential before authentication services, `HandleTrustBackedHello` routes its
+      comparison through `TryAttempt`, and `HandleOneTimeLocalTokenHello` rolls back its reservation on
+      every downstream admission failure. Every existing `trusted_device_credential` test fixture
+      (previously plain-text values like `"the-credential"`) was updated to valid hex, since the new
+      format check would otherwise reject them as malformed; two end-to-end concurrency tests prove
+      the fixes hold through the full admission path, not merely at the primitive level.
+    - Step 4: `PublicHelloAdmissionHandler` now enforces envelope identity semantics the schema always
+      required but the handler never checked -- a pre-authentication `hello` must carry a null
+      envelope `sessionId`, `bridgeInstanceId`, `clientId`, `correlationId`, and `playContextId`; a
+      post-admission message must carry a null `bridgeInstanceId`/`playContextId` and, if present, an
+      envelope `clientId` matching the connection's own admitted identity. Both were previously
+      unvalidated -- a client could present foreign or premature identity values that were silently
+      ignored. Nine new tests cover each field independently, both pre- and post-admission.
+    - Step 5: `IsPostAdmissionClientMessageType` (derived from the existing per-tier allowlist, not a
+      duplicated list) distinguishes a genuine trust-tier authorization failure from a protocol
+      shape/direction violation. A structurally valid message the current tier does not allow (for
+      example a restricted session sending `subscribe`) now returns `unauthorized`, which existed in
+      `PublicProtocolErrorCode` but had zero references anywhere before this step; a server-originated
+      type sent by a client (`hello_ack`, `state_snapshot`, etc.) remains `malformed_message`, since no
+      tier could ever authorize it. Both previously collapsed to `malformed_message`.
+    - Step 6: closed the same root cause behind two separately reported findings -- a Factory Reset
+      race during admission and post-admission session staleness -- with one coherent fix.
+      `HandleOneTimeLocalTokenHello` and `HandleTrustBackedHello` both recheck
+      `SessionRegistry.IsActive(newSessionId, connectionId)` immediately before finalizing admission,
+      so an unconditional `InvalidateAll()` landing in that window can never result in a `hello_ack`
+      for a session the registry no longer knows about; `HandleMessageAsync`'s post-admission check
+      now also requires `IsActive(sessionId, connectionId)`, so a session invalidated after admission
+      is rejected on its very next message even though the connection's own local `admitted` state
+      never changed. A `SessionRegistryThatInvalidatesAllOnFirstIsActiveCall` test double deterministically
+      simulates the race for both the trust-backed and one-time-token hello paths.
+    - Step 7: `TryRecordMessageId` now checks the 10,000-message bound before recording a new id, not
+      only after, so a message already in flight through the read loop when an earlier message reached
+      the bound (and requested the connection's orderly close) can never be recorded or dispatched --
+      closing a narrow residual race the "accept the message that reaches the bound, close afterward"
+      contract did not otherwise prevent. Exact boundary tests cover messages 9,999, 10,000, and a
+      simulated 10,001 (including one carrying a previously seen `messageId`, proving it is dropped
+      rather than misclassified as replay).
+    - Step 8 (this entry): documentation-only. `02-authentication-and-session-admission.md` gained
+      Contracts/Invariants/Proof-obligations text for the registry-liveness recheck, the
+      unauthorized/malformed distinction, and the message-bound race; its completion criteria no
+      longer require a startup trust-persistence proof this concept's files cannot satisfy (see
+      `DIVERGENCES.md`'s new D4, which hands that proof to Concept 04). Four findings from the same
+      review were confirmed already correct with no code change: `TrySend` failure during `Admit()` is
+      already covered by Concept 01's existing forced-close-on-unadmittable-message guarantee
+      (`RequestForcedCloseForUnadmittedMessage`), which drives `HandleConnectionEnded()`'s session
+      invalidation; the distinct `Blocked`/`Revoked` error codes are an intentional, contract-mandated
+      distinction, not a secret-comparison leak; the credential throttle's exemption of
+      unknown/blocked/revoked identities (they return before ever reaching `IsAllowed()`/`RecordFailure()`)
+      is deliberate -- no secret comparison happens for those cases, so there is nothing to brute-force
+      -- and is now recorded here as the documented rationale; and `Guid.TryParse`'s acceptance of
+      multiple textual GUID forms creates no identity-aliasing risk, since `ClientId` compares the
+      parsed `Guid` struct, never the original wire string. Static `Guid.NewGuid()` for host-originated
+      `messageId`s matches this project's own established convention (every identity type --
+      `SessionId`, `ConnectionId`, `ClientId`, `PlayContextId`, `AdapterInstanceId` -- already generates
+      the same way); introducing an injected generator here would be a deviation from that convention,
+      not an alignment with it.
 
 ## Decisions and approved deviations
 
@@ -265,6 +341,10 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 - The pre-authentication hello deadline decision above is now implemented and tested by Concept 02's
   Steps 1 and 6 (see "Completed concepts"); this entry is left as the historical decision record per
   this document's own append-only convention.
+- Approved via direct maintainer instruction in the current task on 2026-09-03: the post-completion
+  corrective pass's seven fixes and eight-step plan, following a same-day `/think` review. See
+  `DIVERGENCES.md`'s D4 for the startup trust-persistence completion-criterion handoff to Concept 04
+  this pass also made.
 
 ## Deferred debt
 
@@ -379,6 +459,38 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 - Concept 02, Step 7, modified: `PublicHelloAdmissionHandler.cs` (`IsAllowedForTier`, post-admission
   dispatch, the `gate`-locking fix for `admissionDeadlineCts`); `PublicHelloAdmissionTests.cs`.
 - `02-authentication-and-session-admission.md`: `Status: pending` → `Status: complete`.
+- Post-completion corrective pass, Step 1, modified: `host/DovahLink.Host/Trust/CredentialHasher.cs`
+  (`IsValidHexCredential`); `host/DovahLink.Host/Client/Authentication/TrustedCredentialFailureThrottle.cs`
+  (`ITrustedCredentialFailureThrottle.TryAttempt`); test files `CredentialHasherTests.cs`,
+  `TrustedCredentialFailureThrottleTests.cs`.
+- Post-completion corrective pass, Step 2, modified:
+  `host/DovahLink.Host/Authentication/LocalConnectionTokenAuthenticator.cs`
+  (`ILocalConnectionTokenAuthenticator.RollbackReservation`, reservation-aware `TryValidate`); test
+  file `LocalConnectionTokenAuthenticatorTests.cs` (two tests rewritten, four new).
+- Post-completion corrective pass, Step 3, modified: `PublicHelloAdmissionHandler.cs` (`IsValidAuth`,
+  `HandleTrustBackedHello`'s `TryAttempt` wiring, `HandleOneTimeLocalTokenHello`'s
+  `RollbackReservation` calls); test file `PublicHelloAdmissionTests.cs` (every
+  `trusted_device_credential` fixture updated to valid hex, two new malformed-credential cases, two
+  new end-to-end concurrency tests).
+- Post-completion corrective pass, Step 4, modified: `PublicHelloAdmissionHandler.cs`
+  (`admittedClientId` field, `IsValidPreAuthEnvelopeIdentity`, the post-admission envelope-identity
+  check); test file `PublicHelloAdmissionTests.cs` (nine new tests).
+- Post-completion corrective pass, Step 5, modified: `PublicHelloAdmissionHandler.cs`
+  (`IsPostAdmissionClientMessageType`, the `Unauthorized`/`MalformedMessage` classification split);
+  test file `PublicHelloAdmissionTests.cs` (two theories split into four, one new test double case).
+- Post-completion corrective pass, Step 6, modified: `PublicHelloAdmissionHandler.cs` (the
+  `SessionRegistry.IsActive` recheck in both hello authentication paths and in post-admission message
+  authorization); test file `PublicHelloAdmissionTests.cs` (new
+  `SessionRegistryThatInvalidatesAllOnFirstIsActiveCall` test double, four new tests).
+- Post-completion corrective pass, Step 7, modified: `PublicHelloAdmissionHandler.cs`
+  (`TryRecordMessageId`'s `out bool boundAlreadyExceeded` and pre-check); test file
+  `PublicHelloAdmissionTests.cs` (three new exact-boundary tests).
+- Post-completion corrective pass, Step 8 (this pass), modified:
+  `02-authentication-and-session-admission.md` (new Contracts/Invariants/Proof-obligations text, the
+  completion-criteria ownership handoff); `04-adapter-notification-and-composition.md` (the received
+  startup trust-persistence proof obligation and completion criterion); `DIVERGENCES.md` (new D4);
+  this `CONTEXT.md` (this decision entry, this file list, the verification counts below). No public
+  schema, SDK, or Concept 03 file touched.
 
 ## Verification
 
@@ -454,6 +566,34 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   native/adapter file touched.
 - `host/PLAN.md` SHA-256 re-verified unchanged at Concept 02's close (git-blob level, matching the
   value above): no drift occurred while Concept 02 was implemented.
+- Post-completion corrective pass: 833 passed at this pass's baseline (unchanged from Concept 02's own
+  close). Steps 1-3 (the credential/token primitives and their wiring into the handler) were each
+  verified against their own affected test files rather than a full-suite run at every intermediate
+  step; the first full-suite checkpoint after them landed at 855 passed (+22 across all three,
+  including the fifty-concurrent-attempt throttle-invocation proof, the ten-concurrent-attempt
+  token-reservation proof, two end-to-end handler-level concurrency tests, and every existing
+  `trusted_device_credential` fixture updated to valid hex). From there, each further step's full-suite
+  count was independently re-verified via `dotnet test` after its own fresh-eyes pass and convention
+  audit: 864 after Step 4 (+9: envelope identity, both pre-auth and post-admission); 869 after Step 5
+  (+5: the `Unauthorized`/`MalformedMessage` classification split, two theories become four plus one
+  added server-only case); 873 after Step 6 (+4: the Factory Reset race, both hello authentication
+  paths, plus the full-session post-admission symmetry test); 876 after Step 7 (+3: the exact
+  message-bound boundary and post-bound-race tests). Final full-suite run at the close of Step 8: 876
+  passed, 0 failed, unchanged (documentation-only). Timing/concurrency-sensitive suites
+  (`PublicHelloAdmissionTests`, `LocalConnectionTokenAuthenticatorTests`,
+  `TrustedCredentialFailureThrottleTests`, 127 tests combined) re-run five times at the close of Step
+  8 with no flake, in addition to the per-step repetitions recorded in each step's own commit.
+- `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
+  after every one of this pass's eight steps.
+- `python -m unittest discover -s tooling -p "test_*.py"`: 95 passed, re-run at Step 8's close
+  (documentation-only changes to the plan package; no phrase `test_repository_consistency.py` locks
+  in `security.md` or elsewhere was altered).
+- `integration/DovahLinkValidationClient.Tests`, `ctest --test-dir adapter/build/windows-x64-debug`:
+  not re-run -- every change in this pass is confined to `host/DovahLink.Host`/`.Tests` C# application
+  code and this phase's own planning documents, with no protocol, SDK, or native/adapter file touched.
+- `git branch --show-current`: `feature/4-host-client-boundary-and-pairing`, unchanged; `git status`
+  clean except this pass's own documentation edits at the time of writing; no file outside this
+  concept's allowlist and this phase's planning package was touched.
 
 ## Handoff
 

@@ -84,6 +84,16 @@ and rejection/close decisions.
   releases its slot without admitting a late `hello`. The deadline is scoped to one connection's
   exact lifetime and is never reused, restarted, or capable of affecting a later reconnect's own
   connection/deadline.
+- Recheck `SessionRegistry.IsActive(sessionId, connectionId)` immediately before finalizing admission
+  on every hello authentication path, not only the trust-backed recheck against Block/Revoke: an
+  unconditional `SessionRegistry.InvalidateAll()` (Factory Reset) can land in the same window and is
+  not itself a trust-store condition the earlier recheck would catch. A losing race here rolls back
+  any reserved one-time token and rejects the connection without ever sending `hello_ack` for a
+  session the registry no longer knows about.
+- Classify a structurally valid client message the current session's trust tier does not authorize as
+  `unauthorized`, distinct from a protocol shape/direction violation -- a server-originated message
+  type, or `hello` received after a session already exists -- which remains `malformed_message` since
+  no trust tier could ever authorize it.
 
 ## Invariants
 
@@ -100,6 +110,10 @@ and rejection/close decisions.
   deadline belongs to exactly one connection's exact lifetime: a deadline that outlives its own
   connection's teardown can never fire against, close, or otherwise affect a different (including a
   same-client reconnect's) connection.
+- A connection's local `admitted` state is never treated as authorization independent of the
+  authoritative `SessionRegistry`: once the registry no longer considers `(sessionId, connectionId)`
+  active for any reason, the very next post-admission message on that connection is rejected as
+  `stale_session`, even though the connection's own local state has not itself changed.
 
 ## Allowed files/modules
 
@@ -163,6 +177,13 @@ Expected focused test files:
 - After a connection occupying the single public admission slot is evicted by this deadline for
   never completing `hello`, a subsequent connection can successfully occupy that slot and proceed
   through ordinary admission.
+- A message reaching exactly the 10,000-message session bound is itself accepted; a later message --
+  including one already in flight when the bound was reached, before the requested close takes
+  effect -- is neither recorded nor dispatched, regardless of whether it is a fresh or a previously
+  seen `messageId`.
+- An unconditional `SessionRegistry.InvalidateAll()` landing between a connection's session
+  reservation and its final admission recheck results in no `hello_ack`, no consumed one-time token,
+  and no active session, for every hello authentication method.
 
 ## Non-goals
 
@@ -177,5 +198,11 @@ Expected focused test files:
 - The host produces a typed, authenticated session context that Concepts 03 and 04 can consume.
 - Any required session-registry extension preserves existing Stage 2 invariants and is covered by
   focused regression tests.
-- Startup tests prove trust persistence is loaded before admission, missing persistence means an
-  empty store, and malformed/undecryptable persistence prevents silent client admission.
+- This concept's admission boundary is composition-ready: it depends on an already-loaded
+  authoritative `ITrustStore` passed in through constructor injection and performs no persistence
+  loading, decryption, or startup-ordering decision of its own. Proving that the production
+  composition root actually loads trust persistence before admitting any client, that missing
+  persistence means an empty store, and that malformed/undecryptable persistence fails closed rather
+  than silently admitting a client, is a startup-ordering property of the composition root itself --
+  which `Program.cs` does not yet build (Concept 04 completes the host composition root) -- and so is
+  Concept 04's completion criterion, not this one's. See `DIVERGENCES.md`'s D4.
