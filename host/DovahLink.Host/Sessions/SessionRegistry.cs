@@ -12,20 +12,37 @@ public interface ISessionRegistry
     /// <summary>Attempts to create a new session for a client and owning connection.</summary>
     /// <param name="clientId">The client the session belongs to.</param>
     /// <param name="connectionId">The transport connection that owns the session.</param>
+    /// <param name="authenticationSource">How the owning connection authenticated at <c>hello</c>. Security-significant state; callers must always state it explicitly.</param>
+    /// <param name="trustTier">The session's initial message-authorization tier. Security-significant state; callers must always state it explicitly.</param>
     /// <param name="sessionId">Receives the new session identifier when admission succeeds.</param>
     /// <returns><see langword="true"/> when capacity admitted the session.</returns>
-    bool TryCreate(ClientId clientId, ConnectionId connectionId, out SessionId sessionId);
+    bool TryCreate(
+        ClientId clientId,
+        ConnectionId connectionId,
+        SessionAuthenticationSource authenticationSource,
+        SessionTrustTier trustTier,
+        out SessionId sessionId);
 
     /// <summary>Invalidates one session when called by its owning connection.</summary>
     /// <param name="sessionId">The session to invalidate.</param>
     /// <param name="connectionId">The connection claiming ownership of the session.</param>
     void Invalidate(SessionId sessionId, ConnectionId connectionId);
 
-    /// <summary>Invalidates every currently active session belonging to a client.</summary>
+    /// <summary>
+    /// Invalidates every currently active session belonging to a client, except a session whose
+    /// <see cref="ActiveSessionRecord.AuthenticationSource"/> is <see cref="SessionAuthenticationSource.OneTimeLocalToken"/>:
+    /// a developer-token session is never a Known Device and must not be disconnected merely because
+    /// its self-declared <see cref="ClientId"/> matches a client-scoped administrative mutation's
+    /// target. Use <see cref="InvalidateAll"/> for Factory Reset's unconditional invalidation instead.
+    /// </summary>
     /// <param name="clientId">The client whose sessions should be invalidated.</param>
     void InvalidateAllForClient(ClientId clientId);
 
-    /// <summary>Reports whether a session is active on its owning connection.</summary>
+    /// <summary>
+    /// Reports whether a session is active on its owning connection. For the one-time admission
+    /// commit itself, use <see cref="TryFinalizeAdmission"/> instead: this method is for an ongoing,
+    /// repeatable liveness check on an already-admitted session.
+    /// </summary>
     /// <param name="sessionId">The session to check.</param>
     /// <param name="connectionId">The connection claiming ownership of the session.</param>
     /// <returns><see langword="true"/> if the session belongs to the connection and remains active.</returns>
@@ -33,6 +50,28 @@ public interface ISessionRegistry
 
     /// <summary>Unconditionally invalidates every currently active session.</summary>
     void InvalidateAll();
+
+    /// <summary>
+    /// Atomically confirms that a session <see cref="TryCreate"/> admitted is still active on its
+    /// owning connection, as the sole authoritative linearization point between an in-flight
+    /// admission and a concurrent <see cref="Invalidate"/>, <see cref="InvalidateAllForClient"/>, or
+    /// <see cref="InvalidateAll"/> call racing against it: because this check and every invalidation
+    /// method serialize on the same internal lock, whichever reaches this exact session first decides
+    /// its outcome for every check made after it. A caller must call this exactly once, as the last
+    /// registry interaction before performing an admission side effect that would be wrong to perform
+    /// for an already-invalidated session (sending <c>hello_ack</c>, committing a reserved one-time
+    /// token), and must not perform that side effect when this returns <see langword="false"/>.
+    /// Because the side effect itself necessarily runs after this method returns and releases the
+    /// lock, an invalidation that begins only after this call already returned <see langword="true"/>
+    /// is not observed by that call: such a session is invalidated within nanoseconds of admission and
+    /// is rejected on its very next message by <see cref="IsActive"/>, so no persistently usable or
+    /// inconsistent session can result, but the one <c>hello_ack</c>/<c>capabilities</c> pair already
+    /// in flight at that point cannot be recalled.
+    /// </summary>
+    /// <param name="sessionId">The session to finalize.</param>
+    /// <param name="connectionId">The connection claiming ownership of the session.</param>
+    /// <returns><see langword="true"/> if the session still belongs to the connection and remains active.</returns>
+    bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId);
 }
 
 /// <inheritdoc cref="ISessionRegistry"/>
@@ -75,7 +114,12 @@ public sealed class SessionRegistry : ISessionRegistry
     public int MaxActiveSessions => maxActiveSessions;
 
     /// <inheritdoc/>
-    public bool TryCreate(ClientId clientId, ConnectionId connectionId, out SessionId sessionId)
+    public bool TryCreate(
+        ClientId clientId,
+        ConnectionId connectionId,
+        SessionAuthenticationSource authenticationSource,
+        SessionTrustTier trustTier,
+        out SessionId sessionId)
     {
         lock (gate)
         {
@@ -91,20 +135,10 @@ public sealed class SessionRegistry : ISessionRegistry
             }
             while (sessionsById.ContainsKey(sessionId));
 
-            sessionsById[sessionId] = new ActiveSessionRecord(sessionId, clientId, connectionId, SessionState.Active);
+            sessionsById[sessionId] = new ActiveSessionRecord(
+                sessionId, clientId, connectionId, SessionState.Active, authenticationSource, trustTier);
             return true;
         }
-    }
-
-    /// <summary>Creates a session or rejects the connection when the admission bound is full.</summary>
-    public SessionId Create(ClientId clientId, ConnectionId connectionId)
-    {
-        if (!TryCreate(clientId, connectionId, out SessionId sessionId))
-        {
-            throw new InvalidOperationException("The active session capacity has been reached.");
-        }
-
-        return sessionId;
     }
 
     /// <inheritdoc/>
@@ -125,7 +159,8 @@ public sealed class SessionRegistry : ISessionRegistry
         lock (gate)
         {
             foreach (SessionId sessionId in sessionsById
-                .Where(pair => pair.Value.ClientId.Equals(clientId))
+                .Where(pair => pair.Value.ClientId.Equals(clientId) &&
+                    pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())
             {
@@ -151,6 +186,17 @@ public sealed class SessionRegistry : ISessionRegistry
         lock (gate)
         {
             sessionsById.Clear();
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
+    {
+        lock (gate)
+        {
+            return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) &&
+                record.ConnectionId == connectionId &&
+                record.State == SessionState.Active;
         }
     }
 }

@@ -4,6 +4,9 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading.Channels;
+using DovahLink.Host.Authentication;
+using DovahLink.Host.Client.Authentication;
+using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
@@ -981,7 +984,7 @@ public class PublicWebSocketConnectionTests
 
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
-        Assert.Equal(["ConnectionEnded", "Disconnected"], handler.CallOrder);
+        Assert.Equal(["ConnectionEstablished", "ConnectionEnded", "Disconnected"], handler.CallOrder);
         listener.Stop();
     }
 
@@ -2160,6 +2163,322 @@ public class PublicWebSocketConnectionTests
 
         Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late")));
         Assert.Empty(diagnostics.Reports);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that a valid handshake calls <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/>
+    /// exactly once, before any <see cref="IPublicWebSocketMessageHandler.HandleMessageAsync"/> call,
+    /// and hands it the same connection capability instance later passed to <c>HandleMessageAsync</c> --
+    /// proving a handler can obtain a usable capability before the peer has sent anything.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ValidHandshake_CallsConnectionEstablishedBeforeAnyMessage()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await WaitUntilAsync(() => handler.ConnectionEstablishedCalls > 0, runTask);
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.NotNull(handler.EstablishedConnection);
+        Assert.Empty(handler.ReceivedMessages);
+
+        await clientWebSocket.SendAsync("hello"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        Assert.Same(handler.EstablishedConnection, handler.LastConnection);
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.Equal(["ConnectionEstablished"], handler.CallOrder.Take(1));
+
+        listener.Stop();
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a peer who never completes the handshake never causes
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/> to be called -- the
+    /// hook is scoped to a connection that actually reached an upgraded WebSocket, not merely accepted.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_HandshakeNeverCompletes_DoesNotCallConnectionEstablished()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(handshakeTimeout: TimeSpan.FromMilliseconds(200));
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler, options: options);
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, handler.ConnectionEstablishedCalls);
+        Assert.Null(handler.EstablishedConnection);
+        client.Dispose();
+    }
+
+    /// <summary>
+    /// Verifies that a handler whose <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/>
+    /// throws still lets the connection's read loop start and deliver messages normally -- mirroring
+    /// the same tolerance <see cref="RunAsync_ConnectionEndedThrows_StillTearsDownConnection"/> proves
+    /// for <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ConnectionEstablishedThrows_StillStartsReadLoop()
+    {
+        var handler = new FakePublicWebSocketMessageHandler { EstablishedFailure = new InvalidOperationException("Simulated handler failure.") };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await WaitUntilAsync(() => handler.ConnectionEstablishedCalls > 0, runTask);
+
+        byte[] payload = Encoding.UTF8.GetBytes("still works");
+        await clientWebSocket.SendAsync(payload, WebSocketMessageType.Text, true, CancellationToken.None);
+        await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
+
+        Assert.Equal(payload, Assert.Single(handler.ReceivedMessages));
+
+        listener.Stop();
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies the connection capability handed to <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/>
+    /// stays usable from background work scheduled during that synchronous call -- the exact shape a
+    /// bounded admission deadline needs (arm a delayed close from establishment, before any message
+    /// exists) -- and that scheduling it does not block the establishment call or the read loop that
+    /// follows it.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ConnectionEstablishedSchedulesDelayedRequestClose_LaterClosesTheConnection()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        handler.OnConnectionEstablished = connection =>
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+                connection.RequestClose();
+            });
+        };
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The client's ConnectAsync can complete as soon as the HTTP 101 upgrade is visible, which is
+        // not itself proof the server's own NotifyConnectionEstablished continuation has run yet; wait
+        // for it deterministically rather than assuming that scheduling order.
+        await WaitUntilAsync(() => handler.ConnectionEstablishedCalls > 0, runTask);
+
+        // The establishment call itself must not have blocked waiting for the delayed work above.
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal(["ConnectionEstablished", "ConnectionEnded", "Disconnected"], handler.CallOrder);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that a handler calling <see cref="IPublicConnectionContext.RequestClose"/> synchronously,
+    /// from inside <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/> itself --
+    /// before <see cref="PublicWebSocketConnection.RunAsync"/> has assigned the real writer loop task --
+    /// still tears the connection down cleanly and within a bounded time, rather than hanging on the
+    /// not-yet-started writer.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ConnectionEstablishedCallsRequestCloseSynchronously_ConnectionClosesWithoutHanging()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        handler.OnConnectionEstablished = connection => connection.RequestClose();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        listener.Stop();
+    }
+
+    // ---- Admission-handler close-ordering integration ----
+
+    /// <summary>
+    /// Verifies, against the real outbound <see cref="Channel{T}"/>/<see cref="IPublicWebSocketConnection.RequestClose"/>
+    /// interaction rather than a fake connection, that the message which reaches the session's message
+    /// bound still gets its own response onto the wire: a real <see cref="PublicHelloAdmissionHandler"/>
+    /// wired to a real <see cref="PublicWebSocketConnection"/> admits a session, accepts messages up to
+    /// one short of <see cref="Constants.PublicProtocolMaxSessionMessages"/>, then sends a
+    /// <c>subscribe</c> as the exact boundary message. The peer must receive its <c>subscription_ack</c>
+    /// before the connection closes; a further message sent afterward must produce no response at all,
+    /// proving <c>#10,001</c> is never dispatched.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_SubscribeAsBoundaryMessage_RespondsBeforeOrderlyCloseBeginsAndNeverDispatchesNext()
+    {
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(clock);
+        string token = tokenAuthenticator.IssueToken();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        // The message-bound race this test proves has nothing to do with the inbound rate limit, so
+        // it is raised well above the default so filling the session's message bound is not itself
+        // rejected as a rate-limit violation.
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(maxInboundMessagesPerSecond: 1_000_000);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        string clientId = Guid.NewGuid().ToString();
+        var buffer = new byte[4096];
+        byte[] hello = codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = clientId, Auth = new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token } });
+        await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+
+        // hello_ack, then the unsolicited empty capabilities advertisement -- message 1 of the bound.
+        await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        WebSocketReceiveResult ackResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, ackResult.Count), out PublicEnvelope? helloAck));
+        string sessionId = helloAck!.SessionId!;
+
+        for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 2; i++)
+        {
+            byte[] ping = codec.Encode(PublicMessageType.Ping, $"ping-{i}", sessionId, null, null, clientId, new object());
+            await clientWebSocket.SendAsync(ping, WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+
+        // Message #10,000: the exact boundary. Its subscription_ack must still arrive.
+        byte[] subscribe = codec.Encode(
+            PublicMessageType.Subscribe, "msg-boundary", sessionId, null, null, clientId,
+            new SubscribePayload { StateAreas = ["area_one"] });
+        await clientWebSocket.SendAsync(subscribe, WebSocketMessageType.Text, true, CancellationToken.None);
+
+        WebSocketReceiveResult ackAtBoundResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, ackAtBoundResult.Count), out PublicEnvelope? subscriptionAckEnvelope));
+        Assert.Equal(PublicMessageType.SubscriptionAck, subscriptionAckEnvelope!.MessageType);
+        Assert.Equal("msg-boundary", subscriptionAckEnvelope.CorrelationId);
+
+        // The connection now closes on its own; RunAsync must complete without hanging.
+        await runTask.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Message #10,001 must never be dispatched or answered, regardless of whether the socket has
+        // fully closed by the time it would be sent.
+        byte[] afterBound = codec.Encode(PublicMessageType.Ping, "ping-after-bound", sessionId, null, null, clientId, new object());
+        try
+        {
+            await clientWebSocket.SendAsync(afterBound, WebSocketMessageType.Text, true, CancellationToken.None);
+            WebSocketReceiveResult? unexpectedResult = null;
+            try
+            {
+                unexpectedResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromMilliseconds(500));
+            }
+            catch (TimeoutException)
+            {
+                // No further message arrived, as expected.
+            }
+
+            Assert.Null(unexpectedResult);
+        }
+        catch (WebSocketException)
+        {
+            // The connection is already fully closed; there was never a chance for a response either way.
+        }
+
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies the same response-before-close ordering guarantee for the boundary message's
+    /// rejection path, not only its dispatch-success path: a boundary message that fails validation
+    /// (here, a foreign <c>sessionId</c>) is rejected through <c>RecordViolationAndReject</c> rather
+    /// than a handler's own dispatch, and that rejection's <c>error</c> response must still reach the
+    /// peer before the connection closes.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_RejectedMessageAsBoundaryMessage_RespondsBeforeOrderlyCloseBegins()
+    {
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(clock);
+        string token = tokenAuthenticator.IssueToken();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(maxInboundMessagesPerSecond: 1_000_000);
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        string clientId = Guid.NewGuid().ToString();
+        var buffer = new byte[4096];
+        byte[] hello = codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = clientId, Auth = new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token } });
+        await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+        await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        WebSocketReceiveResult ackResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, ackResult.Count), out PublicEnvelope? helloAck));
+        string sessionId = helloAck!.SessionId!;
+
+        for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 2; i++)
+        {
+            byte[] ping = codec.Encode(PublicMessageType.Ping, $"ping-{i}", sessionId, null, null, clientId, new object());
+            await clientWebSocket.SendAsync(ping, WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+
+        // Message #10,000: a foreign sessionId, rejected as stale_session through RecordViolationAndReject
+        // rather than a successful dispatch. The rejection's error response must still arrive.
+        byte[] staleSessionMessage = codec.Encode(PublicMessageType.Ping, "msg-boundary", Guid.NewGuid().ToString(), null, null, clientId, new object());
+        await clientWebSocket.SendAsync(staleSessionMessage, WebSocketMessageType.Text, true, CancellationToken.None);
+
+        WebSocketReceiveResult errorResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, errorResult.Count), out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(10));
         listener.Stop();
     }
 

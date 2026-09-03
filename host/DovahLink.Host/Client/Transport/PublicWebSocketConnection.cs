@@ -262,6 +262,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             if (webSocket is not null)
             {
                 upgraded = true;
+                NotifyConnectionEstablished();
                 writerTask = WriterLoopAsync(webSocket, writerCancellation);
                 byte[] messageBuffer = new byte[options.MaxMessageBytes];
                 byte[] receiveChunk = new byte[ReceiveChunkBytes];
@@ -847,6 +848,26 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
         catch (OperationCanceledException) when (writerCancellation.IsCancellationRequested)
         {
+        }
+    }
+
+    /// <summary>
+    /// Notifies the handler that the WebSocket upgrade has just completed, before the read loop starts
+    /// and so before any inbound message can reach <see cref="IPublicWebSocketMessageHandler.HandleMessageAsync"/>.
+    /// Tolerant of a throwing handler for the same reason <see cref="InvalidateConnectionState"/> is:
+    /// the handler's own contract requires this call to be fast and non-blocking, but a bug in it must
+    /// still not prevent this connection's read loop from starting.
+    /// </summary>
+    private void NotifyConnectionEstablished()
+    {
+        try
+        {
+            messageHandler.HandleConnectionEstablished(connectionContext);
+        }
+        catch (Exception)
+        {
+            // Establishment notification is expected to be a fast, local, non-throwing operation; a
+            // failure here must still not prevent this connection's read loop from starting.
         }
     }
 }

@@ -1,6 +1,6 @@
 # 02 — Public protocol validation, authentication, and session admission
 
-Status: pending
+Status: complete
 
 Covers: R2, R3, R4, R5, R6
 
@@ -29,15 +29,26 @@ and rejection/close decisions.
   hex credential checked against the trusted record; `one_time_local_token` is available only through
   the explicit developer-token configuration/provider and is never silently enabled by a default.
   The existing `ILocalConnectionTokenAuthenticator` atomic one-time/rate-limit guarantees must be
-  preserved or its replacement must be separately documented and tested.
+  preserved or its replacement must be separately documented and tested. Its reservation lifecycle
+  (`TryValidate`/`CommitConsumption`/`RollbackReservation`) is scoped to the exact token issuance that
+  created it: `TryValidate` returns an opaque `LocalConnectionTokenReservation` stamped with the
+  current issuance's generation, and `CommitConsumption`/`RollbackReservation` act only when the
+  presented reservation's generation still matches the single outstanding one, otherwise a safe
+  no-op. A bare outstanding/not-outstanding flag with no generation is not sufficient: reissuing the
+  token while an old reservation exists must immediately invalidate that old reservation's authority,
+  and a caller still holding it must never be able to commit or roll back a completely different,
+  newer reservation.
 - Use the existing approved `DOVAHLINK_BRIDGE_TOKEN` environment variable for the current
   transition, which is the repository's documented equivalent configuration for the security
   document's `DOVAHLINK_DEV_TOKEN` wording. Do not add a second alias, silently rename the variable,
   or add a fallback on this phase branch; an eventual host-release naming change belongs to an
   explicit later compatibility decision.
 - Maintain a separate failed trusted-credential throttle from the developer-token throttle. A
-  malformed or non-matching trusted credential consumes only the credential failure budget; an
-  `unpaired` hello has no credential budget to consume.
+  structurally valid but non-matching trusted credential consumes only the trusted-credential
+  failure budget; an `unpaired` hello has no credential budget to consume. A structurally malformed
+  credential (wrong shape, not exactly the approved hex length) is rejected during protocol
+  validation before it ever reaches the throttle and contributes only to the protocol-violation
+  policy -- it is a shape failure, not a failed secret comparison.
 - Reject malformed `clientId`, endpoint, auth method, token presence, and envelope identity fields
   before calling authentication services. Authentication failures return the correct canonical
   pre-session error (`unauthenticated`, `revoked`, or `blocked`) without revealing which secret
@@ -84,6 +95,32 @@ and rejection/close decisions.
   releases its slot without admitting a late `hello`. The deadline is scoped to one connection's
   exact lifetime and is never reused, restarted, or capable of affecting a later reconnect's own
   connection/deadline.
+- Call `SessionRegistry.TryFinalizeAdmission(sessionId, connectionId)` as the last registry
+  interaction before finalizing admission on every hello authentication path, not only the
+  trust-backed recheck against Block/Revoke: an unconditional `SessionRegistry.InvalidateAll()`
+  (Factory Reset) can land in the same window and is not itself a trust-store condition the earlier
+  recheck would catch. `TryFinalizeAdmission` is the sole linearization point between this admission
+  and a concurrent invalidation -- because it and every `SessionRegistry` invalidation method
+  serialize on the same internal lock, whichever reaches this exact session first decides the
+  outcome, rather than a plain `IsActive` read whose result the caller could act on after the fact.
+  A losing race here rolls back any reserved one-time token, rejects the connection, and requests
+  its close, without ever sending `hello_ack` for a session the registry no longer knows about. The
+  close is required, not optional: this connection's one-shot admission outcome is already consumed
+  at that point (claimed `Pending -> Admitted` before the losing check ran) and is deliberately
+  never reset back to `Pending`, so without an explicit close the connection would have no path to
+  ever being torn down -- the pre-authentication deadline's own claim attempt can no longer succeed
+  either.
+- Classify a structurally valid client message the current session's trust tier does not authorize as
+  `unauthorized`, distinct from a protocol shape/direction violation -- a server-originated message
+  type, or `hello` received after a session already exists -- which remains `malformed_message` since
+  no trust tier could ever authorize it.
+- Require a non-null envelope `clientId` on every post-admission client message, per `PLAN.md`'s
+  "After admission, client messages carry the socket-bound sessionId and their declared clientId."
+  Parse the presented value and compare it as a `ClientId`/`Guid` against the connection's admitted
+  identity; do not compare the raw wire string against the admitted identity's own canonical string
+  form, since `Guid.TryParse` accepts several equivalent textual forms (braces, hyphenless, etc.) for
+  the same identity and a client is not required to reuse `hello`'s exact wire form on every later
+  message.
 
 ## Invariants
 
@@ -100,6 +137,10 @@ and rejection/close decisions.
   deadline belongs to exactly one connection's exact lifetime: a deadline that outlives its own
   connection's teardown can never fire against, close, or otherwise affect a different (including a
   same-client reconnect's) connection.
+- A connection's local `admitted` state is never treated as authorization independent of the
+  authoritative `SessionRegistry`: once the registry no longer considers `(sessionId, connectionId)`
+  active for any reason, the very next post-admission message on that connection is rejected as
+  `stale_session`, even though the connection's own local state has not itself changed.
 
 ## Allowed files/modules
 
@@ -134,7 +175,10 @@ Expected focused test files:
   revoked identity remains eligible to re-pair; a blocked identity is rejected for both unpaired and
   trusted-device admission, while developer-token admission is not classified by Known Device state.
 - Each successful authentication method yields the correct trust tier and fresh session identity.
-- Restricted sessions cannot access non-pairing messages; successful pairing upgrades exactly once.
+- Restricted sessions cannot access non-pairing messages. (The pairing-upgrade-exactly-once
+  invariant is owned by `03-pairing-and-client-dispatch.md`, which implements pairing dispatch and
+  the trust-tier upgrade; this concept only authorizes pairing message types on a restricted
+  session, it does not act on them.)
 - Developer-token sessions remain unaffected by client-scoped Block/Revoke while Factory Reset still
   invalidates them.
 - The transitional `bridgeVersion` is present and non-empty, while no implementation treats
@@ -163,6 +207,26 @@ Expected focused test files:
 - After a connection occupying the single public admission slot is evicted by this deadline for
   never completing `hello`, a subsequent connection can successfully occupy that slot and proceed
   through ordinary admission.
+- A message reaching exactly the 10,000-message session bound is itself accepted; a later message --
+  including one already in flight when the bound was reached, before the requested close takes
+  effect -- is neither recorded nor dispatched, regardless of whether it is a fresh or a previously
+  seen `messageId`.
+- An unconditional `SessionRegistry.InvalidateAll()` landing between a connection's session
+  reservation and its final admission recheck results in no `hello_ack`, no consumed one-time token,
+  no active session, and a requested close of the losing connection, for every hello authentication
+  method; a second `hello` sent on that same now-doomed connection can never create or leave active
+  another session, while the same token remains usable through a genuinely separate connection.
+- A post-admission client message with a missing, non-GUID, or foreign envelope `clientId` is
+  rejected as `malformed_message`; the admitted identity presented in a different
+  `Guid.TryParse`-accepted textual form than `hello` used is still accepted.
+- `ILocalConnectionTokenAuthenticator.TryConsume` cannot consume a token while a separate
+  `TryValidate` reservation on it is outstanding, closing the gap between the two APIs' otherwise
+  independent single-use guarantees.
+- A reservation from a superseded token issuance can never commit or roll back a different, later
+  reservation: reissuing a token while an old reservation is still outstanding does not let more than
+  one concurrent caller successfully reserve or consume the new token, and a stale
+  `CommitConsumption`/`RollbackReservation` call presenting the old reservation is a safe no-op
+  against the new one.
 
 ## Non-goals
 
@@ -177,5 +241,11 @@ Expected focused test files:
 - The host produces a typed, authenticated session context that Concepts 03 and 04 can consume.
 - Any required session-registry extension preserves existing Stage 2 invariants and is covered by
   focused regression tests.
-- Startup tests prove trust persistence is loaded before admission, missing persistence means an
-  empty store, and malformed/undecryptable persistence prevents silent client admission.
+- This concept's admission boundary is composition-ready: it depends on an already-loaded
+  authoritative `ITrustStore` passed in through constructor injection and performs no persistence
+  loading, decryption, or startup-ordering decision of its own. Proving that the production
+  composition root actually loads trust persistence before admitting any client, that missing
+  persistence means an empty store, and that malformed/undecryptable persistence fails closed rather
+  than silently admitting a client, is a startup-ordering property of the composition root itself --
+  which `Program.cs` does not yet build (Concept 04 completes the host composition root) -- and so is
+  Concept 04's completion criterion, not this one's. See `DIVERGENCES.md`'s D4.

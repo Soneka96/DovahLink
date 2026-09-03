@@ -84,6 +84,19 @@ public static class Constants
     /// <summary>The rolling window over which failed token attempts are counted.</summary>
     public static readonly TimeSpan LocalConnectionTokenFailureWindow = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// The maximum number of failed <c>trusted_device_credential</c> hello attempts allowed within
+    /// <see cref="TrustedCredentialFailureWindow"/>, kept separate from
+    /// <see cref="LocalConnectionTokenMaxFailuresPerWindow"/> per
+    /// <c>ai/context/protocol/security.md</c>'s "Maintain a separate failed trusted-credential
+    /// throttle from the developer-token throttle." Mirrors the same 5-per-60-seconds shape already
+    /// established for both the developer-token throttle and the pairing wrong-attempt limit.
+    /// </summary>
+    public const int TrustedCredentialMaxFailuresPerWindow = 5;
+
+    /// <summary>The rolling window over which failed trusted-device-credential attempts are counted.</summary>
+    public static readonly TimeSpan TrustedCredentialFailureWindow = TimeSpan.FromSeconds(60);
+
     // ---- Sessions ----
 
     /// <summary>The maximum number of active client sessions admitted by the first host proof.</summary>
@@ -309,4 +322,67 @@ public static class Constants
     /// from any other transport deadline.
     /// </summary>
     public static readonly TimeSpan PublicWebSocketFragmentAssemblyTimeout = TimeSpan.FromSeconds(5);
+
+    // ---- Client protocol ----
+
+    /// <summary>
+    /// The maximum decoded JSON nesting depth accepted for one public envelope, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum decoded nesting depth: 32". Enforced by the
+    /// underlying JSON reader before materializing typed DTOs.
+    /// </summary>
+    public const int PublicProtocolMaxJsonDepth = 32;
+
+    /// <summary>
+    /// The maximum UTF-8 byte length of one decoded JSON string value (or object member name) within a
+    /// public envelope, per <c>ai/context/protocol/security.md</c>'s "maximum string length: 4 KiB".
+    /// </summary>
+    public const int PublicProtocolMaxJsonStringLengthBytes = 4096;
+
+    /// <summary>
+    /// The maximum element count of one decoded JSON array within a public envelope, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum array length: 128 items".
+    /// </summary>
+    public const int PublicProtocolMaxJsonArrayLength = 128;
+
+    /// <summary>
+    /// The maximum member count of one decoded JSON object within a public envelope, per
+    /// <c>ai/context/protocol/security.md</c>'s "maximum object members: 64".
+    /// </summary>
+    public const int PublicProtocolMaxJsonObjectMembers = 64;
+
+    /// <summary>
+    /// The transitional, non-empty <c>hello_ack.bridgeVersion</c> value this boundary reports while
+    /// <c>bridge/</c> remains the production implementation, matching <c>bridge/vcpkg.json</c>'s
+    /// <c>version-string</c>. Not bumped on this phase branch; see
+    /// <c>ai/context/host/architecture.md</c>'s "Public contract ownership".
+    /// </summary>
+    public const string PublicProtocolTransitionalBridgeVersion = "0.3.3";
+
+    /// <summary>
+    /// How long a connection may remain unadmitted after completing its WebSocket upgrade before it
+    /// is closed, per <c>ai/context/protocol/security.md</c>'s "Input limits" pre-authentication
+    /// hello deadline. Starts only once the upgrade has completed and is owned by this concept, not
+    /// transport; a valid <c>hello</c> accepted before it fires atomically cancels it.
+    /// </summary>
+    public static readonly TimeSpan PublicHelloAdmissionDeadline = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// The maximum number of protocol violations (malformed, replayed, unauthorized, or otherwise
+    /// rejected inbound messages) tolerated on one connection within
+    /// <see cref="PublicProtocolViolationWindow"/> before it is closed, per
+    /// <c>ai/context/protocol/security.md</c>'s "Failure behavior": "Close a connection after 3
+    /// protocol violations within 30 seconds."
+    /// </summary>
+    public const int PublicProtocolMaxViolationsPerWindow = 3;
+
+    /// <summary>The rolling window used for <see cref="PublicProtocolMaxViolationsPerWindow"/>.</summary>
+    public static readonly TimeSpan PublicProtocolViolationWindow = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// The maximum number of distinct client <c>messageId</c> values retained per session before the
+    /// host closes it, per <c>ai/context/protocol/security.md</c>'s "Session and replay protection":
+    /// "the bridge retains all seen IDs for the session; the 10,000-message session bound keeps this
+    /// set bounded and prevents eviction-based replay."
+    /// </summary>
+    public const int PublicProtocolMaxSessionMessages = 10_000;
 }

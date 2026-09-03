@@ -30,6 +30,13 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     /// <summary>Every client id passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
     private readonly List<ClientId> invalidateAllForClientCalls = [];
 
+    /// <summary>
+    /// When set, invoked synchronously by <see cref="TryCreate"/> after the new session record is
+    /// stored and <see cref="gate"/> is released, letting a test deterministically run a concurrent
+    /// invalidation against the just-created session before the caller's own next step observes it.
+    /// </summary>
+    public Action? AfterCreate { get; set; }
+
     /// <summary>A synchronized snapshot of client-wide invalidation calls.</summary>
     public IReadOnlyList<ClientId> InvalidateAllForClientCalls
     {
@@ -43,7 +50,12 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     }
 
     /// <inheritdoc/>
-    public bool TryCreate(ClientId clientId, ConnectionId connectionId, out SessionId sessionId)
+    public bool TryCreate(
+        ClientId clientId,
+        ConnectionId connectionId,
+        SessionAuthenticationSource authenticationSource,
+        SessionTrustTier trustTier,
+        out SessionId sessionId)
     {
         lock (gate)
         {
@@ -54,10 +66,13 @@ public sealed class FakeSessionRegistry : ISessionRegistry
             }
 
             sessionId = SessionId.NewId();
-            activeSessions[sessionId] = new ActiveSessionRecord(sessionId, clientId, connectionId, SessionState.Active);
+            activeSessions[sessionId] = new ActiveSessionRecord(
+                sessionId, clientId, connectionId, SessionState.Active, authenticationSource, trustTier);
             sessionConnections[sessionId] = connectionId;
-            return true;
         }
+
+        AfterCreate?.Invoke();
+        return true;
     }
 
     /// <inheritdoc/>
@@ -72,13 +87,20 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         }
     }
 
-    /// <summary>Creates a fake session for tests that do not inspect the generated connection identity.</summary>
+    /// <summary>
+    /// Creates a fake session for tests that do not inspect the generated connection identity or care
+    /// about authentication source/trust tier, defaulting to a trusted-device, fully-trusted session.
+    /// </summary>
     public SessionId Create(ClientId clientId) => Create(clientId, ConnectionId.NewId());
 
-    /// <summary>Creates a fake session with an explicit connection identity.</summary>
+    /// <summary>
+    /// Creates a fake session with an explicit connection identity, defaulting to a trusted-device,
+    /// fully-trusted session for tests that do not care about authentication source/trust tier.
+    /// </summary>
     public SessionId Create(ClientId clientId, ConnectionId connectionId)
     {
-        if (!TryCreate(clientId, connectionId, out SessionId sessionId))
+        if (!TryCreate(
+            clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId))
         {
             throw new InvalidOperationException("The active session capacity has been reached.");
         }
@@ -93,7 +115,8 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         {
             invalidateAllForClientCalls.Add(clientId);
             foreach (SessionId sessionId in activeSessions
-                .Where(pair => pair.Value.ClientId.Equals(clientId))
+                .Where(pair => pair.Value.ClientId.Equals(clientId) &&
+                    pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())
             {
@@ -141,6 +164,42 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         {
             invalidateAllCallCount++;
             activeSessions.Clear();
+        }
+    }
+
+    /// <summary>Creates a fake session with an explicit connection identity, authentication source, and trust tier.</summary>
+    public SessionId Create(
+        ClientId clientId,
+        ConnectionId connectionId,
+        SessionAuthenticationSource authenticationSource,
+        SessionTrustTier trustTier)
+    {
+        if (!TryCreate(clientId, connectionId, authenticationSource, trustTier, out SessionId sessionId))
+        {
+            throw new InvalidOperationException("The active session capacity has been reached.");
+        }
+
+        return sessionId;
+    }
+
+    /// <summary>The current number of active sessions, mirroring <see cref="SessionRegistry.ActiveCount"/>.</summary>
+    public int ActiveCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return activeSessions.Count;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
+    {
+        lock (gate)
+        {
+            return activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) && record.ConnectionId == connectionId;
         }
     }
 }

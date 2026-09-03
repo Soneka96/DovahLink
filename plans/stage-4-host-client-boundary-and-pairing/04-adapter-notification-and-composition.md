@@ -117,6 +117,12 @@ Expected focused test files:
   fresh session and play-context rules.
 - Real/private IPC tests and independent C# client tests prove the complete Stage 4 boundary without
   adding live state publication.
+- Startup tests prove trust persistence is loaded before the composition root admits any client,
+  missing persistence means an empty store, and malformed/undecryptable persistence fails closed
+  rather than silently admitting a client. This proof belongs here rather than to Concept 02 because
+  it is a property of the composition root's own startup ordering (`Program.cs`), which this concept
+  builds; Concept 02's admission boundary only consumes an already-loaded `ITrustStore` and performs
+  no persistence loading of its own. See `DIVERGENCES.md`'s D4.
 
 ## Non-goals
 
@@ -132,3 +138,6 @@ Expected focused test files:
   IPC implementation types.
 - The Stage 5 handoff identifies any approved identity limitation and begins with a clean,
   authenticated, session-owned client boundary.
+- Startup tests prove trust persistence loads before the composition root admits any client, missing
+  persistence means an empty store, and malformed/undecryptable persistence fails closed -- the proof
+  obligation handed off from Concept 02 per D4.

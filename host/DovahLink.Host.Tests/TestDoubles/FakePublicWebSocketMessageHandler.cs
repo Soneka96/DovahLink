@@ -19,9 +19,10 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     public int ConnectionEndedCalls { get; private set; }
 
     /// <summary>
-    /// The order in which <see cref="HandleConnectionEnded"/> and <see cref="HandleDisconnectedAsync"/>
-    /// were called, recording <c>"ConnectionEnded"</c> and <c>"Disconnected"</c> respectively, so a
-    /// test can assert the mandatory-before-best-effort ordering the transport promises.
+    /// The order in which <see cref="HandleConnectionEstablished"/>, <see cref="HandleConnectionEnded"/>,
+    /// and <see cref="HandleDisconnectedAsync"/> were called, recording <c>"ConnectionEstablished"</c>,
+    /// <c>"ConnectionEnded"</c>, and <c>"Disconnected"</c> respectively, so a test can assert the
+    /// ordering the transport promises.
     /// </summary>
     public ConcurrentQueue<string> CallOrder { get; } = new();
 
@@ -113,4 +114,30 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
 
     /// <summary>When <see langword="true"/>, <see cref="HandleMessageAsync"/> still returns its Task promptly but that Task then waits forever on a token it never observes, simulating a handler whose returned Task never completes and ignores cancellation.</summary>
     public bool HangOnHandleMessageIgnoringCancellation { get; set; }
+
+    /// <summary>The number of times <see cref="HandleConnectionEstablished"/> has been called.</summary>
+    public int ConnectionEstablishedCalls { get; private set; }
+
+    /// <summary>When set, <see cref="HandleConnectionEstablished"/> throws this exception after recording the call.</summary>
+    public Exception? EstablishedFailure { get; set; }
+
+    /// <summary>The connection capability passed to <see cref="HandleConnectionEstablished"/>, or <see langword="null"/> before it has been called.</summary>
+    public IPublicConnectionContext? EstablishedConnection { get; private set; }
+
+    /// <summary>When set, invoked synchronously from <see cref="HandleConnectionEstablished"/> with the received connection, so a test can arm background work (for example a fire-and-forget delayed <see cref="IPublicConnectionContext.RequestClose"/>) without blocking the call.</summary>
+    public Action<IPublicConnectionContext>? OnConnectionEstablished { get; set; }
+
+    /// <inheritdoc/>
+    public void HandleConnectionEstablished(IPublicConnectionContext connection)
+    {
+        ConnectionEstablishedCalls++;
+        CallOrder.Enqueue("ConnectionEstablished");
+        EstablishedConnection = connection;
+        OnConnectionEstablished?.Invoke(connection);
+
+        if (EstablishedFailure is not null)
+        {
+            throw EstablishedFailure;
+        }
+    }
 }

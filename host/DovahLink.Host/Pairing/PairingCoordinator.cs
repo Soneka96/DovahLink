@@ -213,7 +213,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 }
 
                 lastConfirmAttemptUtc = now;
-                if (!FixedTimeEquals(challenge.Code, code))
+                if (!CredentialHasher.FixedTimeEquals(challenge.Code, code))
                 {
                     wrongAttempts++;
                     if (wrongAttempts >= Constants.PairingMaxWrongAttempts)
@@ -275,7 +275,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 ExpirePendingIfNeeded(now);
                 if (pendingCredential is not { } current || current.ClientId != clientId ||
-                    !FixedTimeEquals(current.Credential, credential))
+                    !CredentialHasher.FixedTimeEquals(current.Credential, credential))
                 {
                     pending = null;
                 }
@@ -289,7 +289,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 TrustRecord? existing = trustStore.TryGet(clientId);
                 if (existing is not null && existing.State == KnownDeviceState.Trusted &&
-                    FixedTimeEquals(existing.CredentialVerifier, HashCredential(credential)))
+                    CredentialHasher.FixedTimeEquals(existing.CredentialVerifier, CredentialHasher.Hash(credential)))
                 {
                     return new PairingCommitResult(
                         PairingCommitOutcome.AlreadyTrusted,
@@ -319,7 +319,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 shortId,
                 effectiveDisplayName,
                 KnownDeviceState.Trusted,
-                HashCredential(pending.Credential),
+                CredentialHasher.Hash(pending.Credential),
                 existingRecord?.PairedAtUtc ?? pending.CreatedAtUtc);
 
             bool committed;
@@ -592,16 +592,6 @@ public sealed class PairingCoordinator : IPairingCoordinator
             return null;
         }
     }
-
-    /// <summary>Hashes a credential before it enters durable trust state.</summary>
-    private static string HashCredential(string credential) =>
-        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(credential)));
-
-    /// <summary>Compares two credential values without an early-exit equality check.</summary>
-    private static bool FixedTimeEquals(string expected, string presented) =>
-        CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(expected),
-            Encoding.UTF8.GetBytes(presented));
 
     /// <summary>Tracks values held between code confirmation and final trust commit.</summary>
     private sealed record PendingCredential(
