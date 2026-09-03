@@ -43,11 +43,17 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
     public PairingCancelOutcome Cancel(DovahLink.Host.Identity.ClientId clientId) =>
         CancelAndRecord(clientId);
 
-    /// <inheritdoc/>
-    public void NotifyDisconnected(DovahLink.Host.Identity.ClientId clientId) { }
+    /// <summary>Every client id passed to <see cref="NotifyDisconnected"/>, in call order.</summary>
+    public List<DovahLink.Host.Identity.ClientId> DisconnectedClientIds { get; } = [];
+
+    /// <summary>Every client id passed to <see cref="NotifyReconnected"/>, in call order.</summary>
+    public List<DovahLink.Host.Identity.ClientId> ReconnectedClientIds { get; } = [];
 
     /// <inheritdoc/>
-    public void NotifyReconnected(DovahLink.Host.Identity.ClientId clientId) { }
+    public void NotifyDisconnected(DovahLink.Host.Identity.ClientId clientId) => DisconnectedClientIds.Add(clientId);
+
+    /// <inheritdoc/>
+    public void NotifyReconnected(DovahLink.Host.Identity.ClientId clientId) => ReconnectedClientIds.Add(clientId);
 
     /// <inheritdoc/>
     public void CancelAll()

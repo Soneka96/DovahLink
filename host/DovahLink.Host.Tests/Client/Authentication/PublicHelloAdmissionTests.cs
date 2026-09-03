@@ -3,6 +3,7 @@ using System.Text.Json;
 using DovahLink.Host;
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
+using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
@@ -111,6 +112,36 @@ public class PublicHelloAdmissionTests
 
         Assert.Equal(1, context.SessionRegistry.ActiveCount);
         Assert.Equal(0, context.FakeConnection.RequestCloseCalls);
+    }
+
+    /// <summary>Verifies that every successful admission -- both trust-backed and developer-token hellos -- notifies the pairing coordinator of a reconnect for that exact clientId.</summary>
+    [Theory]
+    [InlineData(HelloAuthMethod.Unpaired)]
+    [InlineData(HelloAuthMethod.TrustedDeviceCredential)]
+    [InlineData(HelloAuthMethod.OneTimeLocalToken)]
+    public void HandleMessageAsync_SuccessfulAdmission_NotifiesPairingCoordinatorOfReconnect(HelloAuthMethod method)
+    {
+        var context = new TestContext();
+        string clientId = Guid.NewGuid().ToString();
+        HelloAuthPayload auth = method switch
+        {
+            HelloAuthMethod.Unpaired => new HelloAuthPayload { Method = HelloAuthMethod.Unpaired },
+            HelloAuthMethod.TrustedDeviceCredential => BuildTrustedCredentialAuth(context, clientId),
+            HelloAuthMethod.OneTimeLocalToken => new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = context.TokenAuthenticator.IssueToken() },
+            _ => throw new InvalidOperationException($"Unhandled method '{method}' in test data."),
+        };
+        byte[] hello = BuildHello(context.Codec, clientId, "hello-1", auth);
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        Assert.Equal([new ClientId(Guid.Parse(clientId))], context.PairingCoordinator.ReconnectedClientIds);
+    }
+
+    /// <summary>Builds a trusted_device_credential auth payload for <paramref name="clientId"/>, seeding a matching trust record first.</summary>
+    private static HelloAuthPayload BuildTrustedCredentialAuth(TestContext context, string clientId)
+    {
+        context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        return new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential };
     }
 
     // ---- Rejected hello: malformed ----
@@ -387,7 +418,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -604,7 +635,7 @@ public class PublicHelloAdmissionTests
             fakeConnections[i] = fakeConnection;
             var connection = new PublicConnectionContext(fakeConnection);
             var handler = new PublicHelloAdmissionHandler(
-                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock);
+                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
             byte[] hello = BuildHello(
                 codec, Guid.NewGuid().ToString(), $"hello-{i}", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
 
@@ -650,7 +681,7 @@ public class PublicHelloAdmissionTests
             var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
             var connection = new PublicConnectionContext(fakeConnection);
             var handler = new PublicHelloAdmissionHandler(
-                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock);
+                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
             byte[] hello = BuildHello(
                 codec, clientId, $"hello-{i}", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
 
@@ -683,7 +714,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -716,7 +747,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -749,7 +780,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] firstHello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -775,7 +806,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -802,7 +833,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] firstHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = firstToken });
@@ -837,7 +868,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var firstHandler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var firstFakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var firstConnection = new PublicConnectionContext(firstFakeConnection);
         byte[] losingHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -845,7 +876,7 @@ public class PublicHelloAdmissionTests
 
         var secondHandler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var secondFakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var secondConnection = new PublicConnectionContext(secondFakeConnection);
         byte[] retryHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -875,7 +906,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -906,7 +937,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -939,7 +970,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -980,7 +1011,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -1019,7 +1050,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1063,7 +1094,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientIdText, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1098,7 +1129,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
@@ -1138,7 +1169,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -1604,7 +1635,7 @@ public class PublicHelloAdmissionTests
 
     // ---- Post-admission dispatch: per-tier allowlist ----
 
-    /// <summary>Verifies that a restricted session's approved pairing/liveness messages pass the allowlist and produce no response yet (dispatch is a later concept's scope).</summary>
+    /// <summary>Verifies that a restricted session's approved pairing/liveness messages pass the allowlist and route to the dispatcher with this connection's own admitted identity.</summary>
     [Theory]
     [InlineData(PublicMessageType.Ping)]
     [InlineData(PublicMessageType.PairingRequest)]
@@ -1612,16 +1643,18 @@ public class PublicHelloAdmissionTests
     [InlineData(PublicMessageType.PairingAck)]
     [InlineData(PublicMessageType.PairingRenotify)]
     [InlineData(PublicMessageType.PairingCancel)]
-    public void HandleMessageAsync_RestrictedSessionAllowedType_PassesAllowlistWithNoResponse(PublicMessageType messageType)
+    public void HandleMessageAsync_RestrictedSessionAllowedType_RoutesToDispatcher(PublicMessageType messageType)
     {
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
-        int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
 
         byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
-        Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
+        (ClientId dispatchedClientId, SessionId dispatchedSessionId, PublicMessageType dispatchedType) = Assert.Single(context.Dispatcher.Calls);
+        Assert.Equal(clientId, dispatchedClientId.ToString());
+        Assert.Equal(sessionId, dispatchedSessionId.ToString());
+        Assert.Equal(messageType, dispatchedType);
     }
 
     /// <summary>
@@ -1668,20 +1701,22 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
     }
 
-    /// <summary>Verifies that a full session's approved liveness/rename messages pass the allowlist, and rename_request produces no response yet (dispatch is a later concept's scope).</summary>
+    /// <summary>Verifies that a full session's approved liveness/rename messages pass the allowlist and route to the dispatcher with this connection's own admitted identity.</summary>
     [Theory]
     [InlineData(PublicMessageType.Ping)]
     [InlineData(PublicMessageType.RenameRequest)]
-    public void HandleMessageAsync_FullSessionAllowedType_PassesAllowlistWithNoResponse(PublicMessageType messageType)
+    public void HandleMessageAsync_FullSessionAllowedType_RoutesToDispatcher(PublicMessageType messageType)
     {
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
-        int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
 
         byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
-        Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
+        (ClientId dispatchedClientId, SessionId dispatchedSessionId, PublicMessageType dispatchedType) = Assert.Single(context.Dispatcher.Calls);
+        Assert.Equal(clientId, dispatchedClientId.ToString());
+        Assert.Equal(sessionId, dispatchedSessionId.ToString());
+        Assert.Equal(messageType, dispatchedType);
     }
 
     /// <summary>
@@ -1727,6 +1762,128 @@ public class PublicHelloAdmissionTests
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    // ---- Dispatch result wiring: violation count and trust-tier upgrade ----
+
+    /// <summary>
+    /// Verifies that a dispatch reporting <see cref="ClientDispatchResult.IsProtocolViolation"/> counts
+    /// toward this connection's own protocol-violation close policy without the handler sending a
+    /// second error for the same message -- the dispatcher already sent its own.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_DispatchReportsProtocolViolation_CountsTowardCloseWithoutSendingSecondError()
+    {
+        var context = new TestContext();
+        context.Dispatcher.ResultToReturn = new ClientDispatchResult(IsProtocolViolation: true);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
+        int sentAfterAdmission = context.FakeConnection.SentPayloads.Count;
+
+        SendPing(context, sessionId, clientId, "msg-2");
+        SendPing(context, sessionId, clientId, "msg-3");
+        Assert.Equal(0, context.FakeConnection.RequestCloseCalls);
+        SendPing(context, sessionId, clientId, "msg-4");
+
+        Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
+        Assert.Equal(sentAfterAdmission, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>Verifies that a dispatch reporting no violation does not count toward the close policy.</summary>
+    [Fact]
+    public void HandleMessageAsync_DispatchReportsNoViolation_DoesNotCountTowardClose()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
+
+        SendPing(context, sessionId, clientId, "msg-2");
+        SendPing(context, sessionId, clientId, "msg-3");
+        SendPing(context, sessionId, clientId, "msg-4");
+
+        Assert.Equal(0, context.FakeConnection.RequestCloseCalls);
+    }
+
+    /// <summary>
+    /// Verifies the trust-tier upgrade invariant end to end: a dispatch reporting
+    /// <see cref="ClientDispatchResult.UpgradeToFullTrust"/> upgrades this Restricted session to Full in
+    /// place, exactly once, with no reconnect and no new sessionId -- its very next message
+    /// (rename_request, Full-session-only) is authorized immediately rather than rejected as
+    /// unauthorized.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_DispatchReportsUpgradeToFullTrust_NextMessageIsAuthorizedAsFullInPlace()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionIdText, out string clientId);
+        var sessionId = new SessionId(Guid.Parse(sessionIdText));
+        Assert.Equal(SessionTrustTier.Restricted, context.SessionRegistry.TrustTierFor(sessionId));
+
+        context.Dispatcher.ResultToReturn = new ClientDispatchResult(UpgradeToFullTrust: true);
+        byte[] ack = context.Codec.Encode(PublicMessageType.PairingAck, "msg-2", sessionIdText, null, null, clientId, new object());
+        context.Handler.HandleMessageAsync(context.Connection, ack, CancellationToken.None);
+
+        Assert.Equal(SessionTrustTier.Full, context.SessionRegistry.TrustTierFor(sessionId));
+
+        byte[] rename = context.Codec.Encode(
+            PublicMessageType.RenameRequest, "msg-3", sessionIdText, null, null, clientId,
+            new RenameRequestPayload { DisplayName = "New Name" });
+        context.Handler.HandleMessageAsync(context.Connection, rename, CancellationToken.None);
+
+        Assert.Equal(2, context.Dispatcher.Calls.Count);
+        Assert.Equal(PublicMessageType.RenameRequest, context.Dispatcher.Calls[1].MessageType);
+    }
+
+    /// <summary>Verifies that a dispatch reporting no upgrade leaves a Restricted session Restricted.</summary>
+    [Fact]
+    public void HandleMessageAsync_DispatchReportsNoUpgrade_SessionRemainsRestricted()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionIdText, out string clientId);
+        var sessionId = new SessionId(Guid.Parse(sessionIdText));
+
+        byte[] message = context.Codec.Encode(PublicMessageType.PairingRequest, "msg-2", sessionIdText, null, null, clientId, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(SessionTrustTier.Restricted, context.SessionRegistry.TrustTierFor(sessionId));
+    }
+
+    /// <summary>
+    /// Verifies the safety net for a losing race against a concurrent administrative invalidation: if
+    /// <see cref="ISessionRegistry.TryUpgradeToFullTrust"/> loses because the session was invalidated
+    /// during this exact dispatch, the connection's local trustTier field was already set to Full (an
+    /// unconditional, harmless update per this handler's own documented reasoning), but the very next
+    /// message is still rejected as stale rather than incorrectly treated as an authorized Full session
+    /// -- the authoritative registry, not local state, decides.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_UpgradeRacesConcurrentInvalidation_NextMessageIsRejectedAsStale()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionIdText, out string clientId);
+        var sessionId = new SessionId(Guid.Parse(sessionIdText));
+        ConnectionId connectionId = context.SessionRegistry.ConnectionIdFor(sessionId);
+        context.Dispatcher.ResultToReturn = new ClientDispatchResult(UpgradeToFullTrust: true);
+        context.Dispatcher.BeforeReturning = () => context.SessionRegistry.Invalidate(sessionId, connectionId);
+
+        byte[] ack = context.Codec.Encode(PublicMessageType.PairingAck, "msg-2", sessionIdText, null, null, clientId, new object());
+        context.Handler.HandleMessageAsync(context.Connection, ack, CancellationToken.None);
+
+        context.Dispatcher.ResultToReturn = new ClientDispatchResult();
+        context.Dispatcher.BeforeReturning = null;
+        byte[] rename = context.Codec.Encode(
+            PublicMessageType.RenameRequest, "msg-3", sessionIdText, null, null, clientId,
+            new RenameRequestPayload { DisplayName = "New Name" });
+        context.Handler.HandleMessageAsync(context.Connection, rename, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.Single(context.Dispatcher.Calls);
+    }
+
+    /// <summary>Sends a well-formed post-admission ping with the given messageId.</summary>
+    private static void SendPing(TestContext context, string sessionId, string clientId, string messageId)
+    {
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, messageId, sessionId, null, null, clientId, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
     }
 
     // ---- Replay protection ----
@@ -1972,6 +2129,29 @@ public class PublicHelloAdmissionTests
         Assert.False(context.SessionRegistry.IsActive(new SessionId(Guid.Parse(sessionIdText)), context.SessionRegistry.ConnectionIdFor(new SessionId(Guid.Parse(sessionIdText)))));
     }
 
+    /// <summary>Verifies that ending a connection after admission notifies the pairing coordinator of a disconnect for the admitted clientId.</summary>
+    [Fact]
+    public void HandleConnectionEnded_AfterAdmission_NotifiesPairingCoordinatorOfDisconnect()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out _, out string clientId);
+
+        context.Handler.HandleConnectionEnded();
+
+        Assert.Equal([new ClientId(Guid.Parse(clientId))], context.PairingCoordinator.DisconnectedClientIds);
+    }
+
+    /// <summary>Verifies that ending a connection before any admission never notifies the pairing coordinator, symmetric with the after-admission case.</summary>
+    [Fact]
+    public void HandleConnectionEnded_BeforeAdmission_DoesNotNotifyPairingCoordinator()
+    {
+        var context = new TestContext();
+
+        context.Handler.HandleConnectionEnded();
+
+        Assert.Empty(context.PairingCoordinator.DisconnectedClientIds);
+    }
+
     /// <summary>Verifies that HandleDisconnectedAsync completes immediately without throwing.</summary>
     [Fact]
     public async Task HandleDisconnectedAsync_CompletesImmediately()
@@ -2057,6 +2237,12 @@ public class PublicHelloAdmissionTests
         /// <summary>The real, stateless codec used both by the handler under test and by this test to build inbound bytes and decode outbound ones.</summary>
         public PublicEnvelopeCodec Codec { get; } = new();
 
+        /// <summary>The dispatcher the handler under test routes ping, pairing, and rename_request messages to.</summary>
+        public FakeClientMessageDispatcher Dispatcher { get; } = new();
+
+        /// <summary>The pairing coordinator the handler under test records this connection's disconnect/reconnect through.</summary>
+        public FakePairingCoordinator PairingCoordinator { get; } = new();
+
         /// <summary>The underlying fake connection <see cref="Connection"/> wraps, exposing sent payloads and close-request calls for assertions.</summary>
         public FakePublicWebSocketConnection FakeConnection { get; } = new(Stream.Null) { TrySendResult = true };
 
@@ -2076,7 +2262,8 @@ public class PublicHelloAdmissionTests
             CredentialThrottle = new TrustedCredentialFailureThrottle(Clock);
             Connection = new PublicConnectionContext(FakeConnection);
             Handler = new PublicHelloAdmissionHandler(
-                Codec, SessionRegistry, TrustStore, TokenAuthenticator, CredentialThrottle, PlayContextTracker, Clock, admissionDeadline);
+                Codec, SessionRegistry, TrustStore, TokenAuthenticator, CredentialThrottle, PlayContextTracker, Clock,
+                Dispatcher, PairingCoordinator, admissionDeadline);
         }
     }
 
