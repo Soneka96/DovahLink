@@ -365,6 +365,45 @@ branch, D1/D2/D3 status, and clean scope before implementation.
     - Step 4 (this entry): full suite and repeated-concurrency-suite verification, docs+warnings
       build, tooling suite, and this traceability update. No further defects found on this pass's own
       fresh-eyes review of the three fixes.
+  - Third post-completion corrective pass (`/step-build`, three steps, 2026-09-03): a third
+    maintainer-directed `/think` review of `LocalConnectionTokenAuthenticator`'s reservation lifecycle
+    (introduced by the first pass's Step 2, threaded through the handler by the second pass's Step 2)
+    found the reservation model was still an ABA hazard: `reserved` was a bare bool with no notion of
+    which token issuance created it, so `IssueToken()` unconditionally clearing it let a stale
+    caller's later `RollbackReservation()`/`CommitConsumption()` clobber a completely different,
+    newer reservation. Confirmed real by direct code reading before any fix (not assumed from the
+    review), and directly corrects the second pass's Step 1 entry above, which fixed the
+    `TryConsume`-bypass hazard but did not anticipate this reissuance-timing one.
+    - Step 1: added `LocalConnectionTokenReservation` (`host/DovahLink.Host/Authentication/`), an
+      opaque value type wrapping an internal generation number, never the token secret.
+      `LocalConnectionTokenAuthenticator` gained a monotonic `currentGeneration` counter (bumped by
+      every `IssueToken()` call, which also immediately clears any outstanding reservation as a side
+      effect of that bump, not via a separate flag reset) and a nullable `reservedGeneration` field
+      recording which issuance the single outstanding reservation belongs to.
+      `TryValidate(string, out LocalConnectionTokenReservation)` stamps a successful reservation with
+      the current generation; `CommitConsumption(reservation)`/`RollbackReservation(reservation)` act
+      only when the passed reservation's generation still matches `reservedGeneration`, otherwise a
+      safe no-op -- a stale reservation from a superseded issuance can never affect a newer one, closing
+      exactly the two examples the review gave (a stale rollback clearing a newer reservation; a stale
+      commit consuming a newer token). Every existing reservation-related test updated to the new
+      signature; new tests cover a stale commit against a reissued token, a stale rollback against a
+      reissued and re-reserved token, redundant commit-after-rollback and rollback-after-commit on the
+      same already-resolved reservation, and a ten-concurrent-attempt regression proving reissuance
+      while an old reservation is outstanding still lets only one caller reserve-and-commit the new
+      token.
+    - Step 2: threaded the exact reservation value through
+      `PublicHelloAdmissionHandler.HandleOneTimeLocalTokenHello`'s three `RollbackReservation` call
+      sites and one `CommitConsumption` call site (full slot, lost deadline race, Factory Reset race,
+      and the success path), required by the new signature and forced into the same edit as Step 1
+      since both live in one compilation unit; its own fresh-eyes pass found no further gaps specific
+      to this call site (candidate suggestions either duplicated the authenticator-level proof already
+      established in Step 1 or posited exceptions nothing in `CommitConsumption`/`RollbackReservation`
+      can actually throw).
+    - Step 3 (this entry): full suite, repeated concurrency-suite runs (including the new
+      reissue-while-reserved regression run five times in isolation), docs+warnings build, tooling
+      suite, and this traceability update. Fresh-eyes traceability pass over the whole of Concept 02
+      (not only this fix) found every Contracts/Invariants/Proof-obligations/Non-goals/
+      Completion-criteria line satisfied by current code and covered by a passing test.
 
 ## Decisions and approved deviations
 
@@ -399,6 +438,10 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 - Approved via direct maintainer instruction in the current task on 2026-09-03: the second
   post-completion corrective pass's three fixes and four-step plan, following a same-day second
   `/think` re-review that found real defects in the first pass's own fixes.
+- Approved via direct maintainer instruction in the current task on 2026-09-03: the third
+  post-completion corrective pass's generation-scoped reservation fix and three-step plan, following
+  a same-day third `/think` re-review that found the second pass's own reservation fix was itself an
+  ABA hazard.
 
 ## Deferred debt
 
@@ -563,6 +606,22 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `02-authentication-and-session-admission.md` (three new Contracts bullets and three new Proof
   obligations bullets covering these fixes); this `CONTEXT.md` (this decision entry, this file list,
   the verification counts below). No public schema, SDK, or Concept 03 file touched.
+- Third post-completion corrective pass, Step 1, new:
+  `host/DovahLink.Host/Authentication/LocalConnectionTokenReservation.cs`. Modified:
+  `LocalConnectionTokenAuthenticator.cs` (`currentGeneration`, `reservedGeneration`, the
+  generation-stamped `TryValidate`/`CommitConsumption`/`RollbackReservation` signatures); test file
+  `LocalConnectionTokenAuthenticatorTests.cs` (every reservation call site updated; 5 new tests: stale
+  commit, stale rollback, redundant commit-after-rollback, redundant rollback-after-commit, and the
+  ten-concurrent-attempt reissue-while-reserved regression).
+- Third post-completion corrective pass, Step 2, modified: `PublicHelloAdmissionHandler.cs`
+  (`HandleOneTimeLocalTokenHello` threads the reservation returned by `TryValidate` through its three
+  `RollbackReservation` and one `CommitConsumption` call sites); test file `PublicHelloAdmissionTests.cs`
+  (5 call sites updated to the new `TryValidate` out-parameter signature; no new tests -- this step
+  only threads an already-tested value through existing control flow).
+- Third post-completion corrective pass, Step 3 (this pass), modified:
+  `02-authentication-and-session-admission.md` (one Contracts addition, one new Proof-obligations
+  bullet covering the generation-scoped invariant); this `CONTEXT.md` (this decision entry, this file
+  list, the verification counts below). No public schema, SDK, or Concept 03 file touched.
 
 ## Verification
 
@@ -690,6 +749,29 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   three new bullets this pass added, is satisfied by the current implementation and covered by a
   passing regression test. `git status`: clean except this pass's own documentation edits at the
   time of writing.
+- Third post-completion corrective pass: 886 passed at this pass's baseline (unchanged from the
+  second corrective pass's own close). 891 passed after Step 1 (+5: the generation-scoped reservation
+  redesign's stale-commit, stale-rollback, redundant-commit-after-rollback,
+  redundant-rollback-after-commit, and ten-concurrent-attempt reissue-while-reserved tests). Unchanged
+  at 891 after Step 2 (0 new: threading an already-tested reservation value through existing handler
+  control flow adds no new behavior to cover). Final full-suite run at the close of Step 3: 891
+  passed, 0 failed, unchanged (documentation-only). Timing/concurrency-sensitive suites
+  (`PublicHelloAdmissionTests`, `LocalConnectionTokenAuthenticatorTests`,
+  `TrustedCredentialFailureThrottleTests`, 142 tests combined) re-run five times at the close of Step
+  3 with no flake; the new reissue-while-reserved regression additionally re-run five times in
+  isolation with no flake.
+- `dotnet build ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`: clean, re-run
+  after every one of this third pass's three steps.
+- `python -m unittest discover -s tooling -p "test_*.py"`: 95 passed, re-run at this pass's close;
+  unchanged (documentation-only planning-package edits, no `security.md` or schema phrase altered).
+- `integration/DovahLinkValidationClient.Tests`, `ctest --test-dir adapter/build/windows-x64-debug`:
+  not re-run -- every change in this pass is confined to `host/DovahLink.Host`/`.Tests` C# application
+  code and this phase's own planning documents, with no protocol, SDK, or native/adapter file touched.
+- Fresh traceability pass at this pass's close: every Contracts/Invariants/Proof-obligations/
+  Non-goals/Completion-criteria line in `02-authentication-and-session-admission.md`, including the
+  two new bullets this pass added, is satisfied by the current implementation and covered by a
+  passing regression test. `git status`: clean except this pass's own documentation edits at the time
+  of writing.
 
 ## Handoff
 

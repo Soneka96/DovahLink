@@ -29,7 +29,15 @@ and rejection/close decisions.
   hex credential checked against the trusted record; `one_time_local_token` is available only through
   the explicit developer-token configuration/provider and is never silently enabled by a default.
   The existing `ILocalConnectionTokenAuthenticator` atomic one-time/rate-limit guarantees must be
-  preserved or its replacement must be separately documented and tested.
+  preserved or its replacement must be separately documented and tested. Its reservation lifecycle
+  (`TryValidate`/`CommitConsumption`/`RollbackReservation`) is scoped to the exact token issuance that
+  created it: `TryValidate` returns an opaque `LocalConnectionTokenReservation` stamped with the
+  current issuance's generation, and `CommitConsumption`/`RollbackReservation` act only when the
+  presented reservation's generation still matches the single outstanding one, otherwise a safe
+  no-op. A bare outstanding/not-outstanding flag with no generation is not sufficient: reissuing the
+  token while an old reservation exists must immediately invalidate that old reservation's authority,
+  and a caller still holding it must never be able to commit or roll back a completely different,
+  newer reservation.
 - Use the existing approved `DOVAHLINK_BRIDGE_TOKEN` environment variable for the current
   transition, which is the repository's documented equivalent configuration for the security
   document's `DOVAHLINK_DEV_TOKEN` wording. Do not add a second alias, silently rename the variable,
@@ -203,6 +211,11 @@ Expected focused test files:
 - `ILocalConnectionTokenAuthenticator.TryConsume` cannot consume a token while a separate
   `TryValidate` reservation on it is outstanding, closing the gap between the two APIs' otherwise
   independent single-use guarantees.
+- A reservation from a superseded token issuance can never commit or roll back a different, later
+  reservation: reissuing a token while an old reservation is still outstanding does not let more than
+  one concurrent caller successfully reserve or consume the new token, and a stale
+  `CommitConsumption`/`RollbackReservation` call presenting the old reservation is a safe no-op
+  against the new one.
 
 ## Non-goals
 
