@@ -1,6 +1,7 @@
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
@@ -75,9 +76,15 @@ public static class Fixtures
     public static ClientMessageDispatcher BuildClientMessageDispatcher(
         IPublicEnvelopeCodec? codec = null,
         ITrustAdminService? trustAdminService = null,
-        IPlayContextTracker? playContextTracker = null) =>
+        IPairingCoordinator? pairingCoordinator = null,
+        IPairingAdapterNotifier? adapterNotifier = null,
+        IPlayContextTracker? playContextTracker = null,
+        IClock? clock = null) =>
         new(
             codec ?? new PublicEnvelopeCodec(),
             trustAdminService ?? new FakeTrustAdminService(),
-            playContextTracker ?? new FakePlayContextTracker());
+            pairingCoordinator ?? new PairingCoordinator(new FakeTrustStore(), clock ?? new FakeClock()),
+            adapterNotifier ?? new FakePairingAdapterNotifier(),
+            playContextTracker ?? new FakePlayContextTracker(),
+            clock ?? new FakeClock());
 }

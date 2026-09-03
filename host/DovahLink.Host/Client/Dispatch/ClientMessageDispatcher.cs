@@ -1,7 +1,9 @@
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
+using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
 
 namespace DovahLink.Host.Client.Dispatch;
@@ -42,21 +44,39 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <summary>Applies rename mutations to the durable trust store.</summary>
     private readonly ITrustAdminService trustAdminService;
 
+    /// <summary>Owns the host's client-bound pairing challenge and pending-credential lifecycle.</summary>
+    private readonly IPairingCoordinator pairingCoordinator;
+
+    /// <summary>The injected, narrow host-owned seam used to request a Skyrim-facing pairing notification.</summary>
+    private readonly IPairingAdapterNotifier adapterNotifier;
+
     /// <summary>Supplies the <c>playContextId</c> stamped onto every host-originated envelope.</summary>
     private readonly IPlayContextTracker playContextTracker;
+
+    /// <summary>The time source used to compute a challenge's remaining code validity.</summary>
+    private readonly IClock clock;
 
     /// <summary>Creates a client message dispatcher.</summary>
     /// <param name="codec">Decodes and encodes every message this dispatcher sends or receives.</param>
     /// <param name="trustAdminService">Applies rename mutations to the durable trust store.</param>
+    /// <param name="pairingCoordinator">Owns the host's client-bound pairing challenge and pending-credential lifecycle.</param>
+    /// <param name="adapterNotifier">The injected, narrow host-owned seam used to request a Skyrim-facing pairing notification.</param>
     /// <param name="playContextTracker">Supplies the <c>playContextId</c> stamped onto every host-originated envelope.</param>
+    /// <param name="clock">The time source used to compute a challenge's remaining code validity.</param>
     public ClientMessageDispatcher(
         IPublicEnvelopeCodec codec,
         ITrustAdminService trustAdminService,
-        IPlayContextTracker playContextTracker)
+        IPairingCoordinator pairingCoordinator,
+        IPairingAdapterNotifier adapterNotifier,
+        IPlayContextTracker playContextTracker,
+        IClock clock)
     {
         this.codec = codec;
         this.trustAdminService = trustAdminService;
+        this.pairingCoordinator = pairingCoordinator;
+        this.adapterNotifier = adapterNotifier;
         this.playContextTracker = playContextTracker;
+        this.clock = clock;
     }
 
     /// <inheritdoc/>
@@ -73,6 +93,8 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return HandlePingAsync(sessionId, connection, envelope);
             case PublicMessageType.RenameRequest:
                 return HandleRenameRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
+            case PublicMessageType.PairingRequest:
+                return HandlePairingRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
             default:
                 // Every pairing_* message type is authorized by the connection handler's per-tier
                 // allowlist but mapped to its owning service by a later step of this same concept.
@@ -141,6 +163,83 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
 
         SendRenameOutcome(connection, sessionId, envelope.MessageId, RenameOutcomeWireValue.Renamed, payload.DisplayName);
         return new ClientDispatchResult();
+    }
+
+    /// <summary>
+    /// Answers a <c>pairing_request</c> with <c>pairing_status</c>. Makes challenge creation and first
+    /// display one coherent decision: a newly started challenge is displayed through the adapter
+    /// before it is ever reported <c>available</c>, and a rejected or timed-out display rolls the
+    /// challenge back via <see cref="IPairingCoordinator.Cancel"/> before reporting <c>unavailable</c>,
+    /// so no client is ever told a code is available that was never actually shown.
+    /// </summary>
+    private async Task<ClientDispatchResult> HandlePairingRequestAsync(
+        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+    {
+        if (!codec.TryDecodePayload(envelope, out EmptyPayload? _))
+        {
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_request message is malformed.");
+            return new ClientDispatchResult(IsProtocolViolation: true);
+        }
+
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        switch (start.Outcome)
+        {
+            case PairingStartOutcome.Started:
+                PairingChallenge challenge = start.Challenge!;
+                bool accepted = await adapterNotifier.TryNotifyCodeAvailableAsync(challenge.Code, cancellationToken);
+                if (!accepted)
+                {
+                    // The coordinator serializes BeginPairing and Cancel independently of this await, so
+                    // this call never holds a coordinator lock while waiting on the adapter, per the
+                    // atomic-display contract. Cancel matches by owned-challenge identity, so it can only
+                    // roll back exactly the challenge this call just started.
+                    pairingCoordinator.Cancel(clientId);
+                    SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+                    return new ClientDispatchResult();
+                }
+
+                SendPairingStatus(
+                    connection, sessionId, envelope.MessageId, PairingStatusWireState.Available, RemainingSeconds(challenge));
+                return new ClientDispatchResult();
+
+            case PairingStartOutcome.Resumed:
+                PairingChallenge? owned = pairingCoordinator.TryGetOwnedChallenge(clientId);
+                SendPairingStatus(
+                    connection, sessionId, envelope.MessageId, PairingStatusWireState.InProgress,
+                    owned is null ? null : RemainingSeconds(owned));
+                return new ClientDispatchResult();
+
+            case PairingStartOutcome.OtherDeviceActive:
+                SendPairingStatusOtherDevice(connection, sessionId, envelope.MessageId);
+                return new ClientDispatchResult();
+
+            default:
+                // GeneratorFailed (secure code generation failed) and Blocked (unreachable in practice:
+                // an administratively blocked clientId can never hold the session this dispatch runs on,
+                // since Block immediately invalidates it) both fail safely without disclosing which case
+                // occurred.
+                SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to begin pairing.", retryable: true);
+                return new ClientDispatchResult();
+        }
+    }
+
+    /// <summary>The requesting client's own active challenge's remaining code validity, in whole seconds, rounded up.</summary>
+    private int RemainingSeconds(PairingChallenge challenge) =>
+        (int)Math.Ceiling(Math.Max((challenge.ExpiresAtUtc - clock.UtcNow).TotalSeconds, 0));
+
+    /// <summary>Sends a <c>pairing_status</c> reply for every state except <c>other_device_pairing</c>, correlated to the request it answers.</summary>
+    private void SendPairingStatus(
+        IPublicConnectionContext connection, SessionId sessionId, string correlationId, PairingStatusWireState state, int? expiresInSeconds)
+    {
+        var payload = new PairingStatusPayload { State = state, ExpiresInSeconds = expiresInSeconds };
+        connection.TrySend(Encode(PublicMessageType.PairingStatus, sessionId, correlationId, payload));
+    }
+
+    /// <summary>Sends an <c>other_device_pairing</c> <c>pairing_status</c> reply, omitting <c>expiresInSeconds</c> entirely.</summary>
+    private void SendPairingStatusOtherDevice(IPublicConnectionContext connection, SessionId sessionId, string correlationId)
+    {
+        var payload = new PairingStatusOtherDevicePayload { State = PairingStatusWireState.OtherDevicePairing };
+        connection.TrySend(Encode(PublicMessageType.PairingStatus, sessionId, correlationId, payload));
     }
 
     /// <summary>Sends a <c>rename_outcome</c> reply, correlated to the request it answers.</summary>
