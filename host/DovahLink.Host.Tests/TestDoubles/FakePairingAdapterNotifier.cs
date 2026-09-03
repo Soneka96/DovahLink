@@ -23,6 +23,12 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
     /// <summary>The number of times <see cref="NotifyAttemptsExhaustedAsync"/> has been called.</summary>
     public int AttemptsExhaustedCallCount { get; private set; }
 
+    /// <summary>When set, <see cref="NotifyCodeIncorrectAsync"/> returns a faulted task carrying this exception instead of completing.</summary>
+    public Exception? ThrowOnNotifyCodeIncorrect { get; set; }
+
+    /// <summary>When set, <see cref="NotifyAttemptsExhaustedAsync"/> returns a faulted task carrying this exception instead of completing.</summary>
+    public Exception? ThrowOnNotifyAttemptsExhausted { get; set; }
+
     /// <inheritdoc/>
     public Task<bool> TryNotifyCodeAvailableAsync(string code, CancellationToken cancellationToken)
     {
@@ -41,13 +47,13 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
     public Task NotifyCodeIncorrectAsync(string code, CancellationToken cancellationToken)
     {
         IncorrectCodeNotifications.Add(code);
-        return Task.CompletedTask;
+        return ThrowOnNotifyCodeIncorrect is { } exception ? Task.FromException(exception) : Task.CompletedTask;
     }
 
     /// <inheritdoc/>
     public Task NotifyAttemptsExhaustedAsync(CancellationToken cancellationToken)
     {
         AttemptsExhaustedCallCount++;
-        return Task.CompletedTask;
+        return ThrowOnNotifyAttemptsExhausted is { } exception ? Task.FromException(exception) : Task.CompletedTask;
     }
 }

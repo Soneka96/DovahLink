@@ -381,6 +381,301 @@ public class ClientMessageDispatcherTests
         Assert.True(result.IsProtocolViolation);
     }
 
+    // ---- pairing_confirm ----
+
+    /// <summary>Verifies that a correct code sends credential_issued with the issued credential and display name.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmCorrectCode_SendsCredentialIssued()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1",
+            new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Living Room PC" });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
+        Assert.Equal("msg-1", outcomeEnvelope.CorrelationId);
+        Assert.Equal(PairingOutcomeWireValue.CredentialIssued, outcome.Outcome);
+        Assert.Equal(32, outcome.Credential!.Length);
+        Assert.Equal("Living Room PC", outcome.DisplayName);
+        Assert.Null(outcome.ShortId);
+    }
+
+    /// <summary>
+    /// Verifies that a first wrong attempt -- eligible for auto-renotify -- sends invalid and requests
+    /// a best-effort incorrect-code redisplay of the still-active code, never disclosed in the response.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmFirstWrongAttempt_SendsInvalidAndRequestsIncorrectCodeRedisplay()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.Null(outcome.Credential);
+        await WaitUntilAsync(() => adapterNotifier.IncorrectCodeNotifications.Count > 0);
+        Assert.Equal([start.Challenge!.Code], adapterNotifier.IncorrectCodeNotifications);
+    }
+
+    /// <summary>
+    /// Verifies that a second wrong attempt still within the auto-renotify cooldown sends invalid
+    /// without requesting a second redisplay.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmSecondWrongAttemptWithinAutoRenotifyCooldown_DoesNotRequestRedisplay()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.ConfirmCode(clientId, "000000", null);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.Empty(adapterNotifier.IncorrectCodeNotifications);
+    }
+
+    /// <summary>Verifies that confirming after challenge expiry sends expired.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmAfterExpiry_SendsExpired()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Expired, outcome.Outcome);
+        Assert.Null(outcome.Credential);
+    }
+
+    /// <summary>Verifies that an expired challenge -- unlike a wrong attempt -- never requests any adapter notification.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmAfterExpiry_RequestsNoAdapterNotification()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        Assert.Empty(adapterNotifier.IncorrectCodeNotifications);
+        Assert.Equal(0, adapterNotifier.AttemptsExhaustedCallCount);
+    }
+
+    /// <summary>Verifies that an attempt made too soon after the previous one sends pacing_limited with the rounded-up retry wait.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmTooSoon_SendsPacingLimitedWithRetryAfterSeconds()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.ConfirmCode(clientId, "000000", null);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.PacingLimited, outcome.Outcome);
+        Assert.Equal(1, outcome.RetryAfterSeconds);
+    }
+
+    /// <summary>Verifies that a fractional remaining pacing wait rounds up rather than truncating.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmTooSoon_RoundsFractionalRetryAfterUp()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.ConfirmCode(clientId, "000000", null);
+        clock.Advance(TimeSpan.FromMilliseconds(500));
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(1, outcome.RetryAfterSeconds);
+    }
+
+    /// <summary>Verifies that the fifth wrong attempt sends hard_limit_reached and requests the no-code attempts-exhausted notification.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmFifthWrongAttempt_SendsHardLimitReachedAndRequestsAttemptsExhausted()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            pairingCoordinator.ConfirmCode(clientId, "000000", null);
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.HardLimitReached, outcome.Outcome);
+        await WaitUntilAsync(() => adapterNotifier.AttemptsExhaustedCallCount > 0);
+    }
+
+    /// <summary>Verifies that secure credential generation failure is reported as a redacted, retryable internal_error, not an outcome state.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmGeneratorFails_SendsRetryableInternalError()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock, credentialGenerator: () => null);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
+    }
+
+    /// <summary>Verifies that a malformed pairing_confirm sends a malformed_message error and reports a protocol violation.</summary>
+    [Fact]
+    public async Task DispatchAsync_MalformedPairingConfirm_SendsErrorAndReportsViolation()
+    {
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildRawEnvelope("pairing_confirm", "msg-1", "session-1", "{}");
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.True(result.IsProtocolViolation);
+    }
+
+    /// <summary>
+    /// Verifies that a display name the pairing coordinator itself rejects (over the 64-byte limit or
+    /// containing a control character) -- a validation layer past envelope decoding, since the wire
+    /// payload places no such constraint -- is mapped to a correlated malformed_message error rather
+    /// than propagating the coordinator's ArgumentException uncaught.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmInvalidDisplayName_SendsMalformedMessageAndReportsViolation()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1",
+            new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Bad\nName" });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.True(result.IsProtocolViolation);
+    }
+
+    /// <summary>
+    /// Verifies that a fault from a best-effort adapter notification never surfaces to the dispatch
+    /// caller: the pairing_outcome response still sends normally and no exception propagates.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmAdapterNotificationFaults_DoesNotPropagateOrBlockResponse()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeIncorrect = new InvalidOperationException("adapter unavailable") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.False(result.IsProtocolViolation);
+        await WaitUntilAsync(() => adapterNotifier.IncorrectCodeNotifications.Count > 0);
+    }
+
     // ---- unhandled message types ----
 
     /// <summary>
@@ -393,7 +688,7 @@ public class ClientMessageDispatcherTests
         var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingConfirm, "msg-1", "session-1", new EmptyPayload());
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingAck, "msg-1", "session-1", new EmptyPayload());
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
             ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
@@ -404,6 +699,17 @@ public class ClientMessageDispatcherTests
     }
 
     // ---- Helpers ----
+
+    /// <summary>Polls <paramref name="condition"/> until it becomes true, failing the test if it does not within 5 seconds.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Condition was not met within the expected time.");
+            await Task.Delay(10);
+        }
+    }
 
     /// <summary>Encodes then decodes a payload into a real <see cref="PublicEnvelope"/>, matching what the connection handler would hand the dispatcher.</summary>
     private static PublicEnvelope BuildEnvelope<TPayload>(PublicMessageType messageType, string messageId, string sessionId, TPayload payload)

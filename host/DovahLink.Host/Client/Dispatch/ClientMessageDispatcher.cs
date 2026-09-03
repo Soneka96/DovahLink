@@ -95,6 +95,8 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return HandleRenameRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingRequest:
                 return HandlePairingRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
+            case PublicMessageType.PairingConfirm:
+                return HandlePairingConfirmAsync(clientId, sessionId, connection, envelope, cancellationToken);
             default:
                 // Every pairing_* message type is authorized by the connection handler's per-tier
                 // allowlist but mapped to its owning service by a later step of this same concept.
@@ -224,8 +226,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     }
 
     /// <summary>The requesting client's own active challenge's remaining code validity, in whole seconds, rounded up.</summary>
-    private int RemainingSeconds(PairingChallenge challenge) =>
-        (int)Math.Ceiling(Math.Max((challenge.ExpiresAtUtc - clock.UtcNow).TotalSeconds, 0));
+    private int RemainingSeconds(PairingChallenge challenge) => RoundUpSeconds(challenge.ExpiresAtUtc - clock.UtcNow);
 
     /// <summary>Sends a <c>pairing_status</c> reply for every state except <c>other_device_pairing</c>, correlated to the request it answers.</summary>
     private void SendPairingStatus(
@@ -267,4 +268,100 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
 
     /// <summary>Generates a fresh, cryptographically random host-originated message identifier.</summary>
     private static string NewMessageId() => Guid.NewGuid().ToString();
+
+    /// <summary>
+    /// Answers a <c>pairing_confirm</c> with <c>pairing_outcome</c>: maps
+    /// <see cref="IPairingCoordinator.ConfirmCode"/>'s outcome directly, best-effort requesting a
+    /// wrong-code redisplay when the coordinator's own auto-renotify cooldown permits it and a
+    /// no-code attempts-exhausted notification once the hard wrong-attempt limit cancels the
+    /// challenge -- neither notification blocks or changes the outcome already decided, and neither
+    /// discloses the code through the public response.
+    /// </summary>
+    private Task<ClientDispatchResult> HandlePairingConfirmAsync(
+        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+    {
+        if (!codec.TryDecodePayload(envelope, out PairingConfirmPayload? payload))
+        {
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_confirm message is malformed.");
+            return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
+        }
+
+        PairingConfirmationResult confirm;
+        try
+        {
+            confirm = pairingCoordinator.ConfirmCode(clientId, payload.Code, payload.DisplayName);
+        }
+        catch (ArgumentException)
+        {
+            // The wire schema places no length/control-character constraint on pairing_confirm's
+            // displayName, so this coordinator-level rejection is a client input validation failure
+            // discovered one layer past envelope decoding, not a distinct pairing_outcome the schema
+            // defines a value for.
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The display name is not valid.");
+            return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
+        }
+
+
+        switch (confirm.Outcome)
+        {
+            case PairingConfirmOutcome.CredentialIssued:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload
+                {
+                    Outcome = PairingOutcomeWireValue.CredentialIssued,
+                    Credential = confirm.Credential,
+                    DisplayName = confirm.DisplayName,
+                });
+                return Task.FromResult(new ClientDispatchResult());
+
+            case PairingConfirmOutcome.Invalid:
+                if (confirm.ShouldAutoRenotify)
+                {
+                    string? ownedCode = pairingCoordinator.TryGetOwnedChallenge(clientId)?.Code;
+                    if (ownedCode is not null)
+                    {
+                        FireAndForget(adapterNotifier.NotifyCodeIncorrectAsync(ownedCode, cancellationToken));
+                    }
+                }
+
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.Invalid });
+                return Task.FromResult(new ClientDispatchResult());
+
+            case PairingConfirmOutcome.Expired:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.Expired });
+                return Task.FromResult(new ClientDispatchResult());
+
+            case PairingConfirmOutcome.PacingLimited:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload
+                {
+                    Outcome = PairingOutcomeWireValue.PacingLimited,
+                    RetryAfterSeconds = RoundUpSeconds(confirm.RetryAfter!.Value),
+                });
+                return Task.FromResult(new ClientDispatchResult());
+
+            case PairingConfirmOutcome.HardLimitReached:
+                FireAndForget(adapterNotifier.NotifyAttemptsExhaustedAsync(cancellationToken));
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.HardLimitReached });
+                return Task.FromResult(new ClientDispatchResult());
+
+            default:
+                // GeneratorFailed: secure credential generation failed.
+                SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to confirm this code.", retryable: true);
+                return Task.FromResult(new ClientDispatchResult());
+        }
+    }
+
+    /// <summary>Sends a <c>pairing_outcome</c> reply, correlated to the request it answers.</summary>
+    private void SendPairingOutcome(IPublicConnectionContext connection, SessionId sessionId, string correlationId, PairingOutcomePayload payload) =>
+        connection.TrySend(Encode(PublicMessageType.PairingOutcome, sessionId, correlationId, payload));
+
+    /// <summary>Rounds a duration up to the nearest whole second, never negative.</summary>
+    private static int RoundUpSeconds(TimeSpan duration) => (int)Math.Ceiling(Math.Max(duration.TotalSeconds, 0));
+
+    /// <summary>
+    /// Starts a best-effort adapter notification without awaiting it, observing (and discarding) any
+    /// fault so it can never surface as an unobserved task exception. A best-effort notification never
+    /// blocks or changes an already-decided client outcome.
+    /// </summary>
+    private static void FireAndForget(Task task) =>
+        task.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
 }
