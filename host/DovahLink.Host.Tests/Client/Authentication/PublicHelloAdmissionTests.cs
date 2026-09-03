@@ -2200,6 +2200,9 @@ public class PublicHelloAdmissionTests
 
             return inner.TryFinalizeAdmission(sessionId, connectionId);
         }
+
+        /// <inheritdoc/>
+        public bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId) => inner.TryUpgradeToFullTrust(sessionId, connectionId);
     }
 
     /// <summary>

@@ -202,4 +202,28 @@ public sealed class FakeSessionRegistry : ISessionRegistry
             return activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) && record.ConnectionId == connectionId;
         }
     }
+
+    /// <inheritdoc/>
+    public bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId)
+    {
+        lock (gate)
+        {
+            if (!activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) || record.ConnectionId != connectionId)
+            {
+                return false;
+            }
+
+            activeSessions[sessionId] = record with { TrustTier = SessionTrustTier.Full };
+            return true;
+        }
+    }
+
+    /// <summary>Returns the current trust tier for a session created by this test double.</summary>
+    public SessionTrustTier TrustTierFor(SessionId sessionId)
+    {
+        lock (gate)
+        {
+            return activeSessions[sessionId].TrustTier;
+        }
+    }
 }

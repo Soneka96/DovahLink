@@ -417,4 +417,97 @@ public class SessionRegistryTests
         Assert.Equal(0, registry.ActiveCount);
         Assert.All(sessions, session => Assert.False(registry.IsActive(session.SessionId, session.ConnectionId)));
     }
+
+    /// <summary>Verifies that an owned Restricted session upgrades to Full in place, without a new session id.</summary>
+    [Fact]
+    public void TryUpgradeToFullTrust_OwnedRestrictedSession_UpgradesInPlace()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        Assert.True(registry.TryUpgradeToFullTrust(sessionId, connectionId));
+
+        Assert.Equal(SessionTrustTier.Full, registry.TrustTierFor(sessionId));
+        Assert.True(registry.IsActive(sessionId, connectionId));
+        Assert.Equal(1, registry.ActiveCount);
+    }
+
+    /// <summary>Verifies that upgrading an already-Full session is a harmless no-op success.</summary>
+    [Fact]
+    public void TryUpgradeToFullTrust_AlreadyFullSession_RemainsFull()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+
+        Assert.True(registry.TryUpgradeToFullTrust(sessionId, connectionId));
+
+        Assert.Equal(SessionTrustTier.Full, registry.TrustTierFor(sessionId));
+    }
+
+    /// <summary>Verifies that a connection cannot upgrade a session it does not own.</summary>
+    [Fact]
+    public void TryUpgradeToFullTrust_WrongConnection_ReturnsFalseAndLeavesTierUnchanged()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId owner = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), owner, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        Assert.False(registry.TryUpgradeToFullTrust(sessionId, ConnectionId.NewId()));
+
+        Assert.Equal(SessionTrustTier.Restricted, registry.TrustTierFor(sessionId));
+    }
+
+    /// <summary>Verifies that an unknown session cannot be upgraded.</summary>
+    [Fact]
+    public void TryUpgradeToFullTrust_UnknownSession_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+
+        Assert.False(registry.TryUpgradeToFullTrust(SessionId.NewId(), ConnectionId.NewId()));
+    }
+
+    /// <summary>Verifies that an already-invalidated session cannot be upgraded.</summary>
+    [Fact]
+    public void TryUpgradeToFullTrust_InvalidatedSession_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+        registry.Invalidate(sessionId, connectionId);
+
+        Assert.False(registry.TryUpgradeToFullTrust(sessionId, connectionId));
+    }
+
+    /// <summary>Verifies that a session removed by client-scoped invalidation cannot be upgraded.</summary>
+    [Fact]
+    public void TryUpgradeToFullTrust_SessionInvalidatedByInvalidateAllForClient_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+        ClientId clientId = ClientId.NewId();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+        registry.InvalidateAllForClient(clientId);
+
+        Assert.False(registry.TryUpgradeToFullTrust(sessionId, connectionId));
+    }
+
+    /// <summary>Verifies that a session removed by global invalidation cannot be upgraded.</summary>
+    [Fact]
+    public void TryUpgradeToFullTrust_SessionInvalidatedByInvalidateAll_ReturnsFalse()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+        registry.InvalidateAll();
+
+        Assert.False(registry.TryUpgradeToFullTrust(sessionId, connectionId));
+    }
 }

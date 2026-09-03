@@ -72,6 +72,18 @@ public interface ISessionRegistry
     /// <param name="connectionId">The connection claiming ownership of the session.</param>
     /// <returns><see langword="true"/> if the session still belongs to the connection and remains active.</returns>
     bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId);
+
+    /// <summary>
+    /// Upgrades an active session's <see cref="ActiveSessionRecord.TrustTier"/> to
+    /// <see cref="SessionTrustTier.Full"/> in place, without minting a new <see cref="SessionId"/> or
+    /// otherwise disturbing the session record. Used by a successful <c>pairing_ack</c> to upgrade the
+    /// same connection's own session exactly once, per <c>ai/context/protocol/security.md</c>'s
+    /// "Trust-tier upgrade happens exactly once, on the pairing state machine's own success."
+    /// </summary>
+    /// <param name="sessionId">The session to upgrade.</param>
+    /// <param name="connectionId">The connection claiming ownership of the session.</param>
+    /// <returns><see langword="true"/> if the session belonged to the connection and remained active.</returns>
+    bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId);
 }
 
 /// <inheritdoc cref="ISessionRegistry"/>
@@ -112,6 +124,17 @@ public sealed class SessionRegistry : ISessionRegistry
 
     /// <summary>The maximum number of simultaneous active sessions.</summary>
     public int MaxActiveSessions => maxActiveSessions;
+
+    /// <summary>Returns the current trust tier of an active session, for diagnostics and tests.</summary>
+    /// <param name="sessionId">The session to look up.</param>
+    /// <exception cref="KeyNotFoundException"><paramref name="sessionId"/> is not currently active.</exception>
+    public SessionTrustTier TrustTierFor(SessionId sessionId)
+    {
+        lock (gate)
+        {
+            return sessionsById[sessionId].TrustTier;
+        }
+    }
 
     /// <inheritdoc/>
     public bool TryCreate(
@@ -197,6 +220,23 @@ public sealed class SessionRegistry : ISessionRegistry
             return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) &&
                 record.ConnectionId == connectionId &&
                 record.State == SessionState.Active;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId)
+    {
+        lock (gate)
+        {
+            if (!sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) ||
+                record.ConnectionId != connectionId ||
+                record.State != SessionState.Active)
+            {
+                return false;
+            }
+
+            sessionsById[sessionId] = record with { TrustTier = SessionTrustTier.Full };
+            return true;
         }
     }
 }
