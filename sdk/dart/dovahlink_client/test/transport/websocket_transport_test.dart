@@ -1,94 +1,29 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
-import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
-import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
-import '../fixtures/fixtures.dart';
-import '../harness_process.dart';
-
-/// A valid 64-character hex-encoded developer token, matching the fixed value the `.NET`
-/// integration suite uses (`integration/DovahLinkValidationClient.Tests/BridgeScenario.cs`).
-const String _validHexToken =
-    '0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344';
+import '../support/fake_websocket_server.dart';
 
 /// Bounds every wait on a real socket operation in this suite, so a hung connection or response
 /// fails the test with a clear timeout instead of blocking the run indefinitely.
 const Duration _socketTimeout = Duration(seconds: 5);
 
-/// Builds an isolated trust-store file path so this test never touches the developer's real
-/// per-user trust store, mirroring the `.NET` pairing scenarios' own isolation.
-String _isolatedTrustStorePath() =>
-    '${Directory.systemTemp.path}${Platform.pathSeparator}'
-    'dovahlink-trust-${DateTime.now().microsecondsSinceEpoch}.json';
-
-/// Runs WebSocket transport behavior tests.
+/// Runs WebSocket transport behavior tests against a real local socket. Deliberately
+/// protocol-agnostic: these prove [WebSocketTransport]'s own connection-lifecycle and framing
+/// mechanics against a [FakeWebSocketServer], not any peer's protocol semantics -- Bridge-specific
+/// wire compatibility lives in `websocket_transport_bridge_test.dart` instead.
 void main() {
   group('Behavior transport connection lifecycle behaves correctly', () {
     test(
-      'Behavior transport connection lifecycle connects to the real bridge harness and round-trips a raw hello/hello_ack',
-      () async {
-        final HarnessProcess harness = await HarnessProcess.start(
-          token: _validHexToken,
-          extraEnvironment: <String, String>{
-            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-                _isolatedTrustStorePath(),
-          },
-        );
-        addTearDown(harness.dispose);
-        await harness.waitForReady();
-
-        final WebSocketTransport transport = WebSocketTransport();
-        addTearDown(transport.close);
-        await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
-
-        final Envelope helloEnvelope = Fixtures.buildEnvelope(
-          messageType: ProtocolMessageType.hello,
-          messageId: 'test-hello-1',
-          sessionId: null,
-          correlationId: null,
-          payload: HelloPayload(
-            clientId: 'client-1',
-            authMethod: AuthMethod.unpaired,
-          ).toJson(),
-          bridgeInstanceId: null,
-          playContextId: null,
-          clientId: null,
-        );
-        await transport.send(jsonEncode(helloEnvelope.toJson()));
-
-        final String rawResponse = await transport.messages.first.timeout(
-          _socketTimeout,
-        );
-        final Envelope response = Envelope.fromJson(
-          jsonDecode(rawResponse) as Map<String, dynamic>,
-        );
-
-        expect(response.messageType, ProtocolMessageType.helloAck);
-        expect(response.sessionId, isNotEmpty);
-        expect(response.correlationId, 'test-hello-1');
-      },
-    );
-
-    test(
       'Behavior transport connection lifecycle close() tears down the real socket without hanging',
       () async {
-        final HarnessProcess harness = await HarnessProcess.start(
-          token: _validHexToken,
-          extraEnvironment: <String, String>{
-            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-                _isolatedTrustStorePath(),
-          },
-        );
-        addTearDown(harness.dispose);
-        await harness.waitForReady();
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
 
         final WebSocketTransport transport = WebSocketTransport();
-        await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+        await transport.connect(server.uri).timeout(_socketTimeout);
 
         await transport.close().timeout(_socketTimeout);
 
@@ -114,15 +49,8 @@ void main() {
     test(
       'Behavior transport connection lifecycle close() during an in-flight connect() discards the late socket instead of adopting it',
       () async {
-        final HarnessProcess harness = await HarnessProcess.start(
-          token: _validHexToken,
-          extraEnvironment: <String, String>{
-            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-                _isolatedTrustStorePath(),
-          },
-        );
-        addTearDown(harness.dispose);
-        await harness.waitForReady();
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
 
         final WebSocketTransport transport = WebSocketTransport();
         addTearDown(transport.close);
@@ -130,7 +58,7 @@ void main() {
         // Deliberately not awaited: close() must run while connect() is still resolving. The
         // timeout is attached now, not at the later await, so it bounds the whole wait.
         final Future<void> connectFuture = transport
-            .connect(harness.bridgeUri)
+            .connect(server.uri)
             .timeout(_socketTimeout);
         await transport.close();
         await connectFuture;
@@ -144,15 +72,8 @@ void main() {
     test(
       'Behavior transport connection lifecycle reconnects successfully after an abandoned connect()',
       () async {
-        final HarnessProcess harness = await HarnessProcess.start(
-          token: _validHexToken,
-          extraEnvironment: <String, String>{
-            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-                _isolatedTrustStorePath(),
-          },
-        );
-        addTearDown(harness.dispose);
-        await harness.waitForReady();
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
 
         final WebSocketTransport transport = WebSocketTransport();
         addTearDown(transport.close);
@@ -161,107 +82,67 @@ void main() {
         // exactly what a real reconnect does (DovahLinkClient reuses one WebSocketTransport), so
         // a stale _abandoned flag must not sabotage it.
         final Future<void> firstConnect = transport
-            .connect(harness.bridgeUri)
+            .connect(server.uri)
             .timeout(_socketTimeout);
         await transport.close();
         await firstConnect;
 
-        // The bridge's connection slot is released once its own worker thread notices the closed
-        // socket, not the instant this client's close() call returns -- a real, if usually brief,
-        // delay. Retry briefly rather than requiring the first attempt to land, mirroring
-        // dovahlink_bridge_harness_test.cpp's own "binding a real OS port can still lag a moment
-        // behind that; retry briefly" pattern.
-        const int maxAttempts = 20;
-        for (int attempt = 1; ; attempt++) {
-          try {
-            await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
-            break;
-          } on IOException {
-            if (attempt >= maxAttempts) {
-              rethrow;
-            }
-            await Future<void>.delayed(const Duration(milliseconds: 50));
-          }
-        }
+        // A fake local server accepts immediately, unlike the real Bridge (whose connection slot
+        // is only released once its own worker thread notices the closed socket) -- so, unlike
+        // that real-peer scenario, no retry-until-accepted loop is needed here.
+        await transport.connect(server.uri).timeout(_socketTimeout);
 
         // Proves the new socket was actually adopted this time, not discarded like the first.
         await transport.send('probe');
       },
     );
 
-    test('Behavior transport connection lifecycle delivers hello_ack then the bridge\'s own '
-        'follow-up capabilities push', () async {
-      final HarnessProcess harness = await HarnessProcess.start(
-        token: _validHexToken,
-        extraEnvironment: <String, String>{
-          'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-              _isolatedTrustStorePath(),
-        },
-      );
-      addTearDown(harness.dispose);
-      await harness.waitForReady();
-
-      final WebSocketTransport transport = WebSocketTransport();
-      addTearDown(transport.close);
-      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
-
-      final List<String> received = <String>[];
-      final StreamSubscription<String> subscription = transport.messages.listen(
-        received.add,
-      );
-      addTearDown(subscription.cancel);
-
-      final Envelope helloEnvelope = Fixtures.buildEnvelope(
-        messageType: ProtocolMessageType.hello,
-        messageId: 'test-hello-1',
-        sessionId: null,
-        correlationId: null,
-        payload: HelloPayload(
-          clientId: 'client-1',
-          authMethod: AuthMethod.unpaired,
-        ).toJson(),
-        bridgeInstanceId: null,
-        playContextId: null,
-        clientId: null,
-      );
-      await transport.send(jsonEncode(helloEnvelope.toJson()));
-
-      // Both messages arrive on this one subscription -- proves the transport's stream is a
-      // genuine continuous, ordered stream for the connection's lifetime, not a one-shot per
-      // access.
-      await Future.doWhile(() async {
-        if (received.length >= 2) {
-          return false;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        return true;
-      }).timeout(_socketTimeout);
-
-      final Envelope first = Envelope.fromJson(
-        jsonDecode(received[0]) as Map<String, dynamic>,
-      );
-      final Envelope second = Envelope.fromJson(
-        jsonDecode(received[1]) as Map<String, dynamic>,
-      );
-      expect(first.messageType, ProtocolMessageType.helloAck);
-      expect(second.messageType, ProtocolMessageType.capabilities);
-    });
-
     test(
-      'Behavior transport connection lifecycle reports stream completion when the bridge process ends',
+      'Behavior transport connection lifecycle delivers multiple messages over one continuous ordered stream',
       () async {
-        final HarnessProcess harness = await HarnessProcess.start(
-          token: _validHexToken,
-          extraEnvironment: <String, String>{
-            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-                _isolatedTrustStorePath(),
-          },
-        );
-        await harness.waitForReady();
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
+        final Future<WebSocket> accepted = server.connections.first;
 
         final WebSocketTransport transport = WebSocketTransport();
         addTearDown(transport.close);
-        await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+        await transport.connect(server.uri).timeout(_socketTimeout);
+        final WebSocket serverSocket = await accepted.timeout(_socketTimeout);
+
+        final List<String> received = <String>[];
+        final StreamSubscription<String> subscription = transport.messages
+            .listen(received.add);
+        addTearDown(subscription.cancel);
+
+        serverSocket.add('first');
+        serverSocket.add('second');
+
+        // Both messages arrive on this one subscription -- proves the transport's stream is a
+        // genuine continuous, ordered stream for the connection's lifetime, not a one-shot per
+        // access.
+        await Future.doWhile(() async {
+          if (received.length >= 2) {
+            return false;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return true;
+        }).timeout(_socketTimeout);
+
+        expect(received, <String>['first', 'second']);
+      },
+    );
+
+    test(
+      'Behavior transport connection lifecycle reports stream completion when the peer closes the connection',
+      () async {
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
+        final Future<WebSocket> accepted = server.connections.first;
+
+        final WebSocketTransport transport = WebSocketTransport();
+        addTearDown(transport.close);
+        await transport.connect(server.uri).timeout(_socketTimeout);
+        final WebSocket serverSocket = await accepted.timeout(_socketTimeout);
 
         final Completer<void> streamEnded = Completer<void>();
         final StreamSubscription<String> subscription = transport.messages
@@ -280,9 +161,11 @@ void main() {
             );
         addTearDown(subscription.cancel);
 
-        // Ends the bridge process outright rather than a graceful close, dropping the socket out
-        // from under this still-active subscription.
-        await harness.dispose();
+        // Closes the peer's own socket outright, dropping the connection out from under this
+        // still-active subscription -- a plain HttpServer force-close does not touch a socket
+        // already handed off via WebSocketTransformer.upgrade, so the accepted socket itself
+        // must be closed to actually end the connection.
+        await serverSocket.close();
 
         await streamEnded.future.timeout(_socketTimeout);
       },
@@ -290,19 +173,15 @@ void main() {
 
     test('Behavior transport connection lifecycle reconnect installs a fresh inbound stream while the old one stays spent, '
         'single-subscription stream, never reused', () async {
-      final HarnessProcess harness = await HarnessProcess.start(
-        token: _validHexToken,
-        extraEnvironment: <String, String>{
-          'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-              _isolatedTrustStorePath(),
-        },
-      );
-      addTearDown(harness.dispose);
-      await harness.waitForReady();
+      final FakeWebSocketServer server = await FakeWebSocketServer.start();
+      addTearDown(server.close);
+      final Future<List<WebSocket>> accepted = server.connections
+          .take(2)
+          .toList();
 
       final WebSocketTransport transport = WebSocketTransport();
       addTearDown(transport.close);
-      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+      await transport.connect(server.uri).timeout(_socketTimeout);
       final Stream<String> firstMessages = transport.messages;
       // Listened to exactly once, matching how DovahLinkClient's single receiver behaves --
       // proves the *second* listen attempt below is rejected because this stream was already
@@ -313,19 +192,7 @@ void main() {
       await firstSubscription.cancel();
 
       await transport.close();
-
-      const int maxAttempts = 20;
-      for (int attempt = 1; ; attempt++) {
-        try {
-          await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
-          break;
-        } on IOException {
-          if (attempt >= maxAttempts) {
-            rethrow;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-      }
+      await transport.connect(server.uri).timeout(_socketTimeout);
 
       final Stream<String> secondMessages = transport.messages;
       expect(
@@ -334,27 +201,16 @@ void main() {
         reason: 'reconnect must install a fresh stream, not reuse the old one',
       );
 
-      // The new stream genuinely works: a fresh hello/hello_ack round trip over it.
+      // The new stream genuinely works: a message the peer sends over the fresh connection
+      // arrives.
+      final List<WebSocket> serverSockets = await accepted.timeout(
+        _socketTimeout,
+      );
       final List<String> received = <String>[];
       final StreamSubscription<String> secondSubscription = secondMessages
           .listen(received.add);
       addTearDown(secondSubscription.cancel);
-      final Envelope helloEnvelope = Fixtures.buildEnvelope(
-        messageType: ProtocolMessageType.hello,
-        messageId: 'test-hello-2',
-        sessionId: null,
-        correlationId: null,
-        payload: HelloPayload(
-          clientId: 'client-2',
-          authMethod: AuthMethod.unpaired,
-        ).toJson(),
-        bridgeInstanceId: null,
-        playContextId: null,
-        clientId: null,
-      );
-      await transport.send(jsonEncode(helloEnvelope.toJson()));
-      // The bridge also sends a follow-up capabilities push after hello_ack; this test only
-      // needs to see the first message actually arrive over the fresh stream.
+      serverSockets[1].add('probe-response');
       await Future.doWhile(() async {
         if (received.isNotEmpty) {
           return false;
@@ -362,12 +218,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
         return true;
       }).timeout(_socketTimeout);
-      expect(
-        Envelope.fromJson(
-          jsonDecode(received.first) as Map<String, dynamic>,
-        ).messageType,
-        ProtocolMessageType.helloAck,
-      );
+      expect(received.first, 'probe-response');
 
       // The old, already-once-listened-to stream is spent: a second listen on it is rejected
       // by dart:io's single-subscription contract, never silently delivering new-connection
@@ -378,30 +229,14 @@ void main() {
     test(
       'Behavior transport connection lifecycle rejects a binary frame as a non-text protocol violation',
       () async {
-        final HttpServer server = await HttpServer.bind(
-          InternetAddress.loopbackIPv4,
-          0,
-        );
-        final List<WebSocket> sockets = <WebSocket>[];
-        final StreamSubscription<HttpRequest> serverSubscription = server
-            .listen((HttpRequest request) async {
-              final WebSocket socket = await WebSocketTransformer.upgrade(
-                request,
-              );
-              sockets.add(socket);
-              socket.add(<int>[1, 2, 3]);
-            });
-        addTearDown(() async {
-          await serverSubscription.cancel();
-          for (final WebSocket socket in sockets) {
-            await socket.close();
-          }
-          await server.close(force: true);
-        });
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
+        final Future<WebSocket> accepted = server.connections.first;
 
         final WebSocketTransport transport = WebSocketTransport();
         addTearDown(transport.close);
-        await transport.connect(Uri.parse('ws://127.0.0.1:${server.port}/'));
+        await transport.connect(server.uri).timeout(_socketTimeout);
+        (await accepted.timeout(_socketTimeout)).add(<int>[1, 2, 3]);
 
         final Completer<Object> streamError = Completer<Object>();
         final StreamSubscription<String> subscription = transport.messages

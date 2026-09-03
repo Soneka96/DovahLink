@@ -1,0 +1,9 @@
+# Legacy Bridge compatibility coverage (see ai/context/sdk/testing.md's "Transport fidelity")
+# requires a locally built dovahlink_bridge_harness.exe and is not part of default SDK/App CI, per
+# ARCHITECTURE.md's "Bridge migration and cutover". `dart test` skips it here; run it explicitly
+# with `dart test --tags legacy_bridge --run-skipped` after building the harness.
+tags:
+  legacy_bridge:
+    skip: >-
+      Legacy Bridge-only coverage: requires a locally built dovahlink_bridge_harness.exe. Not part
+      of default SDK/App CI. Run explicitly with `dart test --tags legacy_bridge --run-skipped`.
