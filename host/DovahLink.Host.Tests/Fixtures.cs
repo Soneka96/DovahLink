@@ -1,6 +1,10 @@
+using DovahLink.Host.Client.Dispatch;
+using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
+using DovahLink.Host.Trust;
 
 namespace DovahLink.Host.Tests;
 
@@ -60,4 +64,20 @@ public static class Fixtures
             clock ?? new SystemClock(),
             options ?? BuildPublicWebSocketTransportOptions(),
             diagnostics ?? new FakePublicWebSocketTransportDiagnostics());
+
+    // ---- Client dispatch ----
+
+    /// <summary>
+    /// Builds a <see cref="ClientMessageDispatcher"/> with representative collaborator defaults; a
+    /// test that wants the default calls this with no arguments, and a test that needs one
+    /// collaborator different overrides only that parameter.
+    /// </summary>
+    public static ClientMessageDispatcher BuildClientMessageDispatcher(
+        IPublicEnvelopeCodec? codec = null,
+        ITrustAdminService? trustAdminService = null,
+        IPlayContextTracker? playContextTracker = null) =>
+        new(
+            codec ?? new PublicEnvelopeCodec(),
+            trustAdminService ?? new FakeTrustAdminService(),
+            playContextTracker ?? new FakePlayContextTracker());
 }
