@@ -210,10 +210,10 @@ public class LocalConnectionTokenAuthenticatorTests
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
 
-        Assert.True(authenticator.TryValidate(token));
-        authenticator.RollbackReservation();
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
+        authenticator.RollbackReservation(reservation);
 
-        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out _));
     }
 
     /// <summary>Verifies that a second TryValidate call presenting the identical correct token fails while a prior reservation is still outstanding.</summary>
@@ -222,9 +222,9 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out _));
 
-        Assert.False(authenticator.TryValidate(token));
+        Assert.False(authenticator.TryValidate(token, out _));
     }
 
     /// <summary>Verifies that a second TryValidate call rejected only because a reservation was already outstanding does not count toward the failure throttle.</summary>
@@ -233,15 +233,15 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
 
         for (int i = 0; i < 10; i++)
         {
-            Assert.False(authenticator.TryValidate(token));
+            Assert.False(authenticator.TryValidate(token, out _));
         }
 
-        authenticator.RollbackReservation();
-        Assert.True(authenticator.TryValidate(token));
+        authenticator.RollbackReservation(reservation);
+        Assert.True(authenticator.TryValidate(token, out _));
     }
 
     /// <summary>
@@ -254,11 +254,11 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
 
         Assert.False(authenticator.TryConsume(token));
 
-        authenticator.RollbackReservation();
+        authenticator.RollbackReservation(reservation);
         Assert.True(authenticator.TryConsume(token));
     }
 
@@ -268,14 +268,14 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
 
         for (int i = 0; i < 10; i++)
         {
             Assert.False(authenticator.TryConsume("wrong"));
         }
 
-        authenticator.RollbackReservation();
+        authenticator.RollbackReservation(reservation);
         Assert.True(authenticator.TryConsume(token));
     }
 
@@ -285,8 +285,8 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(token));
-        authenticator.CommitConsumption();
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
+        authenticator.CommitConsumption(reservation);
 
         Assert.False(authenticator.TryConsume(token));
     }
@@ -300,10 +300,10 @@ public class LocalConnectionTokenAuthenticatorTests
 
         for (int i = 0; i < 5; i++)
         {
-            Assert.False(authenticator.TryValidate("wrong"));
+            Assert.False(authenticator.TryValidate("wrong", out _));
         }
 
-        Assert.False(authenticator.TryValidate(token));
+        Assert.False(authenticator.TryValidate(token, out _));
     }
 
     /// <summary>Verifies that CommitConsumption after a successful TryValidate ends the token's validity.</summary>
@@ -312,11 +312,11 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
 
-        authenticator.CommitConsumption();
+        authenticator.CommitConsumption(reservation);
 
-        Assert.False(authenticator.TryValidate(token));
+        Assert.False(authenticator.TryValidate(token, out _));
     }
 
     /// <summary>
@@ -329,14 +329,14 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
 
         // Simulated: the caller's own admission failed downstream for an unrelated reason.
-        authenticator.RollbackReservation();
+        authenticator.RollbackReservation(reservation);
 
-        Assert.True(authenticator.TryValidate(token));
-        authenticator.CommitConsumption();
-        Assert.False(authenticator.TryValidate(token));
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation secondReservation));
+        authenticator.CommitConsumption(secondReservation);
+        Assert.False(authenticator.TryValidate(token, out _));
     }
 
     /// <summary>Verifies that RollbackReservation is safe to call even when no reservation is outstanding.</summary>
@@ -345,7 +345,7 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
 
-        authenticator.RollbackReservation();
+        authenticator.RollbackReservation(default);
     }
 
     /// <summary>Verifies that issuing a fresh token releases a still-outstanding reservation on the prior one, rather than leaving a stale reservation that could never be validated again.</summary>
@@ -354,11 +354,11 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string firstToken = authenticator.IssueToken();
-        Assert.True(authenticator.TryValidate(firstToken));
+        Assert.True(authenticator.TryValidate(firstToken, out _));
 
         string secondToken = authenticator.IssueToken();
 
-        Assert.True(authenticator.TryValidate(secondToken));
+        Assert.True(authenticator.TryValidate(secondToken, out _));
     }
 
     /// <summary>
@@ -373,7 +373,7 @@ public class LocalConnectionTokenAuthenticatorTests
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
 
-        bool[] results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(() => authenticator.TryValidate(token))));
+        bool[] results = await Task.WhenAll(Enumerable.Range(0, 10).Select(i => Task.Run(() => authenticator.TryValidate(token, out _))));
 
         Assert.Single(results, succeeded => succeeded);
     }
@@ -384,6 +384,110 @@ public class LocalConnectionTokenAuthenticatorTests
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
 
-        authenticator.CommitConsumption();
+        authenticator.CommitConsumption(default);
+    }
+
+    /// <summary>Verifies that rolling back an already-committed reservation is a safe no-op: the reservation's generation no longer matches (it was cleared by the commit), so it cannot re-open or otherwise disturb the now-consumed token.</summary>
+    [Fact]
+    public void RollbackReservation_AfterAlreadyCommitted_DoesNotThrow()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
+        authenticator.CommitConsumption(reservation);
+
+        authenticator.RollbackReservation(reservation);
+
+        Assert.False(authenticator.TryConsume(token)); // still consumed; the redundant rollback changed nothing
+    }
+
+    /// <summary>Verifies that committing an already-rolled-back reservation is a safe no-op and does not resurrect or otherwise consume the token.</summary>
+    [Fact]
+    public void CommitConsumption_AfterAlreadyRolledBack_DoesNotThrow()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token, out LocalConnectionTokenReservation reservation));
+        authenticator.RollbackReservation(reservation);
+
+        authenticator.CommitConsumption(reservation);
+
+        Assert.True(authenticator.TryConsume(token)); // still valid; the redundant commit changed nothing
+    }
+
+    /// <summary>
+    /// Verifies the exact ABA hazard this generation-scoped design closes: a reservation from a
+    /// superseded issuance can never commit a newer one. Issuing token B after reserving token A
+    /// immediately supersedes A's reservation; committing the stale reservationA is a no-op, and
+    /// tokenB remains fully valid for a legitimate caller to reserve and commit afterward.
+    /// </summary>
+    [Fact]
+    public void CommitConsumption_StaleReservationFromSupersededIssuance_DoesNotConsumeNewerToken()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string tokenA = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(tokenA, out LocalConnectionTokenReservation reservationA));
+
+        string tokenB = authenticator.IssueToken();
+        authenticator.CommitConsumption(reservationA);
+
+        Assert.True(authenticator.TryValidate(tokenB, out LocalConnectionTokenReservation reservationB));
+        authenticator.CommitConsumption(reservationB);
+        Assert.False(authenticator.TryValidate(tokenB, out _));
+    }
+
+    /// <summary>
+    /// Verifies the exact ABA hazard this generation-scoped design closes on the rollback side: a
+    /// reservation from a superseded issuance can never clear a newer, still-legitimately-held
+    /// reservation. Rolling back the stale reservationA does nothing to reservationB, which still
+    /// blocks a second TryValidate(tokenB) until reservationB itself is rolled back.
+    /// </summary>
+    [Fact]
+    public void RollbackReservation_StaleReservationFromSupersededIssuance_DoesNotClearNewerReservation()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string tokenA = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(tokenA, out LocalConnectionTokenReservation reservationA));
+
+        string tokenB = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(tokenB, out LocalConnectionTokenReservation reservationB));
+
+        authenticator.RollbackReservation(reservationA);
+
+        Assert.False(authenticator.TryValidate(tokenB, out _)); // reservationB still outstanding
+
+        authenticator.RollbackReservation(reservationB);
+        Assert.True(authenticator.TryValidate(tokenB, out _));
+    }
+
+    /// <summary>
+    /// Verifies the full concurrency scenario the generation-scoped design exists to guarantee:
+    /// reissuing a token while an old reservation is still outstanding cannot let more than one
+    /// concurrent caller successfully reserve or consume the new token. Many threads race to
+    /// reserve-then-immediately-commit tokenB while tokenA's reservation is deliberately left
+    /// unresolved throughout.
+    /// </summary>
+    [Fact]
+    public async Task ReissueWhileReservationOutstanding_ConcurrentAttemptsOnNewToken_OnlyOneSucceeds()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string tokenA = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(tokenA, out _)); // left outstanding, never resolved
+
+        string tokenB = authenticator.IssueToken();
+
+        bool[] results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(() =>
+        {
+            if (!authenticator.TryValidate(tokenB, out LocalConnectionTokenReservation reservation))
+            {
+                return false;
+            }
+
+            authenticator.CommitConsumption(reservation);
+            return true;
+        })));
+
+        Assert.Single(results, succeeded => succeeded);
+        Assert.False(authenticator.TryValidate(tokenB, out _)); // consumed, not merely reserved
     }
 }

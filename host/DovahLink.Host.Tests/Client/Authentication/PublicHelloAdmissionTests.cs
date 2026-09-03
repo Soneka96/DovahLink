@@ -95,7 +95,7 @@ public class PublicHelloAdmissionTests
             context.Codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
 
-        Assert.False(context.TokenAuthenticator.TryValidate(token));
+        Assert.False(context.TokenAuthenticator.TryValidate(token, out _));
     }
 
     /// <summary>Verifies that a revoked identity remains eligible for an unpaired (re-pair) hello.</summary>
@@ -192,7 +192,7 @@ public class PublicHelloAdmissionTests
         Assert.False(context.CredentialThrottle.IsAllowed());
 
         // The developer-token throttle is untouched by the credential mismatch above.
-        Assert.True(context.TokenAuthenticator.TryValidate(devToken));
+        Assert.True(context.TokenAuthenticator.TryValidate(devToken, out _));
     }
 
     /// <summary>Verifies that a never-paired clientId presenting a trusted_device_credential is rejected as unauthenticated.</summary>
@@ -433,7 +433,7 @@ public class PublicHelloAdmissionTests
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.RateLimited, error.Code);
         Assert.True(error.Retryable);
-        Assert.True(context.TokenAuthenticator.TryValidate(token));
+        Assert.True(context.TokenAuthenticator.TryValidate(token, out _));
     }
 
     /// <summary>Verifies the same full-slot rejection for a trusted_device_credential hello, where nothing destructible exists to protect but the rejection itself must still be correct.</summary>
@@ -499,7 +499,7 @@ public class PublicHelloAdmissionTests
             envelope.MessageType == PublicMessageType.HelloAck);
         Assert.Equal(1, admittedCount);
         Assert.Equal(1, sessionRegistry.ActiveCount);
-        Assert.False(tokenAuthenticator.TryValidate(token));
+        Assert.False(tokenAuthenticator.TryValidate(token, out _));
     }
 
     /// <summary>
@@ -666,7 +666,7 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.RateLimited, error.Code);
         Assert.True(error.Retryable);
         Assert.Equal(0, innerSessionRegistry.ActiveCount);
-        Assert.True(tokenAuthenticator.TryValidate(token));
+        Assert.True(tokenAuthenticator.TryValidate(token, out _));
         Assert.Equal(1, fakeConnection.RequestCloseCalls);
     }
 

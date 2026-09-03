@@ -549,7 +549,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     private void HandleOneTimeLocalTokenHello(
         IPublicConnectionContext connectionContext, PublicEnvelope envelope, ClientId requestedClientId, string token)
     {
-        if (!tokenAuthenticator.TryValidate(token))
+        if (!tokenAuthenticator.TryValidate(token, out LocalConnectionTokenReservation reservation))
         {
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Unauthenticated, "Authentication failed.");
             return;
@@ -557,14 +557,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         if (!sessionRegistry.TryCreate(requestedClientId, connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId newSessionId))
         {
-            tokenAuthenticator.RollbackReservation();
+            tokenAuthenticator.RollbackReservation(reservation);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
             return;
         }
 
         if (!TryClaimAdmission())
         {
-            tokenAuthenticator.RollbackReservation();
+            tokenAuthenticator.RollbackReservation(reservation);
             sessionRegistry.Invalidate(newSessionId, connectionId);
             return;
         }
@@ -578,13 +578,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             // concurrently racing deadline task can never mistake this for still-pending admission),
             // so this connection can never complete admission again; close it explicitly rather than
             // leaving it open with no path to ever being torn down.
-            tokenAuthenticator.RollbackReservation();
+            tokenAuthenticator.RollbackReservation(reservation);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
             connectionContext.RequestClose();
             return;
         }
 
-        tokenAuthenticator.CommitConsumption();
+        tokenAuthenticator.CommitConsumption(reservation);
         Admit(connectionContext, envelope, requestedClientId, newSessionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full);
     }
 
