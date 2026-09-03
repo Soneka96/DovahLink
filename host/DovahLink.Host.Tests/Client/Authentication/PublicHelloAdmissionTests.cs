@@ -842,15 +842,39 @@ public class PublicHelloAdmissionTests
         Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
     }
 
-    /// <summary>Verifies that a restricted session's full-session-only or server-originated messages are rejected as malformed_message.</summary>
+    /// <summary>
+    /// Verifies that a restricted session's full-session-only messages -- structurally valid,
+    /// post-admission client vocabulary the current tier simply does not authorize -- are rejected as
+    /// unauthorized, distinct from a protocol shape/direction violation.
+    /// </summary>
     [Theory]
     [InlineData(PublicMessageType.RenameRequest)]
     [InlineData(PublicMessageType.Subscribe)]
     [InlineData(PublicMessageType.SnapshotRequest)]
+    public void HandleMessageAsync_RestrictedSessionDisallowedClientMessageType_RejectsAsUnauthorized(PublicMessageType messageType)
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId);
+
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.Unauthorized, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies that a restricted session's server-originated message types are rejected as
+    /// malformed_message rather than unauthorized -- no trust tier could ever authorize a client to
+    /// send a message only the host originates, so this is a protocol shape/direction violation, not a
+    /// trust-tier authorization failure.
+    /// </summary>
+    [Theory]
     [InlineData(PublicMessageType.HelloAck)]
     [InlineData(PublicMessageType.Error)]
     [InlineData(PublicMessageType.Pong)]
-    public void HandleMessageAsync_RestrictedSessionDisallowedType_RejectsAsMalformed(PublicMessageType messageType)
+    [InlineData(PublicMessageType.StateSnapshot)]
+    public void HandleMessageAsync_RestrictedSessionServerOnlyType_RejectsAsMalformed(PublicMessageType messageType)
     {
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId);
@@ -878,14 +902,40 @@ public class PublicHelloAdmissionTests
         Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
     }
 
-    /// <summary>Verifies that a full (already-paired) session's restricted-only pairing messages are rejected as malformed_message, since it has no reason to re-pair.</summary>
+    /// <summary>
+    /// Verifies that a full (already-paired) session's restricted-only pairing messages -- structurally
+    /// valid, post-admission client vocabulary this tier does not authorize since it has no reason to
+    /// re-pair -- are rejected as unauthorized.
+    /// </summary>
     [Theory]
     [InlineData(PublicMessageType.PairingRequest)]
     [InlineData(PublicMessageType.PairingConfirm)]
     [InlineData(PublicMessageType.PairingAck)]
     [InlineData(PublicMessageType.PairingRenotify)]
     [InlineData(PublicMessageType.PairingCancel)]
-    public void HandleMessageAsync_FullSessionDisallowedType_RejectsAsMalformed(PublicMessageType messageType)
+    public void HandleMessageAsync_FullSessionDisallowedClientMessageType_RejectsAsUnauthorized(PublicMessageType messageType)
+    {
+        var context = new TestContext();
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.Unauthorized, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies that a full session's server-originated message types are rejected as
+    /// malformed_message rather than unauthorized, for symmetry with the restricted-session case: no
+    /// trust tier could ever authorize a client to send a host-originated type.
+    /// </summary>
+    [Theory]
+    [InlineData(PublicMessageType.HelloAck)]
+    [InlineData(PublicMessageType.Error)]
+    [InlineData(PublicMessageType.Pong)]
+    [InlineData(PublicMessageType.StateSnapshot)]
+    public void HandleMessageAsync_FullSessionServerOnlyType_RejectsAsMalformed(PublicMessageType messageType)
     {
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);

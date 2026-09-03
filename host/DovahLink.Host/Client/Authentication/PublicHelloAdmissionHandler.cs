@@ -226,7 +226,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         if (!IsAllowedForTier(envelope.MessageType, currentTier))
         {
-            RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message type is not allowed on this session.");
+            PublicProtocolErrorCode code = IsPostAdmissionClientMessageType(envelope.MessageType)
+                ? PublicProtocolErrorCode.Unauthorized
+                : PublicProtocolErrorCode.MalformedMessage;
+            string message = code == PublicProtocolErrorCode.Unauthorized
+                ? "This session is not authorized to send this message."
+                : "This message type is not allowed on this session.";
+            RecordViolationAndReject(connectionContext, envelope.MessageId, code, message);
             return Task.CompletedTask;
         }
 
@@ -294,6 +300,19 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             or PublicMessageType.SnapshotRequest,
         _ => false,
     };
+
+    /// <summary>
+    /// Reports whether <paramref name="messageType"/> belongs to the post-admission client vocabulary
+    /// -- allowed for at least one trust tier, per <see cref="IsAllowedForTier"/> -- as opposed to
+    /// <c>hello</c> (valid only before a session exists) or a server-originated type (never valid from
+    /// a client, in either tier). A message in this vocabulary rejected by <see cref="IsAllowedForTier"/>
+    /// is a genuine trust-tier authorization failure (<c>unauthorized</c>); one outside it is a
+    /// protocol shape/direction violation (<c>malformed_message</c>) that no tier could ever authorize.
+    /// Derived directly from <see cref="IsAllowedForTier"/> rather than duplicating its message list,
+    /// so the two classifications can never drift apart.
+    /// </summary>
+    private static bool IsPostAdmissionClientMessageType(PublicMessageType messageType) =>
+        IsAllowedForTier(messageType, SessionTrustTier.Restricted) || IsAllowedForTier(messageType, SessionTrustTier.Full);
 
     /// <summary>
     /// Answers a <c>capabilities</c> advertisement: an empty list gets no response, per the schema's
