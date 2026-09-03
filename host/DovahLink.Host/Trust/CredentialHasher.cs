@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -27,4 +28,18 @@ public static class CredentialHasher
         CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(expected),
             Encoding.UTF8.GetBytes(presented));
+
+    /// <summary>
+    /// Reports whether <paramref name="value"/> is a well-formed presented credential: exactly
+    /// <paramref name="expectedHexLength"/> hex characters (either case), matching the shape
+    /// <c>protocol/schema/README.md</c>'s <c>hello</c> section requires for
+    /// <c>trusted_device_credential</c>'s <c>auth.token</c>. A caller rejects a value that fails this
+    /// check as malformed protocol input before it ever reaches <see cref="Hash"/> or
+    /// <see cref="FixedTimeEquals"/>, per <c>ai/context/protocol/security.md</c>'s requirement that
+    /// malformed authentication input be rejected before authentication services.
+    /// </summary>
+    /// <param name="value">The presented credential to validate.</param>
+    /// <param name="expectedHexLength">The exact number of hex characters a well-formed credential carries.</param>
+    public static bool IsValidHexCredential(string? value, int expectedHexLength) =>
+        value is not null && value.Length == expectedHexLength && value.All(Uri.IsHexDigit);
 }

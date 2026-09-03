@@ -25,6 +25,24 @@ public interface ITrustedCredentialFailureThrottle
 
     /// <summary>Records one failed trusted-credential verification attempt.</summary>
     void RecordFailure();
+
+    /// <summary>
+    /// Atomically checks the failure window and, only while still allowed, runs
+    /// <paramref name="verifyCredential"/> and records a failure on a mismatch. Closes the gap a
+    /// separate <see cref="IsAllowed"/> check followed later by <see cref="RecordFailure"/> leaves
+    /// open: under that split API, several concurrent callers can each observe the window as open
+    /// before any of their outcomes are recorded, letting more attempts through than the configured
+    /// bound allows. <paramref name="verifyCredential"/> must be a fast, non-blocking,
+    /// side-effect-free comparison: it runs while this throttle's internal lock is held.
+    /// </summary>
+    /// <param name="verifyCredential">Performs the actual credential comparison; invoked at most once, and only when the window still allows an attempt.</param>
+    /// <returns>
+    /// <see langword="true"/> only when the window allowed the attempt and
+    /// <paramref name="verifyCredential"/> returned <see langword="true"/>; otherwise
+    /// <see langword="false"/>, having recorded a failure when the window allowed the attempt but the
+    /// credential did not match.
+    /// </returns>
+    bool TryAttempt(Func<bool> verifyCredential);
 }
 
 /// <inheritdoc cref="ITrustedCredentialFailureThrottle"/>
@@ -63,6 +81,27 @@ public sealed class TrustedCredentialFailureThrottle : ITrustedCredentialFailure
         {
             PruneExpiredFailures();
             recentFailures.Enqueue(clock.UtcNow);
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryAttempt(Func<bool> verifyCredential)
+    {
+        lock (gate)
+        {
+            PruneExpiredFailures();
+            if (recentFailures.Count >= Constants.TrustedCredentialMaxFailuresPerWindow)
+            {
+                return false;
+            }
+
+            if (verifyCredential())
+            {
+                return true;
+            }
+
+            recentFailures.Enqueue(clock.UtcNow);
+            return false;
         }
     }
 

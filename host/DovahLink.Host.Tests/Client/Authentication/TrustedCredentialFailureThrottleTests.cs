@@ -154,4 +154,80 @@ public class TrustedCredentialFailureThrottleTests
 
         Assert.False(throttle.IsAllowed());
     }
+
+    /// <summary>Verifies that a successful verify returns true and records no failure.</summary>
+    [Fact]
+    public void TryAttempt_VerifySucceeds_ReturnsTrueAndRecordsNoFailure()
+    {
+        var throttle = new TrustedCredentialFailureThrottle(new FakeClock());
+
+        Assert.True(throttle.TryAttempt(() => true));
+
+        Assert.True(throttle.IsAllowed());
+        for (int i = 0; i < 4; i++)
+        {
+            throttle.RecordFailure();
+        }
+        Assert.True(throttle.IsAllowed());
+    }
+
+    /// <summary>Verifies that a failing verify returns false and records exactly one failure.</summary>
+    [Fact]
+    public void TryAttempt_VerifyFails_ReturnsFalseAndRecordsOneFailure()
+    {
+        var throttle = new TrustedCredentialFailureThrottle(new FakeClock());
+
+        Assert.False(throttle.TryAttempt(() => false));
+
+        for (int i = 0; i < 3; i++)
+        {
+            throttle.RecordFailure();
+        }
+        Assert.True(throttle.IsAllowed());
+        throttle.RecordFailure();
+        Assert.False(throttle.IsAllowed());
+    }
+
+    /// <summary>Verifies that once the window is already exhausted, TryAttempt returns false without ever invoking the verify callback.</summary>
+    [Fact]
+    public void TryAttempt_WindowAlreadyExhausted_ReturnsFalseWithoutInvokingVerify()
+    {
+        var throttle = new TrustedCredentialFailureThrottle(new FakeClock());
+        for (int i = 0; i < 5; i++)
+        {
+            throttle.RecordFailure();
+        }
+
+        bool verifyInvoked = false;
+        Assert.False(throttle.TryAttempt(() => { verifyInvoked = true; return true; }));
+
+        Assert.False(verifyInvoked);
+    }
+
+    /// <summary>
+    /// Verifies the exact race the split IsAllowed()/RecordFailure() API allowed: with many concurrent
+    /// TryAttempt calls all presenting a failing verify, the actual verify callback is invoked at most
+    /// five times in total -- this suite's configured failure bound (see the other tests above). Under
+    /// the old split API, every concurrent caller could observe an open gate and proceed to attempt
+    /// verification before any outcome was recorded, letting far more than the bound's worth of
+    /// verification attempts through; a concurrency proof against RecordFailure alone (already covered
+    /// above) does not exercise that gate-then-verify gap at all.
+    /// </summary>
+    [Fact]
+    public async Task TryAttempt_ManyConcurrentFailingAttempts_InvokesVerifyAtMostTheConfiguredBoundTimes()
+    {
+        var throttle = new TrustedCredentialFailureThrottle(new FakeClock());
+        int verifyInvocations = 0;
+
+        bool[] results = await Task.WhenAll(Enumerable.Range(0, 50).Select(_ => Task.Run(() =>
+            throttle.TryAttempt(() =>
+            {
+                Interlocked.Increment(ref verifyInvocations);
+                return false;
+            }))));
+
+        Assert.All(results, Assert.False);
+        Assert.Equal(5, verifyInvocations);
+        Assert.False(throttle.IsAllowed());
+    }
 }

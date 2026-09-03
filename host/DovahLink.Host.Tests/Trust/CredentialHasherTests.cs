@@ -79,4 +79,60 @@ public class CredentialHasherTests
         Assert.True(CredentialHasher.FixedTimeEquals(storedVerifier, CredentialHasher.Hash("the-real-credential")));
         Assert.False(CredentialHasher.FixedTimeEquals(storedVerifier, CredentialHasher.Hash("a-wrong-credential")));
     }
+
+    /// <summary>Verifies that a value of exactly the expected length made entirely of hex digits is valid.</summary>
+    [Fact]
+    public void IsValidHexCredential_ExactLengthAllHexDigits_ReturnsTrue()
+    {
+        Assert.True(CredentialHasher.IsValidHexCredential("0123456789abcdef01234567", 24));
+    }
+
+    /// <summary>Verifies that uppercase hex digits are accepted.</summary>
+    [Fact]
+    public void IsValidHexCredential_UppercaseHexDigits_ReturnsTrue()
+    {
+        Assert.True(CredentialHasher.IsValidHexCredential("0123456789ABCDEF01234567", 24));
+    }
+
+    /// <summary>Verifies that a mix of lowercase and uppercase hex digits within the same value is accepted.</summary>
+    [Fact]
+    public void IsValidHexCredential_MixedCaseHexDigits_ReturnsTrue()
+    {
+        Assert.True(CredentialHasher.IsValidHexCredential("0123456789AbCdEf01234567", 24));
+    }
+
+    /// <summary>Verifies that a value shorter than the expected length is rejected.</summary>
+    [Fact]
+    public void IsValidHexCredential_TooShort_ReturnsFalse()
+    {
+        Assert.False(CredentialHasher.IsValidHexCredential("abcd", 24));
+    }
+
+    /// <summary>Verifies that a value longer than the expected length is rejected.</summary>
+    [Fact]
+    public void IsValidHexCredential_TooLong_ReturnsFalse()
+    {
+        Assert.False(CredentialHasher.IsValidHexCredential("0123456789abcdef0123456789", 24));
+    }
+
+    /// <summary>Verifies that a value of the exact expected length containing a non-hex character is rejected.</summary>
+    [Fact]
+    public void IsValidHexCredential_ContainsNonHexCharacter_ReturnsFalse()
+    {
+        Assert.False(CredentialHasher.IsValidHexCredential("0123456789abcdef0123456g", 24));
+    }
+
+    /// <summary>Verifies that a null value is rejected rather than throwing.</summary>
+    [Fact]
+    public void IsValidHexCredential_Null_ReturnsFalse()
+    {
+        Assert.False(CredentialHasher.IsValidHexCredential(null, 24));
+    }
+
+    /// <summary>Verifies that an empty value is rejected unless the expected length is itself zero.</summary>
+    [Fact]
+    public void IsValidHexCredential_Empty_ReturnsFalse()
+    {
+        Assert.False(CredentialHasher.IsValidHexCredential(string.Empty, 24));
+    }
 }
