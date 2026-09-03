@@ -525,11 +525,11 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        coordinator.BeginPairing(clientId);
-        coordinator.CommitRenotify(clientId);
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        coordinator.CommitRenotify(clientId, start.Challenge!.Id);
         clock.Advance(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.CommitRenotify(clientId).Outcome);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.CommitRenotify(clientId, start.Challenge.Id).Outcome);
     }
 
     /// <summary>Verifies that cancellation only clears the requesting client's pairing operation.</summary>
@@ -640,10 +640,10 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
-        coordinator.BeginPairing(owner);
+        PairingStartResult start = coordinator.BeginPairing(owner);
 
-        PairingRenotifyResult first = coordinator.CommitRenotify(owner);
-        PairingRenotifyResult cooldown = coordinator.CommitRenotify(owner);
+        PairingRenotifyResult first = coordinator.CommitRenotify(owner, start.Challenge!.Id);
+        PairingRenotifyResult cooldown = coordinator.CommitRenotify(owner, start.Challenge.Id);
         PairingRenotifyResult peekDuringCooldown = coordinator.TryRenotify(owner);
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, first.Outcome);
@@ -666,7 +666,7 @@ public class PairingCoordinatorTests
         PairingRenotifyResult peek = coordinator.TryRenotify(owner);
         coordinator.Cancel(owner);
 
-        PairingRenotifyResult commit = coordinator.CommitRenotify(owner);
+        PairingRenotifyResult commit = coordinator.CommitRenotify(owner, peek.ChallengeId!.Value);
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, peek.Outcome);
         Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, commit.Outcome);
@@ -680,6 +680,7 @@ public class PairingCoordinatorTests
         ClientId owner = ClientId.NewId();
         ClientId other = ClientId.NewId();
         PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
 
         Assert.Equal(start.Challenge, coordinator.TryGetOwnedChallenge(owner));
         Assert.Null(coordinator.TryGetOwnedChallenge(other));
@@ -721,6 +722,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId owner = ClientId.NewId();
         PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
         coordinator.NotifyDisconnected(owner);
         clock.Advance(TimeSpan.FromSeconds(9));
 
@@ -733,9 +735,9 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
-        coordinator.BeginPairing(owner);
+        PairingStartResult start = coordinator.BeginPairing(owner);
 
-        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, coordinator.CommitRenotify(ClientId.NewId()).Outcome);
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, coordinator.CommitRenotify(ClientId.NewId(), start.Challenge!.Id).Outcome);
     }
 
     /// <summary>Verifies that a peek honors the exact cooldown boundary the same way <see cref="CommitRenotify_AtExactCooldownBoundary_IsAllowed"/> proves for a commit.</summary>
@@ -745,10 +747,119 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        coordinator.BeginPairing(clientId);
-        coordinator.CommitRenotify(clientId);
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        coordinator.CommitRenotify(clientId, start.Challenge!.Id);
         clock.Advance(TimeSpan.FromSeconds(5));
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a stale acknowledgement for a challenge already replaced can never commit the
+    /// replacement challenge's initial display -- <see cref="PairingCoordinator.CommitInitialDisplay"/>
+    /// must compare the exact challenge identity, not just <c>clientId</c> ownership.
+    /// </summary>
+    [Fact]
+    public void CommitInitialDisplay_StaleChallengeId_DoesNotCommitReplacement()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult first = coordinator.BeginPairing(clientId);
+        coordinator.Cancel(clientId);
+        PairingStartResult replacement = coordinator.BeginPairing(clientId);
+
+        bool committed = coordinator.CommitInitialDisplay(clientId, first.Challenge!.Id);
+
+        Assert.False(committed);
+        Assert.Null(coordinator.TryGetOwnedChallenge(clientId));
+        Assert.True(coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id));
+        Assert.Equal(replacement.Challenge, coordinator.TryGetOwnedChallenge(clientId));
+    }
+
+    /// <summary>
+    /// Verifies that a challenge's initial display cannot be committed by a client that does not own
+    /// it, even when it presents that challenge's exact, correctly-guessed <see cref="ChallengeId"/> --
+    /// symmetric with <see cref="CommitInitialDisplay_StaleChallengeId_DoesNotCommitReplacement"/>,
+    /// which proves the opposite mismatch (right client, wrong challenge).
+    /// </summary>
+    [Fact]
+    public void CommitInitialDisplay_WrongClientId_DoesNotCommitAnotherClientsChallenge()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        ClientId other = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(owner);
+
+        bool committed = coordinator.CommitInitialDisplay(other, start.Challenge!.Id);
+
+        Assert.False(committed);
+        Assert.Null(coordinator.TryGetOwnedChallenge(owner));
+        Assert.True(coordinator.CommitInitialDisplay(owner, start.Challenge.Id));
+    }
+
+    /// <summary>
+    /// Verifies that a stale acknowledgement for a challenge that expired naturally -- not explicitly
+    /// cancelled -- can never commit a fresh replacement challenge for the same client, the same way
+    /// <see cref="CommitInitialDisplay_StaleChallengeId_DoesNotCommitReplacement"/> proves for an
+    /// explicit cancellation.
+    /// </summary>
+    [Fact]
+    public void CommitInitialDisplay_StaleChallengeIdAfterExpiry_DoesNotCommitReplacement()
+    {
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult first = coordinator.BeginPairing(clientId);
+        clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
+        PairingStartResult replacement = coordinator.BeginPairing(clientId);
+
+        bool committed = coordinator.CommitInitialDisplay(clientId, first.Challenge!.Id);
+
+        Assert.False(committed);
+        Assert.Null(coordinator.TryGetOwnedChallenge(clientId));
+        Assert.True(coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id));
+        Assert.Equal(replacement.Challenge, coordinator.TryGetOwnedChallenge(clientId));
+    }
+
+    /// <summary>
+    /// Verifies that a stale rejection for a challenge already replaced can never roll back the
+    /// replacement challenge -- <see cref="PairingCoordinator.RollbackInitialDisplay"/> must compare
+    /// the exact challenge identity.
+    /// </summary>
+    [Fact]
+    public void RollbackInitialDisplay_StaleChallengeId_LeavesReplacementUntouched()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult first = coordinator.BeginPairing(clientId);
+        coordinator.Cancel(clientId);
+        PairingStartResult replacement = coordinator.BeginPairing(clientId);
+
+        coordinator.RollbackInitialDisplay(clientId, first.Challenge!.Id);
+
+        Assert.Equal(PairingStartOutcome.Resumed, coordinator.BeginPairing(clientId).Outcome);
+        Assert.True(coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id));
+    }
+
+    /// <summary>
+    /// Verifies that a commit evaluated for a challenge already replaced can never consume the
+    /// replacement challenge's cooldown -- <see cref="PairingCoordinator.CommitRenotify"/>'s identity
+    /// check must run before any cooldown-eligibility evaluation.
+    /// </summary>
+    [Fact]
+    public void CommitRenotify_IdentityMismatchAfterReplacement_DoesNotConsumeReplacementCooldown()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        coordinator.BeginPairing(clientId);
+        PairingRenotifyResult peek = coordinator.TryRenotify(clientId);
+        coordinator.Cancel(clientId);
+        PairingStartResult replacement = coordinator.BeginPairing(clientId);
+
+        PairingRenotifyResult stale = coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value);
+
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, stale.Outcome);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.CommitRenotify(clientId, replacement.Challenge!.Id).Outcome);
     }
 }

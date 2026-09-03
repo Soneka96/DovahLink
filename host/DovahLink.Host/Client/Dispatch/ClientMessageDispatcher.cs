@@ -176,10 +176,12 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
 
     /// <summary>
     /// Answers a <c>pairing_request</c> with <c>pairing_status</c>. Makes challenge creation and first
-    /// display one coherent decision: a newly started challenge is displayed through the adapter
-    /// before it is ever reported <c>available</c>, and a rejected or timed-out display rolls the
-    /// challenge back via <see cref="IPairingCoordinator.Cancel"/> before reporting <c>unavailable</c>,
-    /// so no client is ever told a code is available that was never actually shown.
+    /// display one coherent decision: a newly started challenge is a reservation only, not yet
+    /// publicly resumable or displayed, until <see cref="IPairingCoordinator.CommitInitialDisplay"/>
+    /// accepts it by its exact <see cref="PairingChallenge.Id"/>. A rejected or timed-out display rolls
+    /// the reservation back via <see cref="IPairingCoordinator.RollbackInitialDisplay"/>, identity-checked
+    /// the same way, so a stale acceptance or rejection that arrives after the reservation was already
+    /// replaced, cancelled, or expired can never advertise or cancel a later, unrelated challenge.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingRequestAsync(
         ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
@@ -198,11 +200,16 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 bool accepted = await adapterNotifier.TryNotifyCodeAvailableAsync(challenge.Code, cancellationToken);
                 if (!accepted)
                 {
-                    // The coordinator serializes BeginPairing and Cancel independently of this await, so
-                    // this call never holds a coordinator lock while waiting on the adapter, per the
-                    // atomic-display contract. Cancel matches by owned-challenge identity, so it can only
-                    // roll back exactly the challenge this call just started.
-                    pairingCoordinator.Cancel(clientId);
+                    pairingCoordinator.RollbackInitialDisplay(clientId, challenge.Id);
+                    SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+                    return new ClientDispatchResult();
+                }
+
+                if (!pairingCoordinator.CommitInitialDisplay(clientId, challenge.Id))
+                {
+                    // The reservation was replaced, cancelled, or expired while the adapter
+                    // acknowledgement was in flight. The code the adapter just accepted no longer
+                    // belongs to any current challenge, so nothing is left to report available.
                     SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
                     return new ClientDispatchResult();
                 }
@@ -432,11 +439,14 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <summary>
     /// Answers a <c>pairing_renotify</c> with <c>pairing_outcome</c>. Applies the same atomic-display
     /// rule as <c>pairing_request</c>'s initial display: <see cref="IPairingCoordinator.TryRenotify"/>
-    /// only peeks eligibility, the adapter is awaited outside any coordinator lock, and
+    /// only peeks eligibility -- returning the exact challenge identity and code together, atomically
+    /// -- the adapter is awaited outside any coordinator lock, and
     /// <see cref="IPairingCoordinator.CommitRenotify"/> -- which alone applies the manual-redisplay
-    /// cooldown -- is called only once the adapter accepts. A rejected redisplay leaves the challenge
-    /// and cooldown state exactly as they were and reports a retryable error rather than a fabricated
-    /// <c>renotified</c> or a silently discarded challenge.
+    /// cooldown, identity-checked against that same challenge -- is called only once the adapter
+    /// accepts. A rejected redisplay leaves the challenge and cooldown state exactly as they were and
+    /// reports a retryable error rather than a fabricated <c>renotified</c> or a silently discarded
+    /// challenge. A stale acceptance for a challenge already replaced, cancelled, or expired can never
+    /// consume a later, unrelated challenge's cooldown.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingRenotifyAsync(
         ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
@@ -454,23 +464,14 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return new ClientDispatchResult();
         }
 
-        string? code = pairingCoordinator.TryGetOwnedChallenge(clientId)?.Code;
-        if (code is null)
-        {
-            // The owned challenge vanished between the peek above and here (for example an
-            // administrative cancellation) -- report that fresh reality rather than a stale success.
-            SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.AlreadyIdle });
-            return new ClientDispatchResult();
-        }
-
-        bool accepted = await adapterNotifier.TryNotifyRedisplayAsync(code, cancellationToken);
+        bool accepted = await adapterNotifier.TryNotifyRedisplayAsync(peek.Code!, cancellationToken);
         if (!accepted)
         {
             SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
             return new ClientDispatchResult();
         }
 
-        PairingRenotifyResult commit = pairingCoordinator.CommitRenotify(clientId);
+        PairingRenotifyResult commit = pairingCoordinator.CommitRenotify(clientId, peek.ChallengeId!.Value);
         SendPairingOutcome(connection, sessionId, envelope.MessageId, MapRenotifyOutcome(commit));
         return new ClientDispatchResult();
     }

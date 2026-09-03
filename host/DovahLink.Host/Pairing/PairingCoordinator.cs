@@ -49,6 +49,32 @@ public interface IPairingCoordinator
     /// </returns>
     PairingRenotifyResult TryRenotify(ClientId clientId);
 
+    /// <summary>
+    /// Commits a challenge reservation's initial display once the caller's adapter notification has
+    /// been accepted, marking it publicly resumable/displayed for the first time. Re-validates that
+    /// <paramref name="challengeId"/> is still the current active challenge owned by
+    /// <paramref name="clientId"/> rather than trusting the caller's earlier <see cref="BeginPairing"/>
+    /// result: a stale acknowledgement for a challenge already replaced, cancelled, or expired must
+    /// never mark a later, unrelated challenge as displayed.
+    /// </summary>
+    /// <param name="clientId">The client that reserved the challenge.</param>
+    /// <param name="challengeId">The exact challenge identity <see cref="BeginPairing"/> returned.</param>
+    /// <returns>
+    /// <see langword="true"/> once <paramref name="challengeId"/> is committed as displayed;
+    /// <see langword="false"/> without any state change if it no longer matches the current challenge.
+    /// </returns>
+    bool CommitInitialDisplay(ClientId clientId, ChallengeId challengeId);
+
+    /// <summary>
+    /// Rolls back a challenge reservation whose initial display the adapter rejected or timed out on,
+    /// clearing it so no client is ever told a code is available that was never actually shown.
+    /// Identity-checked the same way as <see cref="CommitInitialDisplay"/>: a stale rejection for a
+    /// challenge already replaced, cancelled, or expired must never clear a later, unrelated challenge.
+    /// </summary>
+    /// <param name="clientId">The client that reserved the challenge.</param>
+    /// <param name="challengeId">The exact challenge identity <see cref="BeginPairing"/> returned.</param>
+    void RollbackInitialDisplay(ClientId clientId, ChallengeId challengeId);
+
     /// <summary>Cancels the pairing operation owned by one client.</summary>
     /// <param name="clientId">The client giving up its pairing operation.</param>
     PairingCancelOutcome Cancel(ClientId clientId);
@@ -66,29 +92,39 @@ public interface IPairingCoordinator
 
     /// <summary>
     /// Commits a redisplay <see cref="TryRenotify"/> found eligible, applying the manual-redisplay
-    /// cooldown only now that the caller's adapter notification succeeded. Re-evaluates ownership,
-    /// cooldown, and challenge activity from current state rather than trusting the earlier
-    /// <see cref="TryRenotify"/> result: if the challenge was cancelled, expired, or its cooldown was
-    /// otherwise already consumed between the two calls, this reports that fresh outcome instead of
-    /// committing a cooldown against state that no longer matches it.
+    /// cooldown only now that the caller's adapter notification succeeded. Re-validates both ownership
+    /// and the exact challenge identity from current state rather than trusting the earlier
+    /// <see cref="TryRenotify"/> result: if the challenge was cancelled, replaced, expired, or its
+    /// cooldown was otherwise already consumed between the two calls, this reports that fresh outcome
+    /// instead of committing a cooldown against state that no longer matches it.
     /// </summary>
     /// <param name="clientId">The client committing its previously evaluated redisplay.</param>
+    /// <param name="challengeId">
+    /// The exact challenge identity <see cref="TryRenotify"/> returned alongside
+    /// <see cref="PairingRenotifyOutcome.Renotified"/>.
+    /// </param>
     /// <returns>
-    /// <see cref="PairingRenotifyOutcome.Renotified"/> once the cooldown is committed; otherwise the
+    /// <see cref="PairingRenotifyOutcome.Renotified"/> once the cooldown is committed against this
+    /// exact challenge; <see cref="PairingRenotifyOutcome.AlreadyIdle"/> without any state change if
+    /// <paramref name="challengeId"/> no longer matches the current active challenge -- including when
+    /// a replacement challenge for the same <paramref name="clientId"/> is now active; otherwise the
     /// same outcome shape <see cref="TryRenotify"/> would report for the current state, uncommitted.
     /// </returns>
-    PairingRenotifyResult CommitRenotify(ClientId clientId);
+    PairingRenotifyResult CommitRenotify(ClientId clientId, ChallengeId challengeId);
 
     /// <summary>
-    /// Returns <paramref name="clientId"/>'s still-active challenge, without generating, displaying,
-    /// or otherwise mutating anything. Used to obtain the code for an adapter notification -- initial
-    /// display, manual or automatic redisplay -- without exposing it through any public outcome.
+    /// Returns <paramref name="clientId"/>'s still-active, already display-committed challenge,
+    /// without generating, displaying, or otherwise mutating anything. Used to obtain the code for an
+    /// adapter notification -- manual or automatic redisplay -- without exposing it through any public
+    /// outcome.
     /// </summary>
     /// <param name="clientId">The client whose ownership to check.</param>
     /// <returns>
-    /// The active challenge if <paramref name="clientId"/> owns it and it has not expired; otherwise
+    /// The active challenge if <paramref name="clientId"/> owns it, it has not expired, and
+    /// <see cref="CommitInitialDisplay"/> has already marked it displayed; otherwise
     /// <see langword="null"/> -- <paramref name="clientId"/> may still separately own a pending
-    /// credential, which has no code left to redisplay.
+    /// credential, which has no code left to redisplay, or an as-yet-uncommitted reservation, which
+    /// must not be treated as publicly resumable/displayed until its initial display commits.
     /// </returns>
     PairingChallenge? TryGetOwnedChallenge(ClientId clientId);
 }
@@ -119,6 +155,14 @@ public sealed class PairingCoordinator : IPairingCoordinator
 
     /// <summary>The active client-bound challenge, or <see langword="null"/>.</summary>
     private PairingChallenge? activeChallenge;
+
+    /// <summary>
+    /// The identity of <see cref="activeChallenge"/> once <see cref="CommitInitialDisplay"/> has
+    /// accepted it, or <see langword="null"/> while it is still an unacknowledged reservation. Gates
+    /// <see cref="TryGetOwnedChallenge"/>: a reservation must not be publicly resumable or displayed
+    /// before its initial display commits.
+    /// </summary>
+    private ChallengeId? committedDisplayChallengeId;
 
     /// <summary>The disconnect time for the active challenge owner, when grace is running.</summary>
     private DateTimeOffset? disconnectedAtUtc;
@@ -194,14 +238,60 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 {
                     return new PairingStartResult(PairingStartOutcome.GeneratorFailed, null);
                 }
-                var challenge = new PairingChallenge(clientId, code, now + Constants.PairingChallengeLifetime);
+                var challenge = new PairingChallenge(ChallengeId.NewId(), clientId, code, now + Constants.PairingChallengeLifetime);
                 activeChallenge = challenge;
+                committedDisplayChallengeId = null;
                 wrongAttempts = 0;
                 lastConfirmAttemptUtc = null;
                 renotifyCooldownUntilUtc = null;
                 autoRenotifyCooldownUntilUtc = null;
                 disconnectedAtUtc = null;
                 return new PairingStartResult(PairingStartOutcome.Started, challenge);
+            }
+        }
+        finally
+        {
+            operationSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool CommitInitialDisplay(ClientId clientId, ChallengeId challengeId)
+    {
+        operationSemaphore.Wait();
+        try
+        {
+            lock (gate)
+            {
+                DateTimeOffset now = clock.UtcNow;
+                ExpireChallengeIfNeeded(now);
+                if (activeChallenge is not { } challenge || challenge.OwnerClientId != clientId || challenge.Id != challengeId)
+                {
+                    return false;
+                }
+
+                committedDisplayChallengeId = challengeId;
+                return true;
+            }
+        }
+        finally
+        {
+            operationSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RollbackInitialDisplay(ClientId clientId, ChallengeId challengeId)
+    {
+        operationSemaphore.Wait();
+        try
+        {
+            lock (gate)
+            {
+                if (activeChallenge is { } challenge && challenge.OwnerClientId == clientId && challenge.Id == challengeId)
+                {
+                    ClearChallenge();
+                }
             }
         }
         finally
@@ -409,7 +499,10 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 DateTimeOffset now = clock.UtcNow;
                 ExpireChallengeIfNeeded(now);
-                return EvaluateRenotify(clientId, now);
+                PairingRenotifyResult evaluation = EvaluateRenotify(clientId, now);
+                return evaluation.Outcome == PairingRenotifyOutcome.Renotified
+                    ? evaluation with { ChallengeId = activeChallenge!.Id, Code = activeChallenge.Code }
+                    : evaluation;
             }
         }
         finally
@@ -498,6 +591,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
             lock (gate)
             {
                 activeChallenge = null;
+                committedDisplayChallengeId = null;
                 pendingCredential = null;
                 disconnectedAtUtc = null;
                 wrongAttempts = 0;
@@ -513,7 +607,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
     }
 
     /// <inheritdoc/>
-    public PairingRenotifyResult CommitRenotify(ClientId clientId)
+    public PairingRenotifyResult CommitRenotify(ClientId clientId, ChallengeId challengeId)
     {
         operationSemaphore.Wait();
         try
@@ -522,6 +616,16 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 DateTimeOffset now = clock.UtcNow;
                 ExpireChallengeIfNeeded(now);
+                if (activeChallenge is not { } current || current.OwnerClientId != clientId || current.Id != challengeId)
+                {
+                    // The challenge this commit was evaluated for is no longer current -- cancelled,
+                    // expired, or replaced by a fresh challenge for the same owner. Report AlreadyIdle
+                    // for the caller's stale request without evaluating or mutating whatever challenge
+                    // (if any) is actually active now; a replacement challenge's own cooldown must
+                    // never be consumed by a commit that was never actually displayed for it.
+                    return new PairingRenotifyResult(PairingRenotifyOutcome.AlreadyIdle);
+                }
+
                 PairingRenotifyResult evaluation = EvaluateRenotify(clientId, now);
                 if (evaluation.Outcome == PairingRenotifyOutcome.Renotified)
                 {
@@ -547,7 +651,11 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 DateTimeOffset now = clock.UtcNow;
                 ExpireChallengeIfNeeded(now);
-                return activeChallenge is { } challenge && challenge.OwnerClientId == clientId ? challenge : null;
+                return activeChallenge is { } challenge &&
+                    challenge.OwnerClientId == clientId &&
+                    committedDisplayChallengeId == challenge.Id
+                    ? challenge
+                    : null;
             }
         }
         finally
@@ -576,10 +684,11 @@ public sealed class PairingCoordinator : IPairingCoordinator
         return new PairingRenotifyResult(PairingRenotifyOutcome.Renotified);
     }
 
-    /// <summary>Clears only the active challenge and its attempt/cooldown state.</summary>
+    /// <summary>Clears only the active challenge and its attempt/cooldown/display-commit state.</summary>
     private void ClearChallenge()
     {
         activeChallenge = null;
+        committedDisplayChallengeId = null;
         disconnectedAtUtc = null;
         wrongAttempts = 0;
         lastConfirmAttemptUtc = null;

@@ -40,6 +40,14 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
         new(PairingRenotifyOutcome.AlreadyIdle);
 
     /// <inheritdoc/>
+    public bool CommitInitialDisplay(DovahLink.Host.Identity.ClientId clientId, DovahLink.Host.Identity.ChallengeId challengeId) => false;
+
+    /// <inheritdoc/>
+    public void RollbackInitialDisplay(DovahLink.Host.Identity.ClientId clientId, DovahLink.Host.Identity.ChallengeId challengeId)
+    {
+    }
+
+    /// <inheritdoc/>
     public PairingCancelOutcome Cancel(DovahLink.Host.Identity.ClientId clientId) =>
         CancelAndRecord(clientId);
 
@@ -63,7 +71,7 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
     }
 
     /// <inheritdoc/>
-    public PairingRenotifyResult CommitRenotify(DovahLink.Host.Identity.ClientId clientId) =>
+    public PairingRenotifyResult CommitRenotify(DovahLink.Host.Identity.ClientId clientId, DovahLink.Host.Identity.ChallengeId challengeId) =>
         new(PairingRenotifyOutcome.AlreadyIdle);
 
     /// <inheritdoc/>

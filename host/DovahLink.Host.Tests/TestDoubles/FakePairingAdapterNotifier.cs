@@ -29,18 +29,42 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
     /// <summary>When set, <see cref="NotifyAttemptsExhaustedAsync"/> returns a faulted task carrying this exception instead of completing.</summary>
     public Exception? ThrowOnNotifyAttemptsExhausted { get; set; }
 
+    /// <summary>
+    /// Optional asynchronous work awaited before <see cref="TryNotifyCodeAvailableAsync"/> resolves,
+    /// after the code is already recorded in <see cref="DisplayedCodes"/>. Lets a test pause the
+    /// caller's await and deterministically interleave a coordinator state change -- cancellation,
+    /// replacement, administrative invalidation -- before the acknowledgement is observed.
+    /// </summary>
+    public Func<Task>? BeforeNotifyCodeAvailable { get; set; }
+
+    /// <summary>
+    /// Optional asynchronous work awaited before <see cref="TryNotifyRedisplayAsync"/> resolves, the
+    /// same way <see cref="BeforeNotifyCodeAvailable"/> gates the initial display.
+    /// </summary>
+    public Func<Task>? BeforeNotifyRedisplay { get; set; }
+
     /// <inheritdoc/>
-    public Task<bool> TryNotifyCodeAvailableAsync(string code, CancellationToken cancellationToken)
+    public async Task<bool> TryNotifyCodeAvailableAsync(string code, CancellationToken cancellationToken)
     {
         DisplayedCodes.Add(code);
-        return Task.FromResult(AcceptDisplay);
+        if (BeforeNotifyCodeAvailable is { } beforeNotify)
+        {
+            await beforeNotify();
+        }
+
+        return AcceptDisplay;
     }
 
     /// <inheritdoc/>
-    public Task<bool> TryNotifyRedisplayAsync(string code, CancellationToken cancellationToken)
+    public async Task<bool> TryNotifyRedisplayAsync(string code, CancellationToken cancellationToken)
     {
         RedisplayedCodes.Add(code);
-        return Task.FromResult(AcceptRedisplay);
+        if (BeforeNotifyRedisplay is { } beforeNotify)
+        {
+            await beforeNotify();
+        }
+
+        return AcceptRedisplay;
     }
 
     /// <inheritdoc/>

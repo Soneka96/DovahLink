@@ -294,7 +294,8 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
         await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
@@ -382,6 +383,165 @@ public class ClientMessageDispatcherTests
         Assert.True(result.IsProtocolViolation);
     }
 
+    /// <summary>
+    /// Verifies that a stale adapter acceptance arriving after the reservation it was displaying was
+    /// cancelled can never advertise a challenge that no longer exists, and leaves the client free to
+    /// start a fresh challenge.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestDisplayPendingThenCancelled_LateSuccessCannotAdvertiseAvailable()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
+
+        pairingCoordinator.Cancel(clientId);
+        releaseGate.SetResult();
+        await dispatchTask;
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a stale adapter rejection arriving after the reservation it was displaying was
+    /// replaced by a fresh challenge for the same client can never roll back that replacement.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestDisplayPendingThenReplacement_LateFailureCannotCancelReplacement()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = false, BeforeNotifyCodeAvailable = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
+
+        pairingCoordinator.Cancel(clientId);
+        PairingStartResult replacement = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id);
+        releaseGate.SetResult();
+        await dispatchTask;
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Equal(replacement.Challenge, pairingCoordinator.TryGetOwnedChallenge(clientId));
+    }
+
+    /// <summary>
+    /// Verifies that a concurrent <c>pairing_request</c> for the same client while the first
+    /// reservation's display acknowledgement is still pending reports <c>in_progress</c> with no
+    /// remaining-lifetime figure -- an uncommitted reservation is not yet publicly resumable/displayed.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestUncommittedInitialDisplay_CannotBeResumedAsInProgress()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var firstConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var secondConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> firstDispatch = dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
+
+        await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload secondStatus) = DecodeSent<PairingStatusPayload>(Assert.Single(secondConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.InProgress, secondStatus.State);
+        Assert.Null(secondStatus.ExpiresInSeconds);
+
+        releaseGate.SetResult();
+        await firstDispatch;
+    }
+
+    /// <summary>
+    /// Verifies that an administrative <see cref="IPairingCoordinator.CancelAll"/> racing a pending
+    /// initial-display acknowledgement leaves the request reporting <c>unavailable</c> rather than a
+    /// stale <c>available</c> for a challenge the administrative action already cleared.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestAdministrativeCancelAllDuringDisplayAcknowledgement_ReportsUnavailable()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
+
+        pairingCoordinator.CancelAll();
+        releaseGate.SetResult();
+        await dispatchTask;
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+    }
+
+    /// <summary>
+    /// Verifies that a disconnect/reconnect blip for the reserving client while its display
+    /// acknowledgement is still pending does not corrupt the reservation: the commit still succeeds
+    /// normally once the adapter accepts.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestDisconnectReconnectDuringDisplayAcknowledgement_DoesNotCorruptState()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
+
+        pairingCoordinator.NotifyDisconnected(clientId);
+        pairingCoordinator.NotifyReconnected(clientId);
+        releaseGate.SetResult();
+        await dispatchTask;
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Available, status.State);
+        Assert.Equal(300, status.ExpiresInSeconds);
+    }
+
     // ---- pairing_confirm ----
 
     /// <summary>Verifies that a correct code sends credential_issued with the issued credential and display name.</summary>
@@ -426,6 +586,7 @@ public class ClientMessageDispatcherTests
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
@@ -664,7 +825,8 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
@@ -916,8 +1078,8 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        pairingCoordinator.BeginPairing(clientId);
-        pairingCoordinator.CommitRenotify(clientId);
+        PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitRenotify(clientId, started.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
@@ -990,6 +1152,111 @@ public class ClientMessageDispatcherTests
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
         Assert.True(result.IsProtocolViolation);
+    }
+
+    /// <summary>
+    /// Verifies that a challenge replaced while its redisplay acknowledgement is still pending cannot
+    /// have its cooldown consumed by the stale commit -- the replacement remains fully eligible for
+    /// its own redisplay afterward.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyChallengeReplacedDuringAdapterAck_DoesNotCommitReplacementCooldown()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
+
+        pairingCoordinator.Cancel(clientId);
+        PairingStartResult replacement = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id);
+        releaseGate.SetResult();
+        await dispatchTask;
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a stale redisplay acceptance arriving after its challenge was cancelled -- with no
+    /// replacement -- reports <c>already_idle</c> rather than a fabricated <c>renotified</c>.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyLateAckForOldChallenge_DoesNotReportRenotified()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
+
+        pairingCoordinator.Cancel(clientId);
+        releaseGate.SetResult();
+        await dispatchTask;
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a stale commit for a cancelled-then-replaced challenge leaves the new challenge
+    /// completely untouched and usable: a fresh <c>pairing_renotify</c> for it still succeeds
+    /// end-to-end after the earlier race resolves.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyCancelThenNewChallenge_OldCommitLeavesNewChallengeUntouched()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var firstConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> staleDispatch = dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
+
+        pairingCoordinator.Cancel(clientId);
+        PairingStartResult replacement = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id);
+        releaseGate.SetResult();
+        await staleDispatch;
+
+        adapterNotifier.BeforeNotifyRedisplay = null;
+        var secondConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(secondConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Renotified, outcome.Outcome);
     }
 
     // ---- pairing_cancel ----
