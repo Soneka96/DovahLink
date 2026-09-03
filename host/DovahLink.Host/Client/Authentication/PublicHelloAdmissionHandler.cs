@@ -230,8 +230,15 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         }
 
         if (envelope.BridgeInstanceId is not null || envelope.PlayContextId is not null ||
-            (envelope.ClientId is not null && envelope.ClientId != currentClientId.ToString()))
+            !Guid.TryParse(envelope.ClientId, out Guid presentedClientId) || presentedClientId != currentClientId.Value)
         {
+            // Per `PLAN.md`'s "After admission, client messages carry the socket-bound sessionId and
+            // their declared clientId", clientId is required (not merely permitted) once a session
+            // exists. Comparing the parsed Guid value rather than envelope.ClientId's raw wire string
+            // against currentClientId.ToString() avoids reintroducing a textual-representation-aliasing
+            // gap: Guid.TryParse accepts several equivalent textual forms (braces, hyphenless, etc.)
+            // for the same identity, and a client is not required to reuse hello's exact wire form on
+            // every later message.
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message carries an invalid envelope identity or context field.");
             return Task.CompletedTask;
         }

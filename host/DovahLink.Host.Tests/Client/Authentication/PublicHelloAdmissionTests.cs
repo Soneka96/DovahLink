@@ -759,7 +759,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_PostAdmissionForeignSessionId_RejectsAsStaleSession()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out _);
+        AdmitViaUnpairedHello(context, out _, out _);
 
         byte[] foreignSessionMessage = context.Codec.Encode(PublicMessageType.Ping, "msg-2", Guid.NewGuid().ToString(), null, null, null, new object());
         context.Handler.HandleMessageAsync(context.Connection, foreignSessionMessage, CancellationToken.None);
@@ -773,9 +773,9 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_PostAdmissionCorrectSessionId_IsNotRejected()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string admittedSessionId);
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out string admittedClientId);
 
-        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, null, new object());
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, admittedClientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
@@ -792,7 +792,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_PostAdmissionSessionInvalidatedExternally_RejectsAsStaleSession()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string admittedSessionId);
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
 
         context.SessionRegistry.InvalidateAll();
 
@@ -808,7 +808,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_PostAdmissionSessionInvalidatedExternally_FullSession_RejectsAsStaleSession()
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string admittedSessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string admittedSessionId, out _);
 
         context.SessionRegistry.InvalidateAll();
 
@@ -830,7 +830,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_PostAdmissionForeignClientId_RejectsAsMalformed()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string admittedSessionId);
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
 
         byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, Guid.NewGuid().ToString(), new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
@@ -856,12 +856,78 @@ public class PublicHelloAdmissionTests
         Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
     }
 
+    /// <summary>
+    /// Verifies that a post-admission message omitting the envelope-level clientId entirely is
+    /// rejected as malformed_message: per `PLAN.md`'s "After admission, client messages carry the
+    /// socket-bound sessionId and their declared clientId", clientId is required once a session
+    /// exists, not merely permitted.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionMissingClientId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, null, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>Verifies that a post-admission message carrying a non-GUID envelope clientId is rejected as malformed_message, distinct from a foreign-but-valid GUID.</summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionNonGuidClientId_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, "not-a-guid", new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies the exact aliasing gap the structural comparison fix closes: the admitted identity
+    /// presented in a different <see cref="Guid.TryParse(string?, out Guid)"/>-accepted textual form
+    /// (braces, here, versus hello's own hyphenated form) on a later message is still accepted, since
+    /// the parsed Guid value is compared, not the raw wire string.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionMatchingClientIdDifferentTextualForm_IsNotRejected()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out string clientId);
+        string bracedClientId = $"{{{clientId}}}";
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, bracedClientId, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
+    }
+
+    /// <summary>Verifies the same aliasing-gap fix for a second distinct textual form: the admitted identity's compact 32-character (no-hyphens) representation is still accepted.</summary>
+    [Fact]
+    public void HandleMessageAsync_PostAdmissionMatchingClientIdCompactFormat_IsNotRejected()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out string clientId);
+        string compactClientId = Guid.Parse(clientId).ToString("N");
+
+        byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, null, compactClientId, new object());
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
+    }
+
     /// <summary>Verifies that a post-admission message carrying a non-null envelope bridgeInstanceId is rejected as malformed_message. Built from raw JSON for the same reason as the pre-authentication equivalent.</summary>
     [Fact]
     public void HandleMessageAsync_PostAdmissionNonNullBridgeInstanceId_RejectsAsMalformed()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string admittedSessionId);
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
         string json = $$"""
             {"messageType":"ping","messageId":"msg-2","sessionId":"{{admittedSessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":"a-bridge-instance-id","playContextId":null,"clientId":null}
             """;
@@ -877,7 +943,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_PostAdmissionNonNullPlayContextId_RejectsAsMalformed()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string admittedSessionId);
+        AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
 
         byte[] message = context.Codec.Encode(PublicMessageType.Ping, "msg-2", admittedSessionId, null, Guid.NewGuid().ToString(), null, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
@@ -893,11 +959,11 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_EmptyCapabilitiesPostAdmission_NoResponse()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
 
         byte[] message = context.Codec.Encode(
-            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, null, new CapabilitiesPayload { Capabilities = [] });
+            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, clientId, new CapabilitiesPayload { Capabilities = [] });
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
@@ -908,11 +974,11 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_NonEmptyCapabilitiesPostAdmission_RejectsAsUnsupported()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
 
         using JsonDocument document = JsonDocument.Parse("{}");
         byte[] message = context.Codec.Encode(
-            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, null,
+            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, clientId,
             new CapabilitiesPayload { Capabilities = [document.RootElement.Clone()] });
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
@@ -925,11 +991,11 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_EmptyCapabilitiesPostAdmission_FullSession_NoResponse()
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
         int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
 
         byte[] message = context.Codec.Encode(
-            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, null, new CapabilitiesPayload { Capabilities = [] });
+            PublicMessageType.Capabilities, "msg-2", sessionId, null, null, clientId, new CapabilitiesPayload { Capabilities = [] });
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
@@ -940,7 +1006,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_MalformedCapabilitiesPostAdmission_RejectsAsMalformed()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out _);
         string json = $$"""
             {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
             """;
@@ -958,10 +1024,10 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_SubscribePostAdmission_RejectsEveryRequestedArea()
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
         byte[] message = context.Codec.Encode(
-            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, null,
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, clientId,
             new SubscribePayload { StateAreas = ["area_one", "area_two"] });
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
@@ -977,7 +1043,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_MalformedSubscribePostAdmission_RejectsAsMalformed()
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
         string json = $$"""
             {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
             """;
@@ -993,10 +1059,10 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_SnapshotRequestPostAdmission_RejectsAsUnsupported()
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
         byte[] message = context.Codec.Encode(
-            PublicMessageType.SnapshotRequest, "msg-2", sessionId, null, null, null,
+            PublicMessageType.SnapshotRequest, "msg-2", sessionId, null, null, clientId,
             new SnapshotRequestPayload { StateArea = "area_one" });
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
@@ -1009,7 +1075,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_MalformedSnapshotRequestPostAdmission_RejectsAsMalformed()
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
         string json = $$"""
             {"messageType":"snapshot_request","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
             """;
@@ -1033,10 +1099,10 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_RestrictedSessionAllowedType_PassesAllowlistWithNoResponse(PublicMessageType messageType)
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
 
-        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
@@ -1054,9 +1120,9 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_RestrictedSessionDisallowedClientMessageType_RejectsAsUnauthorized(PublicMessageType messageType)
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
 
-        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
@@ -1077,7 +1143,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_RestrictedSessionServerOnlyType_RejectsAsMalformed(PublicMessageType messageType)
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out _);
 
         byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
@@ -1093,10 +1159,10 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_FullSessionAllowedType_PassesAllowlistWithNoResponse(PublicMessageType messageType)
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
         int sentBeforeMessage = context.FakeConnection.SentPayloads.Count;
 
-        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
@@ -1116,9 +1182,9 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_FullSessionDisallowedClientMessageType_RejectsAsUnauthorized(PublicMessageType messageType)
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
-        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
@@ -1138,7 +1204,7 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_FullSessionServerOnlyType_RejectsAsMalformed(PublicMessageType messageType)
     {
         var context = new TestContext();
-        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
 
         byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
@@ -1154,11 +1220,11 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_RepeatedMessageId_RejectsAsReplayed()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
 
-        byte[] first = context.Codec.Encode(PublicMessageType.Ping, "repeat-id", sessionId, null, null, null, new object());
+        byte[] first = context.Codec.Encode(PublicMessageType.Ping, "repeat-id", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, first, CancellationToken.None);
-        byte[] second = context.Codec.Encode(PublicMessageType.Ping, "repeat-id", sessionId, null, null, null, new object());
+        byte[] second = context.Codec.Encode(PublicMessageType.Ping, "repeat-id", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, second, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
@@ -1189,13 +1255,13 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_SessionReachesMessageBound_ClosesConnection()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         int sentBeforeLoop = context.FakeConnection.SentPayloads.Count;
 
         // The admitting hello already counts as message 1 of the bound; send the remaining 9,999.
         for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 1; i++)
         {
-            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, null, new object());
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, clientId, new object());
             context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
         }
 
@@ -1208,14 +1274,14 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_MessageNineThousandNineHundredNinetyNine_DoesNotCloseConnection()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         int sentBeforeLoop = context.FakeConnection.SentPayloads.Count;
 
         // The admitting hello already counts as message 1 of the bound; send the next 9,998 so the
         // last message sent here is message 9,999 -- one short of the 10,000 bound.
         for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 2; i++)
         {
-            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, null, new object());
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, clientId, new object());
             context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
         }
 
@@ -1233,11 +1299,11 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_MessageAfterBoundAlreadyReached_IsNeitherDispatchedNorAnswered()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
 
         for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 1; i++)
         {
-            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, null, new object());
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, clientId, new object());
             context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
         }
 
@@ -1247,7 +1313,7 @@ public class PublicHelloAdmissionTests
         // A Subscribe would normally produce a subscription_ack if dispatched; using it here proves
         // the message was dropped outright, not merely skipped for lack of a response.
         byte[] messageAfterBound = context.Codec.Encode(
-            PublicMessageType.Subscribe, "msg-after-bound", sessionId, null, null, null, new SubscribePayload { StateAreas = ["area_one"] });
+            PublicMessageType.Subscribe, "msg-after-bound", sessionId, null, null, clientId, new SubscribePayload { StateAreas = ["area_one"] });
         context.Handler.HandleMessageAsync(context.Connection, messageAfterBound, CancellationToken.None);
 
         Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
@@ -1264,17 +1330,17 @@ public class PublicHelloAdmissionTests
     public void HandleMessageAsync_RepeatedMessageIdAfterBoundAlreadyReached_IsDroppedNotClassifiedAsReplayed()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionId);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
 
         for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 1; i++)
         {
-            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, null, new object());
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, clientId, new object());
             context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
         }
 
         int sentBeforeRepeat = context.FakeConnection.SentPayloads.Count;
 
-        byte[] repeatedMessage = context.Codec.Encode(PublicMessageType.Ping, "msg-0", sessionId, null, null, null, new object());
+        byte[] repeatedMessage = context.Codec.Encode(PublicMessageType.Ping, "msg-0", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, repeatedMessage, CancellationToken.None);
 
         Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
@@ -1383,7 +1449,7 @@ public class PublicHelloAdmissionTests
     public void HandleConnectionEnded_AfterAdmission_InvalidatesTheSession()
     {
         var context = new TestContext();
-        AdmitViaUnpairedHello(context, out string sessionIdText);
+        AdmitViaUnpairedHello(context, out string sessionIdText, out _);
 
         context.Handler.HandleConnectionEnded();
 
@@ -1418,19 +1484,20 @@ public class PublicHelloAdmissionTests
         return (envelope, payload);
     }
 
-    /// <summary>Admits a session via an unpaired hello and returns the wire session id assigned.</summary>
-    private static void AdmitViaUnpairedHello(TestContext context, out string sessionId)
+    /// <summary>Admits a session via an unpaired hello and returns the wire session id and admitted clientId assigned.</summary>
+    private static void AdmitViaUnpairedHello(TestContext context, out string sessionId, out string clientId)
     {
-        byte[] hello = BuildHello(context.Codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
+        clientId = Guid.NewGuid().ToString();
+        byte[] hello = BuildHello(context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
         context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
         (PublicEnvelope ackEnvelope, _) = DecodeSent<HelloAckPayload>(context.Codec, context.FakeConnection.SentPayloads[0]);
         sessionId = ackEnvelope.SessionId!;
     }
 
-    /// <summary>Admits a full (paired) session via a matching trusted_device_credential hello, seeding the trust store first, and returns the wire session id assigned.</summary>
-    private static void AdmitViaTrustedDeviceCredentialHello(TestContext context, out string sessionId)
+    /// <summary>Admits a full (paired) session via a matching trusted_device_credential hello, seeding the trust store first, and returns the wire session id and admitted clientId assigned.</summary>
+    private static void AdmitViaTrustedDeviceCredentialHello(TestContext context, out string sessionId, out string clientId)
     {
-        string clientId = Guid.NewGuid().ToString();
+        clientId = Guid.NewGuid().ToString();
         context.TrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         byte[] hello = BuildHello(
             context.Codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
