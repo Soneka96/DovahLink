@@ -97,6 +97,8 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return HandlePairingRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingConfirm:
                 return HandlePairingConfirmAsync(clientId, sessionId, connection, envelope, cancellationToken);
+            case PublicMessageType.PairingAck:
+                return HandlePairingAckAsync(clientId, sessionId, connection, envelope, cancellationToken);
             default:
                 // Every pairing_* message type is authorized by the connection handler's per-tier
                 // allowlist but mapped to its owning service by a later step of this same concept.
@@ -364,4 +366,61 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// </summary>
     private static void FireAndForget(Task task) =>
         task.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+
+    /// <summary>
+    /// Answers a <c>pairing_ack</c> with <c>pairing_outcome</c>: maps
+    /// <see cref="IPairingCoordinator.CommitPendingAsync"/>'s outcome directly. A <c>trusted</c> or
+    /// <c>already_trusted</c> outcome both signal the caller to upgrade this connection's session to
+    /// full trust -- per <c>ai/context/protocol/security.md</c>'s trust-tier upgrade point, "the moment
+    /// its pairing_confirm resolves to a trusted or already_trusted outcome" -- since both prove the
+    /// presented credential is genuinely, currently trusted; only the idempotent-retry framing differs.
+    /// </summary>
+    private async Task<ClientDispatchResult> HandlePairingAckAsync(
+        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+    {
+        if (!codec.TryDecodePayload(envelope, out PairingAckPayload? payload))
+        {
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_ack message is malformed.");
+            return new ClientDispatchResult(IsProtocolViolation: true);
+        }
+
+        PairingCommitResult commit = await pairingCoordinator.CommitPendingAsync(clientId, payload.Credential, cancellationToken);
+        switch (commit.Outcome)
+        {
+            case PairingCommitOutcome.Trusted:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload
+                {
+                    Outcome = PairingOutcomeWireValue.Trusted,
+                    Credential = commit.Credential,
+                    ShortId = commit.ShortId,
+                    DisplayName = commit.DisplayName,
+                });
+                return new ClientDispatchResult(UpgradeToFullTrust: true);
+
+            case PairingCommitOutcome.AlreadyTrusted:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload
+                {
+                    Outcome = PairingOutcomeWireValue.AlreadyTrusted,
+                    Credential = commit.Credential,
+                    ShortId = commit.ShortId,
+                    DisplayName = commit.DisplayName,
+                });
+                return new ClientDispatchResult(UpgradeToFullTrust: true);
+
+            case PairingCommitOutcome.PendingNotFound:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.PendingNotFound });
+                return new ClientDispatchResult();
+
+            case PairingCommitOutcome.PairingInvalidated:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.PairingInvalidated });
+                return new ClientDispatchResult();
+
+            default:
+                // PersistenceFailed (retryable; the coordinator preserves the pending credential) and
+                // GeneratorFailed (short-id generation exhausted) both fail safely without disclosing
+                // which occurred.
+                SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to commit trust.", retryable: true);
+                return new ClientDispatchResult();
+        }
+    }
 }

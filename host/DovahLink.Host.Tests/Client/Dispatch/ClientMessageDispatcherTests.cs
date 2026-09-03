@@ -7,6 +7,7 @@ using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
+using DovahLink.Host.Trust;
 
 namespace DovahLink.Host.Tests.Client.Dispatch;
 
@@ -676,6 +677,205 @@ public class ClientMessageDispatcherTests
         await WaitUntilAsync(() => adapterNotifier.IncorrectCodeNotifications.Count > 0);
     }
 
+    // ---- pairing_ack ----
+
+    /// <summary>Verifies that a matching pending credential sends trusted and signals a session upgrade.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingAckMatchingPendingCredential_SendsTrustedAndSignalsUpgrade()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
+        Assert.Equal("msg-1", outcomeEnvelope.CorrelationId);
+        Assert.Equal(PairingOutcomeWireValue.Trusted, outcome.Outcome);
+        Assert.Equal(issued.Credential, outcome.Credential);
+        Assert.Equal(5, outcome.ShortId!.Length);
+        Assert.Equal("Living Room PC", outcome.DisplayName);
+        Assert.True(result.UpgradeToFullTrust);
+    }
+
+    /// <summary>
+    /// Verifies that an idempotent retry of an already-committed credential sends already_trusted and
+    /// still signals a session upgrade -- per security.md's trust-tier upgrade point covering both
+    /// outcomes, since both prove the presented credential is genuinely, currently trusted.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingAckRepeatedCredential_SendsAlreadyTrustedAndSignalsUpgrade()
+    {
+        var trustStore = new FakeTrustStore();
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(trustStore, clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        await pairingCoordinator.CommitPendingAsync(clientId, issued.Credential!);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.AlreadyTrusted, outcome.Outcome);
+        Assert.Equal(issued.Credential, outcome.Credential);
+        Assert.Equal(5, outcome.ShortId!.Length);
+        Assert.Equal("Living Room PC", outcome.DisplayName);
+        Assert.True(result.UpgradeToFullTrust);
+    }
+
+    /// <summary>Verifies that no matching pending credential sends pending_not_found without signalling an upgrade.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingAckNoPendingCredential_SendsPendingNotFound()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = "deadbeefdeadbeefdeadbeefdeadbeef" });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.PendingNotFound, outcome.Outcome);
+        Assert.Null(outcome.Credential);
+        Assert.Null(outcome.ShortId);
+        Assert.Null(outcome.DisplayName);
+        Assert.False(result.UpgradeToFullTrust);
+    }
+
+    /// <summary>Verifies that an administrative trust mutation fencing the pending credential sends pairing_invalidated.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingAckAfterTrustMutation_SendsPairingInvalidated()
+    {
+        var trustStore = new FakeTrustStore();
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(trustStore, clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        await trustStore.UpsertAsync(new TrustRecord(ClientId.NewId(), "12345", "Other", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.PairingInvalidated, outcome.Outcome);
+        Assert.Null(outcome.Credential);
+        Assert.False(result.UpgradeToFullTrust);
+    }
+
+    /// <summary>Verifies that persistence failure is reported as a redacted, retryable internal_error without signalling an upgrade.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingAckPersistenceFails_SendsRetryableInternalError()
+    {
+        var trustStore = new FakeTrustStore { ThrowOnUpsert = new IOException("disk full") };
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(trustStore, clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
+        Assert.False(result.UpgradeToFullTrust);
+    }
+
+    /// <summary>Verifies that exhausting short-id candidates is reported as a redacted, retryable internal_error.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingAckShortIdGenerationFails_SendsRetryableInternalError()
+    {
+        var trustStore = new FakeTrustStore();
+        trustStore.Seed(new TrustRecord(ClientId.NewId(), "12345", "Existing", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(trustStore, clock, shortIdGenerator: () => "12345");
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
+    }
+
+    /// <summary>Verifies that a malformed pairing_ack sends a malformed_message error and reports a protocol violation.</summary>
+    [Fact]
+    public async Task DispatchAsync_MalformedPairingAck_SendsErrorAndReportsViolation()
+    {
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildRawEnvelope("pairing_ack", "msg-1", "session-1", "{}");
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.True(result.IsProtocolViolation);
+    }
+
+    /// <summary>Verifies that cancellation propagates rather than being swallowed into an internal_error response.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingAckCancelled_PropagatesCancellation()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, cancellation.Token));
+        Assert.Empty(fakeConnection.SentPayloads);
+    }
+
     // ---- unhandled message types ----
 
     /// <summary>
@@ -688,7 +888,7 @@ public class ClientMessageDispatcherTests
         var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingAck, "msg-1", "session-1", new EmptyPayload());
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
             ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
