@@ -198,6 +198,34 @@ public class PublicEnvelopeCodecTests
         Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("bridgeInstanceId").ValueKind);
     }
 
+    /// <summary>Verifies that Encode rejects a null payload rather than emitting a wire message its own decoder would reject.</summary>
+    [Fact]
+    public void Encode_NullPayload_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => Codec.Encode<object?>(PublicMessageType.Ping, "msg-1", null, null, null, null, null));
+    }
+
+    /// <summary>Verifies that Encode rejects a string (scalar) payload.</summary>
+    [Fact]
+    public void Encode_StringPayload_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => Codec.Encode(PublicMessageType.Ping, "msg-1", null, null, null, null, "not-an-object"));
+    }
+
+    /// <summary>Verifies that Encode rejects a numeric (scalar) payload.</summary>
+    [Fact]
+    public void Encode_NumericPayload_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => Codec.Encode(PublicMessageType.Ping, "msg-1", null, null, null, null, 123));
+    }
+
+    /// <summary>Verifies that Encode rejects an array payload.</summary>
+    [Fact]
+    public void Encode_ArrayPayload_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => Codec.Encode(PublicMessageType.Ping, "msg-1", null, null, null, null, new[] { 1, 2, 3 }));
+    }
+
     // ---- Envelope field validation ----
 
     /// <summary>Verifies that a missing required envelope field (messageId) is rejected.</summary>

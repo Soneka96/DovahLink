@@ -58,6 +58,10 @@ public interface IPublicEnvelopeCodec
     /// <param name="clientId">The authenticated client identity, present only where the schema explicitly requires it on a host-originated message.</param>
     /// <param name="payload">The message-specific payload to encode.</param>
     /// <returns>The complete UTF-8 encoded message bytes.</returns>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="payload"/> did not serialize to a JSON object, violating the canonical
+    /// schema's <c>payload: object</c> requirement that <see cref="TryDecode"/> enforces on decode.
+    /// </exception>
     byte[] Encode<TPayload>(
         PublicMessageType messageType,
         string messageId,
@@ -181,13 +185,23 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
         TPayload payload)
     {
         JsonNode? payloadNode = JsonSerializer.SerializeToNode(payload, PayloadSerializerOptions);
+        if (payloadNode is not JsonObject payloadObject)
+        {
+            // The canonical schema requires payload: object, and TryDecode rejects anything else on
+            // decode; failing here instead keeps the host from ever emitting a wire message its own
+            // decoder -- or a conforming client -- would reject.
+            throw new ArgumentException(
+                $"{typeof(TPayload)} must serialize to a JSON object; it serialized to {(payloadNode is null ? "null" : payloadNode.GetType().Name)}.",
+                nameof(payload));
+        }
+
         var envelope = new JsonObject
         {
             ["messageType"] = FormatMessageType(messageType),
             ["messageId"] = messageId,
             ["sessionId"] = sessionId,
             ["correlationId"] = correlationId,
-            ["payload"] = payloadNode,
+            ["payload"] = payloadObject,
             ["bridgeInstanceId"] = null,
             ["playContextId"] = playContextId,
             ["clientId"] = clientId,
