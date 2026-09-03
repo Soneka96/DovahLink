@@ -580,7 +580,9 @@ public class PublicHelloAdmissionTests
     /// landing between this connection's session reservation and its final registry-liveness recheck
     /// must not result in a successful admission -- no hello_ack is sent, the rejection is the
     /// retryable rate-limited code (mirroring the full-slot case, since no more specific code exists
-    /// for this outcome), and the registry ends with no active session at all.
+    /// for this outcome), the registry ends with no active session at all, and -- since this
+    /// connection's one-shot admission outcome is already consumed and can never be claimed again --
+    /// the connection is requested to close rather than left open indefinitely.
     /// </summary>
     [Fact]
     public void HandleMessageAsync_FactoryResetBetweenReservationAndRecheck_RejectsWithoutAdmitting()
@@ -605,9 +607,43 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.RateLimited, error.Code);
         Assert.True(error.Retryable);
         Assert.Equal(0, innerSessionRegistry.ActiveCount);
+        Assert.Equal(1, fakeConnection.RequestCloseCalls);
     }
 
-    /// <summary>Verifies the same Factory Reset admission race for a one_time_local_token hello, which rolls back the token reservation instead of a trust-store recheck.</summary>
+    /// <summary>
+    /// Verifies that a second hello sent on this same now-doomed connection (its admission outcome
+    /// already permanently consumed by the losing race above) cannot silently create or reserve
+    /// another session: the attempt is invalidated immediately and no additional hello_ack is ever
+    /// sent, regardless of how many further hellos arrive before the requested close actually tears
+    /// the connection down.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_SecondHelloAfterFactoryResetRace_CreatesNoNewSession()
+    {
+        var innerSessionRegistry = new FakeSessionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstIsActiveCall(innerSessionRegistry);
+        var trustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] firstHello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+        handler.HandleMessageAsync(connection, firstHello, CancellationToken.None);
+        int sentAfterFirstHello = fakeConnection.SentPayloads.Count;
+
+        byte[] secondHello = BuildHello(codec, clientId, "hello-2", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+        handler.HandleMessageAsync(connection, secondHello, CancellationToken.None);
+
+        Assert.Equal(sentAfterFirstHello, fakeConnection.SentPayloads.Count); // no additional hello_ack or error sent
+        Assert.Equal(0, innerSessionRegistry.ActiveCount);
+    }
+
+    /// <summary>Verifies the same Factory Reset admission race for a one_time_local_token hello, which rolls back the token reservation instead of a trust-store recheck, and also closes the losing connection.</summary>
     [Fact]
     public void HandleMessageAsync_FactoryResetBetweenReservationAndRecheck_OneTimeLocalToken_RollsBackTokenAndRejects()
     {
@@ -628,8 +664,77 @@ public class PublicHelloAdmissionTests
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.RateLimited, error.Code);
+        Assert.True(error.Retryable);
         Assert.Equal(0, innerSessionRegistry.ActiveCount);
         Assert.True(tokenAuthenticator.TryValidate(token));
+        Assert.Equal(1, fakeConnection.RequestCloseCalls);
+    }
+
+    /// <summary>Verifies the same no-new-session guarantee as the trust-backed case above, for a second one_time_local_token hello sent on the same now-doomed connection.</summary>
+    [Fact]
+    public void HandleMessageAsync_SecondOneTimeLocalTokenHelloAfterFactoryResetRace_CreatesNoNewSession()
+    {
+        var innerSessionRegistry = new FakeSessionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstIsActiveCall(innerSessionRegistry);
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string firstToken = tokenAuthenticator.IssueToken();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] firstHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = firstToken });
+        handler.HandleMessageAsync(connection, firstHello, CancellationToken.None);
+        int sentAfterFirstHello = fakeConnection.SentPayloads.Count;
+
+        // The rolled-back reservation leaves firstToken itself still usable; reusing it here proves
+        // the second hello is blocked by the connection's own consumed admission outcome, not by the
+        // token having somehow become unusable.
+        byte[] secondHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-2", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = firstToken });
+        handler.HandleMessageAsync(connection, secondHello, CancellationToken.None);
+
+        Assert.Equal(sentAfterFirstHello, fakeConnection.SentPayloads.Count); // no additional hello_ack or error sent
+        Assert.Equal(0, innerSessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies the one-time token really does remain usable "on a new connection," not merely
+    /// through a direct <see cref="ILocalConnectionTokenAuthenticator.TryValidate"/> call: a second,
+    /// genuinely separate handler instance sharing the same token authenticator and (inner) session
+    /// registry as the connection that lost the Factory Reset race admits successfully with the same
+    /// token.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_OneTimeTokenAfterFactoryResetRace_AdmitsSuccessfullyOnNewConnection()
+    {
+        var innerSessionRegistry = new FakeSessionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstIsActiveCall(innerSessionRegistry);
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = tokenAuthenticator.IssueToken();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var firstHandler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var firstFakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var firstConnection = new PublicConnectionContext(firstFakeConnection);
+        byte[] losingHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
+        firstHandler.HandleMessageAsync(firstConnection, losingHello, CancellationToken.None);
+
+        var secondHandler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+        var secondFakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var secondConnection = new PublicConnectionContext(secondFakeConnection);
+        byte[] retryHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
+
+        secondHandler.HandleMessageAsync(secondConnection, retryHello, CancellationToken.None);
+
+        (PublicEnvelope ackEnvelope, _) = DecodeSent<HelloAckPayload>(codec, secondFakeConnection.SentPayloads[0]);
+        Assert.Equal(PublicMessageType.HelloAck, ackEnvelope.MessageType);
+        Assert.Equal(1, innerSessionRegistry.ActiveCount);
     }
 
     // ---- Pre-admission allowlist ----

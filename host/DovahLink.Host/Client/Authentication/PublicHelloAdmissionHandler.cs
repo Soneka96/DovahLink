@@ -532,9 +532,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>
     /// Authenticates a <c>one_time_local_token</c> hello. Validates and reserves the token without
     /// consuming it (<see cref="ILocalConnectionTokenAuthenticator.TryValidate"/>), rolling the
-    /// reservation back on every failure branch after that (a full session slot, or losing the race
-    /// against the pre-authentication deadline) so a retryable failure never burns the token, and
-    /// commits consumption only once admission has fully succeeded.
+    /// reservation back on every failure branch after that (a full session slot, losing the race
+    /// against the pre-authentication deadline, or losing the race against an unconditional Factory
+    /// Reset) so a retryable failure never burns the token, and commits consumption only once
+    /// admission has fully succeeded. The Factory Reset branch also requests this connection's close:
+    /// its one-shot admission outcome is already consumed by that point, so the connection can never
+    /// complete admission again and must not be left open with no path to teardown.
     /// </summary>
     private void HandleOneTimeLocalTokenHello(
         IPublicConnectionContext connectionContext, PublicEnvelope envelope, ClientId requestedClientId, string token)
@@ -563,9 +566,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         {
             // An unconditional invalidation (Factory Reset) raced ahead of this admission between the
             // reservation above and this point. Reject rather than send hello_ack for a session the
-            // authoritative registry no longer knows about.
+            // authoritative registry no longer knows about. TryClaimAdmission already consumed this
+            // connection's one-shot admission outcome (deliberately never reset back to Pending, so a
+            // concurrently racing deadline task can never mistake this for still-pending admission),
+            // so this connection can never complete admission again; close it explicitly rather than
+            // leaving it open with no path to ever being torn down.
             tokenAuthenticator.RollbackReservation();
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
+            connectionContext.RequestClose();
             return;
         }
 
@@ -580,7 +588,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// no longer qualifies. Also rechecks the session registry itself immediately before claiming
     /// admission's final outcome, so an unconditional Factory Reset that invalidates every session
     /// between this reservation and that point can never result in a <c>hello_ack</c> for a session
-    /// the authoritative registry no longer knows about.
+    /// the authoritative registry no longer knows about; that branch also requests this connection's
+    /// close, since its one-shot admission outcome is already consumed and it can never complete
+    /// admission again.
     /// </summary>
     private void HandleTrustBackedHello(
         IPublicConnectionContext connectionContext,
@@ -655,8 +665,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         {
             // An unconditional invalidation (Factory Reset) raced ahead of this admission between the
             // reservation above and this point. Reject rather than send hello_ack for a session the
-            // authoritative registry no longer knows about.
+            // authoritative registry no longer knows about. TryClaimAdmission already consumed this
+            // connection's one-shot admission outcome (deliberately never reset back to Pending, so a
+            // concurrently racing deadline task can never mistake this for still-pending admission),
+            // so this connection can never complete admission again; close it explicitly rather than
+            // leaving it open with no path to ever being torn down.
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
+            connectionContext.RequestClose();
             return;
         }
 
