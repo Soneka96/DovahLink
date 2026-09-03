@@ -1153,17 +1153,20 @@ public class PublicHelloAdmissionTests
         Assert.Equal(sentBeforeMessage, context.FakeConnection.SentPayloads.Count);
     }
 
-    /// <summary>Verifies that a non-empty post-admission capabilities advertisement is rejected as unsupported_capability.</summary>
+    /// <summary>
+    /// Verifies that a non-empty post-admission capabilities advertisement, whose entries are
+    /// structurally valid descriptors, is rejected as unsupported_capability -- distinct from a
+    /// structurally invalid entry, which is malformed_message (see the malformed-descriptor tests below).
+    /// </summary>
     [Fact]
     public void HandleMessageAsync_NonEmptyCapabilitiesPostAdmission_RejectsAsUnsupported()
     {
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
 
-        using JsonDocument document = JsonDocument.Parse("{}");
         byte[] message = context.Codec.Encode(
             PublicMessageType.Capabilities, "msg-2", sessionId, null, null, clientId,
-            new CapabilitiesPayload { Capabilities = [document.RootElement.Clone()] });
+            new CapabilitiesPayload { Capabilities = [new CapabilityDescriptor { Id = "some_capability", Version = "1" }] });
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
@@ -1214,6 +1217,55 @@ public class PublicHelloAdmissionTests
         AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         string json = $$"""
             {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":null},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies that a structurally invalid capability descriptor -- a wrong-typed entry, a null entry,
+    /// a descriptor missing a required field, or a descriptor with a wrong field type -- is rejected as
+    /// malformed_message rather than being classified as a merely unsupported (but structurally valid)
+    /// capability.
+    /// </summary>
+    [Theory]
+    [InlineData("""[123]""")]
+    [InlineData("""["a_string"]""")]
+    [InlineData("""[null]""")]
+    [InlineData("""[{}]""")]
+    [InlineData("""[{"id":"x"}]""")]
+    [InlineData("""[{"version":"1"}]""")]
+    [InlineData("""[{"id":123,"version":"1"}]""")]
+    [InlineData("""[{"id":"x","version":1}]""")]
+    public void HandleMessageAsync_MalformedCapabilityDescriptor_RejectsAsMalformed(string capabilitiesJson)
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
+        string json = $$"""
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":{{capabilitiesJson}}},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
+            """;
+
+        context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies that one structurally invalid descriptor rejects the entire capabilities advertisement
+    /// as malformed_message even when it is mixed alongside an otherwise well-formed descriptor:
+    /// validation is not lenient per-element.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_OneValidAndOneMalformedCapabilityDescriptor_RejectsAsMalformed()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
+        string json = $$"""
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":[{"id":"valid_capability","version":"1"},{"id":"x"}]},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);

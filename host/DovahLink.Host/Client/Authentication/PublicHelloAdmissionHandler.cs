@@ -359,12 +359,16 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
     /// <summary>
     /// Answers a <c>capabilities</c> advertisement: an empty list gets no response, per the schema's
-    /// "a client may send an empty capabilities advertisement with no response"; a non-empty list is
-    /// rejected as unsupported, since no capability is currently registered.
+    /// "a client may send an empty capabilities advertisement with no response"; a non-empty list of
+    /// structurally valid descriptors is rejected as unsupported, since no capability is currently
+    /// registered. A structurally invalid descriptor -- decoded no further than a well-formed JSON
+    /// object by <see cref="IPublicEnvelopeCodec.TryDecode"/>, so it reaches this method rather than
+    /// failing envelope decoding -- is rejected as malformed before this method ever classifies it as
+    /// unsupported.
     /// </summary>
     private void HandleCapabilities(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
     {
-        if (!codec.TryDecodePayload(envelope, out CapabilitiesPayload? payload))
+        if (!codec.TryDecodePayload(envelope, out CapabilitiesPayload? payload) || payload.Capabilities.Any(capability => capability is null))
         {
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The capabilities message is malformed.");
             return;
