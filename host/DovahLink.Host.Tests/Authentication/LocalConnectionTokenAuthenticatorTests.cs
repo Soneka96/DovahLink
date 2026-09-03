@@ -203,7 +203,7 @@ public class LocalConnectionTokenAuthenticatorTests
         Assert.Single(results, succeeded => succeeded);
     }
 
-    /// <summary>Verifies that TryValidate succeeds for the correct token without consuming it.</summary>
+    /// <summary>Verifies that TryValidate succeeds for the correct token without consuming it -- provable by rolling back and validating again.</summary>
     [Fact]
     public void TryValidate_CorrectToken_SucceedsWithoutConsuming()
     {
@@ -211,6 +211,36 @@ public class LocalConnectionTokenAuthenticatorTests
         string token = authenticator.IssueToken();
 
         Assert.True(authenticator.TryValidate(token));
+        authenticator.RollbackReservation();
+
+        Assert.True(authenticator.TryValidate(token));
+    }
+
+    /// <summary>Verifies that a second TryValidate call presenting the identical correct token fails while a prior reservation is still outstanding.</summary>
+    [Fact]
+    public void TryValidate_ReservationOutstanding_SecondCallWithSameCorrectTokenFails()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token));
+
+        Assert.False(authenticator.TryValidate(token));
+    }
+
+    /// <summary>Verifies that a second TryValidate call rejected only because a reservation was already outstanding does not count toward the failure throttle.</summary>
+    [Fact]
+    public void TryValidate_ReservationOutstanding_DoesNotCountTowardTheFailureThrottle()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(token));
+
+        for (int i = 0; i < 10; i++)
+        {
+            Assert.False(authenticator.TryValidate(token));
+        }
+
+        authenticator.RollbackReservation();
         Assert.True(authenticator.TryValidate(token));
     }
 
@@ -243,22 +273,62 @@ public class LocalConnectionTokenAuthenticatorTests
     }
 
     /// <summary>
-    /// Verifies the exact scenario this two-phase split exists for: a validated token that is never
-    /// committed (because the caller's own admission failed for an unrelated reason) remains valid
-    /// for a legitimate retry.
+    /// Verifies the exact scenario this two-phase split exists for: a validated token whose caller's
+    /// own admission failed downstream for an unrelated reason (for example the session slot is full)
+    /// rolls back its reservation, and the token remains valid for a legitimate retry.
     /// </summary>
     [Fact]
-    public void TryValidate_NotCommitted_TokenRemainsValidForRetry()
+    public void TryValidate_RolledBackAfterDownstreamFailure_TokenRemainsValidForRetry()
     {
         var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = authenticator.IssueToken();
         Assert.True(authenticator.TryValidate(token));
 
-        // Simulated: the caller's own admission failed downstream, so it never calls CommitConsumption.
+        // Simulated: the caller's own admission failed downstream for an unrelated reason.
+        authenticator.RollbackReservation();
 
         Assert.True(authenticator.TryValidate(token));
         authenticator.CommitConsumption();
         Assert.False(authenticator.TryValidate(token));
+    }
+
+    /// <summary>Verifies that RollbackReservation is safe to call even when no reservation is outstanding.</summary>
+    [Fact]
+    public void RollbackReservation_NothingReserved_DoesNotThrow()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+
+        authenticator.RollbackReservation();
+    }
+
+    /// <summary>Verifies that issuing a fresh token releases a still-outstanding reservation on the prior one, rather than leaving a stale reservation that could never be validated again.</summary>
+    [Fact]
+    public void IssueToken_ReservationOutstandingOnPriorToken_ReleasesIt()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string firstToken = authenticator.IssueToken();
+        Assert.True(authenticator.TryValidate(firstToken));
+
+        string secondToken = authenticator.IssueToken();
+
+        Assert.True(authenticator.TryValidate(secondToken));
+    }
+
+    /// <summary>
+    /// Verifies the invariant this whole reservation lifecycle exists to guarantee: of many concurrent
+    /// TryValidate attempts presenting the one correct token, exactly one succeeds -- independent of
+    /// how many active sessions the host is configured to admit, which is a session-registry concern
+    /// unrelated to this authenticator's own single-use guarantee.
+    /// </summary>
+    [Fact]
+    public async Task TryValidate_ConcurrentAttemptsWithSameCorrectToken_OnlyOneSucceeds()
+    {
+        var authenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = authenticator.IssueToken();
+
+        bool[] results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(() => authenticator.TryValidate(token))));
+
+        Assert.Single(results, succeeded => succeeded);
     }
 
     /// <summary>Verifies that CommitConsumption is safe to call even when nothing is currently issued.</summary>

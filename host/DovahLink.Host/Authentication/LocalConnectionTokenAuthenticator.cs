@@ -26,24 +26,40 @@ public interface ILocalConnectionTokenAuthenticator
 
     /// <summary>
     /// Checks the current token the same way <see cref="TryConsume"/> does -- including recording a
-    /// failed attempt against the shared rate limit on a mismatch -- but does not itself consume a
-    /// match. A caller that receives <see langword="true"/> must call
-    /// <see cref="CommitConsumption"/> once its own admission succeeds; if admission fails for an
-    /// unrelated reason (for example the session slot is full), simply not committing leaves the
-    /// token valid for a legitimate retry, per <c>ai/context/protocol/security.md</c>'s "commit a
-    /// successful one-time developer token only after session admission succeeds" and "a full
-    /// session slot must not consume a retryable one-time token."
+    /// failed attempt against the shared rate limit on a mismatch -- and, on a match, atomically
+    /// reserves it so no concurrent caller can also validate the same token before this reservation is
+    /// resolved: a second, simultaneous <see cref="TryValidate"/> call presenting the identical correct
+    /// token returns <see langword="false"/> while a reservation is outstanding, rather than also
+    /// succeeding. A caller that receives <see langword="true"/> owns the sole reservation and must
+    /// call exactly one of <see cref="CommitConsumption"/> (once its own admission succeeds) or
+    /// <see cref="RollbackReservation"/> (if admission fails for an unrelated reason, for example the
+    /// session slot is full) to resolve it -- per <c>ai/context/protocol/security.md</c>'s "commit a
+    /// successful one-time developer token only after session admission succeeds" and "a full session
+    /// slot must not consume a retryable one-time token" -- while still guaranteeing the token can
+    /// never authenticate more than one admitted connection concurrently, independent of how many
+    /// active sessions the host is configured to admit.
     /// </summary>
     /// <param name="presentedToken">The token presented by a connecting client.</param>
-    /// <returns><see langword="true"/> if the presented token matched the current, unexpired token.</returns>
+    /// <returns>
+    /// <see langword="true"/> if the presented token matched the current, unexpired token and no other
+    /// reservation was already outstanding.
+    /// </returns>
     bool TryValidate(string presentedToken);
 
     /// <summary>
-    /// Consumes the token, ending its validity. Intended to follow a successful
-    /// <see cref="TryValidate"/> once the caller's own admission has succeeded. Idempotent and safe
-    /// to call even when nothing is currently issued.
+    /// Consumes the token, ending its validity and releasing the reservation a prior
+    /// <see cref="TryValidate"/> call placed. Idempotent and safe to call even when nothing is
+    /// currently issued or reserved.
     /// </summary>
     void CommitConsumption();
+
+    /// <summary>
+    /// Releases the reservation a prior successful <see cref="TryValidate"/> call placed, without
+    /// consuming the token, so a later legitimate retry (by this caller or another) can validate it
+    /// again. Intended for a caller whose own admission failed downstream for a reason unrelated to
+    /// the token itself. Idempotent and safe to call even when no reservation is outstanding.
+    /// </summary>
+    void RollbackReservation();
 }
 
 /// <inheritdoc cref="ILocalConnectionTokenAuthenticator"/>
@@ -64,6 +80,14 @@ public sealed class LocalConnectionTokenAuthenticator : ILocalConnectionTokenAut
     /// <summary>The UTC time of each failed attempt still inside the rate-limit window, oldest first.</summary>
     private readonly Queue<DateTimeOffset> recentFailures = new();
 
+    /// <summary>
+    /// Whether a prior <see cref="TryValidate"/> call's reservation is still outstanding (neither
+    /// committed nor rolled back). While <see langword="true"/>, no other <see cref="TryValidate"/>
+    /// call can succeed, even for the identical correct token -- this is what keeps the token
+    /// single-use under concurrency independent of how many sessions the host admits at once.
+    /// </summary>
+    private bool reserved;
+
     /// <summary>Creates a local connection token authenticator.</summary>
     /// <param name="clock">The time source used for token expiry and the failure-rate window.</param>
     public LocalConnectionTokenAuthenticator(IClock clock)
@@ -79,6 +103,7 @@ public sealed class LocalConnectionTokenAuthenticator : ILocalConnectionTokenAut
         {
             currentToken = token;
             expiresAtUtc = clock.UtcNow + Constants.LocalConnectionTokenLifetime;
+            reserved = false;
         }
 
         return token;
@@ -104,7 +129,21 @@ public sealed class LocalConnectionTokenAuthenticator : ILocalConnectionTokenAut
     {
         lock (gate)
         {
-            return MatchesLocked(presentedToken);
+            if (reserved)
+            {
+                // Another caller's reservation is already outstanding for this token: this is a
+                // losing race against the correct token, not a wrong secret, so no failure is
+                // recorded against the rate limit.
+                return false;
+            }
+
+            if (!MatchesLocked(presentedToken))
+            {
+                return false;
+            }
+
+            reserved = true;
+            return true;
         }
     }
 
@@ -114,6 +153,16 @@ public sealed class LocalConnectionTokenAuthenticator : ILocalConnectionTokenAut
         lock (gate)
         {
             currentToken = null;
+            reserved = false;
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RollbackReservation()
+    {
+        lock (gate)
+        {
+            reserved = false;
         }
     }
 
