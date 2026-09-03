@@ -337,6 +337,38 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
+    /// Verifies that a wire-malformed trusted_device_credential token (rejected by <c>IsValidAuth</c>'s
+    /// hex/length check before <c>HandleTrustBackedHello</c> is ever reached) never touches
+    /// <see cref="ITrustedCredentialFailureThrottle"/>'s global budget: the budget's full
+    /// <see cref="Constants.TrustedCredentialMaxFailuresPerWindow"/> capacity is still available
+    /// afterward, proven by then recording exactly that many failures and observing the throttle become
+    /// exhausted only once all of them have landed -- not one attempt sooner.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_MalformedTrustedCredential_DoesNotConsumeCredentialThrottle()
+    {
+        var context = new TestContext();
+        byte[] hello = BuildHello(
+            context.Codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = "abcd" });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, Assert.Single(context.FakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.Equal(0, context.SessionRegistry.ActiveCount);
+
+        for (int i = 0; i < Constants.TrustedCredentialMaxFailuresPerWindow - 1; i++)
+        {
+            Assert.True(context.CredentialThrottle.IsAllowed());
+            context.CredentialThrottle.RecordFailure();
+        }
+
+        Assert.True(context.CredentialThrottle.IsAllowed());
+        context.CredentialThrottle.RecordFailure();
+        Assert.False(context.CredentialThrottle.IsAllowed());
+    }
+
+    /// <summary>
     /// Verifies the recheck-after-admission race's Revoked branch specifically (the Blocked branch is
     /// covered by <see cref="HandleMessageAsync_BlockedByAdminBetweenInitialCheckAndRecheck_RollsBackAndRejects"/>):
     /// an identity Revoked between the initial check and the post-reservation recheck has its session
