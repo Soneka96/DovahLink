@@ -141,6 +141,30 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     }
 
     /// <inheritdoc/>
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason)
+    {
+        var clientIdSet = new HashSet<ClientId>(clientIds);
+        List<SessionInvalidationTarget> targets;
+        lock (gate)
+        {
+            targets = [];
+            foreach (SessionId sessionId in activeSessions
+                .Where(pair => clientIdSet.Contains(pair.Value.ClientId) &&
+                    pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
+                .Select(pair => pair.Key)
+                .ToList())
+            {
+                ActiveSessionRecord record = activeSessions[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
+                activeSessions.Remove(sessionId);
+            }
+        }
+
+        OnMutationApplied?.Invoke("InvalidateAllForClients");
+        return targets;
+    }
+
+    /// <inheritdoc/>
     public bool IsActive(SessionId sessionId, ConnectionId connectionId)
     {
         lock (gate)

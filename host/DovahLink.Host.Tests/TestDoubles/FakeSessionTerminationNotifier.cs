@@ -18,11 +18,26 @@ public sealed class FakeSessionTerminationNotifier : ISessionTerminationNotifier
     /// </summary>
     public Action<SessionInvalidationTarget>? OnNotify { get; set; }
 
+    /// <summary>
+    /// Optional asynchronous work awaited for each target before it is recorded, letting a test hold
+    /// one specific target's notification open (for example by keying on its <c>ClientId</c>) while
+    /// asserting on another target's already-invalidated state in the meantime.
+    /// </summary>
+    public Func<SessionInvalidationTarget, Task>? BeforeNotify { get; set; }
+
     /// <inheritdoc/>
-    public Task NotifyAndCloseAsync(SessionInvalidationTarget target, CancellationToken cancellationToken = default)
+    public async Task NotifyAndCloseAsync(SessionInvalidationTarget target, CancellationToken cancellationToken = default)
     {
+        if (BeforeNotify is { } beforeNotify)
+        {
+            await beforeNotify(target);
+        }
+
         OnNotify?.Invoke(target);
         NotifiedTargets.Add(target);
-        return ThrowOnNotify is { } exception ? Task.FromException(exception) : Task.CompletedTask;
+        if (ThrowOnNotify is { } exception)
+        {
+            throw exception;
+        }
     }
 }

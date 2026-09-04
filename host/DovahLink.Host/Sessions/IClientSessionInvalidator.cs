@@ -21,6 +21,19 @@ public interface IClientSessionInvalidator
     Task InvalidateClientAsync(ClientId clientId, SessionInvalidationReason reason, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Invalidates every currently active session belonging to any of several clients in one atomic
+    /// registry pass -- see <see cref="ISessionRegistry.InvalidateAllForClients"/> -- before attempting
+    /// any target's best-effort notification/close, for an explicit administrative reason affecting
+    /// multiple clients at once (for example Reset Trust revoking several devices). Unlike a sequential
+    /// per-client <see cref="InvalidateClientAsync"/> loop, this guarantees every affected client is
+    /// already unauthorized before any of their sessions' teardown begins.
+    /// </summary>
+    /// <param name="clientIds">The clients whose sessions to invalidate.</param>
+    /// <param name="reason">The authoritative reason these clients' sessions are being invalidated.</param>
+    /// <param name="cancellationToken">The token used to bound the underlying notifications.</param>
+    Task InvalidateClientsAsync(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Unconditionally invalidates every currently active session for an explicit administrative
     /// reason, then best-effort notifies and closes each invalidated session.
     /// </summary>
@@ -55,6 +68,13 @@ public sealed class ClientSessionInvalidator : IClientSessionInvalidator
     }
 
     /// <inheritdoc/>
+    public async Task InvalidateClientsAsync(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason, CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<SessionInvalidationTarget> targets = sessionRegistry.InvalidateAllForClients(clientIds, reason);
+        await NotifyAllAsync(targets, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public async Task InvalidateAllAsync(SessionInvalidationReason reason, CancellationToken cancellationToken = default)
     {
         IReadOnlyList<SessionInvalidationTarget> targets = sessionRegistry.InvalidateAll(reason);
@@ -62,9 +82,13 @@ public sealed class ClientSessionInvalidator : IClientSessionInvalidator
     }
 
     /// <summary>
-    /// Best-effort notifies and closes every target, never letting one target's failure prevent the
-    /// remaining targets from being attempted or propagate back to the authoritative trust mutation
-    /// that already committed.
+    /// Best-effort notifies and closes every target, never letting one target's failure or
+    /// cancellation prevent the remaining targets from being attempted or propagate back to the
+    /// authoritative trust mutation that already committed. Every target here is already
+    /// unauthorized -- removed from the registry before this ever runs -- so a caller's own token
+    /// still bounds each individual <see cref="ISessionTerminationNotifier.NotifyAndCloseAsync"/> call,
+    /// but its cancellation is treated the same as any other per-target failure rather than aborting
+    /// the remaining targets' teardown.
     /// </summary>
     /// <param name="targets">The sessions already invalidated and awaiting notification.</param>
     /// <param name="cancellationToken">The token used to bound each underlying notification.</param>
@@ -76,15 +100,11 @@ public sealed class ClientSessionInvalidator : IClientSessionInvalidator
             {
                 await terminationNotifier.NotifyAndCloseAsync(target, cancellationToken);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
             catch
             {
                 // Best-effort: the session is already unauthorized regardless of this outcome, so one
-                // target's notification/close failure must never prevent the rest from being attempted
-                // or propagate back to the trust mutation that already committed.
+                // target's notification/close failure or cancellation must never prevent the rest from
+                // being attempted or propagate back to the trust mutation that already committed.
             }
         }
     }

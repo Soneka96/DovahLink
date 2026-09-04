@@ -144,6 +144,61 @@ public class SessionRegistryTests
     }
 
     /// <summary>
+    /// Verifies that batch invalidation removes every session belonging to any of several clients in
+    /// one call, while leaving an unrelated client's session active -- the batch counterpart to
+    /// <see cref="InvalidateAllForClient_InvalidatesOnlyThatClientsSessions"/>.
+    /// </summary>
+    [Fact]
+    public void InvalidateAllForClients_InvalidatesEveryListedClientsSessions()
+    {
+        var registry = new SessionRegistry(3);
+        ClientId first = ClientId.NewId();
+        ClientId second = ClientId.NewId();
+        ClientId unrelated = ClientId.NewId();
+        ConnectionId firstConnection = ConnectionId.NewId();
+        ConnectionId secondConnection = ConnectionId.NewId();
+        ConnectionId unrelatedConnection = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            first, firstConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId firstSession));
+        Assert.True(registry.TryCreate(
+            second, secondConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId secondSession));
+        Assert.True(registry.TryCreate(
+            unrelated, unrelatedConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId unrelatedSession));
+
+        IReadOnlyList<SessionInvalidationTarget> targets = registry.InvalidateAllForClients([first, second], SessionInvalidationReason.TrustReset);
+
+        Assert.Equal(2, targets.Count);
+        Assert.False(registry.IsActive(firstSession, firstConnection));
+        Assert.False(registry.IsActive(secondSession, secondConnection));
+        Assert.True(registry.IsActive(unrelatedSession, unrelatedConnection));
+        Assert.Equal(1, registry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Verifies that batch invalidation exempts a developer-token session the same way
+    /// <see cref="InvalidateAllForClient_DeveloperTokenSession_IsExempt"/> proves for the single-client
+    /// path.
+    /// </summary>
+    [Fact]
+    public void InvalidateAllForClients_DeveloperTokenSession_IsExempt()
+    {
+        var registry = new SessionRegistry(2);
+        ClientId clientId = ClientId.NewId();
+        ConnectionId developerConnection = ConnectionId.NewId();
+        ConnectionId trustedConnection = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            clientId, developerConnection, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId developerSession));
+        Assert.True(registry.TryCreate(
+            clientId, trustedConnection, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId trustedSession));
+
+        registry.InvalidateAllForClients([clientId], SessionInvalidationReason.TrustReset);
+
+        Assert.True(registry.IsActive(developerSession, developerConnection));
+        Assert.False(registry.IsActive(trustedSession, trustedConnection));
+        Assert.Equal(1, registry.ActiveCount);
+    }
+
+    /// <summary>
     /// Verifies that unconditional global invalidation (Factory Reset) still invalidates a
     /// developer-token session, unlike the client-scoped exemption
     /// <see cref="ISessionRegistry.InvalidateAllForClient"/> applies.

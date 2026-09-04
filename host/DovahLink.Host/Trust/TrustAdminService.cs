@@ -172,9 +172,13 @@ public sealed class TrustAdminService : ITrustAdminService
     {
         IReadOnlyList<ClientId> affected = await trustStore.ResetTrustAsync(cancellationToken);
         pairingCoordinator.CancelAll();
-        foreach (ClientId clientId in affected)
+        if (affected.Count > 0)
         {
-            await sessionInvalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.TrustReset, cancellationToken);
+            // Batch invalidation: every affected client becomes unauthorized in one atomic registry
+            // pass before any of their sessions' best-effort notification/close is attempted, rather
+            // than a per-client loop that would leave client B authorized while client A's teardown is
+            // still in flight.
+            await sessionInvalidator.InvalidateClientsAsync(affected, SessionInvalidationReason.TrustReset, cancellationToken);
         }
 
         return affected;

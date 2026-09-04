@@ -336,9 +336,9 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Verifies that Reset Trust's per-affected-client loop invalidates and notifies every trusted
-    /// device it revokes, not just the first -- each with its own <c>trust_reset</c> reason, not a
-    /// single call that only reaches one of them.
+    /// Verifies that Reset Trust's batch invalidation notifies every trusted device it revokes, not
+    /// just the first -- each with its own <c>trust_reset</c> reason, not a single call that only
+    /// reaches one of them.
     /// </summary>
     [Fact]
     public async Task ResetTrustAsync_MultipleTrustedDevices_NotifiesEachWithTrustReset()
@@ -365,6 +365,52 @@ public class TrustAdminServiceTests
         Assert.Equal(
             new[] { first, second }.OrderBy(id => id.Value),
             notifier.NotifiedTargets.Select(target => target.ClientId).OrderBy(id => id.Value));
+    }
+
+    /// <summary>
+    /// Verifies the batch-invalidation guarantee the sequential-loop bug this fixes would have missed:
+    /// with the first affected client's notification deliberately held open, the second affected
+    /// client is already unauthorized in the registry -- proving both clients were removed from
+    /// authorization in one atomic pass before either one's best-effort teardown began, rather than
+    /// the second only becoming unauthorized once the loop reached it.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_MultipleTrustedDevices_SecondClientAlreadyUnauthorizedWhileFirstNotificationIsInFlight()
+    {
+        var trustStore = new FakeTrustStore();
+        var sessions = new FakeSessionRegistry(2);
+        var pairing = new FakePairingCoordinator();
+        var enteredFirstNotify = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstNotify = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ClientId first = ClientId.NewId();
+        ClientId second = ClientId.NewId();
+        var notifier = new FakeSessionTerminationNotifier
+        {
+            BeforeNotify = target =>
+            {
+                if (!target.ClientId.Equals(first))
+                {
+                    return Task.CompletedTask;
+                }
+
+                enteredFirstNotify.SetResult();
+                return releaseFirstNotify.Task;
+            },
+        };
+        trustStore.Seed(new TrustRecord(first, "12345", "First", KnownDeviceState.Trusted, "hash1", DateTimeOffset.UtcNow));
+        trustStore.Seed(new TrustRecord(second, "12346", "Second", KnownDeviceState.Trusted, "hash2", DateTimeOffset.UtcNow));
+        SessionId firstSession = sessions.Create(first);
+        SessionId secondSession = sessions.Create(second);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
+
+        Task<IReadOnlyList<ClientId>> resetTrust = admin.ResetTrustAsync();
+        await enteredFirstNotify.Task;
+
+        Assert.False(sessions.IsActive(firstSession, sessions.ConnectionIdFor(firstSession)));
+        Assert.False(sessions.IsActive(secondSession, sessions.ConnectionIdFor(secondSession)));
+
+        releaseFirstNotify.SetResult();
+        await resetTrust;
     }
 
     /// <summary>Verifies that Reset Trust cancels pairing even when no trusted device needs revocation.</summary>
@@ -524,7 +570,7 @@ public class TrustAdminServiceTests
         Assert.Equal(["Block", "Cancel", "InvalidateAllForClient", "Notified:Blocked"], order);
     }
 
-    /// <summary>Verifies the same mandated ordering for Reset Trust, including per-affected-device invalidation.</summary>
+    /// <summary>Verifies the same mandated ordering for Reset Trust, including the batch invalidation of every affected device.</summary>
     [Fact]
     public async Task ResetTrustAsync_AppliesSideEffectsInTheMandatedOrder()
     {
@@ -540,7 +586,7 @@ public class TrustAdminServiceTests
 
         await admin.ResetTrustAsync();
 
-        Assert.Equal(["ResetTrust", "CancelAll", "InvalidateAllForClient", "Notified:TrustReset"], order);
+        Assert.Equal(["ResetTrust", "CancelAll", "InvalidateAllForClients", "Notified:TrustReset"], order);
     }
 
     /// <summary>

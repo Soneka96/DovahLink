@@ -44,6 +44,23 @@ public interface ISessionRegistry
     IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason);
 
     /// <summary>
+    /// Invalidates every currently active session belonging to any of several clients in one atomic
+    /// pass under this registry's own internal lock, applying the same developer-token exemption as
+    /// <see cref="InvalidateAllForClient"/>. Exists so a multi-client administrative mutation (for
+    /// example Reset Trust revoking several devices at once) can remove every affected client's
+    /// authorization before any target's best-effort notification/close is attempted, rather than
+    /// authorizing client B to keep operating while client A's teardown is still in flight -- a
+    /// sequential per-client call to <see cref="InvalidateAllForClient"/> cannot give that guarantee.
+    /// The returned snapshot is captured while this registry's internal lock is held and handed back
+    /// only after it is released, so a caller can safely use it to attempt transport work afterward
+    /// without ever running that work under this registry's lock.
+    /// </summary>
+    /// <param name="clientIds">The clients whose sessions should be invalidated.</param>
+    /// <param name="reason">The authoritative reason these sessions are being invalidated.</param>
+    /// <returns>An immutable snapshot of every session this call actually invalidated, across every client.</returns>
+    IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason);
+
+    /// <summary>
     /// Reports whether a session is active on its owning connection. For the one-time admission
     /// commit itself, use <see cref="TryFinalizeAdmission"/> instead: this method is for an ongoing,
     /// repeatable liveness check on an already-admitted session.
@@ -196,6 +213,28 @@ public sealed class SessionRegistry : ISessionRegistry
             var targets = new List<SessionInvalidationTarget>();
             foreach (SessionId sessionId in sessionsById
                 .Where(pair => pair.Value.ClientId.Equals(clientId) &&
+                    pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
+                .Select(pair => pair.Key)
+                .ToList())
+            {
+                ActiveSessionRecord record = sessionsById[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
+                sessionsById.Remove(sessionId);
+            }
+
+            return targets;
+        }
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason)
+    {
+        var clientIdSet = new HashSet<ClientId>(clientIds);
+        lock (gate)
+        {
+            var targets = new List<SessionInvalidationTarget>();
+            foreach (SessionId sessionId in sessionsById
+                .Where(pair => clientIdSet.Contains(pair.Value.ClientId) &&
                     pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())

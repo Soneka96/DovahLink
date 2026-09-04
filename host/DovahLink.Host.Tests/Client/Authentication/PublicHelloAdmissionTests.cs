@@ -2372,6 +2372,10 @@ public class PublicHelloAdmissionTests
             inner.InvalidateAllForClient(clientId, reason);
 
         /// <inheritdoc/>
+        public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason) =>
+            inner.InvalidateAllForClients(clientIds, reason);
+
+        /// <inheritdoc/>
         public bool IsActive(SessionId sessionId, ConnectionId connectionId) => inner.IsActive(sessionId, connectionId);
 
         /// <inheritdoc/>

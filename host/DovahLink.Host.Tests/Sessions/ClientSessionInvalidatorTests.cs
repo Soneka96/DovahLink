@@ -43,6 +43,36 @@ public class ClientSessionInvalidatorTests
         Assert.True(sessionRegistry.IsActive(developerSession, developerConnection));
     }
 
+    /// <summary>
+    /// Verifies that batch invalidation notifies every affected session across every listed client
+    /// with the exact reason given, and still exempts a developer-token session -- the multi-client
+    /// counterpart to <see cref="InvalidateClientAsync_NotifiesEveryAffectedSessionWithExactReason"/>
+    /// and <see cref="InvalidateClientAsync_ExcludesOneTimeLocalTokenSession"/>.
+    /// </summary>
+    [Fact]
+    public async Task InvalidateClientsAsync_NotifiesEveryAffectedSessionAcrossEveryClientAndExcludesDeveloperToken()
+    {
+        var sessionRegistry = new SessionRegistry(3);
+        var notifier = new FakeSessionTerminationNotifier();
+        var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
+        ClientId first = ClientId.NewId();
+        ClientId second = ClientId.NewId();
+        ClientId developerClient = ClientId.NewId();
+        sessionRegistry.TryCreate(first, ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId firstSession);
+        sessionRegistry.TryCreate(second, ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId secondSession);
+        ConnectionId developerConnection = ConnectionId.NewId();
+        sessionRegistry.TryCreate(developerClient, developerConnection, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId developerSession);
+
+        await invalidator.InvalidateClientsAsync([first, second, developerClient], SessionInvalidationReason.TrustReset);
+
+        Assert.Equal(2, notifier.NotifiedTargets.Count);
+        Assert.All(notifier.NotifiedTargets, target => Assert.Equal(SessionInvalidationReason.TrustReset, target.Reason));
+        Assert.Equal(
+            new[] { firstSession, secondSession }.OrderBy(id => id.Value),
+            notifier.NotifiedTargets.Select(target => target.SessionId).OrderBy(id => id.Value));
+        Assert.True(sessionRegistry.IsActive(developerSession, developerConnection));
+    }
+
     /// <summary>Verifies that unconditional invalidation through the seam still reaches a developer-token session.</summary>
     [Fact]
     public async Task InvalidateAllAsync_IncludesOneTimeLocalTokenSession()
@@ -165,9 +195,7 @@ public class ClientSessionInvalidatorTests
 
     /// <summary>
     /// Verifies that an <see cref="OperationCanceledException"/> from the notifier is swallowed as an
-    /// ordinary best-effort failure when the caller's own token was never cancelled -- only a genuine
-    /// cancellation of the token this call was given propagates, per
-    /// <see cref="NotifierOperationCanceledException_WithCancelledToken_Propagates"/>.
+    /// ordinary best-effort failure when the caller's own token was never cancelled.
     /// </summary>
     [Fact]
     public async Task NotifierOperationCanceledException_WithoutCancellation_IsSwallowedAsBestEffort()
@@ -184,12 +212,14 @@ public class ClientSessionInvalidatorTests
     }
 
     /// <summary>
-    /// Verifies that an <see cref="OperationCanceledException"/> from the notifier propagates when it
-    /// corresponds to the caller's own token actually being cancelled, rather than being swallowed as
-    /// an ordinary best-effort failure the way <see cref="NotifierOperationCanceledException_WithoutCancellation_IsSwallowedAsBestEffort"/> proves.
+    /// Verifies that an <see cref="OperationCanceledException"/> from the notifier is swallowed as an
+    /// ordinary best-effort failure even when it corresponds to the caller's own token actually being
+    /// cancelled: every already-unauthorized target must still receive its best-effort teardown
+    /// attempt regardless of why one target's own attempt was cancelled or failed, per
+    /// <see cref="NotifyAllAsync_FirstTargetCancelled_StillAttemptsRemainingTargets"/>.
     /// </summary>
     [Fact]
-    public async Task NotifierOperationCanceledException_WithCancelledToken_Propagates()
+    public async Task NotifierOperationCanceledException_WithCancelledToken_IsSwallowedAsBestEffort()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier { ThrowOnNotify = new OperationCanceledException("cancelled") };
@@ -199,7 +229,30 @@ public class ClientSessionInvalidatorTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked, cancellation.Token));
+        await invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked, cancellation.Token);
+
+        Assert.Single(notifier.NotifiedTargets);
+    }
+
+    /// <summary>
+    /// Verifies that the first target's notification being cancelled never prevents the remaining
+    /// already-unauthorized targets from receiving their own best-effort teardown attempt: the
+    /// authoritative trust mutation already committed for all of them, so one target's cancellation is
+    /// just another best-effort failure, not a reason to abandon the rest. Every target here throws
+    /// the same cancellation so the assertion holds regardless of which target the registry happens to
+    /// enumerate first.
+    /// </summary>
+    [Fact]
+    public async Task NotifyAllAsync_FirstTargetCancelled_StillAttemptsRemainingTargets()
+    {
+        var sessionRegistry = new SessionRegistry(2);
+        sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _);
+        sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _);
+        var notifier = new FakeSessionTerminationNotifier { ThrowOnNotify = new OperationCanceledException("cancelled") };
+        var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
+
+        await invalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset);
+
+        Assert.Equal(2, notifier.NotifiedTargets.Count);
     }
 }
