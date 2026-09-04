@@ -197,6 +197,9 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// <summary>Produces one short-id candidate, or null when secure generation fails.</summary>
     private readonly Func<string?> shortIdGenerator;
 
+    /// <summary>Computes a credential's durable verifier, defaulting to <see cref="CredentialHasher.Hash"/>.</summary>
+    private readonly Func<string, string> credentialVerifierHasher;
+
     /// <summary>The active client-bound challenge, or <see langword="null"/>.</summary>
     private PairingChallenge? activeChallenge;
 
@@ -268,18 +271,21 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// <param name="pairingCodeGenerator">Optional deterministic pairing-code generator.</param>
     /// <param name="credentialGenerator">Optional deterministic credential generator.</param>
     /// <param name="shortIdGenerator">Optional deterministic short-id candidate generator.</param>
+    /// <param name="credentialVerifierHasher">Optional override for computing a credential's durable verifier.</param>
     public PairingCoordinator(
         ITrustStore trustStore,
         IClock clock,
         Func<string?>? pairingCodeGenerator = null,
         Func<string?>? credentialGenerator = null,
-        Func<string?>? shortIdGenerator = null)
+        Func<string?>? shortIdGenerator = null,
+        Func<string, string>? credentialVerifierHasher = null)
     {
         this.trustStore = trustStore;
         this.clock = clock;
         this.pairingCodeGenerator = pairingCodeGenerator ?? GeneratePairingCode;
         this.credentialGenerator = credentialGenerator ?? GenerateCredential;
         this.shortIdGenerator = shortIdGenerator ?? GenerateShortIdCandidate;
+        this.credentialVerifierHasher = credentialVerifierHasher ?? CredentialHasher.Hash;
     }
 
     /// <inheritdoc/>
@@ -485,16 +491,20 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// one <see cref="gate"/>-scoped block it re-validates the reservation, checks whether another
     /// invocation already owns <see cref="pendingCommitClaim"/>, and checks it against the trust
     /// store's current <see cref="ITrustStore.SecurityFenceGeneration"/> -- only if all three hold --
-    /// irrevocably claims it with a fresh <see cref="CommitClaimId"/> before releasing the lock,
-    /// awaiting persistence unguarded, then finalizing through <see cref="ClearPending"/>. A slow or
-    /// blocked write can therefore never synchronously block unrelated pairing lifecycle work --
-    /// <see cref="Cancel"/>, <see cref="NotifyDisconnected"/>, <see cref="CancelAll"/>, or another
-    /// coordinator operation racing it during connection teardown. This claim is what linearizes ACK
-    /// against both Cancel/CancelAll and a second concurrent ACK for the exact same credential: once
-    /// claimed, <see cref="pendingCommitClaim"/> stops <see cref="Cancel"/>/<see cref="CancelAll"/>
-    /// from ever clearing or replacing this reservation, and stops a concurrent
-    /// <see cref="CommitPendingAsync"/> call from ever claiming it too, so persistence is the sole
-    /// remaining authority over whether it becomes Trusted, and no concurrent cancellation can report
+    /// irrevocably claims it with a fresh <see cref="CommitClaimId"/> before releasing the lock. From
+    /// that instant, every remaining step -- short-id resolution, record construction, and persistence
+    /// -- runs inside one ownership-tracking block whose <c>finally</c> releases this exact claim
+    /// through <see cref="ReleaseCommitClaim"/> unless a durable outcome (or a re-validated
+    /// invalidation) already resolved it through <see cref="ClearPending"/> first; nothing enumerates
+    /// individual failure branches to decide whether to release. A slow or blocked write can therefore
+    /// never synchronously block unrelated pairing lifecycle work -- <see cref="Cancel"/>,
+    /// <see cref="NotifyDisconnected"/>, <see cref="CancelAll"/>, or another coordinator operation
+    /// racing it during connection teardown. This claim is what linearizes ACK against both
+    /// Cancel/CancelAll and a second concurrent ACK for the exact same credential: once claimed,
+    /// <see cref="pendingCommitClaim"/> stops <see cref="Cancel"/>/<see cref="CancelAll"/> from ever
+    /// clearing or replacing this reservation, and stops a concurrent <see cref="CommitPendingAsync"/>
+    /// call from ever claiming it too, so persistence is the sole remaining authority over whether it
+    /// becomes Trusted, and no concurrent cancellation can report
     /// <see cref="PairingCancelOutcome.Cancelled"/> for a credential that goes on to persist durably --
     /// nor can a losing concurrent ACK ever reach persistence for it. A cancellation that instead lands
     /// before the claim -- while <see cref="pendingCommitClaim"/> is still <see langword="null"/> --
@@ -502,13 +512,11 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// <see cref="PairingCommitOutcome.PendingNotFound"/> without ever attempting persistence; a losing
     /// concurrent ACK that arrives after another call already claimed the reservation reports the same
     /// <see cref="PairingCommitOutcome.PendingNotFound"/> without persisting anything. If the winning
-    /// call's own attempt does not reach a durable outcome -- a short-id generator exhaustion before
-    /// persistence is even attempted, an unexpected exception from that same pre-persistence work, a
-    /// thrown persistence exception, or the caller's own token being cancelled -- it releases its own
-    /// claim through <see cref="ReleaseCommitClaim"/> without clearing the pending credential, leaving
-    /// it exactly as retryable and cancellable as it was before this call claimed it. Every exit from
-    /// the claimed section that does not complete durable finalization goes through this release,
-    /// mechanically rather than by enumerating each expected failure branch.
+    /// call's own attempt does not reach a durable outcome -- a short-id generator exhaustion, an
+    /// unexpected exception anywhere in the post-claim work (record construction and verifier hashing
+    /// included, not only trust-store lookups and short-id generation), a thrown persistence exception,
+    /// or the caller's own token being cancelled -- the claim is released exactly as retryable and
+    /// cancellable as it was before this call claimed it.
     /// </summary>
     /// <param name="clientId">The client that owns the pending credential.</param>
     /// <param name="credential">The raw credential echoed by the client.</param>
@@ -523,8 +531,6 @@ public sealed class PairingCoordinator : IPairingCoordinator
         PendingCredential? pending;
         CommitClaimId claim = default;
         bool generationInvalidated = false;
-        TrustRecord? existingRecord;
-        string? shortId;
         await operationSemaphore.WaitAsync(cancellationToken);
         try
         {
@@ -564,108 +570,106 @@ public sealed class PairingCoordinator : IPairingCoordinator
                     pending = current;
                 }
             }
-
-            if (pending is null)
-            {
-                if (generationInvalidated)
-                {
-                    return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
-                }
-
-                TrustRecord? existing = trustStore.TryGet(clientId);
-                if (existing is not null && existing.State == KnownDeviceState.Trusted &&
-                    CredentialHasher.FixedTimeEquals(existing.CredentialVerifier, CredentialHasher.Hash(credential)))
-                {
-                    return new PairingCommitResult(
-                        PairingCommitOutcome.AlreadyTrusted,
-                        clientId,
-                        credential,
-                        existing.ShortId,
-                        existing.DisplayName);
-                }
-                return new PairingCommitResult(PairingCommitOutcome.PendingNotFound);
-            }
-
-            try
-            {
-                existingRecord = trustStore.TryGet(clientId);
-                shortId = existingRecord?.ShortId ?? GenerateUniqueShortId();
-            }
-            catch
-            {
-                // The claim was acquired above but this call has not reached persistence: every path
-                // that does not complete durable finalization must release the exact claim it holds,
-                // rather than leaving it stuck for an unexpected fault in this pre-persistence work
-                // too, not only the already-handled shortId-exhaustion branch below.
-                ReleaseCommitClaim(pending, claim);
-                throw;
-            }
-            if (shortId is null)
-            {
-                ReleaseCommitClaim(pending, claim);
-                return new PairingCommitResult(PairingCommitOutcome.GeneratorFailed);
-            }
         }
         finally
         {
             operationSemaphore.Release();
         }
 
-        // Every branch above either returned already or left `pending`/`shortId` non-null -- the
-        // reservation this call now commits without holding operationSemaphore across the await below.
-        PendingCredential reserved = pending!;
-        string? effectiveDisplayName = reserved.DisplayName ?? existingRecord?.DisplayName;
-        var record = new TrustRecord(
-            clientId,
-            shortId!,
-            effectiveDisplayName,
-            KnownDeviceState.Trusted,
-            CredentialHasher.Hash(reserved.Credential),
-            existingRecord?.PairedAtUtc ?? reserved.CreatedAtUtc);
+        if (pending is null)
+        {
+            if (generationInvalidated)
+            {
+                return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
+            }
 
-        bool committed;
+            TrustRecord? existing = trustStore.TryGet(clientId);
+            if (existing is not null && existing.State == KnownDeviceState.Trusted &&
+                CredentialHasher.FixedTimeEquals(existing.CredentialVerifier, CredentialHasher.Hash(credential)))
+            {
+                return new PairingCommitResult(
+                    PairingCommitOutcome.AlreadyTrusted,
+                    clientId,
+                    credential,
+                    existing.ShortId,
+                    existing.DisplayName);
+            }
+            return new PairingCommitResult(PairingCommitOutcome.PendingNotFound);
+        }
+
+        // The claim above is held from this point on: every exit below that does not resolve it
+        // through a successful ClearPending releases it in the finally, mechanically rather than by
+        // enumerating each failure branch -- see this method's own remarks for what that closes.
+        PendingCredential reserved = pending;
+        bool claimResolved = false;
         try
         {
-            committed = await trustStore.TryUpsertIfGenerationAsync(
-                record,
-                reserved.SecurityFenceGeneration,
-                cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            ReleaseCommitClaim(reserved, claim);
-            throw;
-        }
-        catch
-        {
-            ReleaseCommitClaim(reserved, claim);
-            return new PairingCommitResult(PairingCommitOutcome.PersistenceFailed);
-        }
+            TrustRecord? existingRecord = trustStore.TryGet(clientId);
+            string? shortId = existingRecord?.ShortId ?? GenerateUniqueShortId();
+            if (shortId is null)
+            {
+                return new PairingCommitResult(PairingCommitOutcome.GeneratorFailed);
+            }
 
-        if (!committed)
-        {
-            // The fence moved between the claim and this write through some other trust mutation --
-            // never a Cancel/CancelAll or a concurrent ACK, which this claim already made impossible --
-            // so the reservation is genuinely invalidated rather than merely un-claimed.
-            ClearPending(reserved, claim);
-            return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
-        }
+            string? effectiveDisplayName = reserved.DisplayName ?? existingRecord?.DisplayName;
+            var record = new TrustRecord(
+                clientId,
+                shortId,
+                effectiveDisplayName,
+                KnownDeviceState.Trusted,
+                credentialVerifierHasher(reserved.Credential),
+                existingRecord?.PairedAtUtc ?? reserved.CreatedAtUtc);
 
-        if (!ClearPending(reserved, claim))
-        {
-            // Unreachable under the claim above: once pendingCommitClaim is set to this call's own
-            // identity, Cancel/CancelAll/expiry/a concurrent ACK can never clear or replace this exact
-            // reservation, so ClearPending always finds it still live here. Kept as a defensive
-            // invariant check rather than assumed.
-            return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
-        }
+            bool committed;
+            try
+            {
+                committed = await trustStore.TryUpsertIfGenerationAsync(
+                    record,
+                    reserved.SecurityFenceGeneration,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return new PairingCommitResult(PairingCommitOutcome.PersistenceFailed);
+            }
 
-        return new PairingCommitResult(
-            PairingCommitOutcome.Trusted,
-            clientId,
-            reserved.Credential,
-            record.ShortId,
-            record.DisplayName);
+            if (!committed)
+            {
+                // The fence moved between the claim and this write through some other trust mutation --
+                // never a Cancel/CancelAll or a concurrent ACK, which this claim already made impossible --
+                // so the reservation is genuinely invalidated rather than merely un-claimed.
+                claimResolved = ClearPending(reserved, claim);
+                return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
+            }
+
+            claimResolved = ClearPending(reserved, claim);
+            if (!claimResolved)
+            {
+                // Unreachable under the claim above: once pendingCommitClaim is set to this call's own
+                // identity, Cancel/CancelAll/expiry/a concurrent ACK can never clear or replace this exact
+                // reservation, so ClearPending always finds it still live here. Kept as a defensive
+                // invariant check rather than assumed.
+                return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
+            }
+
+            return new PairingCommitResult(
+                PairingCommitOutcome.Trusted,
+                clientId,
+                reserved.Credential,
+                record.ShortId,
+                record.DisplayName);
+        }
+        finally
+        {
+            if (!claimResolved)
+            {
+                ReleaseCommitClaim(reserved, claim);
+            }
+        }
     }
 
     /// <inheritdoc/>

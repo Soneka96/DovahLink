@@ -503,6 +503,32 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
     }
 
+    /// <summary>
+    /// Verifies the exception-safety guarantee for the section this fix newly protects: an unexpected
+    /// fault in the post-claim record construction and verifier hashing that runs after the short-id is
+    /// already resolved -- not a trust-store lookup or a short-id generator fault, which
+    /// <see cref="CommitPending_TrustStoreTryGetThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential"/>
+    /// and <see cref="CommitPending_ShortIdGeneratorThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential"/>
+    /// already cover -- still releases the claim through the single ownership-tracking <c>finally</c>
+    /// rather than a dedicated catch for this specific fault, proving the cleanup rule itself rather
+    /// than only the previously-known fault sites.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_VerifierHasherThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var coordinator = new PairingCoordinator(
+            new FakeTrustStore(),
+            new FakeClock(),
+            credentialVerifierHasher: _ => throw new InvalidOperationException("Simulated verifier-hashing fault."));
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.CommitPendingAsync(clientId, issued.Credential!));
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+    }
+
     /// <summary>Verifies that a wrong client or credential cannot consume the pending credential.</summary>
     [Fact]
     public async Task CommitPending_WrongClientOrCredential_PreservesPendingCredential()
@@ -1330,7 +1356,7 @@ public class PairingCoordinatorTests
         Assert.Equal(start.Challenge, snapshot.Challenge);
     }
 
-    /// <summary>Verifies that a non-owner committing a redisplay it never peeked reports AlreadyIdle, symmetric with <see cref="TryRenotify_IsOwnerBoundAndDoesNotCommitCooldown"/>.</summary>
+    /// <summary>Verifies that a non-owner committing a redisplay it never peeked reports AlreadyIdle, symmetric with <see cref="TryRenotify_IsOwnerBoundAndDoesNotGrantASecondConcurrentReservation"/>.</summary>
     [Fact]
     public void CommitRenotify_NonOwner_ReturnsAlreadyIdle()
     {
