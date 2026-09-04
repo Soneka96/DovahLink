@@ -23,6 +23,7 @@ public class ClientSessionInvalidatorTests
         Assert.Equal(sessionId, target.SessionId);
         Assert.Equal(clientId, target.ClientId);
         Assert.Equal(SessionInvalidationReason.Revoked, target.Reason);
+        Assert.Equal(SessionAuthenticationSource.TrustedDeviceCredential, target.AuthenticationSource);
     }
 
     /// <summary>Verifies that client-scoped invalidation through the seam still exempts a developer-token session.</summary>
@@ -57,6 +58,7 @@ public class ClientSessionInvalidatorTests
         SessionInvalidationTarget target = Assert.Single(notifier.NotifiedTargets);
         Assert.Equal(sessionId, target.SessionId);
         Assert.Equal(SessionInvalidationReason.FactoryReset, target.Reason);
+        Assert.Equal(SessionAuthenticationSource.OneTimeLocalToken, target.AuthenticationSource);
         Assert.False(sessionRegistry.IsActive(sessionId, connectionId));
     }
 

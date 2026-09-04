@@ -201,7 +201,7 @@ public sealed class SessionRegistry : ISessionRegistry
                 .ToList())
             {
                 ActiveSessionRecord record = sessionsById[sessionId];
-                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason));
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
                 sessionsById.Remove(sessionId);
             }
 
@@ -226,7 +226,7 @@ public sealed class SessionRegistry : ISessionRegistry
         lock (gate)
         {
             List<SessionInvalidationTarget> targets = sessionsById.Values
-                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason))
+                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource))
                 .ToList();
             sessionsById.Clear();
             return targets;

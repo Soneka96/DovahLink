@@ -13,8 +13,10 @@ namespace DovahLink.Host.Sessions;
 /// <param name="ConnectionId">The transport connection that owned the invalidated session.</param>
 /// <param name="ClientId">The client the invalidated session belonged to.</param>
 /// <param name="Reason">The authoritative reason this session was invalidated.</param>
+/// <param name="AuthenticationSource">How the invalidated session's owning connection authenticated at <c>hello</c>.</param>
 public sealed record SessionInvalidationTarget(
     SessionId SessionId,
     ConnectionId ConnectionId,
     ClientId ClientId,
-    SessionInvalidationReason Reason);
+    SessionInvalidationReason Reason,
+    SessionAuthenticationSource AuthenticationSource);

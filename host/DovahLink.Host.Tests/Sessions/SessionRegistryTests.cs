@@ -100,6 +100,25 @@ public class SessionRegistryTests
     }
 
     /// <summary>
+    /// Verifies that the invalidation operation preserves each returned target's authentication
+    /// source, per <c>ai/context/common.md</c>'s domain-modeling rule that a complete, immutable
+    /// target must carry every field a later concept needs rather than only the filtering result.
+    /// </summary>
+    [Fact]
+    public void InvalidateAllForClient_PreservesAuthenticationSourceInTarget()
+    {
+        var registry = new SessionRegistry();
+        ClientId clientId = ClientId.NewId();
+        Assert.True(registry.TryCreate(
+            clientId, ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
+
+        IReadOnlyList<SessionInvalidationTarget> targets = registry.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
+
+        SessionInvalidationTarget target = Assert.Single(targets);
+        Assert.Equal(SessionAuthenticationSource.TrustedDeviceCredential, target.AuthenticationSource);
+    }
+
+    /// <summary>
     /// Verifies that client-wide invalidation exempts a developer-token session: a session whose
     /// <see cref="SessionAuthenticationSource"/> is <see cref="SessionAuthenticationSource.OneTimeLocalToken"/>
     /// is never a Known Device and must survive Block/Revoke's client-scoped invalidation even when
@@ -141,6 +160,20 @@ public class SessionRegistryTests
 
         Assert.False(registry.IsActive(sessionId, connectionId));
         Assert.Equal(0, registry.ActiveCount);
+    }
+
+    /// <summary>Verifies that unconditional invalidation also preserves each returned target's authentication source.</summary>
+    [Fact]
+    public void InvalidateAll_PreservesAuthenticationSourceInTarget()
+    {
+        var registry = new SessionRegistry();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out _));
+
+        IReadOnlyList<SessionInvalidationTarget> targets = registry.InvalidateAll(SessionInvalidationReason.FactoryReset);
+
+        SessionInvalidationTarget target = Assert.Single(targets);
+        Assert.Equal(SessionAuthenticationSource.OneTimeLocalToken, target.AuthenticationSource);
     }
 
     /// <summary>Verifies that a created session's record carries the authentication source and trust tier it was admitted with.</summary>

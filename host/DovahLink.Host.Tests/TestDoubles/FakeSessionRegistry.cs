@@ -131,7 +131,7 @@ public sealed class FakeSessionRegistry : ISessionRegistry
                 .ToList())
             {
                 ActiveSessionRecord record = activeSessions[sessionId];
-                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason));
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
                 activeSessions.Remove(sessionId);
             }
         }
@@ -180,7 +180,7 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         {
             invalidateAllCallCount++;
             targets = activeSessions.Values
-                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason))
+                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource))
                 .ToList();
             activeSessions.Clear();
         }
