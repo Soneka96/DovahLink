@@ -1,6 +1,6 @@
 # 03 — Pairing and client message dispatch
 
-Status: pending
+Status: complete
 
 Covers: R2, R4, R5, R6
 
