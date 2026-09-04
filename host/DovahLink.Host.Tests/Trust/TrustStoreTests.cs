@@ -436,6 +436,78 @@ public class TrustStoreTests
         Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee every other mutation already proves, for
+    /// <see cref="TrustStore.ForgetAsync"/>'s distinct persist-before-delete branch: while its
+    /// persistence write is in flight, the record being forgotten must remain observably present to
+    /// every reader, rather than transiently appearing gone before durability is established.
+    /// </summary>
+    [Fact]
+    public async Task ForgetAsync_WhilePersistenceBlocked_KeepsExposingRecordUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+        long generationBeforeForget = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> forget = store.ForgetAsync(record.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(record, store.TryGetByShortId(record.ShortId));
+        Assert.Equal(generationBeforeForget, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await forget);
+
+        Assert.Null(store.TryGet(record.ClientId));
+        Assert.Equal(generationBeforeForget + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the transient-visibility guarantee: if persistence then fails, the
+    /// record must still be present -- never having been exposed as gone in the meantime -- and the
+    /// security fence must not have moved.
+    /// </summary>
+    [Fact]
+    public async Task ForgetAsync_WhilePersistenceBlocked_PersistenceFails_RecordSurvives()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+        long generationBeforeForget = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> forget = store.ForgetAsync(record.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => forget);
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(generationBeforeForget, store.SecurityFenceGeneration);
+    }
+
     /// <summary>Verifies that a successful clear advances the security fence generation.</summary>
     [Fact]
     public async Task ClearAsync_Success_AdvancesSecurityFenceGeneration()

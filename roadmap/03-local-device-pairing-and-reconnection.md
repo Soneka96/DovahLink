@@ -334,8 +334,9 @@ UX work.
   `Blocked` additionally persists `blockedAt`, administrative metadata only; blocks never expire on
   their own.
 - A Known Device's `shortId` is allocated once, at creation, and stays stable across every
-  transition it can go through (`Trusted -> Revoked -> Trusted`; `Trusted -> Blocked -> Unblocked ->
-  Unpaired -> Trusted`; and `Unpaired -> Blocked`), including while `Blocked`. This is a deliberate change from the trust
+  transition it can go through (`Trusted -> Revoked -> Trusted`; and `Trusted -> Blocked -> Unblocked
+  -> Trusted`), including while `Blocked`. `Unpaired` is never itself eligible for Block -- see
+  below. This is a deliberate change from the trust
   model's current behavior, where a `shortId` becomes reusable as soon as its client is no longer
   trusted (`ai/context/protocol/security.md`'s "Persistent local trust"); under the Known Device
   model a `shortId` is reserved for as long as the Known Device record exists, and becomes reusable
@@ -355,10 +356,10 @@ UX work.
   `displayName`, and `createdAt`. Re-pairing a `Revoked` Known Device restores `Trusted` while
   keeping the same Known Device identity.
 - Blocking is strictly stronger than revocation: it prevents a known device identity from
-  authenticating *or* entering pairing again until explicitly unblocked. Any existing non-`Blocked`
-  Known Device (`Trusted`, `Revoked`, or `Unpaired`) may be blocked; an arbitrary, never-known
-  `clientId` cannot be blocked, since blocking targets an existing Known Device record, not a bare
-  identity string. Repeating Block for an already `Blocked` device returns the truthful
+  authenticating *or* entering pairing again until explicitly unblocked. A `Trusted` or `Revoked`
+  Known Device may be blocked; an `Unpaired` Known Device is never eligible, and an arbitrary,
+  never-known `clientId` cannot be blocked either, since blocking targets an existing eligible
+  Known Device record, not a bare identity string. Repeating Block for an already `Blocked` device returns the truthful
   already-blocked outcome. Blocking atomically destroys any trusted credential, cancels any pairing
   the identity owns (active or pending), immediately disconnects every active session for that
   device, transitions it to `Blocked`, and records `blockedAt`. A blocked device is rejected as
@@ -459,10 +460,12 @@ distinct operation alongside it.
   pairing attempt or request.
 - Revoking a Known Device disconnects its active sessions immediately, invalidates its credential,
   and leaves it able to re-pair back to `Trusted` under the same Known Device identity.
-- Blocking a `Trusted`, `Revoked`, or `Unpaired` Known Device destroys any credential, cancels any
-  pairing it owns, disconnects its active sessions immediately, and thereafter rejects it at `hello`
-  with a distinct `blocked` outcome that exposes no stored metadata -- without producing a Skyrim
-  notification or updating persisted metadata for the rejected attempt. Unknown/random `clientId`
+- Blocking a `Trusted` or `Revoked` Known Device destroys any credential, cancels any pairing it
+  owns, disconnects its active sessions immediately, and thereafter rejects it at `hello` with a
+  distinct `blocked` outcome that exposes no stored metadata -- without producing a Skyrim
+  notification or updating persisted metadata for the rejected attempt. An `Unpaired` Known Device
+  is never eligible for Block and reports it as such without mutation, matching an already-Blocked
+  device's own truthful no-op reporting. Unknown/random `clientId`
   values cannot create Blocked records, and a concurrent authentication cannot establish a trusted
   session after the authoritative Block transition completes.
 - Unblocking returns a device to `Unpaired` without restoring its old credential, requiring a fresh

@@ -337,8 +337,8 @@ It is present for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) 
 Required payload field: `outcome`. `credential`, `shortId`, `displayName`, and `retryAfterSeconds`
 are always present in the payload as `null` unless the note above says otherwise.
 
-`pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm` or `pairing_ack` it
-answers.
+`pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm`, `pairing_ack`,
+`pairing_renotify`, or `pairing_cancel` it answers.
 
 ### `rename_request`
 

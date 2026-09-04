@@ -692,6 +692,40 @@ public class ClientMessageDispatcherTests
 
     // ---- pairing_confirm ----
 
+    /// <summary>
+    /// Verifies that a presented code which is not exactly six ASCII decimal digits is rejected as
+    /// malformed protocol input before it ever reaches <see cref="IPairingCoordinator.ConfirmCode"/>,
+    /// per Concept 02's "wrong shape is malformed protocol, not failed authentication" precedent --
+    /// never consumed as an ordinary wrong-code attempt.
+    /// </summary>
+    [Theory]
+    [InlineData("12345")]
+    [InlineData("1234567")]
+    [InlineData("abcdef")]
+    [InlineData("")]
+    [InlineData("١٢٣٤٥٦")] // Six Arabic-Indic digits: a non-ASCII Unicode digit char.IsDigit would accept but char.IsAsciiDigit correctly rejects.
+    public async Task DispatchAsync_PairingConfirmMalformedCodeShape_SendsMalformedMessageAndReportsViolation(string code)
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = code });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        // A malformed code must never be evaluated against, or consume any attempt state from, the
+        // still-active challenge -- a subsequent genuinely correct submission still succeeds.
+        PairingConfirmationResult stillValid = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
+        Assert.Equal(PairingConfirmOutcome.CredentialIssued, stillValid.Outcome);
+    }
+
     /// <summary>Verifies that a correct code sends credential_issued with the issued credential and display name.</summary>
     [Fact]
     public async Task DispatchAsync_PairingConfirmCorrectCode_SendsCredentialIssued()
@@ -1142,6 +1176,40 @@ public class ClientMessageDispatcherTests
     }
 
     // ---- pairing_ack ----
+
+    /// <summary>
+    /// Verifies that a presented credential which is not exactly the approved hex length/shape is
+    /// rejected as malformed protocol input before it ever reaches
+    /// <see cref="IPairingCoordinator.CommitPendingAsync"/>, per Concept 02's "wrong shape is
+    /// malformed protocol, not failed authentication" precedent -- never treated as an ordinary
+    /// <c>pending_not_found</c> secret mismatch.
+    /// </summary>
+    [Theory]
+    [InlineData("not-hex-at-all-not-hex-at-all!!")]
+    [InlineData("deadbeef")]
+    [InlineData("")]
+    public async Task DispatchAsync_PairingAckMalformedCredentialShape_SendsMalformedMessageAndReportsViolation(string credential)
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
+        PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = credential });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        // The genuinely pending credential must survive a malformed ack attempt: a later ack with the
+        // real credential still succeeds.
+        PairingCommitResult commit = await pairingCoordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.Trusted, commit.Outcome);
+    }
 
     /// <summary>Verifies that a matching pending credential sends trusted and signals a session upgrade.</summary>
     [Fact]

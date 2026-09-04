@@ -285,8 +285,11 @@ message shape. This phase is that phase; this section is the filled-in decision.
   loopback, input-limit, protocol-validation, and single-connected-client rules), but it is
   trust-restricted: until pairing succeeds on that connection, the message dispatcher accepts only
   `ping`, `capabilities`, `pairing_request`, `pairing_confirm`, `pairing_ack`, `pairing_renotify`,
-  and `pairing_cancel` from it — `subscribe` and `snapshot_request` are rejected the same way any
-  other message outside the allowlist is, `malformed_message`, not a distinct error code. This
+  and `pairing_cancel` from it. `subscribe` and `snapshot_request` are structurally valid
+  post-admission client message types this tier simply does not authorize, so they are rejected as
+  `unauthorized`, distinct from a genuine protocol shape/direction violation
+  (`malformed_message`) -- which is reserved for a message type no tier could ever authorize a
+  client to send (a server-originated type, or `hello` once a session already exists). This
   mirrors `IsAllowedMessageType`'s existing allowlist mechanism in
   `bridge/application/message_dispatcher.cpp`; a session's trust tier is a second, narrower
   allowlist selector alongside "authenticated at all", not a parallel dispatch path.
@@ -294,7 +297,7 @@ message shape. This phase is that phase; this section is the filled-in decision.
   bootstrap-`unpaired` sessions (no wire-visible difference; a developer-authenticated session is
   simply never trust-restricted, since developer authentication already implies full access per
   "Developer authentication" above) and becomes `"paired"` once a session is trusted — either
-  immediately, in place, on that same connection, the moment its `pairing_confirm` resolves to a
+  immediately, in place, on that same connection, the moment its `pairing_ack` resolves to a
   `trusted` or `already_trusted` outcome, or from the first message onward for a session admitted
   via `trusted_device_credential`. A client does not need to reconnect after pairing succeeds to
   start using the connection normally; reconnecting later without a code (`trusted_device_credential`)

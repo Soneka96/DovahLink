@@ -368,6 +368,16 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
         }
 
+        if (!IsValidPairingCode(payload.Code))
+        {
+            // A code that is not exactly six ASCII decimal digits can never match a real challenge; per
+            // Concept 02's precedent for trusted_device_credential ("wrong shape is malformed protocol,
+            // not failed authentication"), this is rejected before it ever reaches ConfirmCode and
+            // consumes pacing/wrong-attempt state as an ordinary wrong code would.
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_confirm message is malformed.");
+            return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
+        }
+
         PairingConfirmationResult confirm;
         try
         {
@@ -469,11 +479,22 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     }
 
     /// <summary>
+    /// Reports whether a presented <c>pairing_confirm.code</c> is exactly
+    /// <see cref="Constants.PairingChallengeCodeDigits"/> ASCII decimal digits, per
+    /// <c>protocol/schema/README.md</c>'s "<c>pairing_confirm</c>" section. A caller rejects a value
+    /// that fails this check as malformed protocol input before it ever reaches
+    /// <see cref="IPairingCoordinator.ConfirmCode"/>.
+    /// </summary>
+    /// <param name="code">The presented code to validate.</param>
+    private static bool IsValidPairingCode(string code) =>
+        code.Length == Constants.PairingChallengeCodeDigits && code.All(char.IsAsciiDigit);
+
+    /// <summary>
     /// Answers a <c>pairing_ack</c> with <c>pairing_outcome</c>: maps
     /// <see cref="IPairingCoordinator.CommitPendingAsync"/>'s outcome directly. A <c>trusted</c> or
     /// <c>already_trusted</c> outcome both signal the caller to upgrade this connection's session to
     /// full trust -- per <c>ai/context/protocol/security.md</c>'s trust-tier upgrade point, "the moment
-    /// its pairing_confirm resolves to a trusted or already_trusted outcome" -- since both prove the
+    /// its pairing_ack resolves to a trusted or already_trusted outcome" -- since both prove the
     /// presented credential is genuinely, currently trusted; only the idempotent-retry framing differs.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingAckAsync(
@@ -481,6 +502,16 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     {
         if (!codec.TryDecodePayload(envelope, out PairingAckPayload? payload))
         {
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_ack message is malformed.");
+            return new ClientDispatchResult(IsProtocolViolation: true);
+        }
+
+        if (!CredentialHasher.IsValidHexCredential(payload.Credential, Constants.PairingCredentialLength))
+        {
+            // A credential that is not exactly the approved hex length/shape can never match a real
+            // pending credential; per Concept 02's precedent for trusted_device_credential, this is
+            // rejected before it ever reaches CommitPendingAsync as malformed protocol input, not as an
+            // ordinary pending_not_found secret mismatch.
             SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_ack message is malformed.");
             return new ClientDispatchResult(IsProtocolViolation: true);
         }
