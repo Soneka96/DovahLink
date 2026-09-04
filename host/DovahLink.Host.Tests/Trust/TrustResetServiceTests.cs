@@ -231,11 +231,13 @@ public class TrustResetServiceTests
 
     /// <summary>
     /// Verifies the exact security-mandated ordering for a confirmed Factory Reset: the trust store is
-    /// cleared before pairing is cancelled, before every session becomes unauthorized in the registry,
+    /// cleared before every session becomes unauthorized in the registry, before pairing is cancelled,
     /// before its best-effort terminal notification carries the exact <c>factory_reset</c> reason --
     /// per <c>ai/context/protocol/security.md</c>'s "authoritative state change, credential
     /// invalidation where applicable, future authentication/pairing enforcement, ... then forced
-    /// close" ordering.
+    /// close" ordering. Session invalidation is placed immediately after the Clear, ahead of pairing
+    /// cancellation, to minimize the post-mutation window in which a concurrent request could still
+    /// find <see cref="ISessionRegistry.IsActive"/> true.
     /// </summary>
     [Fact]
     public async Task ConfirmResetAsync_CorrectCode_AppliesSideEffectsInTheMandatedOrder()
@@ -254,7 +256,7 @@ public class TrustResetServiceTests
 
         Assert.True(await service.ConfirmResetAsync(challenge.Code));
 
-        Assert.Equal(["Clear", "CancelAll", "InvalidateAll", "Notified:FactoryReset"], order);
+        Assert.Equal(["Clear", "InvalidateAll", "Notified:FactoryReset", "CancelAll"], order);
     }
 
     /// <summary>

@@ -537,11 +537,13 @@ public class TrustAdminServiceTests
 
     /// <summary>
     /// Verifies the exact security-mandated ordering for Revoke: the authoritative trust-store
-    /// mutation happens before pairing is cancelled, before the session becomes unauthorized in the
-    /// registry, before its best-effort terminal notification carries the exact <c>revoked</c> reason
-    /// -- per <c>ai/context/protocol/security.md</c>'s "authoritative state change, credential
+    /// mutation happens before the session becomes unauthorized in the registry, before pairing is
+    /// cancelled, before its best-effort terminal notification carries the exact <c>revoked</c>
+    /// reason -- per <c>ai/context/protocol/security.md</c>'s "authoritative state change, credential
     /// invalidation where applicable, future authentication/pairing enforcement, ... then forced
-    /// close" ordering.
+    /// close" ordering. Session invalidation is placed immediately after the trust mutation, ahead of
+    /// pairing cancellation, to minimize the post-mutation window in which a concurrent request on
+    /// that session could still find <see cref="ISessionRegistry.IsActive"/> true.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_AppliesSideEffectsInTheMandatedOrder()
@@ -558,7 +560,7 @@ public class TrustAdminServiceTests
 
         await admin.RevokeAsync(clientId);
 
-        Assert.Equal(["Revoke", "Cancel", "InvalidateAllForClient", "Notified:Revoked"], order);
+        Assert.Equal(["Revoke", "InvalidateAllForClient", "Notified:Revoked", "Cancel"], order);
     }
 
     /// <summary>Verifies the same mandated ordering for Block.</summary>
@@ -577,7 +579,7 @@ public class TrustAdminServiceTests
 
         await admin.BlockAsync(clientId);
 
-        Assert.Equal(["Block", "Cancel", "InvalidateAllForClient", "Notified:Blocked"], order);
+        Assert.Equal(["Block", "InvalidateAllForClient", "Notified:Blocked", "Cancel"], order);
     }
 
     /// <summary>Verifies the same mandated ordering for Reset Trust, including the batch invalidation of every affected device.</summary>
@@ -596,7 +598,7 @@ public class TrustAdminServiceTests
 
         await admin.ResetTrustAsync();
 
-        Assert.Equal(["ResetTrust", "CancelAll", "InvalidateAllForClients", "Notified:TrustReset"], order);
+        Assert.Equal(["ResetTrust", "InvalidateAllForClients", "Notified:TrustReset", "CancelAll"], order);
     }
 
     /// <summary>
