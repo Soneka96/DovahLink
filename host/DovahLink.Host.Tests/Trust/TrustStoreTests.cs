@@ -606,6 +606,240 @@ public class TrustStoreTests
         }
     }
 
+    /// <summary>
+    /// Verifies that a brand-new record an upsert is establishing never becomes visible through
+    /// <see cref="TrustStore.TryGet"/> while its persistence write is still in flight, closing the
+    /// same transient-visibility window <see cref="TrustStore.TryUpsertIfGenerationAsync"/>'s own
+    /// gated tests prove, but for the unconditional <see cref="TrustStore.UpsertAsync"/> path.
+    /// </summary>
+    [Fact]
+    public async Task UpsertAsync_WhilePersistenceBlocked_DoesNotExposeNewRecordUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        long initialGeneration = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task upsert = store.UpsertAsync(record);
+        await enteredSave.Task;
+
+        Assert.Null(store.TryGet(record.ClientId));
+        Assert.DoesNotContain(record, store.List());
+        Assert.Null(store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        await upsert;
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(record, store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the confirmed Unblock fail-open race is closed: while <see cref="TrustStore.UnblockAsync"/>'s
+    /// persistence write is in flight, a Blocked client must remain observably Blocked to every reader
+    /// -- <see cref="TrustStore.TryGet"/>, <see cref="TrustStore.List"/>, and
+    /// <see cref="TrustStore.TryGetByShortId"/> alike -- rather than transiently reporting Unpaired
+    /// before durability is established. Only once persistence actually succeeds does the client become
+    /// Unpaired and the security fence advance.
+    /// </summary>
+    [Fact]
+    public async Task UnblockAsync_WhilePersistenceBlocked_KeepsExposingBlockedAcrossAllReadersUntilPersistenceSucceeds()
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord blocked = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Blocked, string.Empty, clock.UtcNow.AddDays(-1), clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(blocked);
+        long generationBeforeUnblock = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> unblock = store.UnblockAsync(blocked.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeUnblock, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await unblock);
+
+        Assert.Equal(KnownDeviceState.Unpaired, store.TryGet(blocked.ClientId)!.State);
+        Assert.Equal(generationBeforeUnblock + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the Unblock fail-open race: if persistence then fails, the client
+    /// must remain Blocked -- never having been exposed as Unpaired in the meantime -- and the security
+    /// fence must not have moved, since a moved fence together with a transiently-exposed Unpaired
+    /// state is exactly what would let a pending pairing credential created during the transient window
+    /// later ACK past a Block that was supposed to have prevented it.
+    /// </summary>
+    [Fact]
+    public async Task UnblockAsync_WhilePersistenceBlocked_PersistenceFails_RemainsBlocked()
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord blocked = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Blocked, string.Empty, clock.UtcNow.AddDays(-1), clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(blocked);
+        long generationBeforeUnblock = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> unblock = store.UnblockAsync(blocked.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => unblock);
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeUnblock, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the confirmed Factory Reset/Clear race is closed: while <see cref="TrustStore.ClearAsync"/>'s
+    /// persistence write is in flight, every previously known record -- Blocked included -- must remain
+    /// observably present to every reader, rather than transiently appearing unknown before durability
+    /// is established. Only once persistence actually succeeds does the store become empty and the
+    /// security fence advance.
+    /// </summary>
+    [Fact]
+    public async Task ClearAsync_WhilePersistenceBlocked_KeepsExposingRecordsUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord blocked = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        TrustRecord trusted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        await store.UpsertAsync(trusted);
+        long generationBeforeClear = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = store.ClearAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(trusted, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeClear, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        await clear;
+
+        Assert.Empty(store.List());
+        Assert.Equal(generationBeforeClear + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the Factory Reset/Clear race: if persistence then fails, every
+    /// previously known record must still be present -- never having been exposed as gone in the
+    /// meantime -- and the security fence must not have moved, since a transiently-empty store is
+    /// exactly the window a client could otherwise use to begin pairing as though never known.
+    /// </summary>
+    [Fact]
+    public async Task ClearAsync_WhilePersistenceBlocked_PersistenceFails_RecordsSurvive()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord blocked = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generationBeforeClear = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = store.ClearAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => clear);
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeClear, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee for <see cref="TrustStore.ResetTrustAsync"/>'s
+    /// affected-record path: while its persistence write is in flight, a currently Trusted record must
+    /// remain observably Trusted rather than transiently appearing Revoked before durability is
+    /// established.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_WhilePersistenceBlocked_KeepsExposingTrustedUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(trusted);
+        long generationBeforeReset = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<IReadOnlyList<ClientId>> reset = store.ResetTrustAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(trusted, store.TryGet(trusted.ClientId));
+        Assert.Contains(trusted, store.List());
+        Assert.Equal(trusted, store.TryGetByShortId(trusted.ShortId));
+        Assert.Equal(generationBeforeReset, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        IReadOnlyList<ClientId> affected = await reset;
+
+        Assert.Equal([trusted.ClientId], affected);
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(trusted.ClientId)!.State);
+        Assert.Equal(generationBeforeReset + 1, store.SecurityFenceGeneration);
+    }
+
     /// <summary>Creates a trust store with a controllable clock for tests.</summary>
     private static Task<TrustStore> CreateStoreAsync(
         FakeTrustStorePersistence persistence,

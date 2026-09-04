@@ -14,12 +14,21 @@ public interface ITrustStore
     /// <summary>Lists every currently known trust record.</summary>
     IReadOnlyList<TrustRecord> List();
 
-    /// <summary>Inserts a new trust record or replaces an existing one for the same client, then persists the change.</summary>
+    /// <summary>
+    /// Inserts a new trust record or replaces an existing one for the same client. The record
+    /// becomes visible through <see cref="TryGet"/>, <see cref="List"/>, and
+    /// <see cref="TryGetByShortId"/> at the same instant it becomes durably persisted -- never
+    /// before, and a failed or cancelled write leaves the store exactly as it was.
+    /// </summary>
     /// <param name="record">The record to store.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     Task UpsertAsync(TrustRecord record, CancellationToken cancellationToken = default);
 
-    /// <summary>Deletes every trust record and persists the empty store as one mutation.</summary>
+    /// <summary>
+    /// Deletes every trust record as one mutation. Every record stays visible through
+    /// <see cref="TryGet"/>, <see cref="List"/>, and <see cref="TryGetByShortId"/> until the empty
+    /// set is durably persisted, and a failed or cancelled write leaves the store exactly as it was.
+    /// </summary>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     Task ClearAsync(CancellationToken cancellationToken = default);
 
@@ -78,7 +87,12 @@ public interface ITrustStore
 /// <summary>
 /// An in-memory cache of trust records backed by <see cref="ITrustStorePersistence"/>. Loaded once
 /// at construction via <see cref="CreateAsync"/>; every subsequent mutation writes the complete set
-/// through to persistence before returning, so trust survives a host restart.
+/// through to persistence before returning, so trust survives a host restart. Every mutation
+/// constructs its proposed record set, persists it, and only then publishes it into the in-memory
+/// index and advances <see cref="SecurityFenceGeneration"/> -- so a concurrent reader can never
+/// observe a mutation's outcome before it is durable, and a failed or cancelled write leaves the
+/// live index and fence exactly as they were, with nothing to roll back because nothing was ever
+/// published ahead of persistence.
 /// </summary>
 public sealed class TrustStore : ITrustStore
 {
@@ -152,48 +166,26 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// If the persistence write fails, the in-memory mutation is rolled back before the exception
-    /// propagates, so a failed upsert never leaves the store reporting a value it did not actually
-    /// persist.
-    /// </remarks>
     public async Task UpsertAsync(TrustRecord record, CancellationToken cancellationToken = default)
     {
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
         {
-            TrustRecord? previousRecord;
-            List<TrustRecord> snapshot;
+            List<TrustRecord> proposedSnapshot;
             lock (recordsLock)
             {
-                recordsByClientId.TryGetValue(record.ClientId, out previousRecord);
+                proposedSnapshot = recordsByClientId.Values
+                    .Where(existing => existing.ClientId != record.ClientId)
+                    .Append(record)
+                    .ToList();
+            }
+
+            await persistence.SaveAsync(proposedSnapshot, cancellationToken);
+
+            lock (recordsLock)
+            {
                 recordsByClientId[record.ClientId] = record;
-                snapshot = recordsByClientId.Values.ToList();
-            }
-
-            try
-            {
-                await persistence.SaveAsync(snapshot, cancellationToken);
-                lock (recordsLock)
-                {
-                    securityFenceGeneration++;
-                }
-            }
-            catch
-            {
-                lock (recordsLock)
-                {
-                    if (previousRecord is null)
-                    {
-                        recordsByClientId.Remove(record.ClientId);
-                    }
-                    else
-                    {
-                        recordsByClientId[record.ClientId] = previousRecord;
-                    }
-                }
-
-                throw;
+                securityFenceGeneration++;
             }
         }
         finally
@@ -203,43 +195,17 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// If persistence fails, the complete previous record set is restored in memory before the
-    /// exception propagates, so a failed clear never leaves the store reporting a deletion that
-    /// was not persisted.
-    /// </remarks>
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
         {
-            List<TrustRecord> previousRecords;
+            await persistence.SaveAsync([], cancellationToken);
+
             lock (recordsLock)
             {
-                previousRecords = recordsByClientId.Values.ToList();
                 recordsByClientId.Clear();
-            }
-
-            try
-            {
-                await persistence.SaveAsync([], cancellationToken);
-                lock (recordsLock)
-                {
-                    securityFenceGeneration++;
-                }
-            }
-            catch
-            {
-                lock (recordsLock)
-                {
-                    recordsByClientId.Clear();
-                    foreach (TrustRecord record in previousRecords)
-                    {
-                        recordsByClientId[record.ClientId] = record;
-                    }
-                }
-
-                throw;
+                securityFenceGeneration++;
             }
         }
         finally
@@ -352,12 +318,13 @@ public sealed class TrustStore : ITrustStore
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
         {
-            List<TrustRecord> previousRecords;
             List<ClientId> affected;
+            List<TrustRecord> proposedSnapshot;
+            Dictionary<ClientId, TrustRecord> revokedByClientId;
             lock (recordsLock)
             {
-                previousRecords = recordsByClientId.Values.ToList();
-                affected = previousRecords
+                List<TrustRecord> current = recordsByClientId.Values.ToList();
+                affected = current
                     .Where(record => record.State == KnownDeviceState.Trusted)
                     .Select(record => record.ClientId)
                     .ToList();
@@ -372,40 +339,30 @@ public sealed class TrustStore : ITrustStore
                     return affected;
                 }
 
-                foreach (ClientId clientId in affected)
-                {
-                    TrustRecord record = recordsByClientId[clientId];
-                    recordsByClientId[clientId] = record with
+                revokedByClientId = affected.ToDictionary(
+                    clientId => clientId,
+                    clientId => recordsByClientId[clientId] with
                     {
                         State = KnownDeviceState.Revoked,
                         CredentialVerifier = string.Empty,
                         BlockedAtUtc = null,
-                    };
-                }
+                    });
+                proposedSnapshot = current
+                    .Select(record => revokedByClientId.GetValueOrDefault(record.ClientId, record))
+                    .ToList();
             }
 
-            try
-            {
-                await persistence.SaveAsync(List(), cancellationToken);
-                lock (recordsLock)
-                {
-                    securityFenceGeneration++;
-                }
-                return affected;
-            }
-            catch
-            {
-                lock (recordsLock)
-                {
-                    recordsByClientId.Clear();
-                    foreach (TrustRecord record in previousRecords)
-                    {
-                        recordsByClientId[record.ClientId] = record;
-                    }
-                }
+            await persistence.SaveAsync(proposedSnapshot, cancellationToken);
 
-                throw;
+            lock (recordsLock)
+            {
+                foreach ((ClientId clientId, TrustRecord revoked) in revokedByClientId)
+                {
+                    recordsByClientId[clientId] = revoked;
+                }
+                securityFenceGeneration++;
             }
+            return affected;
         }
         finally
         {
@@ -414,13 +371,13 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <summary>
-    /// Applies one persisted trust mutation and restores the prior record on failure.
+    /// Applies one persisted trust mutation, publishing it only once persistence succeeds.
     /// </summary>
     /// <param name="clientId">The known device to mutate.</param>
     /// <param name="mutation">
-    /// Produces the replacement record, the exact same <paramref name="previousRecord"/> reference
-    /// when the target state already holds and nothing needs to change, or <see langword="null"/>
-    /// when <paramref name="previousRecord"/> is not eligible for this mutation at all.
+    /// Produces the replacement record, the exact same reference it was called with when the target
+    /// state already holds and nothing needs to change, or <see langword="null"/> when that record
+    /// is not eligible for this mutation at all.
     /// </param>
     /// <param name="ineligibleOutcome">
     /// Reported when <paramref name="mutation"/> returns the same reference back, and as the default
@@ -448,12 +405,11 @@ public sealed class TrustStore : ITrustStore
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
         {
-            TrustRecord? previousRecord;
-            List<TrustRecord> snapshot;
-            TrustMutationOutcome outcome;
+            TrustRecord? mutatedRecord;
+            List<TrustRecord> proposedSnapshot;
             lock (recordsLock)
             {
-                if (!recordsByClientId.TryGetValue(clientId, out previousRecord))
+                if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? previousRecord))
                 {
                     return TrustMutationOutcome.NotFound;
                 }
@@ -472,43 +428,27 @@ public sealed class TrustStore : ITrustStore
                     return ineligibleOutcome;
                 }
 
+                mutatedRecord = mutated;
+                proposedSnapshot = removeWhenNull
+                    ? recordsByClientId.Values.Where(existing => existing.ClientId != clientId).ToList()
+                    : recordsByClientId.Values.Where(existing => existing.ClientId != clientId).Append(mutated!).ToList();
+            }
+
+            await persistence.SaveAsync(proposedSnapshot, cancellationToken);
+
+            lock (recordsLock)
+            {
                 if (removeWhenNull)
                 {
                     recordsByClientId.Remove(clientId);
                 }
                 else
                 {
-                    recordsByClientId[clientId] = mutated!;
+                    recordsByClientId[clientId] = mutatedRecord!;
                 }
-                snapshot = recordsByClientId.Values.ToList();
-                outcome = TrustMutationOutcome.Changed;
+                securityFenceGeneration++;
             }
-
-            try
-            {
-                await persistence.SaveAsync(snapshot, cancellationToken);
-                lock (recordsLock)
-                {
-                    securityFenceGeneration++;
-                }
-                return outcome;
-            }
-            catch
-            {
-                lock (recordsLock)
-                {
-                    if (removeWhenNull)
-                    {
-                        recordsByClientId[clientId] = previousRecord;
-                    }
-                    else
-                    {
-                        recordsByClientId[clientId] = previousRecord;
-                    }
-                }
-
-                throw;
-            }
+            return TrustMutationOutcome.Changed;
         }
         finally
         {
