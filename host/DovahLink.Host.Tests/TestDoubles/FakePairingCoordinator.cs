@@ -19,9 +19,14 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
     /// </summary>
     public Action<string>? OnMutationApplied { get; set; }
 
+    /// <summary>The result <see cref="BeginPairing"/> returns, configurable per test.</summary>
+    public PairingStartResult BeginPairingResult { get; set; } = new(PairingStartOutcome.OtherDeviceActive, null);
+
+    /// <summary>The result <see cref="GetStatusSnapshot"/> returns, configurable per test.</summary>
+    public PairingStatusSnapshot StatusSnapshotResult { get; set; } = new(PairingStatusKind.Idle, null);
+
     /// <inheritdoc/>
-    public PairingStartResult BeginPairing(DovahLink.Host.Identity.ClientId clientId) =>
-        new(PairingStartOutcome.OtherDeviceActive, null);
+    public PairingStartResult BeginPairing(DovahLink.Host.Identity.ClientId clientId) => BeginPairingResult;
 
     /// <inheritdoc/>
     public PairingConfirmationResult ConfirmCode(
@@ -75,8 +80,7 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
         new(PairingRenotifyOutcome.AlreadyIdle);
 
     /// <inheritdoc/>
-    public PairingStatusSnapshot GetStatusSnapshot(DovahLink.Host.Identity.ClientId clientId) =>
-        new(PairingStatusKind.Idle, null);
+    public PairingStatusSnapshot GetStatusSnapshot(DovahLink.Host.Identity.ClientId clientId) => StatusSnapshotResult;
 
     /// <summary>Records one client-specific cancellation and returns the fake outcome.</summary>
     private PairingCancelOutcome CancelAndRecord(DovahLink.Host.Identity.ClientId clientId)

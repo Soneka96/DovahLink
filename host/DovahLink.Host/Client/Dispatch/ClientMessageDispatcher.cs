@@ -250,14 +250,26 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                         SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.InProgress, null);
                         break;
 
-                    default:
-                        // An uncommitted display reservation has never actually been shown to this
-                        // client, so it is not yet a displayable challenge; Idle/OtherDeviceActive are
-                        // reachable only through the same race BeginPairing's own ownership check is
-                        // already racing against. Neither case is publicly resumable/displayed, so both
-                        // report the same "nothing to show yet" status Concept 03 defines for that.
+                    case PairingStatusKind.OtherDeviceActive:
+                        // A concurrent operation raced BeginPairing's own ownership check between it
+                        // and this status read: a different client won ownership before this snapshot
+                        // was taken. Report the same other_device_pairing status the initial
+                        // BeginPairing outcome reports for it, never folded into unavailable.
+                        SendPairingStatusOtherDevice(connection, sessionId, envelope.MessageId);
+                        break;
+
+                    case PairingStatusKind.Idle:
+                    case PairingStatusKind.UncommittedDisplayReservation:
+                        // Idle: the same ownership race cleared this client's operation entirely
+                        // before the snapshot was taken. UncommittedDisplayReservation: never actually
+                        // shown to this client yet, so it is not yet a displayable challenge. Neither
+                        // is publicly resumable/displayed, so both report the same "nothing to show
+                        // yet" status Concept 03 defines for that.
                         SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
                         break;
+
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(snapshot), snapshot.Kind, "Unrecognized pairing status kind.");
                 }
                 return new ClientDispatchResult();
 

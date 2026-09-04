@@ -399,6 +399,64 @@ public class ClientMessageDispatcherTests
         Assert.Equal(PairingStatusWireState.OtherDevicePairing, status.State);
     }
 
+    /// <summary>
+    /// Verifies that resuming while a concurrent operation raced ownership away to a different client
+    /// reports other_device_pairing rather than folding into unavailable -- the exhaustive mapping fix
+    /// for <see cref="PairingStatusKind.OtherDeviceActive"/> in the resumed-snapshot path. The real
+    /// coordinator cannot deterministically reach <see cref="PairingStartOutcome.Resumed"/> together
+    /// with a snapshot of <see cref="PairingStatusKind.OtherDeviceActive"/> for the same client without
+    /// a genuine cross-thread race, so this exercises the dispatcher's own mapping directly through a
+    /// configurable test double.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestResumedButRacedToOtherDeviceActive_SendsOtherDevicePairing()
+    {
+        var pairingCoordinator = new FakePairingCoordinator
+        {
+            BeginPairingResult = new PairingStartResult(PairingStartOutcome.Resumed, null),
+            StatusSnapshotResult = new PairingStatusSnapshot(PairingStatusKind.OtherDeviceActive, null),
+        };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        byte[] sent = Assert.Single(fakeConnection.SentPayloads);
+        using JsonDocument document = JsonDocument.Parse(sent);
+        Assert.False(document.RootElement.GetProperty("payload").TryGetProperty("expiresInSeconds", out _));
+        (_, PairingStatusOtherDevicePayload status) = DecodeSent<PairingStatusOtherDevicePayload>(sent);
+        Assert.Equal(PairingStatusWireState.OtherDevicePairing, status.State);
+    }
+
+    /// <summary>
+    /// Verifies the other race-only combination in the resumed-snapshot switch, symmetric with
+    /// <see cref="DispatchAsync_PairingRequestResumedButRacedToOtherDeviceActive_SendsOtherDevicePairing"/>:
+    /// when the same ownership race instead clears this client's own operation entirely before the
+    /// snapshot is taken, <see cref="PairingStatusKind.Idle"/> still reports <c>unavailable</c>,
+    /// exercising that explicit case arm directly rather than relying only on the initial-request path.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestResumedButRacedToIdle_SendsUnavailable()
+    {
+        var pairingCoordinator = new FakePairingCoordinator
+        {
+            BeginPairingResult = new PairingStartResult(PairingStartOutcome.Resumed, null),
+            StatusSnapshotResult = new PairingStatusSnapshot(PairingStatusKind.Idle, null),
+        };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Null(status.ExpiresInSeconds);
+    }
+
     /// <summary>Verifies that secure code generation failure is reported as a redacted, retryable internal_error, not an outcome state.</summary>
     [Fact]
     public async Task DispatchAsync_PairingRequestGeneratorFails_SendsRetryableInternalError()
