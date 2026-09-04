@@ -266,6 +266,156 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
+    /// Reproduces the confirmed Unblock fail-open bad trace end-to-end against the real
+    /// <see cref="TrustStore"/>: while <see cref="TrustStore.UnblockAsync"/>'s persistence write is in
+    /// flight -- and even once that persistence goes on to fail -- an unpaired hello for the Blocked
+    /// client must still be rejected as blocked, never transiently admitted as a restricted session
+    /// through an Unpaired state that was never actually durable.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_UnpairedHello_WhileUnblockPersistenceInFlight_RejectsAsBlockedEvenIfPersistenceFails()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var sessionRegistry = new FakeSessionRegistry();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> unblock = trustStore.UnblockAsync(clientId);
+        await enteredSave.Task;
+        byte[] hello = BuildHello(codec, clientId.Value.ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
+
+        _ = handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.Blocked, error.Code);
+        Assert.Equal(0, sessionRegistry.ActiveCount);
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => unblock);
+    }
+
+    /// <summary>
+    /// Reproduces the confirmed Factory Reset/Clear race end-to-end against the real
+    /// <see cref="TrustStore"/>: while <see cref="TrustStore.ClearAsync"/>'s persistence write is in
+    /// flight -- and even once that persistence goes on to fail -- an unpaired hello for the Blocked
+    /// client must still be rejected as blocked, never transiently admitted through a store that
+    /// appeared empty before durability was actually established.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_UnpairedHello_WhileClearPersistenceInFlight_RejectsAsBlockedEvenIfPersistenceFails()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var sessionRegistry = new FakeSessionRegistry();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = trustStore.ClearAsync();
+        await enteredSave.Task;
+        byte[] hello = BuildHello(codec, clientId.Value.ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
+
+        _ = handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(codec, Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.Blocked, error.Code);
+        Assert.Equal(0, sessionRegistry.ActiveCount);
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => clear);
+    }
+
+    /// <summary>
+    /// Closes the loop on <see cref="HandleMessageAsync_UnpairedHello_WhileUnblockPersistenceInFlight_RejectsAsBlockedEvenIfPersistenceFails"/>:
+    /// once <see cref="TrustStore.UnblockAsync"/>'s persistence actually succeeds, an unpaired hello for
+    /// the same client is admitted normally rather than remaining rejected forever.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_UnpairedHello_AfterUnblockPersistenceSucceeds_AdmitsRestrictedSession()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var sessionRegistry = new FakeSessionRegistry();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+
+        Assert.Equal(TrustMutationOutcome.Changed, await trustStore.UnblockAsync(clientId));
+        byte[] hello = BuildHello(codec, clientId.Value.ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
+
+        _ = handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (PublicEnvelope ackEnvelope, HelloAckPayload _) = DecodeSent<HelloAckPayload>(codec, fakeConnection.SentPayloads[0]);
+        Assert.Equal(PublicMessageType.HelloAck, ackEnvelope.MessageType);
+        Assert.Equal(1, sessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
+    /// Closes the loop on <see cref="HandleMessageAsync_UnpairedHello_WhileClearPersistenceInFlight_RejectsAsBlockedEvenIfPersistenceFails"/>:
+    /// once <see cref="TrustStore.ClearAsync"/>'s persistence actually succeeds, an unpaired hello for
+    /// the same identity is admitted normally rather than remaining rejected forever.
+    /// </summary>
+    [Fact]
+    public async Task HandleMessageAsync_UnpairedHello_AfterClearPersistenceSucceeds_AdmitsRestrictedSession()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var sessionRegistry = new FakeSessionRegistry();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+
+        await trustStore.ClearAsync();
+        byte[] hello = BuildHello(codec, clientId.Value.ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
+
+        _ = handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        (PublicEnvelope ackEnvelope, HelloAckPayload _) = DecodeSent<HelloAckPayload>(codec, fakeConnection.SentPayloads[0]);
+        Assert.Equal(PublicMessageType.HelloAck, ackEnvelope.MessageType);
+        Assert.Equal(1, sessionRegistry.ActiveCount);
+    }
+
+    /// <summary>
     /// Verifies that a revoked identity presenting a trusted_device_credential is rejected as revoked,
     /// distinct from a never-paired identity's unauthenticated rejection, and that this fast, explicit
     /// rejection never touches <see cref="ITrustedCredentialFailureThrottle"/>'s global budget: Revoked

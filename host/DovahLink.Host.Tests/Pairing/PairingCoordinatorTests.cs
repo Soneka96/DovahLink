@@ -1799,6 +1799,140 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
+    /// Reproduces the confirmed Unblock fail-open bad trace end-to-end against the real
+    /// <see cref="TrustStore"/>: while <see cref="TrustStore.UnblockAsync"/>'s persistence write is in
+    /// flight, <see cref="PairingCoordinator.BeginPairing"/> must still see the client as Blocked --
+    /// never a transient Unpaired state that would let it start a pairing operation past a Block that
+    /// was never actually lifted. Only once persistence actually succeeds does pairing become eligible.
+    /// </summary>
+    [Fact]
+    public async Task BeginPairing_WhileUnblockPersistenceInFlight_ReportsBlockedUntilPersistenceSucceeds()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> unblock = trustStore.UnblockAsync(clientId);
+        await enteredSave.Task;
+
+        Assert.Equal(PairingStartOutcome.Blocked, coordinator.BeginPairing(clientId).Outcome);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await unblock);
+
+        Assert.Equal(PairingStartOutcome.Started, coordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the Unblock fail-open bad trace: if persistence then fails, the
+    /// client must remain Blocked to <see cref="PairingCoordinator.BeginPairing"/> -- it never
+    /// transiently permitted pairing to start during the failed attempt, closing the exact window the
+    /// conceptual bad trace depends on (a pending credential created while the store believed Unpaired,
+    /// surviving a since-restored Block because the security fence never actually moved for it).
+    /// </summary>
+    [Fact]
+    public async Task BeginPairing_WhenUnblockPersistenceFails_StillReportsBlocked()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> unblock = trustStore.UnblockAsync(clientId);
+        await enteredSave.Task;
+
+        Assert.Equal(PairingStartOutcome.Blocked, coordinator.BeginPairing(clientId).Outcome);
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => unblock);
+
+        Assert.Equal(PairingStartOutcome.Blocked, coordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Reproduces the confirmed Factory Reset/Clear race end-to-end against the real
+    /// <see cref="TrustStore"/>: while <see cref="TrustStore.ClearAsync"/>'s persistence write is in
+    /// flight, <see cref="PairingCoordinator.BeginPairing"/> must still see a Blocked client as
+    /// Blocked -- never a transiently-empty store that would let it start pairing as though never
+    /// known. Only once persistence actually succeeds is the identity gone and pairing eligible again.
+    /// </summary>
+    [Fact]
+    public async Task BeginPairing_WhileClearPersistenceInFlight_ReportsBlockedUntilPersistenceSucceeds()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = trustStore.ClearAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(PairingStartOutcome.Blocked, coordinator.BeginPairing(clientId).Outcome);
+
+        releaseSave.SetResult();
+        await clear;
+
+        Assert.Equal(PairingStartOutcome.Started, coordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the Factory Reset/Clear race: if persistence then fails, the client
+    /// must remain Blocked to <see cref="PairingCoordinator.BeginPairing"/> -- it never transiently
+    /// permitted pairing to start as though never known during the failed attempt.
+    /// </summary>
+    [Fact]
+    public async Task BeginPairing_WhenClearPersistenceFails_StillReportsBlocked()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = trustStore.ClearAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(PairingStartOutcome.Blocked, coordinator.BeginPairing(clientId).Outcome);
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => clear);
+
+        Assert.Equal(PairingStartOutcome.Blocked, coordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
     /// Verifies that a second concurrent <see cref="PairingCoordinator.CommitPendingAsync"/> call for
     /// the exact same pending credential can never also claim it while a first call's exclusive claim
     /// is still live: it observes <see cref="PairingCommitOutcome.PendingNotFound"/> without ever
