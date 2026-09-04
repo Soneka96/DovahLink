@@ -106,16 +106,21 @@ public sealed class TrustResetService : ITrustResetService
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Validates the active challenge and irrevocably claims it for execution in one atomic,
-    /// synchronous block under <see cref="gate"/> -- re-validated ownership, expiry, code match, and
-    /// that no other invocation already holds <see cref="activeConfirmClaim"/> -- before ever awaiting
-    /// the destructive reset. From that instant, <see cref="BeginReset"/> can no longer replace this
-    /// exact challenge, and a second concurrent <see cref="ConfirmResetAsync"/> call for it finds the
-    /// claim already held and returns <see langword="false"/> immediately without ever attempting the
-    /// destructive reset, so at most one call ever executes it. The challenge is only cleared once the
-    /// trust store has been cleared and every session and pairing operation has been invalidated. If
-    /// persistence fails, the claim is released and the challenge stays valid and unclaimed so the
-    /// caller can retry the same all-or-nothing store mutation.
+    /// Respects claim ownership before evaluating or mutating the active challenge at all: a
+    /// non-owner invocation arriving while <see cref="activeConfirmClaim"/> is already held returns
+    /// <see langword="false"/> immediately, before it can expire, wrong-code-invalidate, or otherwise
+    /// touch the challenge the claimant is still executing against -- see
+    /// <see cref="activeConfirmClaim"/>'s own remarks for what this closes. Only once no claim is held
+    /// does this call evaluate expiry and code match against the unclaimed challenge and, on a
+    /// correct code, irrevocably claim it for execution in the same atomic, synchronous block under
+    /// <see cref="gate"/>, before ever awaiting the destructive reset. From that instant,
+    /// <see cref="BeginReset"/> can no longer replace this exact challenge, and a second concurrent
+    /// <see cref="ConfirmResetAsync"/> call for it finds the claim already held and returns
+    /// <see langword="false"/> immediately without ever attempting the destructive reset, so at most
+    /// one call ever executes it. The challenge is only cleared once the trust store has been cleared
+    /// and every session and pairing operation has been invalidated. If persistence fails, the claim
+    /// is released and the same challenge stays valid and unclaimed so the caller can retry the same
+    /// all-or-nothing store mutation.
     /// </remarks>
     public async Task<bool> ConfirmResetAsync(string code, CancellationToken cancellationToken = default)
     {
@@ -125,33 +130,25 @@ public sealed class TrustResetService : ITrustResetService
         ResetClaimId claim;
         lock (gate)
         {
+            if (activeConfirmClaim is not null)
+            {
+                // Another concurrent ConfirmResetAsync invocation already exclusively claimed the
+                // active challenge for execution. This call is not the claimant and must never expire,
+                // wrong-code-invalidate, or otherwise mutate that challenge's state -- see
+                // activeConfirmClaim's own remarks for what this closes.
+                return false;
+            }
+
             FactoryResetChallenge? current = activeChallenge;
             if (current is null || clock.UtcNow > current.ExpiresAtUtc)
             {
-                if (ReferenceEquals(activeChallenge, current))
-                {
-                    activeChallenge = null;
-                }
-
+                activeChallenge = null;
                 return false;
             }
 
             if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(current.Code), Encoding.UTF8.GetBytes(code)))
             {
-                if (ReferenceEquals(activeChallenge, current))
-                {
-                    activeChallenge = null;
-                }
-
-                return false;
-            }
-
-            if (activeConfirmClaim is not null)
-            {
-                // Another concurrent ConfirmResetAsync invocation already exclusively claimed the
-                // active challenge for execution. This call is not the claimant and must never enter
-                // the destructive reset for it -- see activeConfirmClaim's own remarks for what this
-                // closes.
+                activeChallenge = null;
                 return false;
             }
 

@@ -230,6 +230,119 @@ public class TrustResetServiceTests
     }
 
     /// <summary>
+    /// Proves the confirmed claim-ownership race is closed: once a correct confirm has claimed the
+    /// active challenge and is blocked inside <see cref="TrustStore.ClearAsync"/>, a concurrent
+    /// wrong-code confirm must respect that claim before it may evaluate or mutate the challenge at
+    /// all -- it returns <see langword="false"/> without clearing <c>activeChallenge</c>. When the
+    /// claimant's own destructive operation then fails, its claim is released but the exact original
+    /// challenge remains valid and unclaimed: the wrong-code loser never destroyed it first, so the
+    /// same code is still retryable, matching the documented "persistence failure leaves the same
+    /// reset challenge available for retry" guarantee.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_WrongCodeWhileClaimHeld_CannotMutateClaimedChallenge_AndFailedWinnerLeavesItRetryable()
+    {
+        var trustStore = new FakeTrustStore();
+        var enteredClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        trustStore.BeforeClear = async () =>
+        {
+            enteredClear.SetResult();
+            await releaseClear.Task;
+        };
+        var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
+        FactoryResetChallenge challenge = service.BeginReset();
+
+        Task<bool> winnerConfirm = service.ConfirmResetAsync(challenge.Code);
+        await enteredClear.Task;
+
+        bool loserResult = await service.ConfirmResetAsync("wrong-code");
+        Assert.False(loserResult);
+
+        releaseClear.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => winnerConfirm);
+
+        trustStore.BeforeClear = null;
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+    }
+
+    /// <summary>
+    /// Verifies the same claim-ownership guarantee against a second correct-code confirm rather than a
+    /// wrong-code one: it too must respect an already-held claim before touching the challenge, so it
+    /// can never steal, release, or otherwise disturb the claimant's exclusive ownership. Combined with
+    /// the claimant's own destructive operation then failing, this proves the loser's attempt released
+    /// nothing -- the claimant's own failure is what releases the claim, and the same original code
+    /// remains retryable exactly as if the loser had never called at all.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_SecondCorrectConfirmWhileClaimHeld_CannotStealOrReleaseWinnersClaim()
+    {
+        var trustStore = new FakeTrustStore();
+        var enteredClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        trustStore.BeforeClear = async () =>
+        {
+            enteredClear.SetResult();
+            await releaseClear.Task;
+        };
+        var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
+        FactoryResetChallenge challenge = service.BeginReset();
+
+        Task<bool> winnerConfirm = service.ConfirmResetAsync(challenge.Code);
+        await enteredClear.Task;
+
+        bool loserResult = await service.ConfirmResetAsync(challenge.Code);
+        Assert.False(loserResult);
+
+        releaseClear.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => winnerConfirm);
+
+        trustStore.BeforeClear = null;
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+        Assert.Equal(1, trustStore.ClearCallCount);
+    }
+
+    /// <summary>
+    /// Verifies the same claim-ownership guarantee against the expiry check rather than the wrong-code
+    /// or duplicate-correct-code paths: expiry evaluation used to run before the claim check too, so a
+    /// concurrent confirm arriving after the challenge's clock-observed expiry could still null
+    /// <c>activeChallenge</c> out from under an in-flight claimant. Advancing the clock past expiry for
+    /// only the concurrent call, then restoring it before the claimant's own failure and retry, isolates
+    /// that this call's <see langword="false"/> result came from respecting the held claim rather than
+    /// from a genuine expiry that would otherwise also explain a false result.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_ExpiredWhileClaimHeld_CannotMutateClaimedChallenge_AndFailedWinnerLeavesItRetryable()
+    {
+        var trustStore = new FakeTrustStore();
+        var clock = new FakeClock();
+        var enteredClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        trustStore.BeforeClear = async () =>
+        {
+            enteredClear.SetResult();
+            await releaseClear.Task;
+        };
+        var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), clock);
+        FactoryResetChallenge challenge = service.BeginReset();
+
+        Task<bool> winnerConfirm = service.ConfirmResetAsync(challenge.Code);
+        await enteredClear.Task;
+
+        DateTimeOffset beforeExpiry = clock.UtcNow;
+        clock.UtcNow = challenge.ExpiresAtUtc.AddSeconds(1);
+        bool loserResult = await service.ConfirmResetAsync(challenge.Code);
+        Assert.False(loserResult);
+        clock.UtcNow = beforeExpiry;
+
+        releaseClear.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => winnerConfirm);
+
+        trustStore.BeforeClear = null;
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+    }
+
+    /// <summary>
     /// Proves the confirmed Factory Reset replacement race is closed: once an in-flight
     /// <see cref="TrustResetService.ConfirmResetAsync"/> has irrevocably claimed the active challenge
     /// and moved on to its destructive work, a concurrent <see cref="TrustResetService.BeginReset"/>
