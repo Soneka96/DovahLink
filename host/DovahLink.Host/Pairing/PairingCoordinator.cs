@@ -22,7 +22,10 @@ public interface IPairingCoordinator
     /// Evaluates a client's submitted pairing code. A code cannot be confirmed before this exact
     /// challenge's initial display has been accepted by the adapter through
     /// <see cref="CommitInitialDisplay"/>: an attempt made before that commit is simply invalid,
-    /// without consuming pacing, wrong-attempt, or cooldown state.
+    /// without consuming pacing, wrong-attempt, or cooldown state. A genuinely correct code still
+    /// reports <see cref="PairingConfirmOutcome.PairingInvalidated"/>, without ever issuing a
+    /// credential, when an administrative trust mutation committed after this exact challenge was
+    /// created -- see <see cref="PairingChallenge.SecurityFenceGeneration"/>.
     /// </summary>
     /// <param name="clientId">The client bound to the request.</param>
     /// <param name="code">The six-digit code to evaluate.</param>
@@ -324,7 +327,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 {
                     return new PairingStartResult(PairingStartOutcome.GeneratorFailed, null);
                 }
-                var challenge = new PairingChallenge(ChallengeId.NewId(), clientId, code, now + Constants.PairingChallengeLifetime);
+                var challenge = new PairingChallenge(ChallengeId.NewId(), clientId, code, now + Constants.PairingChallengeLifetime, trustStore.SecurityFenceGeneration);
                 activeChallenge = challenge;
                 committedDisplayChallengeId = null;
                 wrongAttempts = 0;
@@ -460,6 +463,18 @@ public sealed class PairingCoordinator : IPairingCoordinator
                         ShouldAutoRenotify: shouldAutoRenotify);
                 }
 
+                if (challenge.SecurityFenceGeneration != trustStore.SecurityFenceGeneration)
+                {
+                    // An administrative trust mutation (Revoke, Block, Reset Trust, or Factory Reset)
+                    // committed after this challenge was created: the presented code is genuinely
+                    // correct, but the challenge itself is no longer authoritative and must not be
+                    // allowed to mint a pending credential. The existing pending-credential fence check
+                    // in CommitPendingAsync only protects a credential that was already pending before
+                    // such a mutation lands -- it cannot protect a challenge that survived across one.
+                    ClearChallenge();
+                    return new PairingConfirmationResult(PairingConfirmOutcome.PairingInvalidated, null, null);
+                }
+
                 string? credential = credentialGenerator();
                 if (credential is null)
                 {
@@ -469,7 +484,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                     clientId,
                     credential,
                     displayName,
-                    trustStore.SecurityFenceGeneration,
+                    challenge.SecurityFenceGeneration,
                     now);
                 ClearChallenge();
                 return new PairingConfirmationResult(

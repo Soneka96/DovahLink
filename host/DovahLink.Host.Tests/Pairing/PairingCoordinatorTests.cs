@@ -72,6 +72,63 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
+    /// Proves the confirmed stale-challenge-across-mutation defect is closed: a challenge's security
+    /// fence is captured at <see cref="PairingCoordinator.BeginPairing"/>, so a trust-store mutation
+    /// that commits after the challenge began -- but before a genuinely correct code is evaluated --
+    /// must invalidate it rather than let it mint a pending credential under the mutation's new
+    /// generation. The existing pending-credential fence check in
+    /// <see cref="PairingCoordinator.CommitPendingAsync"/> only protects a credential that was already
+    /// pending before such a mutation; it cannot protect a challenge that survives across one.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmCode_TrustStoreMutatedAfterChallengeBegan_ReportsPairingInvalidatedWithoutIssuingCredential()
+    {
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+
+        // Simulates an administrative mutation (Revoke, Block, Reset Trust, or Factory Reset)
+        // committing after this challenge began but before it is confirmed.
+        await trustStore.ClearAsync();
+
+        PairingConfirmationResult result = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Assert.Equal(PairingConfirmOutcome.PairingInvalidated, result.Outcome);
+        Assert.Null(result.Credential);
+        Assert.Null(result.ClientId);
+        Assert.Equal(PairingStatusKind.Idle, coordinator.GetStatusSnapshot(clientId).Kind);
+    }
+
+    /// <summary>
+    /// Verifies that a genuinely wrong code against a challenge whose fence has already gone stale is
+    /// still classified as an ordinary wrong attempt -- consuming wrong-attempt/cooldown state exactly
+    /// as it would without the mutation -- since the fence check only applies once a code is confirmed
+    /// correct; a second, correct attempt against the same surviving challenge is then the one caught
+    /// by the fence check.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmCode_WrongCodeAfterTrustStoreMutated_StillReportsOrdinaryInvalid()
+    {
+        var clock = new FakeClock();
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+
+        await trustStore.ClearAsync();
+        PairingConfirmationResult wrongAttempt = coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
+
+        Assert.Equal(PairingConfirmOutcome.Invalid, wrongAttempt.Outcome);
+        Assert.True(wrongAttempt.ShouldAutoRenotify);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        PairingConfirmationResult correctAttempt = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Assert.Equal(PairingConfirmOutcome.PairingInvalidated, correctAttempt.Outcome);
+    }
+
+    /// <summary>
     /// Verifies that the correct code cannot be confirmed before its exact challenge's initial display
     /// has been committed, and that such an attempt leaves pacing, wrong-attempt, and cooldown state
     /// completely untouched -- unlike a genuinely wrong code, which does consume that state.

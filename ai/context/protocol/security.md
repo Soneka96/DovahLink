@@ -67,7 +67,12 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   pairing outcome so the client can distinguish administrative invalidation from a missing pending
   record while taking the same safe discard-and-restart action. The normal coordinated
   administration path cancels pending state before the ACK is processed, so that path truthfully
-  returns `pending_not_found` instead.
+  returns `pending_not_found` instead. The same mutation fence is bound to an active challenge the
+  instant it is created, not only to a pending credential once one is later issued: a
+  `pairing_confirm` whose challenge began before such a mutation, but is evaluated with a correct
+  code only after the mutation committed, also returns `pairing_invalidated` and issues no
+  credential -- closing the gap a fence bound only at credential-issuance time would leave open for
+  a challenge that survives across the mutation.
 - This state machine maps to canonical messages, all Connection-category per
   `ai/context/protocol/conventions.md`:
 
@@ -84,8 +89,11 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   committed credential's `shortId`; `already_trusted` is `pairing_ack`'s idempotent-retry success
   case; `expired`/`invalid`/`pacing_limited`/`hard_limit_reached` carry no credential; `pending_not_found`
   is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory pending credential;
-  `pairing_invalidated` is what an administrative mutation returns when a matching pending
-  credential survives long enough to be rejected by its stale mutation fence before persistence).
+  `pairing_invalidated` is what an administrative mutation returns when its stale mutation fence
+  rejects a pairing operation that began before the mutation committed -- either a `pairing_confirm`
+  whose challenge began before the mutation but is only evaluated after it, before any credential was
+  ever issued, or a matching pending credential that survives long enough to be rejected before
+  persistence on `pairing_ack`).
 
   **Phase 3.1 (pairing UX):** Two additional client-originated messages, both on `unpaired`-tier
   sessions: `pairing_renotify` (client requests redisplay of the active code, no payload, bridge

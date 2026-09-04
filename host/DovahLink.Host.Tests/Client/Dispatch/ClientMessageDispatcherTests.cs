@@ -715,6 +715,34 @@ public class ClientMessageDispatcherTests
     }
 
     /// <summary>
+    /// Verifies that a genuinely correct code sends <c>pairing_invalidated</c>, never
+    /// <c>credential_issued</c>, when an administrative trust mutation committed after the challenge
+    /// began but before this confirm was evaluated.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmCorrectCodeAfterTrustStoreMutated_SendsPairingInvalidated()
+    {
+        var clock = new FakeClock();
+        var trustStore = new FakeTrustStore();
+        var pairingCoordinator = new PairingCoordinator(trustStore, clock);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
+        await trustStore.ClearAsync();
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1",
+            new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Living Room PC" });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.PairingInvalidated, outcome.Outcome);
+        Assert.Null(outcome.Credential);
+    }
+
+    /// <summary>
     /// Verifies that a first wrong attempt -- eligible for auto-renotify -- sends invalid and requests
     /// a best-effort incorrect-code redisplay of the still-active code, never disclosed in the response.
     /// </summary>

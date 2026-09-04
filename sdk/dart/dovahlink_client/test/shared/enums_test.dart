@@ -126,7 +126,7 @@ void main() {
   });
 
   test(
-    'PairingOutcome includes pairing_invalidated as a registered ACK outcome',
+    'PairingOutcome includes pairing_invalidated as a registered outcome value',
     () {
       expect(
         PairingOutcome.values,

@@ -238,8 +238,11 @@ Client submission of the six-digit code the user read from Skyrim and entered:
 client; send `null` when omitted, which preserves the client's existing display name on a re-pair
 (a genuinely new client stays unnamed). A present value -- including an empty string, which clears
 the name -- always replaces whatever the client previously held. The bridge responds with
-`pairing_outcome` (`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`, or
-`"hard_limit_reached"`).
+`pairing_outcome` (`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`,
+`"hard_limit_reached"`, or `"pairing_invalidated"`). `pairing_invalidated` here means the presented
+code was genuinely correct, but an administrative mutation (Revoke, Block, Reset Trust, or Factory
+Reset) committed after this challenge began, so it never issued a credential -- the client discards
+it and restarts pairing, the same reaction it already has for an ACK-time `pairing_invalidated`.
 
 Required payload field: `code`.
 
@@ -308,16 +311,18 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
 `"pairing_invalidated"`, `"renotified"`,
 `"renotify_cooldown"`, `"cancelled"`, or `"already_idle"`. Outcomes are grouped by originating message:
 - From `pairing_confirm`: `"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`,
-  `"hard_limit_reached"`. `"pacing_limited"` and `"hard_limit_reached"` replace the single
-  undifferentiated `"rate_limited"` earlier phases used: pacing rejects an attempt made too soon
-  after the previous one, without counting it as wrong, while the hard limit is the terminal count
-  of wrong attempts that cancels the challenge outright.
+  `"hard_limit_reached"`, `"pairing_invalidated"`. `"pacing_limited"` and `"hard_limit_reached"`
+  replace the single undifferentiated `"rate_limited"` earlier phases used: pacing rejects an
+  attempt made too soon after the previous one, without counting it as wrong, while the hard limit
+  is the terminal count of wrong attempts that cancels the challenge outright. `pairing_invalidated`
+  here means the presented code matched, but an administrative mutation committed after this
+  challenge began, before a credential was ever issued for it.
 - From `pairing_ack`: `"trusted"`, `"already_trusted"`, `"pending_not_found"`,
   `"pairing_invalidated"`. `pending_not_found` means no matching in-memory pending
   credential remained, such as after Bridge restart, expiry, or a mismatched credential.
-  `pairing_invalidated` means the matching pending credential was consumed but an
+  `pairing_invalidated` here means the matching pending credential was consumed but an
   administrative mutation invalidated its trust fence; the client must discard it and
-  restart pairing.
+  restart pairing -- the same reaction as the `pairing_confirm`-time occurrence above.
 - From `pairing_renotify`: `"renotified"`, `"renotify_cooldown"`, `"already_idle"`.
 - From `pairing_cancel`: `"cancelled"`, `"already_idle"`.
 

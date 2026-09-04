@@ -718,6 +718,7 @@ void main() {
               PairingOutcome.invalid: null,
               PairingOutcome.pacingLimited: 2,
               PairingOutcome.hardLimitReached: null,
+              PairingOutcome.pairingInvalidated: null,
             };
         for (final MapEntry<PairingOutcome, int?> entry
             in rejectedOutcomes.entries) {

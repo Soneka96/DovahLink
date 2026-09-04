@@ -421,6 +421,10 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.HardLimitReached });
                 return Task.FromResult(new ClientDispatchResult());
 
+            case PairingConfirmOutcome.PairingInvalidated:
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.PairingInvalidated });
+                return Task.FromResult(new ClientDispatchResult());
+
             default:
                 // GeneratorFailed: secure credential generation failed.
                 SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to confirm this code.", retryable: true);

@@ -151,6 +151,12 @@ public enum PairingConfirmOutcome
 
     /// <summary>Secure credential generation failed.</summary>
     GeneratorFailed,
+
+    /// <summary>
+    /// A genuinely correct code was presented, but an administrative trust mutation committed after
+    /// this exact challenge was created, so it is no longer authoritative and issued no credential.
+    /// </summary>
+    PairingInvalidated,
 }
 
 /// <summary>The result of finalizing a pending pairing credential.</summary>
