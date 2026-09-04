@@ -598,4 +598,138 @@ public class SessionRegistryTests
 
         Assert.False(registry.TryUpgradeToFullTrust(sessionId, connectionId));
     }
+
+    /// <summary>Verifies that an owned active session's linearized action runs exactly once and its result is returned.</summary>
+    [Fact]
+    public void TryExecuteIfActive_OwnedActiveSession_InvokesActionAndReturnsResult()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+        int callCount = 0;
+
+        bool executed = registry.TryExecuteIfActive(sessionId, connectionId, () => { callCount++; return "mutated"; }, out string? result);
+
+        Assert.True(executed);
+        Assert.Equal(1, callCount);
+        Assert.Equal("mutated", result);
+    }
+
+    /// <summary>Verifies that an unknown session never reaches the action at all.</summary>
+    [Fact]
+    public void TryExecuteIfActive_UnknownSession_ReturnsFalseAndNeverInvokesAction()
+    {
+        var registry = new SessionRegistry();
+        int callCount = 0;
+
+        bool executed = registry.TryExecuteIfActive(SessionId.NewId(), ConnectionId.NewId(), () => { callCount++; return 0; }, out int result);
+
+        Assert.False(executed);
+        Assert.Equal(0, callCount);
+        Assert.Equal(0, result);
+    }
+
+    /// <summary>Verifies that a session known only on a different connection never reaches the action.</summary>
+    [Fact]
+    public void TryExecuteIfActive_WrongConnection_ReturnsFalseAndNeverInvokesAction()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId owner = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), owner, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+        int callCount = 0;
+
+        bool executed = registry.TryExecuteIfActive(sessionId, ConnectionId.NewId(), () => { callCount++; return 0; }, out int result);
+
+        Assert.False(executed);
+        Assert.Equal(0, callCount);
+    }
+
+    /// <summary>
+    /// Verifies the core stale-request scenario this method exists for: once a session is invalidated
+    /// -- simulating an administrative mutation that committed before the request's own resumed
+    /// execution reaches this linearization point -- the action can never run, regardless of how much
+    /// earlier the session was genuinely active.
+    /// </summary>
+    [Fact]
+    public void TryExecuteIfActive_SessionAlreadyInvalidated_ReturnsFalseAndNeverInvokesAction()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+        registry.Invalidate(sessionId, connectionId);
+        int callCount = 0;
+
+        bool executed = registry.TryExecuteIfActive(sessionId, connectionId, () => { callCount++; return 0; }, out int result);
+
+        Assert.False(executed);
+        Assert.Equal(0, callCount);
+    }
+
+    /// <summary>
+    /// Proves the actual mutual-exclusion guarantee this method exists for, with a genuine cross-thread
+    /// race rather than a probabilistic repetition: while the action is still running inside this
+    /// call's critical section, a concurrent <see cref="ISessionRegistry.Invalidate"/> for the exact
+    /// same session on another thread must be blocked on the same internal lock and cannot complete
+    /// until the action returns and this call releases it.
+    /// </summary>
+    [Fact]
+    public void TryExecuteIfActive_ConcurrentInvalidate_BlocksUntilActionReturns()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+        using var invalidateStarted = new ManualResetEventSlim(false);
+        using var invalidateCompleted = new ManualResetEventSlim(false);
+        Thread invalidatingThread = new(() =>
+        {
+            invalidateStarted.Set();
+            registry.Invalidate(sessionId, connectionId);
+            invalidateCompleted.Set();
+        });
+
+        // The invalidating thread is started from inside the still-running action, still holding this
+        // call's own critical section, so it can only ever observe that section as already taken.
+        bool executed = registry.TryExecuteIfActive(sessionId, connectionId, () =>
+        {
+            invalidatingThread.Start();
+            Assert.True(invalidateStarted.Wait(TimeSpan.FromSeconds(5)));
+            // The invalidating thread has started and is blocked trying to acquire the same internal
+            // lock this action is still running inside; it must not have been able to complete yet.
+            // Joining it here (rather than merely checking the event) would deadlock this very thread,
+            // since the invalidating thread cannot proceed until this critical section is released.
+            Assert.False(invalidateCompleted.Wait(TimeSpan.FromMilliseconds(200)));
+            return true;
+        }, out bool result);
+
+        Assert.True(executed);
+        Assert.True(result);
+        Assert.True(invalidatingThread.Join(TimeSpan.FromSeconds(5)));
+        Assert.True(invalidateCompleted.IsSet);
+        Assert.False(registry.IsActive(sessionId, connectionId));
+    }
+
+    /// <summary>
+    /// Verifies that an action which throws still releases the internal critical section: the
+    /// exception propagates to the caller instead of being swallowed, and a later call for the same
+    /// session is not left permanently blocked behind a lock the faulted action never released.
+    /// </summary>
+    [Fact]
+    public void TryExecuteIfActive_ActionThrows_PropagatesAndReleasesTheCriticalSection()
+    {
+        var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            registry.TryExecuteIfActive<int>(sessionId, connectionId, () => throw new InvalidOperationException("boom"), out _));
+
+        bool executedAfterward = registry.TryExecuteIfActive(sessionId, connectionId, () => true, out bool result);
+        Assert.True(executedAfterward);
+        Assert.True(result);
+    }
 }

@@ -2625,6 +2625,10 @@ public class PublicHelloAdmissionTests
 
         /// <inheritdoc/>
         public bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId) => inner.TryUpgradeToFullTrust(sessionId, connectionId);
+
+        /// <inheritdoc/>
+        public bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result) =>
+            inner.TryExecuteIfActive(sessionId, connectionId, action, out result);
     }
 
     /// <summary>

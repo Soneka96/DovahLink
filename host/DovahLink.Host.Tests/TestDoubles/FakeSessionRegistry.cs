@@ -272,4 +272,20 @@ public sealed class FakeSessionRegistry : ISessionRegistry
             return activeSessions[sessionId].TrustTier;
         }
     }
+
+    /// <inheritdoc/>
+    public bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result)
+    {
+        lock (gate)
+        {
+            if (!activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) || record.ConnectionId != connectionId)
+            {
+                result = default!;
+                return false;
+            }
+
+            result = action();
+            return true;
+        }
+    }
 }

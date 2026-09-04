@@ -113,6 +113,39 @@ public interface ISessionRegistry
     /// <param name="connectionId">The connection claiming ownership of the session.</param>
     /// <returns><see langword="true"/> if the session belonged to the connection and remained active.</returns>
     bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId);
+
+    /// <summary>
+    /// Establishes this exact session incarnation's authorization linearization point: verifies that
+    /// <paramref name="sessionId"/> is still active on <paramref name="connectionId"/> and, only if so,
+    /// invokes <paramref name="action"/> -- both inside the one internal critical section every
+    /// invalidation method (<see cref="Invalidate"/>, <see cref="InvalidateAllForClient"/>,
+    /// <see cref="InvalidateAllForClients"/>, <see cref="InvalidateAll"/>) also serializes on. This
+    /// closes the check-then-act gap a separate <see cref="IsActive"/> call followed by an unguarded
+    /// mutation would leave open: whichever of this call or a concurrent invalidation reaches that
+    /// shared critical section first deterministically decides the outcome for the other, with no third
+    /// possibility where authorization succeeds, an invalidation lands, and this call's own mutation
+    /// still proceeds afterward against already-superseded state.
+    /// </summary>
+    /// <typeparam name="T">The type <paramref name="action"/> returns.</typeparam>
+    /// <param name="sessionId">The session whose exact incarnation must still be active.</param>
+    /// <param name="connectionId">The connection claiming ownership of the session.</param>
+    /// <param name="action">
+    /// The narrow, synchronous, bounded state mutation to run while this exact session incarnation is
+    /// confirmed active. Must never await, perform persistence, adapter, or transport I/O, or call back
+    /// into this registry from another thread -- doing so would hold this registry's internal lock
+    /// across work an invalidation elsewhere could otherwise complete instantly, turning a bounded
+    /// critical section into an unbounded one.
+    /// </param>
+    /// <param name="result">
+    /// <paramref name="action"/>'s return value when this call returns <see langword="true"/>; the
+    /// default value of <typeparamref name="T"/> otherwise.
+    /// </param>
+    /// <returns>
+    /// <see langword="true"/> once <paramref name="action"/> has run because the session was still
+    /// active; <see langword="false"/> without invoking <paramref name="action"/> at all if the session
+    /// was already invalidated, unknown, or owned by a different connection.
+    /// </returns>
+    bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result);
 }
 
 /// <inheritdoc cref="ISessionRegistry"/>
@@ -296,6 +329,23 @@ public sealed class SessionRegistry : ISessionRegistry
             }
 
             sessionsById[sessionId] = record with { TrustTier = SessionTrustTier.Full };
+            return true;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result)
+    {
+        lock (gate)
+        {
+            if (!sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) ||
+                record.ConnectionId != connectionId || record.State != SessionState.Active)
+            {
+                result = default!;
+                return false;
+            }
+
+            result = action();
             return true;
         }
     }
