@@ -137,8 +137,9 @@ Expected focused test files:
   including developer-token exemption and unconditional Factory Reset invalidation.
 - `subscribe`/`snapshot_request` cannot allocate Stage 5 state/publication structures.
 - Trust-service invalidation tests prove the exact reason matrix and prove that client-scoped Revoke,
-  Block, and Reset Trust target only trusted-device sessions, while Factory Reset targets every
-  authentication source.
+  Block, and Reset Trust target every matching non-developer-token session -- including a session
+  originally admitted `Unpaired` and upgraded in place to full trust, not only one admitted
+  `trusted_device_credential` -- while Factory Reset targets every authentication source.
 - Authorization is rechecked after a trust mutation and an invalidation target is marked closing
   before its best-effort event is sent, so a concurrent request cannot use the short notification/
   close interval to continue as trusted.
