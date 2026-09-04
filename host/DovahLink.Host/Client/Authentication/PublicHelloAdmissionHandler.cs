@@ -122,6 +122,15 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>This connection's admitted client identity, valid only once <see cref="admitted"/> is <see langword="true"/>.</summary>
     private ClientId admittedClientId;
 
+    /// <summary>
+    /// Whether this connection's own protocol-violation close policy (<see cref="RecordViolation"/>)
+    /// has requested this connection's close. Distinguishes a deliberate protocol/security-driven
+    /// termination from an ordinary disconnect (peer close, network loss, or connection timeout): per
+    /// the pairing reconnect-grace contract, only the latter preserves an owned pairing challenge for
+    /// reconnection -- a security-driven close must end it outright.
+    /// </summary>
+    private bool securityCloseRequested;
+
     /// <summary>Creates a hello-admission handler for one accepted connection.</summary>
     /// <param name="codec">Decodes and encodes every message this handler sends or receives.</param>
     /// <param name="sessionRegistry">Admits and invalidates this connection's session.</param>
@@ -530,7 +539,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <see cref="Constants.PublicProtocolMaxViolationsPerWindow"/> is reached within
     /// <see cref="Constants.PublicProtocolViolationWindow"/>, without itself sending an error --
     /// for a violation the dispatcher already reported and sent its own error for, per
-    /// <see cref="ClientDispatchResult.IsProtocolViolation"/>.
+    /// <see cref="ClientDispatchResult.IsProtocolViolation"/>. A close requested here is a deliberate
+    /// protocol/security-driven termination, per <see cref="securityCloseRequested"/>.
     /// </summary>
     private void RecordViolation(IPublicConnectionContext connectionContext)
     {
@@ -546,6 +556,10 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
             violationTimestamps.Enqueue(now);
             exceeded = violationTimestamps.Count >= Constants.PublicProtocolMaxViolationsPerWindow;
+            if (exceeded)
+            {
+                securityCloseRequested = true;
+            }
         }
 
         if (exceeded)
@@ -879,12 +893,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         SessionId currentSessionId;
         ClientId currentClientId;
         CancellationTokenSource? deadlineCts;
+        bool wasSecurityClose;
         lock (gate)
         {
             wasAdmitted = admitted;
             currentSessionId = sessionId;
             currentClientId = admittedClientId;
             deadlineCts = admissionDeadlineCts;
+            wasSecurityClose = securityCloseRequested;
         }
 
         deadlineCts?.Cancel();
@@ -892,7 +908,17 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         if (wasAdmitted)
         {
             sessionRegistry.Invalidate(currentSessionId, connectionId);
-            pairingCoordinator.NotifyDisconnected(currentClientId);
+            if (wasSecurityClose)
+            {
+                // A deliberate protocol/security-driven termination ends any owned pairing challenge
+                // outright rather than preserving it for the ordinary reconnect grace, which applies
+                // only to connectivity loss (normal close, network loss, or connection timeout).
+                pairingCoordinator.Cancel(currentClientId);
+            }
+            else
+            {
+                pairingCoordinator.NotifyDisconnected(currentClientId);
+            }
         }
     }
 

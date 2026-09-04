@@ -2302,6 +2302,30 @@ public class PublicHelloAdmissionTests
         Assert.Empty(context.PairingCoordinator.DisconnectedClientIds);
     }
 
+    /// <summary>
+    /// Verifies that a connection ended by this handler's own protocol-violation close policy --
+    /// a deliberate protocol/security-driven termination -- cancels the admitted client's pairing
+    /// operation outright instead of preserving it for the ordinary reconnect grace, per
+    /// roadmap 3.1's "This grace period does not apply when the challenge ended because of ...
+    /// a protocol/security-driven termination".
+    /// </summary>
+    [Fact]
+    public void HandleConnectionEnded_AfterSecurityCloseFromViolationThreshold_CancelsPairingInsteadOfNotifyingDisconnect()
+    {
+        var context = new TestContext();
+        context.Dispatcher.ResultToReturn = new ClientDispatchResult(IsProtocolViolation: true);
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
+        SendPing(context, sessionId, clientId, "msg-2");
+        SendPing(context, sessionId, clientId, "msg-3");
+        SendPing(context, sessionId, clientId, "msg-4");
+        Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
+
+        context.Handler.HandleConnectionEnded();
+
+        Assert.Equal([new ClientId(Guid.Parse(clientId))], context.PairingCoordinator.CancelledClientIds);
+        Assert.Empty(context.PairingCoordinator.DisconnectedClientIds);
+    }
+
     /// <summary>Verifies that HandleDisconnectedAsync completes immediately without throwing.</summary>
     [Fact]
     public async Task HandleDisconnectedAsync_CompletesImmediately()
