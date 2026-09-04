@@ -458,6 +458,51 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingStartOutcome.Resumed, coordinator.BeginPairing(clientId).Outcome);
     }
 
+    /// <summary>
+    /// Verifies that an unexpected exception from pre-persistence work performed after the commit
+    /// claim is acquired -- here, the short-id generator itself faulting rather than returning
+    /// <see langword="null"/> -- still releases the claim, rather than only the already-handled
+    /// generator-exhaustion branch doing so: the exception propagates to the caller, and the pending
+    /// credential remains exactly as retryable and cancellable as before the claim was acquired.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_ShortIdGeneratorThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var coordinator = new PairingCoordinator(
+            new FakeTrustStore(),
+            new FakeClock(),
+            shortIdGenerator: () => throw new InvalidOperationException("Simulated generator fault."));
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.CommitPendingAsync(clientId, issued.Credential!));
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same exception-safety guarantee as
+    /// <see cref="CommitPending_ShortIdGeneratorThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential"/>
+    /// for the other pre-persistence dependency this section performs after acquiring the claim: an
+    /// unexpected exception from <see cref="ITrustStore.TryGet"/> itself.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_TrustStoreTryGetThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        trustStore.ThrowOnTryGet = new InvalidOperationException("Simulated trust store fault.");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.CommitPendingAsync(clientId, issued.Credential!));
+
+        trustStore.ThrowOnTryGet = null;
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+    }
+
     /// <summary>Verifies that a wrong client or credential cannot consume the pending credential.</summary>
     [Fact]
     public async Task CommitPending_WrongClientOrCredential_PreservesPendingCredential()

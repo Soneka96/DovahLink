@@ -503,10 +503,12 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// concurrent ACK that arrives after another call already claimed the reservation reports the same
     /// <see cref="PairingCommitOutcome.PendingNotFound"/> without persisting anything. If the winning
     /// call's own attempt does not reach a durable outcome -- a short-id generator exhaustion before
-    /// persistence is even attempted, a thrown persistence exception, or the caller's own token being
-    /// cancelled -- it releases its own claim through <see cref="ReleaseCommitClaim"/> without clearing
-    /// the pending credential, leaving it exactly as retryable and cancellable as it was before this
-    /// call claimed it.
+    /// persistence is even attempted, an unexpected exception from that same pre-persistence work, a
+    /// thrown persistence exception, or the caller's own token being cancelled -- it releases its own
+    /// claim through <see cref="ReleaseCommitClaim"/> without clearing the pending credential, leaving
+    /// it exactly as retryable and cancellable as it was before this call claimed it. Every exit from
+    /// the claimed section that does not complete durable finalization goes through this release,
+    /// mechanically rather than by enumerating each expected failure branch.
     /// </summary>
     /// <param name="clientId">The client that owns the pending credential.</param>
     /// <param name="credential">The raw credential echoed by the client.</param>
@@ -584,8 +586,20 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 return new PairingCommitResult(PairingCommitOutcome.PendingNotFound);
             }
 
-            existingRecord = trustStore.TryGet(clientId);
-            shortId = existingRecord?.ShortId ?? GenerateUniqueShortId();
+            try
+            {
+                existingRecord = trustStore.TryGet(clientId);
+                shortId = existingRecord?.ShortId ?? GenerateUniqueShortId();
+            }
+            catch
+            {
+                // The claim was acquired above but this call has not reached persistence: every path
+                // that does not complete durable finalization must release the exact claim it holds,
+                // rather than leaving it stuck for an unexpected fault in this pre-persistence work
+                // too, not only the already-handled shortId-exhaustion branch below.
+                ReleaseCommitClaim(pending, claim);
+                throw;
+            }
             if (shortId is null)
             {
                 ReleaseCommitClaim(pending, claim);

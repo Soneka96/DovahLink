@@ -15,6 +15,9 @@ public sealed class FakeTrustStore : ITrustStore
     /// <summary>When set, <see cref="UpsertAsync"/> throws this instead of storing the record.</summary>
     public Exception? ThrowOnUpsert { get; set; }
 
+    /// <summary>When set, <see cref="TryGet"/> throws this instead of looking up the record.</summary>
+    public Exception? ThrowOnTryGet { get; set; }
+
     /// <summary>The number of times <see cref="ClearAsync"/> has succeeded.</summary>
     public int ClearCallCount { get; private set; }
 
@@ -44,7 +47,8 @@ public sealed class FakeTrustStore : ITrustStore
     public void Seed(TrustRecord record) => recordsByClientId[record.ClientId] = record;
 
     /// <inheritdoc/>
-    public TrustRecord? TryGet(ClientId clientId) => recordsByClientId.GetValueOrDefault(clientId);
+    public TrustRecord? TryGet(ClientId clientId) =>
+        ThrowOnTryGet is { } exception ? throw exception : recordsByClientId.GetValueOrDefault(clientId);
 
     /// <inheritdoc/>
     public IReadOnlyList<TrustRecord> List() => recordsByClientId.Values.ToList();
