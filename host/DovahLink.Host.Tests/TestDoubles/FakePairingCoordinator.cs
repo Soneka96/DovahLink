@@ -75,7 +75,8 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
         new(PairingRenotifyOutcome.AlreadyIdle);
 
     /// <inheritdoc/>
-    public PairingChallenge? TryGetOwnedChallenge(DovahLink.Host.Identity.ClientId clientId) => null;
+    public PairingStatusSnapshot GetStatusSnapshot(DovahLink.Host.Identity.ClientId clientId) =>
+        new(PairingStatusKind.Idle, null);
 
     /// <summary>Records one client-specific cancellation and returns the fake outcome.</summary>
     private PairingCancelOutcome CancelAndRecord(DovahLink.Host.Identity.ClientId clientId)

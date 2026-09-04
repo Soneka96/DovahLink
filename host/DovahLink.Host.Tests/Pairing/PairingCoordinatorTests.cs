@@ -590,7 +590,8 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
-        coordinator.BeginPairing(owner);
+        PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
 
         PairingRenotifyResult first = coordinator.TryRenotify(owner);
         PairingRenotifyResult second = coordinator.TryRenotify(owner);
@@ -601,6 +602,24 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, other.Outcome);
     }
 
+    /// <summary>
+    /// Verifies that a challenge reservation whose initial display has not yet committed is never
+    /// renotify-eligible: it has never actually been shown to the client, so there is nothing yet to
+    /// redisplay -- <see cref="PairingCoordinator.TryRenotify"/> must check display commitment, not
+    /// just ownership.
+    /// </summary>
+    [Fact]
+    public void TryRenotify_UncommittedReservation_ReportsAlreadyIdle()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        coordinator.BeginPairing(owner);
+
+        PairingRenotifyResult result = coordinator.TryRenotify(owner);
+
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, result.Outcome);
+    }
+
     /// <summary>Verifies that committing a redisplay is allowed again exactly at the cooldown boundary.</summary>
     [Fact]
     public void CommitRenotify_AtExactCooldownBoundary_IsAllowed()
@@ -609,6 +628,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
         PairingStartResult start = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         coordinator.CommitRenotify(clientId, start.Challenge!.Id);
         clock.Advance(TimeSpan.FromSeconds(5));
 
@@ -724,6 +744,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
         PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
 
         PairingRenotifyResult first = coordinator.CommitRenotify(owner, start.Challenge!.Id);
         PairingRenotifyResult cooldown = coordinator.CommitRenotify(owner, start.Challenge.Id);
@@ -745,7 +766,8 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
-        coordinator.BeginPairing(owner);
+        PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
         PairingRenotifyResult peek = coordinator.TryRenotify(owner);
         coordinator.Cancel(owner);
 
@@ -755,9 +777,39 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, commit.Outcome);
     }
 
-    /// <summary>Verifies that the owned-challenge lookup returns the challenge only for its actual owner.</summary>
+    /// <summary>Verifies that a client owning nothing at all reports Idle.</summary>
     [Fact]
-    public void TryGetOwnedChallenge_ReturnsChallengeOnlyForOwner()
+    public void GetStatusSnapshot_NoOperation_ReportsIdle()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+
+        PairingStatusSnapshot snapshot = coordinator.GetStatusSnapshot(ClientId.NewId());
+
+        Assert.Equal(PairingStatusKind.Idle, snapshot.Kind);
+        Assert.Null(snapshot.Challenge);
+    }
+
+    /// <summary>
+    /// Verifies that a freshly reserved challenge whose initial display has not yet committed reports
+    /// as an uncommitted reservation, never as a displayed challenge or a pending credential -- the
+    /// exact ambiguity a nullable challenge lookup used to collapse.
+    /// </summary>
+    [Fact]
+    public void GetStatusSnapshot_UncommittedReservation_ReportsUncommittedDisplayReservation()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        coordinator.BeginPairing(owner);
+
+        PairingStatusSnapshot snapshot = coordinator.GetStatusSnapshot(owner);
+
+        Assert.Equal(PairingStatusKind.UncommittedDisplayReservation, snapshot.Kind);
+        Assert.Null(snapshot.Challenge);
+    }
+
+    /// <summary>Verifies that the owned-challenge snapshot returns the displayed challenge only for its actual owner, and OtherDeviceActive for anyone else.</summary>
+    [Fact]
+    public void GetStatusSnapshot_DisplayedChallenge_ReturnsChallengeOnlyForOwner()
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
@@ -765,28 +817,40 @@ public class PairingCoordinatorTests
         PairingStartResult start = coordinator.BeginPairing(owner);
         coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
 
-        Assert.Equal(start.Challenge, coordinator.TryGetOwnedChallenge(owner));
-        Assert.Null(coordinator.TryGetOwnedChallenge(other));
+        PairingStatusSnapshot ownerSnapshot = coordinator.GetStatusSnapshot(owner);
+        PairingStatusSnapshot otherSnapshot = coordinator.GetStatusSnapshot(other);
+
+        Assert.Equal(PairingStatusKind.DisplayedChallenge, ownerSnapshot.Kind);
+        Assert.Equal(start.Challenge, ownerSnapshot.Challenge);
+        Assert.Equal(PairingStatusKind.OtherDeviceActive, otherSnapshot.Kind);
+        Assert.Null(otherSnapshot.Challenge);
     }
 
     /// <summary>
     /// Verifies that a client holding only a pending credential -- its code already consumed by a
-    /// correct <see cref="PairingCoordinator.ConfirmCode"/> -- has no active challenge left to return.
+    /// correct <see cref="PairingCoordinator.ConfirmCode"/> -- reports PendingCredential, not a
+    /// displayed challenge.
     /// </summary>
     [Fact]
-    public void TryGetOwnedChallenge_PendingCredentialOnly_ReturnsNull()
+    public void GetStatusSnapshot_PendingCredentialOnly_ReportsPendingCredential()
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
+        ClientId other = ClientId.NewId();
         PairingStartResult start = coordinator.BeginPairing(owner);
         coordinator.ConfirmCode(owner, start.Challenge!.Code, "Living Room PC");
 
-        Assert.Null(coordinator.TryGetOwnedChallenge(owner));
+        PairingStatusSnapshot ownerSnapshot = coordinator.GetStatusSnapshot(owner);
+        PairingStatusSnapshot otherSnapshot = coordinator.GetStatusSnapshot(other);
+
+        Assert.Equal(PairingStatusKind.PendingCredential, ownerSnapshot.Kind);
+        Assert.Null(ownerSnapshot.Challenge);
+        Assert.Equal(PairingStatusKind.OtherDeviceActive, otherSnapshot.Kind);
     }
 
-    /// <summary>Verifies that an expired challenge is never returned as still owned.</summary>
+    /// <summary>Verifies that an expired challenge is never reported as still owned.</summary>
     [Fact]
-    public void TryGetOwnedChallenge_ExpiredChallenge_ReturnsNull()
+    public void GetStatusSnapshot_ExpiredChallenge_ReportsIdle()
     {
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
@@ -794,12 +858,14 @@ public class PairingCoordinatorTests
         coordinator.BeginPairing(owner);
         clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
 
-        Assert.Null(coordinator.TryGetOwnedChallenge(owner));
+        PairingStatusSnapshot snapshot = coordinator.GetStatusSnapshot(owner);
+
+        Assert.Equal(PairingStatusKind.Idle, snapshot.Kind);
     }
 
-    /// <summary>Verifies that a disconnected owner still within reconnect grace keeps its challenge returnable.</summary>
+    /// <summary>Verifies that a disconnected owner still within reconnect grace keeps its displayed challenge reportable.</summary>
     [Fact]
-    public void TryGetOwnedChallenge_DuringReconnectGrace_StillReturnsChallenge()
+    public void GetStatusSnapshot_DuringReconnectGrace_StillReturnsDisplayedChallenge()
     {
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
@@ -809,7 +875,10 @@ public class PairingCoordinatorTests
         coordinator.NotifyDisconnected(owner);
         clock.Advance(TimeSpan.FromSeconds(9));
 
-        Assert.Equal(start.Challenge, coordinator.TryGetOwnedChallenge(owner));
+        PairingStatusSnapshot snapshot = coordinator.GetStatusSnapshot(owner);
+
+        Assert.Equal(PairingStatusKind.DisplayedChallenge, snapshot.Kind);
+        Assert.Equal(start.Challenge, snapshot.Challenge);
     }
 
     /// <summary>Verifies that a non-owner committing a redisplay it never peeked reports AlreadyIdle, symmetric with <see cref="TryRenotify_IsOwnerBoundAndDoesNotCommitCooldown"/>.</summary>
@@ -831,6 +900,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
         PairingStartResult start = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         coordinator.CommitRenotify(clientId, start.Challenge!.Id);
         clock.Advance(TimeSpan.FromSeconds(5));
 
@@ -854,9 +924,9 @@ public class PairingCoordinatorTests
         bool committed = coordinator.CommitInitialDisplay(clientId, first.Challenge!.Id);
 
         Assert.False(committed);
-        Assert.Null(coordinator.TryGetOwnedChallenge(clientId));
+        Assert.Null(coordinator.GetStatusSnapshot(clientId).Challenge);
         Assert.True(coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id));
-        Assert.Equal(replacement.Challenge, coordinator.TryGetOwnedChallenge(clientId));
+        Assert.Equal(replacement.Challenge, coordinator.GetStatusSnapshot(clientId).Challenge);
     }
 
     /// <summary>
@@ -876,7 +946,7 @@ public class PairingCoordinatorTests
         bool committed = coordinator.CommitInitialDisplay(other, start.Challenge!.Id);
 
         Assert.False(committed);
-        Assert.Null(coordinator.TryGetOwnedChallenge(owner));
+        Assert.Null(coordinator.GetStatusSnapshot(owner).Challenge);
         Assert.True(coordinator.CommitInitialDisplay(owner, start.Challenge.Id));
     }
 
@@ -899,9 +969,9 @@ public class PairingCoordinatorTests
         bool committed = coordinator.CommitInitialDisplay(clientId, first.Challenge!.Id);
 
         Assert.False(committed);
-        Assert.Null(coordinator.TryGetOwnedChallenge(clientId));
+        Assert.Null(coordinator.GetStatusSnapshot(clientId).Challenge);
         Assert.True(coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id));
-        Assert.Equal(replacement.Challenge, coordinator.TryGetOwnedChallenge(clientId));
+        Assert.Equal(replacement.Challenge, coordinator.GetStatusSnapshot(clientId).Challenge);
     }
 
     /// <summary>
@@ -934,10 +1004,12 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        coordinator.BeginPairing(clientId);
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PairingRenotifyResult peek = coordinator.TryRenotify(clientId);
         coordinator.Cancel(clientId);
         PairingStartResult replacement = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id);
 
         PairingRenotifyResult stale = coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value);
 

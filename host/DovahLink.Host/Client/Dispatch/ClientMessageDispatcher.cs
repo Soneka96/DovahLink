@@ -219,10 +219,28 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return new ClientDispatchResult();
 
             case PairingStartOutcome.Resumed:
-                PairingChallenge? owned = pairingCoordinator.TryGetOwnedChallenge(clientId);
-                SendPairingStatus(
-                    connection, sessionId, envelope.MessageId, PairingStatusWireState.InProgress,
-                    owned is null ? null : RemainingSeconds(owned));
+                PairingStatusSnapshot snapshot = pairingCoordinator.GetStatusSnapshot(clientId);
+                switch (snapshot.Kind)
+                {
+                    case PairingStatusKind.DisplayedChallenge:
+                        SendPairingStatus(
+                            connection, sessionId, envelope.MessageId, PairingStatusWireState.InProgress,
+                            RemainingSeconds(snapshot.Challenge!));
+                        break;
+
+                    case PairingStatusKind.PendingCredential:
+                        SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.InProgress, null);
+                        break;
+
+                    default:
+                        // An uncommitted display reservation has never actually been shown to this
+                        // client, so it is not yet a displayable challenge; Idle/OtherDeviceActive are
+                        // reachable only through the same race BeginPairing's own ownership check is
+                        // already racing against. Neither case is publicly resumable/displayed, so both
+                        // report the same "nothing to show yet" status Concept 03 defines for that.
+                        SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+                        break;
+                }
                 return new ClientDispatchResult();
 
             case PairingStartOutcome.OtherDeviceActive:
@@ -330,10 +348,10 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             case PairingConfirmOutcome.Invalid:
                 if (confirm.ShouldAutoRenotify)
                 {
-                    string? ownedCode = pairingCoordinator.TryGetOwnedChallenge(clientId)?.Code;
-                    if (ownedCode is not null)
+                    PairingStatusSnapshot ownedSnapshot = pairingCoordinator.GetStatusSnapshot(clientId);
+                    if (ownedSnapshot.Kind == PairingStatusKind.DisplayedChallenge)
                     {
-                        FireAndForget(adapterNotifier.NotifyCodeIncorrectAsync(ownedCode, cancellationToken));
+                        FireAndForget(adapterNotifier.NotifyCodeIncorrectAsync(ownedSnapshot.Challenge!.Code, cancellationToken));
                     }
                 }
 

@@ -184,7 +184,7 @@ public enum PairingRenotifyOutcome
     /// <summary>The manual redisplay cooldown is still active.</summary>
     Cooldown,
 
-    /// <summary>The requesting client owns no active challenge.</summary>
+    /// <summary>The requesting client owns no active challenge, or one whose initial display has not yet committed.</summary>
     AlreadyIdle,
 }
 
@@ -196,6 +196,28 @@ public enum PairingCancelOutcome
 
     /// <summary>The client owned no pairing operation.</summary>
     AlreadyIdle,
+}
+
+/// <summary>
+/// The structurally distinct pairing states <see cref="Pairing.PairingStatusSnapshot"/> distinguishes
+/// for one client, replacing any inference from a nullable challenge alone.
+/// </summary>
+public enum PairingStatusKind
+{
+    /// <summary>The client owns neither an active challenge nor a pending credential.</summary>
+    Idle,
+
+    /// <summary>The client owns a challenge reservation whose initial display has not yet committed.</summary>
+    UncommittedDisplayReservation,
+
+    /// <summary>The client owns an active challenge whose initial display has committed.</summary>
+    DisplayedChallenge,
+
+    /// <summary>The client owns a pending credential awaiting final confirmation.</summary>
+    PendingCredential,
+
+    /// <summary>A different client currently owns the active challenge or pending credential.</summary>
+    OtherDeviceActive,
 }
 
 // ---- Adapter ----

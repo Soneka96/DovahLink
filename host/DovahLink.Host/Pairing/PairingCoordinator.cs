@@ -42,10 +42,11 @@ public interface IPairingCoordinator
     /// </summary>
     /// <param name="clientId">The client requesting redisplay.</param>
     /// <returns>
-    /// <see cref="PairingRenotifyOutcome.Renotified"/> when <paramref name="clientId"/> owns an active
-    /// challenge outside cooldown and redisplay may proceed; <see cref="PairingRenotifyOutcome.Cooldown"/>
-    /// with the remaining wait while the cooldown is still active; <see cref="PairingRenotifyOutcome.AlreadyIdle"/>
-    /// when <paramref name="clientId"/> owns no active challenge.
+    /// <see cref="PairingRenotifyOutcome.Renotified"/> when <paramref name="clientId"/> owns a
+    /// display-committed active challenge outside cooldown and redisplay may proceed;
+    /// <see cref="PairingRenotifyOutcome.Cooldown"/> with the remaining wait while the cooldown is
+    /// still active; <see cref="PairingRenotifyOutcome.AlreadyIdle"/> when <paramref name="clientId"/>
+    /// owns no active challenge, or owns one whose initial display has not yet committed.
     /// </returns>
     PairingRenotifyResult TryRenotify(ClientId clientId);
 
@@ -113,20 +114,14 @@ public interface IPairingCoordinator
     PairingRenotifyResult CommitRenotify(ClientId clientId, ChallengeId challengeId);
 
     /// <summary>
-    /// Returns <paramref name="clientId"/>'s still-active, already display-committed challenge,
-    /// without generating, displaying, or otherwise mutating anything. Used to obtain the code for an
-    /// adapter notification -- manual or automatic redisplay -- without exposing it through any public
-    /// outcome.
+    /// Returns one coherent snapshot of <paramref name="clientId"/>'s pairing status, read once under
+    /// this coordinator's own lock so a caller never combines separately-synchronized reads into a
+    /// state that never coherently existed. Distinguishes an unacknowledged display reservation, a
+    /// displayed challenge, an owned pending credential, another client's active operation, and no
+    /// operation at all -- a caller must never infer any of these from a nullable challenge alone.
     /// </summary>
-    /// <param name="clientId">The client whose ownership to check.</param>
-    /// <returns>
-    /// The active challenge if <paramref name="clientId"/> owns it, it has not expired, and
-    /// <see cref="CommitInitialDisplay"/> has already marked it displayed; otherwise
-    /// <see langword="null"/> -- <paramref name="clientId"/> may still separately own a pending
-    /// credential, which has no code left to redisplay, or an as-yet-uncommitted reservation, which
-    /// must not be treated as publicly resumable/displayed until its initial display commits.
-    /// </returns>
-    PairingChallenge? TryGetOwnedChallenge(ClientId clientId);
+    /// <param name="clientId">The client whose pairing status to check.</param>
+    PairingStatusSnapshot GetStatusSnapshot(ClientId clientId);
 }
 
 /// <inheritdoc cref="IPairingCoordinator"/>
@@ -159,8 +154,8 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// <summary>
     /// The identity of <see cref="activeChallenge"/> once <see cref="CommitInitialDisplay"/> has
     /// accepted it, or <see langword="null"/> while it is still an unacknowledged reservation. Gates
-    /// <see cref="TryGetOwnedChallenge"/>: a reservation must not be publicly resumable or displayed
-    /// before its initial display commits.
+    /// <see cref="GetStatusSnapshot"/> and <see cref="EvaluateRenotify"/>: a reservation must not be
+    /// publicly resumable, displayed, or renotify-eligible before its initial display commits.
     /// </summary>
     private ChallengeId? committedDisplayChallengeId;
 
@@ -666,7 +661,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
     }
 
     /// <inheritdoc/>
-    public PairingChallenge? TryGetOwnedChallenge(ClientId clientId)
+    public PairingStatusSnapshot GetStatusSnapshot(ClientId clientId)
     {
         operationSemaphore.Wait();
         try
@@ -675,11 +670,28 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 DateTimeOffset now = clock.UtcNow;
                 ExpireChallengeIfNeeded(now);
-                return activeChallenge is { } challenge &&
-                    challenge.OwnerClientId == clientId &&
-                    committedDisplayChallengeId == challenge.Id
-                    ? challenge
-                    : null;
+                ExpirePendingIfNeeded(now);
+
+                if (pendingCredential is { } pending)
+                {
+                    return new PairingStatusSnapshot(
+                        pending.ClientId == clientId ? PairingStatusKind.PendingCredential : PairingStatusKind.OtherDeviceActive,
+                        null);
+                }
+
+                if (activeChallenge is { } challenge)
+                {
+                    if (challenge.OwnerClientId != clientId)
+                    {
+                        return new PairingStatusSnapshot(PairingStatusKind.OtherDeviceActive, null);
+                    }
+
+                    return committedDisplayChallengeId == challenge.Id
+                        ? new PairingStatusSnapshot(PairingStatusKind.DisplayedChallenge, challenge)
+                        : new PairingStatusSnapshot(PairingStatusKind.UncommittedDisplayReservation, null);
+                }
+
+                return new PairingStatusSnapshot(PairingStatusKind.Idle, null);
             }
         }
         finally
@@ -691,12 +703,16 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// <summary>
     /// Evaluates a redisplay request against current state without committing anything, shared by
     /// <see cref="TryRenotify"/>'s pure peek and <see cref="CommitRenotify"/>'s re-validation before
-    /// committing. Callers must already hold <see cref="gate"/> and have called
-    /// <see cref="ExpireChallengeIfNeeded"/> for <paramref name="now"/>.
+    /// committing. Requires the active challenge to be owned by <paramref name="clientId"/> and to
+    /// have already committed its initial display: an unacknowledged reservation has never been shown
+    /// to the client, so there is nothing yet to redisplay. Callers must already hold <see cref="gate"/>
+    /// and have called <see cref="ExpireChallengeIfNeeded"/> for <paramref name="now"/>.
     /// </summary>
     private PairingRenotifyResult EvaluateRenotify(ClientId clientId, DateTimeOffset now)
     {
-        if (activeChallenge is null || activeChallenge.OwnerClientId != clientId)
+        if (activeChallenge is not { } challenge ||
+            challenge.OwnerClientId != clientId ||
+            committedDisplayChallengeId != challenge.Id)
         {
             return new PairingRenotifyResult(PairingRenotifyOutcome.AlreadyIdle);
         }

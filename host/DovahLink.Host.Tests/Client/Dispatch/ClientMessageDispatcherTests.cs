@@ -443,13 +443,15 @@ public class ClientMessageDispatcherTests
 
         (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingStatusWireState.Unavailable, status.State);
-        Assert.Equal(replacement.Challenge, pairingCoordinator.TryGetOwnedChallenge(clientId));
+        Assert.Equal(replacement.Challenge, pairingCoordinator.GetStatusSnapshot(clientId).Challenge);
     }
 
     /// <summary>
     /// Verifies that a concurrent <c>pairing_request</c> for the same client while the first
-    /// reservation's display acknowledgement is still pending reports <c>in_progress</c> with no
-    /// remaining-lifetime figure -- an uncommitted reservation is not yet publicly resumable/displayed.
+    /// reservation's display acknowledgement is still pending reports <c>unavailable</c> -- an
+    /// uncommitted reservation has never actually been shown to the client, so it is not a displayable
+    /// challenge, and it must never be reported as <c>in_progress</c> the way an owned pending
+    /// credential legitimately is.
     /// </summary>
     [Fact]
     public async Task DispatchAsync_PairingRequestUncommittedInitialDisplay_CannotBeResumedAsInProgress()
@@ -473,7 +475,7 @@ public class ClientMessageDispatcherTests
             clientId, SessionId.NewId(), new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
 
         (_, PairingStatusPayload secondStatus) = DecodeSent<PairingStatusPayload>(Assert.Single(secondConnection.SentPayloads));
-        Assert.Equal(PairingStatusWireState.InProgress, secondStatus.State);
+        Assert.Equal(PairingStatusWireState.Unavailable, secondStatus.State);
         Assert.Null(secondStatus.ExpiresInSeconds);
 
         releaseGate.SetResult();
@@ -597,6 +599,34 @@ public class ClientMessageDispatcherTests
         Assert.Null(outcome.Credential);
         await WaitUntilAsync(() => adapterNotifier.IncorrectCodeNotifications.Count > 0);
         Assert.Equal([start.Challenge!.Code], adapterNotifier.IncorrectCodeNotifications);
+    }
+
+    /// <summary>
+    /// Verifies that a first wrong attempt against a challenge whose initial display has never
+    /// committed never requests an incorrect-code redisplay: the code was never actually shown, so
+    /// there is nothing displayed to redisplay, even though the coordinator itself allows confirming
+    /// an uncommitted reservation's code.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmFirstWrongAttemptOnUncommittedReservation_DoesNotRequestRedisplay()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.Empty(adapterNotifier.IncorrectCodeNotifications);
     }
 
     /// <summary>
@@ -1053,6 +1083,7 @@ public class ClientMessageDispatcherTests
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
@@ -1079,6 +1110,7 @@ public class ClientMessageDispatcherTests
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
         PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         pairingCoordinator.CommitRenotify(clientId, started.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
@@ -1111,6 +1143,32 @@ public class ClientMessageDispatcherTests
     }
 
     /// <summary>
+    /// Verifies that a client whose challenge reservation's initial display has not yet committed
+    /// sends already_idle without contacting the adapter: the reservation has never actually been
+    /// shown, so there is nothing yet to redisplay.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyUncommittedReservation_SendsAlreadyIdleWithoutContactingAdapter()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
+        Assert.Empty(adapterNotifier.RedisplayedCodes);
+    }
+
+    /// <summary>
     /// Verifies that an adapter rejection sends a retryable internal_error and never commits the
     /// cooldown -- a following renotify remains eligible rather than falsely rate-limited by a
     /// redisplay that never actually happened.
@@ -1126,7 +1184,8 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
