@@ -1436,6 +1436,86 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
+    /// Reproduces the duplicate-ACK race against the real <see cref="TrustStore"/> rather than
+    /// <see cref="FakeTrustStore"/>: with ACK A's own conditional-upsert persistence write blocked,
+    /// <see cref="TrustStore.TryGet"/> must still report no record for this client -- proving
+    /// <see cref="TrustStore.TryUpsertIfGenerationAsync"/> never publishes the proposed Trusted record
+    /// before its write durably succeeds -- so ACK B's own fallback lookup falls through to
+    /// <see cref="PairingCommitOutcome.PendingNotFound"/> rather than incorrectly reporting
+    /// <see cref="PairingCommitOutcome.AlreadyTrusted"/> for a credential that has not actually
+    /// persisted yet. <see cref="FakeTrustStore"/>'s own gate already publishes only after its gate
+    /// opens, so this class of race could only be exercised against the real store.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_ConcurrentSecondAckAgainstRealTrustStore_NeverObservesTransientTrustedBeforePersistenceSucceeds()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredSave.Task;
+
+        Assert.Null(trustStore.TryGet(clientId));
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        releaseSave.SetResult();
+        PairingCommitResult resultA = await ackA;
+
+        Assert.Equal(PairingCommitOutcome.Trusted, resultA.Outcome);
+        Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies the same real-<see cref="TrustStore"/> visibility guarantee as
+    /// <see cref="CommitPending_ConcurrentSecondAckAgainstRealTrustStore_NeverObservesTransientTrustedBeforePersistenceSucceeds"/>
+    /// when ACK A's persistence ultimately fails: ACK B still never observes
+    /// <see cref="PairingCommitOutcome.AlreadyTrusted"/>, and no Trusted record survives A's failure.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_ConcurrentSecondAckAgainstRealTrustStore_PersistenceFails_NoTrustSurvivesAndSecondAckNeverPersisted()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredSave.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        releaseSave.SetException(new IOException("disk full"));
+        PairingCommitResult resultA = await ackA;
+
+        Assert.Equal(PairingCommitOutcome.PersistenceFailed, resultA.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
     /// Verifies that a second concurrent <see cref="PairingCoordinator.CommitPendingAsync"/> call for
     /// the exact same pending credential can never also claim it while a first call's exclusive claim
     /// is still live: it observes <see cref="PairingCommitOutcome.PendingNotFound"/> without ever

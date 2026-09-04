@@ -93,7 +93,7 @@ public class TrustStoreTests
         Assert.Null(store.TryGet(attempted.ClientId));
     }
 
-    /// <summary>Verifies that a conditional upsert rolls back on persistence failure without changing its generation.</summary>
+    /// <summary>Verifies that a conditional upsert never publishes its record or advances the generation when persistence fails.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_PersistenceFails_RestoresRecordAndGeneration()
     {
@@ -109,7 +109,7 @@ public class TrustStoreTests
         Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
-    /// <summary>Verifies that a failed conditional replacement restores the prior record and generation.</summary>
+    /// <summary>Verifies that a failed conditional replacement leaves the prior record and generation untouched.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_ExistingRecordSaveFails_RestoresPriorRecord()
     {
@@ -126,6 +126,103 @@ public class TrustStoreTests
 
         Assert.Equal(original, store.TryGet(clientId));
         Assert.Equal(generation, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies that a matching security fence generation advances
+    /// <see cref="TrustStore.SecurityFenceGeneration"/> by exactly one once persistence succeeds.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_MatchingGeneration_AdvancesSecurityFenceGenerationExactlyOnce()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        long initialGeneration = store.SecurityFenceGeneration;
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+
+        bool committed = await store.TryUpsertIfGenerationAsync(record, initialGeneration);
+
+        Assert.True(committed);
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies that a record a conditional upsert is establishing never becomes visible through
+    /// <see cref="TrustStore.TryGet"/>, <see cref="TrustStore.List"/>, or
+    /// <see cref="TrustStore.TryGetByShortId"/> while its persistence write is still in flight, and
+    /// becomes visible through all three at once as soon as that write succeeds -- the transient-trust
+    /// window a concurrent reader could otherwise observe before durability was actually established.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_WhilePersistenceBlocked_DoesNotExposeProposedRecordUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        long initialGeneration = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<bool> upsert = store.TryUpsertIfGenerationAsync(record, initialGeneration);
+        await enteredSave.Task;
+
+        Assert.Null(store.TryGet(record.ClientId));
+        Assert.DoesNotContain(record, store.List());
+        Assert.Null(store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.True(await upsert);
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(record, store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee as
+    /// <see cref="TryUpsertIfGenerationAsync_WhilePersistenceBlocked_DoesNotExposeProposedRecordUntilPersistenceSucceeds"/>
+    /// when the conditional upsert replaces an already-known record rather than inserting a new one:
+    /// while persistence is blocked, readers must keep seeing the prior record, not the proposed
+    /// replacement -- and if persistence then fails, the prior record must still be exactly what they
+    /// see afterward, since the replacement was never published.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_ExistingRecordWhilePersistenceBlocked_KeepsExposingPriorRecordUntilResolved()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Revoked, "oldhash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        TrustRecord replacement = original with { State = KnownDeviceState.Trusted, CredentialVerifier = "newhash" };
+        long generationBeforeReplacement = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<bool> upsert = store.TryUpsertIfGenerationAsync(replacement, generationBeforeReplacement);
+        await enteredSave.Task;
+
+        Assert.Equal(original, store.TryGet(clientId));
+        Assert.Contains(original, store.List());
+        Assert.Equal(generationBeforeReplacement, store.SecurityFenceGeneration);
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => upsert);
+
+        Assert.Equal(original, store.TryGet(clientId));
+        Assert.Equal(generationBeforeReplacement, store.SecurityFenceGeneration);
     }
 
     /// <summary>Verifies that administration lookup returns the record matching its stable short ID.</summary>

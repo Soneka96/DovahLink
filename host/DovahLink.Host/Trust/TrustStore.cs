@@ -33,7 +33,13 @@ public interface ITrustStore
     /// </summary>
     long SecurityFenceGeneration { get; }
 
-    /// <summary>Upserts a record only when the store still has the supplied fence generation.</summary>
+    /// <summary>
+    /// Upserts a record only when the store still has the supplied fence generation. The record
+    /// becomes visible through <see cref="TryGet"/>, <see cref="List"/>, and
+    /// <see cref="TryGetByShortId"/> at the same instant it becomes durably persisted -- never
+    /// before: a concurrent reader can never observe this upsert's outcome while its persistence
+    /// write is still in flight.
+    /// </summary>
     /// <param name="record">The record to store.</param>
     /// <param name="expectedGeneration">The fence generation observed before a pending operation began.</param>
     /// <param name="cancellationToken">The token used to cancel the persistence write.</param>
@@ -249,6 +255,12 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Builds the proposed snapshot without touching the live record set, persists it, and only
+    /// then publishes it into <see cref="recordsByClientId"/> and advances the fence -- so a failed
+    /// or cancelled write leaves the live records and generation exactly as they were, with nothing
+    /// to roll back because nothing was ever mutated ahead of persistence.
+    /// </remarks>
     public async Task<bool> TryUpsertIfGenerationAsync(
         TrustRecord record,
         long expectedGeneration,
@@ -257,8 +269,7 @@ public sealed class TrustStore : ITrustStore
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
         {
-            TrustRecord? previousRecord;
-            List<TrustRecord> snapshot;
+            List<TrustRecord> proposedSnapshot;
             lock (recordsLock)
             {
                 if (securityFenceGeneration != expectedGeneration)
@@ -266,36 +277,20 @@ public sealed class TrustStore : ITrustStore
                     return false;
                 }
 
-                recordsByClientId.TryGetValue(record.ClientId, out previousRecord);
+                proposedSnapshot = recordsByClientId.Values
+                    .Where(existing => existing.ClientId != record.ClientId)
+                    .Append(record)
+                    .ToList();
+            }
+
+            await persistence.SaveAsync(proposedSnapshot, cancellationToken);
+
+            lock (recordsLock)
+            {
                 recordsByClientId[record.ClientId] = record;
-                snapshot = recordsByClientId.Values.ToList();
+                securityFenceGeneration++;
             }
-
-            try
-            {
-                await persistence.SaveAsync(snapshot, cancellationToken);
-                lock (recordsLock)
-                {
-                    securityFenceGeneration++;
-                }
-                return true;
-            }
-            catch
-            {
-                lock (recordsLock)
-                {
-                    if (previousRecord is null)
-                    {
-                        recordsByClientId.Remove(record.ClientId);
-                    }
-                    else
-                    {
-                        recordsByClientId[record.ClientId] = previousRecord;
-                    }
-                }
-
-                throw;
-            }
+            return true;
         }
         finally
         {
