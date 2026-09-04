@@ -170,6 +170,10 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.AlreadyInState);
         }
+        if (record.State is not (KnownDeviceState.Trusted or KnownDeviceState.Revoked))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotEligible);
+        }
 
         recordsByClientId[clientId] = record with
         {

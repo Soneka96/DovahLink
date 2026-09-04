@@ -257,25 +257,26 @@ public class TrustStoreTests
         Assert.Equal(original.PairedAtUtc, revoked.PairedAtUtc);
     }
 
-    /// <summary>Verifies that blocking is allowed for an unpaired known device and is idempotent.</summary>
+    /// <summary>
+    /// Verifies that an unpaired known device is never eligible for Block, per the canonical Stage 3.2
+    /// contract in <c>ai/context/protocol/security.md</c>: Block applies only to a Trusted or Revoked
+    /// device.
+    /// </summary>
     [Fact]
-    public async Task BlockAsync_UnpairedRecord_BlocksThenReportsAlreadyInState()
+    public async Task BlockAsync_UnpairedRecord_ReturnsNotEligibleWithoutMutation()
     {
         var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence, clock);
         TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, clock.UtcNow.AddDays(-1));
         await store.UpsertAsync(original);
+        long generationBeforeBlock = store.SecurityFenceGeneration;
 
-        Assert.Equal(TrustMutationOutcome.Changed, await store.BlockAsync(original.ClientId));
-        TrustRecord blocked = store.TryGet(original.ClientId)!;
-        Assert.Equal(clock.UtcNow, blocked.BlockedAtUtc);
-        Assert.Equal(blocked, Assert.Single(persistence.SavedRecords));
+        Assert.Equal(TrustMutationOutcome.NotEligible, await store.BlockAsync(original.ClientId));
 
-        clock.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal(TrustMutationOutcome.AlreadyInState, await store.BlockAsync(original.ClientId));
-        Assert.Equal(KnownDeviceState.Blocked, store.TryGet(original.ClientId)!.State);
-        Assert.Equal(new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero), store.TryGet(original.ClientId)!.BlockedAtUtc);
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeBlock, store.SecurityFenceGeneration);
+        Assert.Equal(1, persistence.SaveCallCount);
     }
 
     /// <summary>Verifies that trusted and revoked records receive the injected block timestamp.</summary>
@@ -298,6 +299,25 @@ public class TrustStoreTests
         Assert.Equal(blocked, Assert.Single(persistence.SavedRecords));
     }
 
+    /// <summary>Verifies that blocking an already-blocked device is a truthful, unmutated no-op.</summary>
+    [Fact]
+    public async Task BlockAsync_AlreadyBlockedRecord_ReturnsAlreadyInStateWithoutMutation()
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Blocked, string.Empty, clock.UtcNow.AddDays(-1), clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(original);
+        long generationBeforeBlock = store.SecurityFenceGeneration;
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(TrustMutationOutcome.AlreadyInState, await store.BlockAsync(original.ClientId));
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeBlock, store.SecurityFenceGeneration);
+        Assert.Equal(1, persistence.SaveCallCount);
+    }
+
     /// <summary>Verifies that blocking an unknown client does not mutate persistence.</summary>
     [Fact]
     public async Task BlockAsync_UnknownClient_ReturnsNotFound()
@@ -316,7 +336,7 @@ public class TrustStoreTests
         var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence, clock);
-        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, clock.UtcNow.AddDays(-1));
+        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Trusted, "deadbeef", clock.UtcNow.AddDays(-1));
         await store.UpsertAsync(original);
         persistence.ThrowOnSave = new IOException("disk full");
 

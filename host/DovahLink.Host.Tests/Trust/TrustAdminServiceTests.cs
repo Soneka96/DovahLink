@@ -140,20 +140,30 @@ public class TrustAdminServiceTests
         Assert.True(sessions.IsActive(otherSession, sessions.ConnectionIdFor(otherSession)));
     }
 
-    /// <summary>Verifies that blocking an unpaired known device is allowed and creates no credential.</summary>
+    /// <summary>
+    /// Verifies that an unpaired known device is never eligible for Block, per the canonical Stage 3.2
+    /// contract in <c>ai/context/protocol/security.md</c>: the device stays unpaired, and none of
+    /// Block's side effects (pairing cancellation, session invalidation) apply to a mutation that
+    /// never happened.
+    /// </summary>
     [Fact]
-    public async Task BlockAsync_UnpairedDevice_BlocksAndInvalidatesSessions()
+    public async Task BlockAsync_UnpairedDevice_ThrowsAndDoesNotApplySideEffects()
     {
         var trustStore = new FakeTrustStore();
+        var sessions = new FakeSessionRegistry();
+        var pairing = new FakePairingCoordinator();
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
-        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+        SessionId session = sessions.Create(clientId);
+        var admin = new TrustAdminService(trustStore, Invalidator(sessions), pairing);
 
-        await admin.BlockAsync(clientId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => admin.BlockAsync(clientId));
 
-        TrustRecord blocked = trustStore.TryGet(clientId)!;
-        Assert.Equal(KnownDeviceState.Blocked, blocked.State);
-        Assert.NotNull(blocked.BlockedAtUtc);
+        TrustRecord unchanged = trustStore.TryGet(clientId)!;
+        Assert.Equal(KnownDeviceState.Unpaired, unchanged.State);
+        Assert.Null(unchanged.BlockedAtUtc);
+        Assert.Empty(pairing.CancelledClientIds);
+        Assert.True(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
     }
 
     /// <summary>Verifies that blocking a trusted device destroys its verifier and invalidates all security state.</summary>

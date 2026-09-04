@@ -56,7 +56,13 @@ public interface ITrustStore
     /// <summary>Revokes a trusted device and destroys its credential verifier.</summary>
     Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default);
 
-    /// <summary>Blocks any existing non-blocked known device and destroys its credential verifier.</summary>
+    /// <summary>
+    /// Blocks a currently <see cref="KnownDeviceState.Trusted"/> or <see cref="KnownDeviceState.Revoked"/>
+    /// known device and destroys its credential verifier. An already-<see cref="KnownDeviceState.Blocked"/>
+    /// device reports <see cref="TrustMutationOutcome.AlreadyInState"/> without mutation; an
+    /// <see cref="KnownDeviceState.Unpaired"/> device is never eligible for Block and reports
+    /// <see cref="TrustMutationOutcome.NotEligible"/> without mutation.
+    /// </summary>
     Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default);
 
     /// <summary>Unblocks a blocked device and returns it to the unpaired state.</summary>
@@ -308,16 +314,20 @@ public sealed class TrustStore : ITrustStore
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default) =>
-        MutateAsync(clientId, record => record.State == KnownDeviceState.Blocked
-            ? record
-            : record with
+        MutateAsync(clientId, record => record.State switch
+        {
+            KnownDeviceState.Blocked => record,
+            KnownDeviceState.Trusted or KnownDeviceState.Revoked => record with
             {
                 State = KnownDeviceState.Blocked,
                 CredentialVerifier = string.Empty,
                 BlockedAtUtc = clock.UtcNow,
             },
+            _ => null,
+        },
             TrustMutationOutcome.AlreadyInState,
-            cancellationToken);
+            cancellationToken,
+            notEligibleOutcome: TrustMutationOutcome.NotEligible);
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default) =>
@@ -403,13 +413,37 @@ public sealed class TrustStore : ITrustStore
         }
     }
 
-    /// <summary>Applies one persisted trust mutation and restores the prior record on failure.</summary>
+    /// <summary>
+    /// Applies one persisted trust mutation and restores the prior record on failure.
+    /// </summary>
+    /// <param name="clientId">The known device to mutate.</param>
+    /// <param name="mutation">
+    /// Produces the replacement record, the exact same <paramref name="previousRecord"/> reference
+    /// when the target state already holds and nothing needs to change, or <see langword="null"/>
+    /// when <paramref name="previousRecord"/> is not eligible for this mutation at all.
+    /// </param>
+    /// <param name="ineligibleOutcome">
+    /// Reported when <paramref name="mutation"/> returns the same reference back, and as the default
+    /// for a <see langword="null"/> result when <paramref name="notEligibleOutcome"/> is not supplied.
+    /// </param>
+    /// <param name="cancellationToken">The token used to cancel the persistence write.</param>
+    /// <param name="removeWhenNull">
+    /// When set, a <see langword="null"/> result deletes the record instead of replacing it, and a
+    /// non-null result reports <paramref name="ineligibleOutcome"/> instead of applying it.
+    /// </param>
+    /// <param name="notEligibleOutcome">
+    /// Reported when <paramref name="mutation"/> returns <see langword="null"/>, if distinct from
+    /// <paramref name="ineligibleOutcome"/> -- for example a mutation whose eligible states can be
+    /// already in the target state (reported via <paramref name="ineligibleOutcome"/>) as well as
+    /// genuinely ineligible for it altogether (reported via this parameter instead).
+    /// </param>
     private async Task<TrustMutationOutcome> MutateAsync(
         ClientId clientId,
         Func<TrustRecord, TrustRecord?> mutation,
         TrustMutationOutcome ineligibleOutcome,
         CancellationToken cancellationToken,
-        bool removeWhenNull = false)
+        bool removeWhenNull = false,
+        TrustMutationOutcome? notEligibleOutcome = null)
     {
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
@@ -431,7 +465,7 @@ public sealed class TrustStore : ITrustStore
                 }
                 if (!removeWhenNull && mutated is null)
                 {
-                    return ineligibleOutcome;
+                    return notEligibleOutcome ?? ineligibleOutcome;
                 }
                 if (removeWhenNull && mutated is not null)
                 {
