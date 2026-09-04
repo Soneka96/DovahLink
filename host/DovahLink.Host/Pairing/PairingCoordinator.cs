@@ -799,10 +799,12 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 committedDisplayChallengeId = null;
                 if (pendingCommitClaim is null)
                 {
-                    // An in-flight commit has already irrevocably claimed the pending credential for
-                    // persistence: this administrative cancellation can no longer undo it and must
-                    // leave it to the commit's own finalization rather than clear a reservation that
-                    // may already be landing durably.
+                    // No in-flight commit currently claims the pending credential, so this
+                    // administrative cancellation can safely clear it outright. When a claim is
+                    // already held, leave pendingCredential untouched: the claimant already won the
+                    // race to finalize it, so this cancellation can no longer undo it and must leave
+                    // it to the commit's own finalization rather than clear a reservation that may
+                    // already be landing durably.
                     pendingCredential = null;
                 }
                 disconnectedAtUtc = null;
