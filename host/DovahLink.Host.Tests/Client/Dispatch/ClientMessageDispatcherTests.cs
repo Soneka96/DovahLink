@@ -283,13 +283,14 @@ public class ClientMessageDispatcherTests
     }
 
     /// <summary>
-    /// Verifies that an exception from the adapter's initial-display notification still rolls back the
-    /// reservation rather than leaving it uncommitted and occupying the pairing slot: exception safety
-    /// comes from a <c>finally</c> guarded on whether the commit actually succeeded, not from the
-    /// explicit rollback call on the ordinary rejection path alone.
+    /// Verifies that an unexpected exception from the adapter's initial-display notification never
+    /// leaks as a raw exception: it maps to a redacted retryable <c>internal_error</c>, and the
+    /// reservation still rolls back rather than being left uncommitted and occupying the pairing slot.
+    /// Exception safety comes from a <c>finally</c> guarded on whether the commit actually succeeded,
+    /// not from the explicit rollback call on the ordinary rejection path alone.
     /// </summary>
     [Fact]
-    public async Task DispatchAsync_PairingRequestNewChallenge_AdapterThrows_RollsBackReservation()
+    public async Task DispatchAsync_PairingRequestNewChallenge_AdapterThrowsGenericException_SendsRetryableInternalErrorAndRollsBackReservation()
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
@@ -301,20 +302,50 @@ public class ClientMessageDispatcherTests
         ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None));
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
 
-        Assert.Empty(fakeConnection.SentPayloads);
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
         Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
     }
 
     /// <summary>
-    /// Verifies the same exception-safe rollback guarantee as
-    /// <see cref="DispatchAsync_PairingRequestNewChallenge_AdapterThrows_RollsBackReservation"/> when
-    /// the adapter await is cancelled instead of faulted.
+    /// Verifies the same redacted, rollback-preserving guarantee as
+    /// <see cref="DispatchAsync_PairingRequestNewChallenge_AdapterThrowsGenericException_SendsRetryableInternalErrorAndRollsBackReservation"/>
+    /// when the adapter throws its own <see cref="OperationCanceledException"/> independent of the
+    /// caller's own token -- the caller never requested cancellation, so this is an adapter fault, not
+    /// a genuine request cancellation, and must not propagate as a raw <see cref="OperationCanceledException"/>.
     /// </summary>
     [Fact]
-    public async Task DispatchAsync_PairingRequestNewChallenge_AdapterCancelled_RollsBackReservation()
+    public async Task DispatchAsync_PairingRequestNewChallenge_AdapterThrowsOperationCanceledWithoutCallerCancellation_SendsRetryableInternalErrorAndRollsBackReservation()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeAvailable = new OperationCanceledException("adapter-side timeout") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a genuine caller/request cancellation -- the caller's own <see cref="CancellationToken"/>
+    /// already requesting it -- still propagates as <see cref="OperationCanceledException"/> rather than
+    /// being redacted, while still rolling back the reservation the same exception-safe way as every
+    /// other unsuccessful path.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestNewChallenge_CallerCancellation_PropagatesAndRollsBackReservation()
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
@@ -325,9 +356,11 @@ public class ClientMessageDispatcherTests
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None));
+            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, cancellation.Token));
 
         Assert.Empty(fakeConnection.SentPayloads);
         Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
@@ -1302,6 +1335,96 @@ public class ClientMessageDispatcherTests
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
         Assert.True(error.Retryable);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that an unexpected exception from the adapter's redisplay notification never leaks as
+    /// a raw exception: it maps to a redacted retryable <c>internal_error</c>, and
+    /// <see cref="IPairingCoordinator.CommitRenotify"/> never runs, so the active challenge and its
+    /// cooldown remain exactly as they were -- the same preserved-eligibility guarantee as
+    /// <see cref="DispatchAsync_PairingRenotifyAdapterRejects_SendsRetryableErrorAndPreservesEligibility"/>.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyAdapterThrowsGenericException_SendsRetryableInternalErrorAndPreservesEligibility()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyRedisplay = new InvalidOperationException("adapter unavailable") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the same redacted, eligibility-preserving guarantee as
+    /// <see cref="DispatchAsync_PairingRenotifyAdapterThrowsGenericException_SendsRetryableInternalErrorAndPreservesEligibility"/>
+    /// when the adapter throws its own <see cref="OperationCanceledException"/> independent of the
+    /// caller's own token -- the caller never requested cancellation, so this is an adapter fault, not
+    /// a genuine request cancellation, and must not propagate as a raw <see cref="OperationCanceledException"/>.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyAdapterThrowsOperationCanceledWithoutCallerCancellation_SendsRetryableInternalErrorAndPreservesEligibility()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyRedisplay = new OperationCanceledException("adapter-side timeout") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
+        Assert.True(error.Retryable);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a genuine caller/request cancellation -- the caller's own <see cref="CancellationToken"/>
+    /// already requesting it -- still propagates as <see cref="OperationCanceledException"/> rather than
+    /// being redacted, and that <see cref="IPairingCoordinator.CommitRenotify"/> never ran, leaving the
+    /// active challenge and its cooldown coherent and still eligible.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyCallerCancellation_PropagatesAndPreservesEligibility()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyRedisplay = new OperationCanceledException("connection closing") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, cancellation.Token));
+
+        Assert.Empty(fakeConnection.SentPayloads);
         Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
     }
 

@@ -184,7 +184,11 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <c>finally</c> guarded by whether the commit actually succeeded, identity-checked the same way,
     /// so a stale acceptance or rejection that arrives after the reservation was already replaced,
     /// cancelled, or expired can never advertise or cancel a later, unrelated challenge -- and a
-    /// reservation that did commit is never rolled back afterward by that same <c>finally</c>.
+    /// reservation that did commit is never rolled back afterward by that same <c>finally</c>. Only a
+    /// genuine caller/request cancellation -- <paramref name="cancellationToken"/> itself requesting
+    /// it -- propagates as <see cref="OperationCanceledException"/>; an adapter fault, including the
+    /// adapter throwing its own independent <see cref="OperationCanceledException"/>, maps to a
+    /// redacted retryable <c>internal_error</c> instead of leaking the raw exception.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingRequestAsync(
         ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
@@ -222,6 +226,18 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
 
                     SendPairingStatus(
                         connection, sessionId, envelope.MessageId, PairingStatusWireState.Available, RemainingSeconds(challenge));
+                    return new ClientDispatchResult();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // The adapter faulted unexpectedly, or threw its own OperationCanceledException
+                    // independent of the caller's own token -- either way this is not a genuine
+                    // request cancellation, so it must not propagate a raw exception to the caller.
+                    SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to display the pairing code.", retryable: true);
                     return new ClientDispatchResult();
                 }
                 finally
@@ -494,7 +510,12 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// accepts. A rejected redisplay leaves the challenge and cooldown state exactly as they were and
     /// reports a retryable error rather than a fabricated <c>renotified</c> or a silently discarded
     /// challenge. A stale acceptance for a challenge already replaced, cancelled, or expired can never
-    /// consume a later, unrelated challenge's cooldown.
+    /// consume a later, unrelated challenge's cooldown. Only a genuine caller/request cancellation --
+    /// <paramref name="cancellationToken"/> itself requesting it -- propagates as
+    /// <see cref="OperationCanceledException"/>; an adapter fault, including the adapter throwing its
+    /// own independent <see cref="OperationCanceledException"/>, maps to a redacted retryable
+    /// <c>internal_error</c> instead of leaking the raw exception. Either way <see cref="IPairingCoordinator.CommitRenotify"/>
+    /// is never reached, so the active challenge and its cooldown remain exactly as they were.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingRenotifyAsync(
         ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
@@ -512,7 +533,24 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return new ClientDispatchResult();
         }
 
-        bool accepted = await adapterNotifier.TryNotifyRedisplayAsync(peek.Code!, cancellationToken);
+        bool accepted;
+        try
+        {
+            accepted = await adapterNotifier.TryNotifyRedisplayAsync(peek.Code!, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // The adapter faulted unexpectedly, or threw its own OperationCanceledException
+            // independent of the caller's own token -- either way this is not a genuine request
+            // cancellation, so it must not propagate a raw exception to the caller. CommitRenotify has
+            // not run, so the active challenge and its cooldown remain untouched.
+            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
+            return new ClientDispatchResult();
+        }
         if (!accepted)
         {
             SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
