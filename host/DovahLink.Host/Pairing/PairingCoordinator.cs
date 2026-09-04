@@ -76,7 +76,12 @@ public interface IPairingCoordinator
     /// <param name="challengeId">The exact challenge identity <see cref="BeginPairing"/> returned.</param>
     void RollbackInitialDisplay(ClientId clientId, ChallengeId challengeId);
 
-    /// <summary>Cancels the pairing operation owned by one client.</summary>
+    /// <summary>
+    /// Cancels the pairing operation owned by one client. If this clears a pending credential a
+    /// concurrent <see cref="CommitPendingAsync"/> is still finalizing, that call reports
+    /// <see cref="PairingCommitOutcome.PairingInvalidated"/> instead of
+    /// <see cref="PairingCommitOutcome.Trusted"/>, per <see cref="CommitPendingAsync"/>'s own remarks.
+    /// </summary>
     /// <param name="clientId">The client giving up its pairing operation.</param>
     PairingCancelOutcome Cancel(ClientId clientId);
 
@@ -88,7 +93,10 @@ public interface IPairingCoordinator
     /// <param name="clientId">The reconnected client.</param>
     void NotifyReconnected(ClientId clientId);
 
-    /// <summary>Cancels every active challenge and pending credential.</summary>
+    /// <summary>
+    /// Cancels every active challenge and pending credential, with the same effect on a concurrent
+    /// <see cref="CommitPendingAsync"/> finalization that <see cref="Cancel"/>'s own doc describes.
+    /// </summary>
     void CancelAll();
 
     /// <summary>
@@ -393,11 +401,23 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// synchronously block unrelated pairing lifecycle work -- <see cref="Cancel"/>,
     /// <see cref="NotifyDisconnected"/>, <see cref="CancelAll"/>, or another coordinator operation
     /// racing it during connection teardown. The trust store's own mutation-generation fencing, checked
-    /// both before and during <see cref="ITrustStore.TryUpsertIfGenerationAsync"/>, remains the sole
-    /// authority for whether this exact pending credential is still valid to persist; a concurrent
-    /// <see cref="Cancel"/>/<see cref="CancelAll"/> that clears <see cref="pendingCredential"/> in the
-    /// meantime cannot resurrect it, since <see cref="ClearPending"/> only clears a reference still
-    /// equal to the one this call reserved.
+    /// both before and during <see cref="ITrustStore.TryUpsertIfGenerationAsync"/>, is the authority for
+    /// whether this exact pending credential is still valid to persist against an administrative trust
+    /// mutation. A concurrent <see cref="Cancel"/>/<see cref="CancelAll"/> carries no such store-level
+    /// fence -- it only clears this coordinator's own <see cref="pendingCredential"/> reference -- so
+    /// this method additionally re-validates that exact reservation through <see cref="ClearPending"/>'s
+    /// return value once persistence completes: <see cref="PairingCommitOutcome.Trusted"/> is reported
+    /// only when <see cref="ClearPending"/> confirms the reservation this call captured was still the
+    /// live one, never when a concurrent cancellation already cleared or replaced it, regardless of
+    /// whether the underlying write itself already succeeded. This closes the entire window between
+    /// reservation and finalization for what is reported to the caller, using only the coordinator's own
+    /// serialized operation path -- no new lock or generation counter. The one residual case a
+    /// non-blocking cancellation cannot close: a cancellation landing in the narrow gap between
+    /// persistence succeeding and this method's own <see cref="ClearPending"/> check can still leave a
+    /// durably Trusted record the client already discarded. That orphaned record is self-healing --
+    /// nothing else can present its credential, and the client's next pairing attempt overwrites the
+    /// same <c>shortId</c> and credential -- rather than a rollback this method could perform without
+    /// either blocking the cancellation or racing a second, independently fallible compensating write.
     /// </summary>
     /// <param name="clientId">The client that owns the pending credential.</param>
     /// <param name="credential">The raw credential echoed by the client.</param>
@@ -499,7 +519,16 @@ public sealed class PairingCoordinator : IPairingCoordinator
             return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
         }
 
-        ClearPending(reserved);
+        if (!ClearPending(reserved))
+        {
+            // A concurrent Cancel/CancelAll cleared or replaced this exact reservation while
+            // persistence was in flight outside operationSemaphore. The write may already be durably
+            // Trusted -- see this method's own remarks for why that residual case is accepted -- but
+            // cancellation still wins what is reported: never Trusted for a reservation the coordinator
+            // no longer recognizes as live.
+            return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
+        }
+
         return new PairingCommitResult(
             PairingCommitOutcome.Trusted,
             clientId,
@@ -736,15 +765,26 @@ public sealed class PairingCoordinator : IPairingCoordinator
         autoRenotifyCooldownUntilUtc = null;
     }
 
-    /// <summary>Clears the matching pending credential after finalization or invalidation.</summary>
-    private void ClearPending(PendingCredential pending)
+    /// <summary>
+    /// Clears the matching pending credential after finalization or invalidation, reporting whether
+    /// <paramref name="pending"/> was still the live reservation. <see cref="CommitPendingAsync"/> uses
+    /// the return value as its own cancellation fence: <see langword="false"/> means a concurrent
+    /// <see cref="Cancel"/>/<see cref="CancelAll"/> (or expiry) already cleared or replaced this exact
+    /// reservation, so nothing is left here to clear.
+    /// </summary>
+    /// <param name="pending">The exact reservation to clear.</param>
+    /// <returns><see langword="true"/> if <paramref name="pending"/> was still live and is now cleared.</returns>
+    private bool ClearPending(PendingCredential pending)
     {
         lock (gate)
         {
-            if (pendingCredential == pending)
+            if (pendingCredential != pending)
             {
-                pendingCredential = null;
+                return false;
             }
+
+            pendingCredential = null;
+            return true;
         }
     }
 

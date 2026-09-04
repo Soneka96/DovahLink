@@ -474,13 +474,13 @@ public class PairingCoordinatorTests
     /// pairing-operation lock across its persistence await: <see cref="PairingCoordinator.CancelAll"/>
     /// completes immediately even while a commit's trust-store write is deliberately blocked, rather
     /// than being forced to wait behind it the way holding the lock across the await would require.
-    /// The blocked write still lands durably once released -- CancelAll racing an already-in-flight
-    /// persistence too late to stop it is an accepted benign race, not a correctness violation, since
-    /// the trust store's own mutation-generation fencing remains the sole authority against genuinely
-    /// stale or administratively invalidated persistence.
+    /// Cancellation still wins what is reported, per <see cref="PairingCoordinator.CommitPendingAsync"/>'s
+    /// own remarks: the commit reports <see cref="PairingCommitOutcome.PairingInvalidated"/> rather than
+    /// <see cref="PairingCommitOutcome.Trusted"/>, even though the blocked write still lands durably once
+    /// released -- the one documented residual case a non-blocking cancellation cannot close.
     /// </summary>
     [Fact]
-    public async Task CancelAll_DuringCommit_ProceedsWithoutWaitingForPersistence()
+    public async Task CancelAll_DuringCommit_ProceedsWithoutWaitingForPersistenceAndCommitReportsInvalidated()
     {
         var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -505,7 +505,51 @@ public class PairingCoordinatorTests
         Assert.Same(cancel, await Task.WhenAny(cancel, observationWindow));
 
         releaseUpsert.SetResult();
-        await commit;
+        PairingCommitResult result = await commit;
+
+        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        // Documented residual: the write already landed durably before CancelAll's clear was observed.
+        // It is orphaned, not a security exposure -- nothing else can present the discarded credential,
+        // and the client's own next pairing attempt overwrites this exact record.
+        Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies the same cancellation-wins guarantee for the single-client <see cref="PairingCoordinator.Cancel"/>
+    /// path -- the ordinary <c>pairing_cancel</c> route, which unlike administrative invalidation
+    /// carries no trust-store mutation-generation fence of its own -- symmetric with
+    /// <see cref="CancelAll_DuringCommit_ProceedsWithoutWaitingForPersistenceAndCommitReportsInvalidated"/>.
+    /// </summary>
+    [Fact]
+    public async Task Cancel_DuringCommit_ProceedsWithoutWaitingForPersistenceAndCommitReportsInvalidated()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredUpsert.Task;
+        Task cancel = Task.Run(() => coordinator.Cancel(clientId));
+        Task observationWindow = Task.Delay(TimeSpan.FromSeconds(2));
+
+        Assert.Same(cancel, await Task.WhenAny(cancel, observationWindow));
+
+        releaseUpsert.SetResult();
+        PairingCommitResult result = await commit;
+
+        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
     }
 
     /// <summary>
