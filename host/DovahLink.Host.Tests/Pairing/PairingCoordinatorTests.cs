@@ -50,7 +50,7 @@ public class PairingCoordinatorTests
         var trustStore = new FakeTrustStore();
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
 
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
@@ -70,6 +70,81 @@ public class PairingCoordinatorTests
         Assert.NotEqual(issued.Credential, record.CredentialVerifier);
     }
 
+    /// <summary>
+    /// Verifies that the correct code cannot be confirmed before its exact challenge's initial display
+    /// has been committed, and that such an attempt leaves pacing, wrong-attempt, and cooldown state
+    /// completely untouched -- unlike a genuinely wrong code, which does consume that state.
+    /// </summary>
+    [Fact]
+    public void ConfirmCode_BeforeDisplayCommit_CorrectCode_IsInvalidAndDoesNotConsumeAttemptState()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+
+        PairingConfirmationResult attempt = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Assert.Equal(PairingConfirmOutcome.Invalid, attempt.Outcome);
+        Assert.False(attempt.ShouldAutoRenotify);
+
+        coordinator.CommitInitialDisplay(clientId, start.Challenge.Id);
+        PairingConfirmationResult afterCommit = coordinator.ConfirmCode(clientId, start.Challenge.Code, "Living Room PC");
+
+        Assert.Equal(PairingConfirmOutcome.CredentialIssued, afterCommit.Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the same untouched-attempt-state guarantee as
+    /// <see cref="ConfirmCode_BeforeDisplayCommit_CorrectCode_IsInvalidAndDoesNotConsumeAttemptState"/>
+    /// for a wrong code submitted before display commit: five wrong attempts made before the commit
+    /// leave the full wrong-attempt budget untouched, so the hard limit is still reached only after
+    /// five genuine wrong attempts made afterward, not zero.
+    /// </summary>
+    [Fact]
+    public void ConfirmCode_BeforeDisplayCommit_WrongCode_DoesNotConsumeWrongAttemptBudget()
+    {
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            PairingConfirmationResult beforeCommit = coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
+            Assert.Equal(PairingConfirmOutcome.Invalid, beforeCommit.Outcome);
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        PairingConfirmationResult result = default!;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            result = coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Equal(PairingConfirmOutcome.HardLimitReached, result.Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a display commit for a stale, cancelled challenge can never protect a later
+    /// challenge's confirm attempt: each challenge's display must be committed on its own exact
+    /// identity, never inherited from a predecessor for the same client.
+    /// </summary>
+    [Fact]
+    public void ConfirmCode_StaleDisplayCommitFromCancelledChallenge_DoesNotProtectReplacementChallenge()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult first = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, first.Challenge!.Id);
+        coordinator.Cancel(clientId);
+        PairingStartResult replacement = coordinator.BeginPairing(clientId);
+
+        PairingConfirmationResult attempt = coordinator.ConfirmCode(clientId, replacement.Challenge!.Code, "Living Room PC");
+
+        Assert.Equal(PairingConfirmOutcome.Invalid, attempt.Outcome);
+    }
+
     /// <summary>Verifies that an invalid code is indistinguishable from a non-owner attempt and auto-renotify is bounded.</summary>
     [Fact]
     public void ConfirmCode_WrongCode_TracksAttemptsAndAutoRenotifyCooldown()
@@ -77,7 +152,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        coordinator.BeginPairing(clientId);
+        BeginAndDisplayPairing(coordinator, clientId);
 
         PairingConfirmationResult first = coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
         clock.Advance(TimeSpan.FromSeconds(1));
@@ -96,7 +171,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId owner = ClientId.NewId();
         ClientId other = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(owner);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, owner);
 
         PairingConfirmationResult rejected = coordinator.ConfirmCode(other, start.Challenge!.Code, "Other");
         PairingConfirmationResult accepted = coordinator.ConfirmCode(owner, start.Challenge.Code, "Living Room PC");
@@ -111,7 +186,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         string code = start.Challenge!.Code;
 
         PairingConfirmationResult[] results = await Task.WhenAll(
@@ -129,7 +204,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        coordinator.BeginPairing(clientId);
+        BeginAndDisplayPairing(coordinator, clientId);
 
         PairingConfirmationResult result = default!;
         for (int attempt = 0; attempt < 5; attempt++)
@@ -149,7 +224,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
 
         coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
         PairingConfirmationResult paced = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
@@ -165,7 +240,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
         ClientId other = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(owner);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, owner);
         coordinator.ConfirmCode(owner, start.Challenge!.Code, "Living Room PC");
 
         Assert.Equal(PairingStartOutcome.Resumed, coordinator.BeginPairing(owner).Outcome);
@@ -196,7 +271,7 @@ public class PairingCoordinatorTests
         DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
         trustStore.Seed(new TrustRecord(clientId, "12345", "Old Name", KnownDeviceState.Revoked, "oldhash", pairedAt));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
 
         PairingCommitResult result = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -232,7 +307,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         clock.UtcNow = start.Challenge!.ExpiresAtUtc;
 
         PairingConfirmationResult result = coordinator.ConfirmCode(clientId, start.Challenge.Code, "Living Room PC");
@@ -247,7 +322,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
         clock.Advance(TimeSpan.FromSeconds(1));
 
@@ -296,7 +371,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         clock.Advance(TimeSpan.FromMinutes(5));
@@ -312,7 +387,7 @@ public class PairingCoordinatorTests
         var trustStore = new FakeTrustStore { ThrowOnUpsert = new IOException("disk full") };
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         PairingCommitResult failed = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -332,7 +407,7 @@ public class PairingCoordinatorTests
             new FakeTrustStore(),
             new FakeClock(),
             credentialGenerator: () => null);
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
 
         PairingConfirmationResult failed = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PairingStartResult resumed = coordinator.BeginPairing(clientId);
@@ -350,7 +425,7 @@ public class PairingCoordinatorTests
             new FakeTrustStore(),
             new FakeClock(),
             shortIdGenerator: () => null);
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         PairingCommitResult failed = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -365,7 +440,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(owner);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, owner);
         PairingConfirmationResult issued = coordinator.ConfirmCode(owner, start.Challenge!.Code, "Living Room PC");
 
         PairingCommitResult wrongClient = await coordinator.CommitPendingAsync(ClientId.NewId(), issued.Credential!);
@@ -384,7 +459,7 @@ public class PairingCoordinatorTests
         var trustStore = new FakeTrustStore();
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         PairingCommitResult first = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -406,7 +481,7 @@ public class PairingCoordinatorTests
             new FakeClock(),
             shortIdGenerator: () => "12345");
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         PairingCommitResult result = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -421,7 +496,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
@@ -456,7 +531,7 @@ public class PairingCoordinatorTests
         };
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!, cancellation.Token);
@@ -494,7 +569,7 @@ public class PairingCoordinatorTests
         };
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -535,7 +610,7 @@ public class PairingCoordinatorTests
         };
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -576,7 +651,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId committingClient = ClientId.NewId();
         ClientId otherClient = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(committingClient);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, committingClient);
         PairingConfirmationResult issued = coordinator.ConfirmCode(committingClient, start.Challenge!.Code, "Living Room PC");
         coordinator.BeginPairing(otherClient);
 
@@ -599,7 +674,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         coordinator.CancelAll();
@@ -615,7 +690,7 @@ public class PairingCoordinatorTests
         var trustStore = new FakeTrustStore();
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         await trustStore.UpsertAsync(new TrustRecord(ClientId.NewId(), "12345", "Other", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
 
@@ -671,7 +746,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         coordinator.CommitRenotify(clientId, start.Challenge!.Id);
         clock.Advance(TimeSpan.FromSeconds(5));
@@ -698,7 +773,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(owner);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, owner);
         PairingConfirmationResult issued = coordinator.ConfirmCode(owner, start.Challenge!.Code, "Living Room PC");
 
         Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(owner));
@@ -711,7 +786,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         string displayName = new('é', 33);
 
         Assert.Equal(66, Encoding.UTF8.GetByteCount(displayName));
@@ -724,7 +799,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         string displayName = new('é', 32);
 
         Assert.Equal(64, Encoding.UTF8.GetByteCount(displayName));
@@ -740,7 +815,7 @@ public class PairingCoordinatorTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Old Name", KnownDeviceState.Revoked, "oldhash", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, string.Empty);
 
         await coordinator.CommitPendingAsync(clientId, issued.Credential!);
@@ -754,7 +829,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
 
         Assert.Throws<ArgumentException>(() => coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living\nRoom"));
     }
@@ -774,7 +849,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
 
         coordinator.CancelAll();
 
@@ -881,7 +956,7 @@ public class PairingCoordinatorTests
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
         ClientId other = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(owner);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, owner);
         coordinator.ConfirmCode(owner, start.Challenge!.Code, "Living Room PC");
 
         PairingStatusSnapshot ownerSnapshot = coordinator.GetStatusSnapshot(owner);
@@ -943,7 +1018,7 @@ public class PairingCoordinatorTests
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         coordinator.CommitRenotify(clientId, start.Challenge!.Id);
         clock.Advance(TimeSpan.FromSeconds(5));
@@ -1048,7 +1123,7 @@ public class PairingCoordinatorTests
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PairingRenotifyResult peek = coordinator.TryRenotify(clientId);
         coordinator.Cancel(clientId);
@@ -1080,7 +1155,7 @@ public class PairingCoordinatorTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
 
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1121,7 +1196,7 @@ public class PairingCoordinatorTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
 
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1162,7 +1237,7 @@ public class PairingCoordinatorTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
 
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1205,7 +1280,7 @@ public class PairingCoordinatorTests
         var persistence = new FakeTrustStorePersistence();
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
 
         Assert.Empty(await trustStore.ResetTrustAsync());
@@ -1228,7 +1303,7 @@ public class PairingCoordinatorTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
-        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
 
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1251,5 +1326,20 @@ public class PairingCoordinatorTests
         Assert.Null(trustStore.TryGet(clientId));
         Assert.Equal(PairingCommitOutcome.PendingNotFound,
             (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
+    /// <summary>
+    /// Begins pairing and immediately commits its initial display, for the common case where a test
+    /// needs a challenge <see cref="PairingCoordinator.ConfirmCode"/> will actually accept: a code
+    /// cannot be confirmed before its exact challenge's display has been committed.
+    /// </summary>
+    /// <param name="coordinator">The coordinator to begin pairing on.</param>
+    /// <param name="clientId">The client beginning pairing.</param>
+    /// <returns>The started-pairing result, with its challenge's display already committed.</returns>
+    private static PairingStartResult BeginAndDisplayPairing(PairingCoordinator coordinator, ClientId clientId)
+    {
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        return start;
     }
 }

@@ -178,10 +178,13 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// Answers a <c>pairing_request</c> with <c>pairing_status</c>. Makes challenge creation and first
     /// display one coherent decision: a newly started challenge is a reservation only, not yet
     /// publicly resumable or displayed, until <see cref="IPairingCoordinator.CommitInitialDisplay"/>
-    /// accepts it by its exact <see cref="PairingChallenge.Id"/>. A rejected or timed-out display rolls
-    /// the reservation back via <see cref="IPairingCoordinator.RollbackInitialDisplay"/>, identity-checked
-    /// the same way, so a stale acceptance or rejection that arrives after the reservation was already
-    /// replaced, cancelled, or expired can never advertise or cancel a later, unrelated challenge.
+    /// accepts it by its exact <see cref="PairingChallenge.Id"/>. A rejected display, a thrown
+    /// exception, or a cancelled adapter await all roll the reservation back via
+    /// <see cref="IPairingCoordinator.RollbackInitialDisplay"/> through one exception-safe
+    /// <c>finally</c> guarded by whether the commit actually succeeded, identity-checked the same way,
+    /// so a stale acceptance or rejection that arrives after the reservation was already replaced,
+    /// cancelled, or expired can never advertise or cancel a later, unrelated challenge -- and a
+    /// reservation that did commit is never rolled back afterward by that same <c>finally</c>.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingRequestAsync(
         ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
@@ -197,26 +200,41 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         {
             case PairingStartOutcome.Started:
                 PairingChallenge challenge = start.Challenge!;
-                bool accepted = await adapterNotifier.TryNotifyCodeAvailableAsync(challenge.Code, cancellationToken);
-                if (!accepted)
+                bool displayCommitted = false;
+                try
                 {
-                    pairingCoordinator.RollbackInitialDisplay(clientId, challenge.Id);
-                    SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+                    bool accepted = await adapterNotifier.TryNotifyCodeAvailableAsync(challenge.Code, cancellationToken);
+                    if (!accepted)
+                    {
+                        SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+                        return new ClientDispatchResult();
+                    }
+
+                    displayCommitted = pairingCoordinator.CommitInitialDisplay(clientId, challenge.Id);
+                    if (!displayCommitted)
+                    {
+                        // The reservation was replaced, cancelled, or expired while the adapter
+                        // acknowledgement was in flight. The code the adapter just accepted no longer
+                        // belongs to any current challenge, so nothing is left to report available.
+                        SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+                        return new ClientDispatchResult();
+                    }
+
+                    SendPairingStatus(
+                        connection, sessionId, envelope.MessageId, PairingStatusWireState.Available, RemainingSeconds(challenge));
                     return new ClientDispatchResult();
                 }
-
-                if (!pairingCoordinator.CommitInitialDisplay(clientId, challenge.Id))
+                finally
                 {
-                    // The reservation was replaced, cancelled, or expired while the adapter
-                    // acknowledgement was in flight. The code the adapter just accepted no longer
-                    // belongs to any current challenge, so nothing is left to report available.
-                    SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
-                    return new ClientDispatchResult();
+                    // Every path above except a successful CommitInitialDisplay leaves the reservation
+                    // uncommitted -- a rejected display, an exception from the adapter call, or this
+                    // await being cancelled (socket death, connection teardown) -- and must release it
+                    // rather than let it occupy the global pairing slot until disconnect grace/expiry.
+                    if (!displayCommitted)
+                    {
+                        pairingCoordinator.RollbackInitialDisplay(clientId, challenge.Id);
+                    }
                 }
-
-                SendPairingStatus(
-                    connection, sessionId, envelope.MessageId, PairingStatusWireState.Available, RemainingSeconds(challenge));
-                return new ClientDispatchResult();
 
             case PairingStartOutcome.Resumed:
                 PairingStatusSnapshot snapshot = pairingCoordinator.GetStatusSnapshot(clientId);

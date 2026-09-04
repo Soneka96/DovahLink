@@ -282,6 +282,57 @@ public class ClientMessageDispatcherTests
         Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
     }
 
+    /// <summary>
+    /// Verifies that an exception from the adapter's initial-display notification still rolls back the
+    /// reservation rather than leaving it uncommitted and occupying the pairing slot: exception safety
+    /// comes from a <c>finally</c> guarded on whether the commit actually succeeded, not from the
+    /// explicit rollback call on the ordinary rejection path alone.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestNewChallenge_AdapterThrows_RollsBackReservation()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeAvailable = new InvalidOperationException("adapter unavailable") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None));
+
+        Assert.Empty(fakeConnection.SentPayloads);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the same exception-safe rollback guarantee as
+    /// <see cref="DispatchAsync_PairingRequestNewChallenge_AdapterThrows_RollsBackReservation"/> when
+    /// the adapter await is cancelled instead of faulted.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestNewChallenge_AdapterCancelled_RollsBackReservation()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeAvailable = new OperationCanceledException("connection closing") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None));
+
+        Assert.Empty(fakeConnection.SentPayloads);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
     /// <summary>Verifies that resuming an owned active challenge reports in_progress with its remaining seconds and never re-displays.</summary>
     [Fact]
     public async Task DispatchAsync_PairingRequestResumedActiveChallenge_SendsInProgressWithSeconds()
@@ -316,7 +367,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
@@ -556,7 +607,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1",
             new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Living Room PC" });
@@ -644,7 +695,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        pairingCoordinator.BeginPairing(clientId);
+        BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, "000000", null);
         clock.Advance(TimeSpan.FromSeconds(1));
         PublicEnvelope envelope = BuildEnvelope(
@@ -712,7 +763,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, "000000", null);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
@@ -734,7 +785,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, "000000", null);
         clock.Advance(TimeSpan.FromMilliseconds(500));
         PublicEnvelope envelope = BuildEnvelope(
@@ -758,7 +809,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        pairingCoordinator.BeginPairing(clientId);
+        BeginAndDisplayPairing(pairingCoordinator, clientId);
         for (int attempt = 0; attempt < 4; attempt++)
         {
             pairingCoordinator.ConfirmCode(clientId, "000000", null);
@@ -784,7 +835,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
 
@@ -881,7 +932,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
@@ -914,7 +965,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         await pairingCoordinator.CommitPendingAsync(clientId, issued.Credential!);
         PublicEnvelope envelope = BuildEnvelope(
@@ -965,7 +1016,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         await trustStore.UpsertAsync(new TrustRecord(ClientId.NewId(), "12345", "Other", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         PublicEnvelope envelope = BuildEnvelope(
@@ -991,7 +1042,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
@@ -1017,7 +1068,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
@@ -1056,7 +1107,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
@@ -1352,7 +1403,7 @@ public class ClientMessageDispatcherTests
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         ClientId clientId = ClientId.NewId();
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
 
@@ -1456,5 +1507,20 @@ public class ClientMessageDispatcherTests
         Assert.True(Codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.True(Codec.TryDecodePayload(envelope, out TPayload? payload));
         return (envelope, payload);
+    }
+
+    /// <summary>
+    /// Begins pairing and immediately commits its initial display, for the common case where a test
+    /// needs a challenge <see cref="IPairingCoordinator.ConfirmCode"/> will actually accept: a code
+    /// cannot be confirmed before its exact challenge's display has been committed.
+    /// </summary>
+    /// <param name="coordinator">The coordinator to begin pairing on.</param>
+    /// <param name="clientId">The client beginning pairing.</param>
+    /// <returns>The started-pairing result, with its challenge's display already committed.</returns>
+    private static PairingStartResult BeginAndDisplayPairing(IPairingCoordinator coordinator, ClientId clientId)
+    {
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        return start;
     }
 }

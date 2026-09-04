@@ -18,7 +18,12 @@ public interface IPairingCoordinator
     /// <param name="clientId">The client requesting ownership of pairing.</param>
     PairingStartResult BeginPairing(ClientId clientId);
 
-    /// <summary>Evaluates a client's submitted pairing code.</summary>
+    /// <summary>
+    /// Evaluates a client's submitted pairing code. A code cannot be confirmed before this exact
+    /// challenge's initial display has been accepted by the adapter through
+    /// <see cref="CommitInitialDisplay"/>: an attempt made before that commit is simply invalid,
+    /// without consuming pacing, wrong-attempt, or cooldown state.
+    /// </summary>
     /// <param name="clientId">The client bound to the request.</param>
     /// <param name="code">The six-digit code to evaluate.</param>
     /// <param name="displayName">The optional presentation label for the device.</param>
@@ -335,6 +340,16 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 {
                     ClearChallenge();
                     return new PairingConfirmationResult(PairingConfirmOutcome.Expired, null, null);
+                }
+                if (committedDisplayChallengeId != challenge.Id)
+                {
+                    // The adapter has not yet positively accepted this exact challenge's initial
+                    // display. The client cannot legitimately know this challenge's code before the
+                    // host has confirmed it was actually shown, so a confirm attempt here is simply
+                    // invalid -- without consuming pacing, wrong-attempt, or cooldown state the way a
+                    // genuinely wrong code would, since nothing about this attempt reflects the
+                    // client's actual knowledge of the real code.
+                    return new PairingConfirmationResult(PairingConfirmOutcome.Invalid, null, null);
                 }
                 if (lastConfirmAttemptUtc is { } lastAttempt && now - lastAttempt < Constants.PairingConfirmPacingInterval)
                 {

@@ -8,6 +8,9 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
     /// <summary>Whether <see cref="TryNotifyCodeAvailableAsync"/> reports acceptance.</summary>
     public bool AcceptDisplay { get; set; } = true;
 
+    /// <summary>When set, <see cref="TryNotifyCodeAvailableAsync"/> throws this instead of resolving.</summary>
+    public Exception? ThrowOnNotifyCodeAvailable { get; set; }
+
     /// <summary>Whether <see cref="TryNotifyRedisplayAsync"/> reports acceptance.</summary>
     public bool AcceptRedisplay { get; set; } = true;
 
@@ -50,6 +53,11 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
         if (BeforeNotifyCodeAvailable is { } beforeNotify)
         {
             await beforeNotify();
+        }
+
+        if (ThrowOnNotifyCodeAvailable is { } exception)
+        {
+            throw exception;
         }
 
         return AcceptDisplay;
