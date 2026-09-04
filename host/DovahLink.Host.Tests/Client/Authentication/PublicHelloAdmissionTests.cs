@@ -2477,6 +2477,9 @@ public class PublicHelloAdmissionTests
         }
 
         /// <summary>Not called by the handler under test.</summary>
+        public TrustSecuritySnapshot GetSecuritySnapshot(ClientId clientId) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
         public IReadOnlyList<TrustRecord> List() => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
@@ -2620,6 +2623,9 @@ public class PublicHelloAdmissionTests
 
             return inner.TryGet(clientId);
         }
+
+        /// <summary>Not called by the handler under test.</summary>
+        public TrustSecuritySnapshot GetSecuritySnapshot(ClientId clientId) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public IReadOnlyList<TrustRecord> List() => throw new NotSupportedException();

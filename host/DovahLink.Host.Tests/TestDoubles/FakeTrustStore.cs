@@ -51,6 +51,10 @@ public sealed class FakeTrustStore : ITrustStore
         ThrowOnTryGet is { } exception ? throw exception : recordsByClientId.GetValueOrDefault(clientId);
 
     /// <inheritdoc/>
+    public TrustSecuritySnapshot GetSecuritySnapshot(ClientId clientId) =>
+        new(recordsByClientId.GetValueOrDefault(clientId), SecurityFenceGeneration);
+
+    /// <inheritdoc/>
     public IReadOnlyList<TrustRecord> List() => recordsByClientId.Values.ToList();
 
     /// <inheritdoc/>
@@ -93,6 +97,11 @@ public sealed class FakeTrustStore : ITrustStore
         CancellationToken cancellationToken = default)
     {
         if (SecurityFenceGeneration != expectedGeneration)
+        {
+            return Task.FromResult(false);
+        }
+
+        if (recordsByClientId.GetValueOrDefault(record.ClientId)?.State == KnownDeviceState.Blocked)
         {
             return Task.FromResult(false);
         }

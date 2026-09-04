@@ -1180,6 +1180,102 @@ public class TrustStoreTests
         Assert.Null(store.TryGet(original.ClientId));
     }
 
+    /// <summary>Verifies that a security snapshot for a known client returns its record together with the current generation.</summary>
+    [Fact]
+    public async Task GetSecuritySnapshot_KnownClient_ReturnsRecordAndCurrentGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+
+        TrustSecuritySnapshot snapshot = store.GetSecuritySnapshot(record.ClientId);
+
+        Assert.Equal(record, snapshot.Record);
+        Assert.Equal(store.SecurityFenceGeneration, snapshot.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that a security snapshot for an unknown client reports a null record alongside the current generation.</summary>
+    [Fact]
+    public async Task GetSecuritySnapshot_UnknownClient_ReturnsNullRecordAndCurrentGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        await store.UpsertAsync(new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+
+        TrustSecuritySnapshot snapshot = store.GetSecuritySnapshot(ClientId.NewId());
+
+        Assert.Null(snapshot.Record);
+        Assert.Equal(store.SecurityFenceGeneration, snapshot.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the defense-in-depth check in <see cref="TrustStore.TryUpsertIfGenerationAsync"/>: a
+    /// currently-<see cref="KnownDeviceState.Blocked"/> record can never be replaced by a conditional
+    /// upsert merely because its caller's generation happens to still match, independent of whichever
+    /// caller's own policy is supposed to prevent that upsert from ever being attempted at all.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_CurrentRecordBlocked_RejectsEvenWithMatchingGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        TrustRecord blocked = new(clientId, "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generation = store.SecurityFenceGeneration;
+        TrustRecord attemptedTrusted = blocked with { State = KnownDeviceState.Trusted, CredentialVerifier = "deadbeef", BlockedAtUtc = null };
+
+        bool committed = await store.TryUpsertIfGenerationAsync(attemptedTrusted, generation);
+
+        Assert.False(committed);
+        Assert.Equal(blocked, store.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the Blocked defense-in-depth check is scoped to the exact <see cref="ClientId"/> being
+    /// upserted: a different client's Blocked record must never reject an otherwise-eligible upsert
+    /// for an unrelated client at a matching generation.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_DifferentClientBlocked_StillCommits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord blocked = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generation = store.SecurityFenceGeneration;
+        TrustRecord newTrusted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+
+        bool committed = await store.TryUpsertIfGenerationAsync(newTrusted, generation);
+
+        Assert.True(committed);
+        Assert.Equal(newTrusted, store.TryGet(newTrusted.ClientId));
+    }
+
+    /// <summary>
+    /// Verifies the Blocked defense-in-depth check also rejects a same-state re-upsert: even a
+    /// Blocked-to-Blocked write (for example updating an unrelated field) for a currently-Blocked
+    /// client is refused, since this conditional-upsert path exists only for the Trusted-issuing
+    /// pairing flow and no legitimate caller needs to reuse it for an already-blocked record.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_CurrentRecordBlocked_RejectsEvenWhenAttemptedStateAlsoBlocked()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        TrustRecord blocked = new(clientId, "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generation = store.SecurityFenceGeneration;
+        TrustRecord attemptedBlocked = blocked with { DisplayName = "Renamed While Blocked" };
+
+        bool committed = await store.TryUpsertIfGenerationAsync(attemptedBlocked, generation);
+
+        Assert.False(committed);
+        Assert.Equal(blocked, store.TryGet(clientId));
+    }
+
     /// <summary>Creates a trust store with a controllable clock for tests.</summary>
     private static Task<TrustStore> CreateStoreAsync(
         FakeTrustStorePersistence persistence,

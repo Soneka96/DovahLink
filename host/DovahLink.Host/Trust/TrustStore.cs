@@ -11,6 +11,16 @@ public interface ITrustStore
     /// <returns>The client's trust record, or <see langword="null"/> if the client is not known.</returns>
     TrustRecord? TryGet(ClientId clientId);
 
+    /// <summary>
+    /// Reads a client's current trust record and the store's current
+    /// <see cref="SecurityFenceGeneration"/> as one coherent snapshot, under the same internal lock,
+    /// so a caller deciding both eligibility and the generation to stamp on new state can never
+    /// observe a mix of state from before one mutation and a generation from after it (or vice
+    /// versa) -- see <see cref="TrustSecuritySnapshot"/>.
+    /// </summary>
+    /// <param name="clientId">The client to look up.</param>
+    TrustSecuritySnapshot GetSecuritySnapshot(ClientId clientId);
+
     /// <summary>Lists every currently known trust record.</summary>
     IReadOnlyList<TrustRecord> List();
 
@@ -166,6 +176,15 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
+    public TrustSecuritySnapshot GetSecuritySnapshot(ClientId clientId)
+    {
+        lock (recordsLock)
+        {
+            return new TrustSecuritySnapshot(recordsByClientId.GetValueOrDefault(clientId), securityFenceGeneration);
+        }
+    }
+
+    /// <inheritdoc/>
     public TrustRecord? TryGetByShortId(string shortId)
     {
         lock (recordsLock)
@@ -249,7 +268,12 @@ public sealed class TrustStore : ITrustStore
     /// Builds the proposed snapshot without touching the live record set, persists it, and only
     /// then publishes it into <see cref="recordsByClientId"/> and advances the fence -- so a failed
     /// or cancelled write leaves the live records and generation exactly as they were, with nothing
-    /// to roll back because nothing was ever mutated ahead of persistence.
+    /// to roll back because nothing was ever mutated ahead of persistence. Refuses the upsert
+    /// whenever the client's current record is <see cref="KnownDeviceState.Blocked"/>, even if the
+    /// generation happens to match, as defense-in-depth against a currently-blocked record ever
+    /// being replaced with a trusted one: the security fence already makes this unreachable through
+    /// <see cref="Pairing.PairingCoordinator"/> today, since Block always advances the generation, but
+    /// this check does not depend on that caller's own policy holding.
     /// </remarks>
     public async Task<bool> TryUpsertIfGenerationAsync(
         TrustRecord record,
@@ -263,6 +287,11 @@ public sealed class TrustStore : ITrustStore
             lock (recordsLock)
             {
                 if (securityFenceGeneration != expectedGeneration)
+                {
+                    return false;
+                }
+
+                if (recordsByClientId.GetValueOrDefault(record.ClientId)?.State == KnownDeviceState.Blocked)
                 {
                     return false;
                 }
