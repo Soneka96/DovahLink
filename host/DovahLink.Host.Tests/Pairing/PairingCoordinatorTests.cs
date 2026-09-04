@@ -1743,6 +1743,36 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
+    /// Verifies that an administrative Block attempt against an Unpaired known device -- not eligible
+    /// for Block per the restored Stage 3.2 contract -- reports <see cref="TrustMutationOutcome.NotEligible"/>
+    /// without advancing <see cref="ITrustStore.SecurityFenceGeneration"/>, so it can never invalidate a
+    /// concurrently pending pairing credential the way a genuinely eligible Block (Trusted or Revoked)
+    /// correctly does. Combines the Stage 3.2 Block-eligibility fix with the real <see cref="TrustStore"/>
+    /// used elsewhere in this class, unlike <see cref="CommitPending_BlockDuringPersistence_CannotRestoreTrustedCredential"/>
+    /// which exercises the eligible-and-invalidating case.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_BlockAttemptAgainstUnpairedDeviceDuringPersistence_NeverInvalidatesPendingCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+        long generationBeforeBlockAttempt = trustStore.SecurityFenceGeneration;
+
+        Assert.Equal(TrustMutationOutcome.NotEligible, await trustStore.BlockAsync(clientId));
+        Assert.Equal(generationBeforeBlockAttempt, trustStore.SecurityFenceGeneration);
+
+        PairingCommitResult result = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.Trusted, result.Outcome);
+        Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
     /// Verifies that a second concurrent <see cref="PairingCoordinator.CommitPendingAsync"/> call for
     /// the exact same pending credential can never also claim it while a first call's exclusive claim
     /// is still live: it observes <see cref="PairingCommitOutcome.PendingNotFound"/> without ever
