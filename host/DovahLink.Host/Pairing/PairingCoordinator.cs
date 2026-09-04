@@ -460,7 +460,8 @@ public sealed class PairingCoordinator : IPairingCoordinator
                         PairingConfirmOutcome.Invalid,
                         null,
                         null,
-                        ShouldAutoRenotify: shouldAutoRenotify);
+                        ShouldAutoRenotify: shouldAutoRenotify,
+                        AutoRenotifyCode: shouldAutoRenotify ? challenge.Code : null);
                 }
 
                 if (challenge.SecurityFenceGeneration != trustStore.SecurityFenceGeneration)

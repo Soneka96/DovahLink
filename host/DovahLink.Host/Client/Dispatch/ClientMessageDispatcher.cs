@@ -396,13 +396,13 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return Task.FromResult(new ClientDispatchResult());
 
             case PairingConfirmOutcome.Invalid:
-                if (confirm.ShouldAutoRenotify)
+                if (confirm.AutoRenotifyCode is { } autoRenotifyCode)
                 {
-                    PairingStatusSnapshot ownedSnapshot = pairingCoordinator.GetStatusSnapshot(clientId);
-                    if (ownedSnapshot.Kind == PairingStatusKind.DisplayedChallenge)
-                    {
-                        FireAndForget(() => adapterNotifier.NotifyCodeIncorrectAsync(ownedSnapshot.Challenge!.Code, cancellationToken));
-                    }
+                    // Uses the exact code ConfirmCode evaluated this wrong attempt against, never a
+                    // later, separate status read: the challenge could be replaced or cancelled between
+                    // this call returning and any later read, which would redisplay a different
+                    // challenge's code under this attempt's own "wrong code" presentation.
+                    FireAndForget(() => adapterNotifier.NotifyCodeIncorrectAsync(autoRenotifyCode, cancellationToken));
                 }
 
                 SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.Invalid });

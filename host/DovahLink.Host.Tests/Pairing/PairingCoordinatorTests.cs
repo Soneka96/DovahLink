@@ -203,14 +203,20 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingConfirmOutcome.Invalid, attempt.Outcome);
     }
 
-    /// <summary>Verifies that an invalid code is indistinguishable from a non-owner attempt and auto-renotify is bounded.</summary>
+    /// <summary>
+    /// Verifies that an invalid code is indistinguishable from a non-owner attempt and auto-renotify
+    /// is bounded. Also verifies that <see cref="PairingConfirmationResult.AutoRenotifyCode"/> carries
+    /// the exact code of the challenge this attempt was evaluated against only when auto-renotify is
+    /// actually granted -- never a stale or absent value the caller could mistake for permission to
+    /// notify, and never populated once the cooldown suppresses it.
+    /// </summary>
     [Fact]
     public void ConfirmCode_WrongCode_TracksAttemptsAndAutoRenotifyCooldown()
     {
         var clock = new FakeClock();
         var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         ClientId clientId = ClientId.NewId();
-        BeginAndDisplayPairing(coordinator, clientId);
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
 
         PairingConfirmationResult first = coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
         clock.Advance(TimeSpan.FromSeconds(1));
@@ -218,7 +224,9 @@ public class PairingCoordinatorTests
 
         Assert.Equal(PairingConfirmOutcome.Invalid, first.Outcome);
         Assert.True(first.ShouldAutoRenotify);
+        Assert.Equal(start.Challenge!.Code, first.AutoRenotifyCode);
         Assert.False(second.ShouldAutoRenotify);
+        Assert.Null(second.AutoRenotifyCode);
     }
 
     /// <summary>Verifies that a correct code from another client neither consumes nor paces the owner's challenge.</summary>

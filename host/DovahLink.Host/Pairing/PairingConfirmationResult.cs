@@ -13,6 +13,12 @@ namespace DovahLink.Host.Pairing;
 /// <param name="DisplayName">The presentation label associated with final trust.</param>
 /// <param name="RetryAfter">The remaining pacing duration, when applicable.</param>
 /// <param name="ShouldAutoRenotify">Whether the owner may be shown the code again after a wrong attempt.</param>
+/// <param name="AutoRenotifyCode">
+/// The exact code of the challenge this wrong attempt was evaluated against, present only alongside
+/// <paramref name="ShouldAutoRenotify"/>. Lets a caller request the adapter redisplay this exact code
+/// without a separate, later status read that could race a challenge replacement and redisplay a
+/// different challenge's code under this attempt's "wrong code" presentation.
+/// </param>
 public sealed record PairingConfirmationResult(
     PairingConfirmOutcome Outcome,
     ClientId? ClientId,
@@ -20,4 +26,5 @@ public sealed record PairingConfirmationResult(
     string? ShortId = null,
     string? DisplayName = null,
     TimeSpan? RetryAfter = null,
-    bool ShouldAutoRenotify = false);
+    bool ShouldAutoRenotify = false,
+    string? AutoRenotifyCode = null);
