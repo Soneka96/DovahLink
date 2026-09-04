@@ -82,6 +82,24 @@ public interface ITrustStore
 
     /// <summary>Applies Reset Trust to every trusted device and returns affected identities.</summary>
     Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames a currently trusted device, resolving and validating its current state inside this
+    /// store's own serialized mutation -- never from a snapshot the caller read earlier -- so a
+    /// concurrent Revoke, Block, Reset Trust, or Factory Reset that lands first is never overwritten
+    /// by a stale replacement. Every other field, including the current credential verifier, is
+    /// carried over unchanged from the record that exists at the mutation's linearization point.
+    /// </summary>
+    /// <param name="clientId">The device to rename.</param>
+    /// <param name="displayName">The new display name, or an empty value to clear it.</param>
+    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    /// <returns>
+    /// <see cref="TrustMutationOutcome.Changed"/> once persisted; <see cref="TrustMutationOutcome.NotFound"/>
+    /// for an unrecognized <paramref name="clientId"/>; <see cref="TrustMutationOutcome.NotEligible"/>
+    /// when the device is not currently <see cref="KnownDeviceState.Trusted"/>, with no persistence in
+    /// either rejection case.
+    /// </returns>
+    Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -369,6 +387,14 @@ public sealed class TrustStore : ITrustStore
             mutationSemaphore.Release();
         }
     }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default) =>
+        MutateAsync(clientId, record => record.State == KnownDeviceState.Trusted
+            ? record with { DisplayName = displayName }
+            : null,
+            TrustMutationOutcome.NotEligible,
+            cancellationToken);
 
     /// <summary>
     /// Applies one persisted trust mutation, publishing it only once persistence succeeds.

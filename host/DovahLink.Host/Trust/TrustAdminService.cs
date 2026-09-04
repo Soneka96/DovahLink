@@ -118,13 +118,15 @@ public sealed class TrustAdminService : ITrustAdminService
     {
         ArgumentNullException.ThrowIfNull(displayName);
         ValidateDisplayName(displayName);
-        TrustRecord record = GetKnownRecord(clientId);
-        if (record.State != KnownDeviceState.Trusted)
+        TrustMutationOutcome outcome = await trustStore.RenameIfTrustedAsync(clientId, displayName, cancellationToken);
+        if (outcome == TrustMutationOutcome.NotFound)
+        {
+            throw new KeyNotFoundException($"No known device for client '{clientId}'.");
+        }
+        if (outcome == TrustMutationOutcome.NotEligible)
         {
             throw new InvalidOperationException("Only a trusted device can be renamed.");
         }
-
-        await trustStore.UpsertAsync(record with { DisplayName = displayName }, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -250,10 +252,6 @@ public sealed class TrustAdminService : ITrustAdminService
             ? TrustMutationOutcome.NotFound
             : await mutation(record.ClientId, cancellationToken);
     }
-
-    /// <summary>Returns a known client record or rejects an unknown identity.</summary>
-    private TrustRecord GetKnownRecord(ClientId clientId) =>
-        trustStore.TryGet(clientId) ?? throw new KeyNotFoundException($"No known device for client '{clientId}'.");
 
     /// <summary>Rejects a mutation result that cannot be represented by the legacy throwing API.</summary>
     private static void EnsureChangedOrAlreadyHandled(TrustMutationOutcome outcome, ClientId clientId, string operation)

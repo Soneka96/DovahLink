@@ -35,8 +35,8 @@ public sealed class FakeTrustStore : ITrustStore
 
     /// <summary>
     /// Optional hook invoked with a short label immediately after a mutation successfully applies
-    /// (<c>"Revoke"</c>, <c>"Block"</c>, <c>"Unblock"</c>, <c>"Forget"</c>, <c>"ResetTrust"</c>, or
-    /// <c>"Clear"</c>), letting a test build a cross-collaborator call-order timeline together with
+    /// (<c>"Revoke"</c>, <c>"Block"</c>, <c>"Unblock"</c>, <c>"Forget"</c>, <c>"ResetTrust"</c>,
+    /// <c>"Rename"</c>, or <c>"Clear"</c>), letting a test build a cross-collaborator call-order timeline together with
     /// <see cref="FakePairingCoordinator.OnMutationApplied"/> and
     /// <see cref="FakeSessionRegistry.OnMutationApplied"/>.
     /// </summary>
@@ -260,5 +260,27 @@ public sealed class FakeTrustStore : ITrustStore
         SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("ResetTrust");
         return Task.FromResult<IReadOnlyList<ClientId>>(affected);
+    }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<TrustMutationOutcome>(exception);
+        }
+        if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (record.State != KnownDeviceState.Trusted)
+        {
+            return Task.FromResult(TrustMutationOutcome.NotEligible);
+        }
+
+        recordsByClientId[clientId] = record with { DisplayName = displayName };
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("Rename");
+        return Task.FromResult(TrustMutationOutcome.Changed);
     }
 }

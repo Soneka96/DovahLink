@@ -840,6 +840,274 @@ public class TrustStoreTests
         Assert.Equal(generationBeforeReset + 1, store.SecurityFenceGeneration);
     }
 
+    /// <summary>Verifies that renaming a trusted device updates only the display name, persists it, and advances the security fence.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_TrustedRecord_UpdatesDisplayNamePreservingIdentity()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt);
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+
+        TrustMutationOutcome outcome = await store.RenameIfTrustedAsync(original.ClientId, "Bedroom PC");
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        TrustRecord renamed = store.TryGet(original.ClientId)!;
+        Assert.Equal("Bedroom PC", renamed.DisplayName);
+        Assert.Equal(original.ShortId, renamed.ShortId);
+        Assert.Equal(original.CredentialVerifier, renamed.CredentialVerifier);
+        Assert.Equal(original.PairedAtUtc, renamed.PairedAtUtc);
+        Assert.Equal(original.State, renamed.State);
+        Assert.Equal(generationBeforeRename + 1, store.SecurityFenceGeneration);
+        Assert.Equal(renamed, Assert.Single(persistence.SavedRecords));
+    }
+
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee every other mutation already proves for
+    /// <see cref="TrustStore.RenameIfTrustedAsync"/>: while its persistence write is in flight, every
+    /// reader must keep seeing the prior display name, not the proposed replacement.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_WhilePersistenceBlocked_KeepsExposingOriginalNameUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "Bedroom PC");
+        await enteredSave.Task;
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Contains(original, store.List());
+        Assert.Equal(original, store.TryGetByShortId(original.ShortId));
+        Assert.Equal(generationBeforeRename, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await rename);
+
+        Assert.Equal("Bedroom PC", store.TryGet(original.ClientId)!.DisplayName);
+        Assert.Equal(generationBeforeRename + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the transient-visibility guarantee: if persistence then fails, the
+    /// device must keep its original display name -- never having been exposed with the proposed name
+    /// in the meantime -- and the security fence must not have moved.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_WhilePersistenceBlocked_PersistenceFails_KeepsOriginalName()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "Bedroom PC");
+        await enteredSave.Task;
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => rename);
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeRename, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that renaming an unknown client reports not found without mutating persistence.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_UnknownClient_ReturnsNotFound()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, await store.RenameIfTrustedAsync(ClientId.NewId(), "New Name"));
+        Assert.Empty(persistence.SavedRecords);
+    }
+
+    /// <summary>Verifies that a non-trusted device cannot be renamed and is left untouched.</summary>
+    [Theory]
+    [InlineData(KnownDeviceState.Revoked)]
+    [InlineData(KnownDeviceState.Blocked)]
+    [InlineData(KnownDeviceState.Unpaired)]
+    public async Task RenameIfTrustedAsync_NonTrustedRecord_ReturnsNotEligibleWithoutMutation(KnownDeviceState state)
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", state, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+
+        Assert.Equal(TrustMutationOutcome.NotEligible, await store.RenameIfTrustedAsync(original.ClientId, "New Name"));
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeRename, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that a failed rename persistence write restores the original display name.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_PersistenceFails_RestoresOriginalRecord()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.RenameIfTrustedAsync(original.ClientId, "New Name"));
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+    }
+
+    /// <summary>
+    /// Proves the confirmed Rename-resurrection defect is closed for Revoke: a rename that reaches
+    /// this store's serialized mutation only after a concurrent Revoke has already committed must
+    /// observe the now-Revoked record, not the Trusted snapshot it would have read had it captured
+    /// state before acquiring the store's own mutation serialization -- so it reports
+    /// <see cref="TrustMutationOutcome.NotEligible"/> and never resurrects Trusted state or the
+    /// destroyed credential verifier.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> revoke = store.RevokeAsync(original.ClientId);
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        TrustMutationOutcome[] outcomes = await Task.WhenAll(revoke, rename);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcomes[0]);
+        Assert.Equal(TrustMutationOutcome.NotEligible, outcomes[1]);
+        TrustRecord final = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Revoked, final.State);
+        Assert.Empty(final.CredentialVerifier);
+        Assert.Equal(original.DisplayName, final.DisplayName);
+    }
+
+    /// <summary>Proves the same Rename-resurrection defect is closed for Block, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentBlock_DoesNotResurrectTrust()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> block = store.BlockAsync(original.ClientId);
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        TrustMutationOutcome[] outcomes = await Task.WhenAll(block, rename);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcomes[0]);
+        Assert.Equal(TrustMutationOutcome.NotEligible, outcomes[1]);
+        TrustRecord final = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Blocked, final.State);
+        Assert.Empty(final.CredentialVerifier);
+        Assert.Equal(original.DisplayName, final.DisplayName);
+    }
+
+    /// <summary>Proves the same Rename-resurrection defect is closed for Reset Trust, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentResetTrust_DoesNotResurrectTrust()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<IReadOnlyList<ClientId>> resetTrust = store.ResetTrustAsync();
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        await resetTrust;
+        TrustMutationOutcome renameOutcome = await rename;
+
+        Assert.Equal(TrustMutationOutcome.NotEligible, renameOutcome);
+        TrustRecord final = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Revoked, final.State);
+        Assert.Empty(final.CredentialVerifier);
+        Assert.Equal(original.DisplayName, final.DisplayName);
+    }
+
+    /// <summary>
+    /// Proves the same Rename-resurrection defect is closed for Factory Reset: a rename queued behind
+    /// a concurrent <see cref="TrustStore.ClearAsync"/> finds no record left to rename at all -- the
+    /// deleted record must never be resurrected by a stale replacement either.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentClear_ReturnsNotFound()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = store.ClearAsync();
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        await clear;
+        TrustMutationOutcome renameOutcome = await rename;
+
+        Assert.Equal(TrustMutationOutcome.NotFound, renameOutcome);
+        Assert.Null(store.TryGet(original.ClientId));
+    }
+
     /// <summary>Creates a trust store with a controllable clock for tests.</summary>
     private static Task<TrustStore> CreateStoreAsync(
         FakeTrustStorePersistence persistence,

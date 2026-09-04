@@ -2484,6 +2484,9 @@ public class PublicHelloAdmissionTests
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     /// <summary>
@@ -2626,5 +2629,8 @@ public class PublicHelloAdmissionTests
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        /// <summary>Not called by the handler under test.</summary>
+        public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
