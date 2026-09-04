@@ -1061,4 +1061,170 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
         Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.CommitRenotify(clientId, replacement.Challenge!.Id).Outcome);
     }
+
+    /// <summary>
+    /// Verifies that an administrative Revoke racing <see cref="PairingCoordinator.CommitPendingAsync"/>'s
+    /// own trust-store persistence becomes authoritative. Revoke's underlying persistence write is held
+    /// open with a gate, deterministically forcing the concurrently started commit to block
+    /// on the real <see cref="TrustStore"/>'s own mutation lock rather than racing it via timing: releasing
+    /// the gate lets Revoke's generation bump land first, so the commit's own conditional upsert observes a
+    /// stale generation and reports <see cref="PairingCommitOutcome.PairingInvalidated"/> instead of
+    /// <see cref="PairingCommitOutcome.Trusted"/>, and the credential the client already held can never
+    /// later commit the record back to trusted.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_RevokeDuringPersistence_CannotRestoreTrustedCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
+
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> revoke = trustStore.RevokeAsync(clientId);
+        await enteredSave.Task;
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        releaseSave.SetResult();
+
+        Assert.Equal(TrustMutationOutcome.Changed, await revoke);
+        PairingCommitResult result = await commit;
+
+        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        TrustRecord? final = trustStore.TryGet(clientId);
+        Assert.NotNull(final);
+        Assert.Equal(KnownDeviceState.Revoked, final!.State);
+        Assert.Equal(string.Empty, final.CredentialVerifier);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound,
+            (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the same authoritative-admin-mutation guarantee as
+    /// <see cref="CommitPending_RevokeDuringPersistence_CannotRestoreTrustedCredential"/> for an
+    /// administrative Block racing an in-flight commit.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_BlockDuringPersistence_CannotRestoreTrustedCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
+
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> block = trustStore.BlockAsync(clientId);
+        await enteredSave.Task;
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        releaseSave.SetResult();
+
+        Assert.Equal(TrustMutationOutcome.Changed, await block);
+        PairingCommitResult result = await commit;
+
+        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        TrustRecord? final = trustStore.TryGet(clientId);
+        Assert.NotNull(final);
+        Assert.Equal(KnownDeviceState.Blocked, final!.State);
+        Assert.Equal(string.Empty, final.CredentialVerifier);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound,
+            (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the same authoritative-admin-mutation guarantee as
+    /// <see cref="CommitPending_RevokeDuringPersistence_CannotRestoreTrustedCredential"/> for an
+    /// administrative Reset Trust racing an in-flight commit.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_ResetTrustDuringPersistence_CannotRestoreTrustedCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
+
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<IReadOnlyList<ClientId>> resetTrust = trustStore.ResetTrustAsync();
+        await enteredSave.Task;
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        releaseSave.SetResult();
+
+        Assert.Contains(clientId, await resetTrust);
+        PairingCommitResult result = await commit;
+
+        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        TrustRecord? final = trustStore.TryGet(clientId);
+        Assert.NotNull(final);
+        Assert.Equal(KnownDeviceState.Revoked, final!.State);
+        Assert.Equal(string.Empty, final.CredentialVerifier);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound,
+            (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the same authoritative-admin-mutation guarantee as
+    /// <see cref="CommitPending_RevokeDuringPersistence_CannotRestoreTrustedCredential"/> for the global
+    /// Factory Reset racing an in-flight commit: no trust record survives or reappears afterward.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_FactoryResetDuringPersistence_CannotRestoreTrustedCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
+
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task factoryReset = trustStore.ClearAsync();
+        await enteredSave.Task;
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        releaseSave.SetResult();
+
+        await factoryReset;
+        PairingCommitResult result = await commit;
+
+        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+        Assert.Equal(PairingCommitOutcome.PendingNotFound,
+            (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
 }
