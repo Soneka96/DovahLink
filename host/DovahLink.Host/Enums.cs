@@ -34,6 +34,19 @@ public enum TrustMutationOutcome
     AlreadyInState,
 }
 
+/// <summary>The outcome of requesting a new Factory Reset confirmation challenge.</summary>
+public enum FactoryResetBeginOutcome
+{
+    /// <summary>The returned challenge became the active, confirmable one.</summary>
+    Started,
+
+    /// <summary>
+    /// An in-flight <see cref="Trust.ITrustResetService.ConfirmResetAsync"/> invocation already holds
+    /// an exclusive claim on the currently active challenge, so no fresh challenge could become active.
+    /// </summary>
+    AlreadyInProgress,
+}
+
 // ---- Sessions ----
 
 /// <summary>The lifecycle state of one client connection's session.</summary>

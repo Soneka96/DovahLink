@@ -23,7 +23,7 @@ public class TrustResetServiceTests
         SessionId firstSession = sessionRegistry.Create(firstClient);
         SessionId secondSession = sessionRegistry.Create(secondClient);
         var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), pairingCoordinator, clock);
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         bool result = await service.ConfirmResetAsync(challenge.Code);
 
@@ -48,7 +48,7 @@ public class TrustResetServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", clock.UtcNow));
         var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), pairingCoordinator, clock);
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         bool result = await service.ConfirmResetAsync("wrong-code");
 
@@ -68,7 +68,7 @@ public class TrustResetServiceTests
         var sessionRegistry = new FakeSessionRegistry();
         var clock = new FakeClock();
         var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), new FakePairingCoordinator(), clock);
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         clock.Advance(TimeSpan.FromSeconds(61));
         bool result = await service.ConfirmResetAsync(challenge.Code);
@@ -84,11 +84,30 @@ public class TrustResetServiceTests
         var clock = new FakeClock();
         var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), clock);
 
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         Assert.Equal(6, challenge.Code.Length);
         Assert.All(challenge.Code, character => Assert.InRange(character, '0', '9'));
         Assert.Equal(TimeSpan.FromSeconds(60), challenge.ExpiresAtUtc - clock.UtcNow);
+    }
+
+    /// <summary>
+    /// Verifies the truthful-API contract directly: with no in-flight confirm holding a claim,
+    /// <see cref="TrustResetService.BeginReset"/> reports <see cref="FactoryResetBeginOutcome.Started"/>
+    /// together with the challenge, and that exact challenge is the one actually confirmable --
+    /// unlike <see cref="BeginReset_DuringInFlightConfirm_DoesNotReplaceClaimedChallengeAndConfirmStillSucceeds"/>,
+    /// which proves the complementary <see cref="FactoryResetBeginOutcome.AlreadyInProgress"/> branch.
+    /// </summary>
+    [Fact]
+    public async Task BeginReset_NoClaimHeld_ReturnsStartedWithTheActuallyConfirmableChallenge()
+    {
+        var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
+
+        FactoryResetBeginResult result = service.BeginReset();
+
+        Assert.Equal(FactoryResetBeginOutcome.Started, result.Outcome);
+        Assert.NotNull(result.Challenge);
+        Assert.True(await service.ConfirmResetAsync(result.Challenge!.Code));
     }
 
     /// <summary>Verifies that confirming with no challenge ever having been issued is rejected rather than throwing.</summary>
@@ -108,7 +127,7 @@ public class TrustResetServiceTests
     {
         var trustStore = new FakeTrustStore();
         var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         bool first = await service.ConfirmResetAsync(challenge.Code);
         bool second = await service.ConfirmResetAsync(challenge.Code);
@@ -122,7 +141,7 @@ public class TrustResetServiceTests
     public async Task BeginReset_CalledAgain_InvalidatesThePriorChallengesCode()
     {
         var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
-        FactoryResetChallenge firstChallenge = service.BeginReset();
+        FactoryResetChallenge firstChallenge = service.BeginReset().Challenge!;
         service.BeginReset();
 
         bool result = await service.ConfirmResetAsync(firstChallenge.Code);
@@ -136,7 +155,7 @@ public class TrustResetServiceTests
     {
         var sessionRegistry = new FakeSessionRegistry();
         var service = new TrustResetService(new FakeTrustStore(), Invalidator(sessionRegistry), new FakePairingCoordinator(), new FakeClock());
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         bool result = await service.ConfirmResetAsync(challenge.Code);
 
@@ -150,7 +169,7 @@ public class TrustResetServiceTests
     {
         var clock = new FakeClock();
         var service = new TrustResetService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), clock);
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         clock.UtcNow = challenge.ExpiresAtUtc;
         bool result = await service.ConfirmResetAsync(challenge.Code);
@@ -181,7 +200,7 @@ public class TrustResetServiceTests
         trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var pairingCoordinator = new FakePairingCoordinator();
         var service = new TrustResetService(trustStore, Invalidator(sessionRegistry), pairingCoordinator, new FakeClock());
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         trustStore.ThrowOnClear = new IOException("disk full");
         await Assert.ThrowsAsync<IOException>(() => service.ConfirmResetAsync(challenge.Code));
@@ -215,7 +234,7 @@ public class TrustResetServiceTests
             Invalidator(new FakeSessionRegistry()),
             new FakePairingCoordinator(),
             new FakeClock());
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         Task<bool> first = service.ConfirmResetAsync(challenge.Code);
         await enteredClear.Task;
@@ -251,7 +270,7 @@ public class TrustResetServiceTests
             await releaseClear.Task;
         };
         var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         Task<bool> winnerConfirm = service.ConfirmResetAsync(challenge.Code);
         await enteredClear.Task;
@@ -286,7 +305,7 @@ public class TrustResetServiceTests
             await releaseClear.Task;
         };
         var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), new FakeClock());
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         Task<bool> winnerConfirm = service.ConfirmResetAsync(challenge.Code);
         await enteredClear.Task;
@@ -324,7 +343,7 @@ public class TrustResetServiceTests
             await releaseClear.Task;
         };
         var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator(), clock);
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         Task<bool> winnerConfirm = service.ConfirmResetAsync(challenge.Code);
         await enteredClear.Task;
@@ -346,8 +365,10 @@ public class TrustResetServiceTests
     /// Proves the confirmed Factory Reset replacement race is closed: once an in-flight
     /// <see cref="TrustResetService.ConfirmResetAsync"/> has irrevocably claimed the active challenge
     /// and moved on to its destructive work, a concurrent <see cref="TrustResetService.BeginReset"/>
-    /// must not silently replace it -- the claimed challenge still completes the reset exactly once,
-    /// and the freshly issued challenge from the racing <c>BeginReset</c> never becomes usable.
+    /// must not silently replace it. The claimed challenge still completes the reset exactly once, and
+    /// the racing <c>BeginReset</c> truthfully reports <see cref="FactoryResetBeginOutcome.AlreadyInProgress"/>
+    /// with no challenge at all, rather than returning a freshly generated challenge that never became
+    /// active and so could never actually be confirmed.
     /// </summary>
     [Fact]
     public async Task BeginReset_DuringInFlightConfirm_DoesNotReplaceClaimedChallengeAndConfirmStillSucceeds()
@@ -362,13 +383,13 @@ public class TrustResetServiceTests
         };
         var pairingCoordinator = new FakePairingCoordinator();
         var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), pairingCoordinator, new FakeClock());
-        FactoryResetChallenge claimedChallenge = service.BeginReset();
+        FactoryResetChallenge claimedChallenge = service.BeginReset().Challenge!;
 
         Task<bool> confirm = service.ConfirmResetAsync(claimedChallenge.Code);
         await enteredClear.Task;
 
         // Races a fresh BeginReset while the confirm above already holds the claim.
-        FactoryResetChallenge replacementChallenge = service.BeginReset();
+        FactoryResetBeginResult replacement = service.BeginReset();
 
         releaseClear.SetResult();
         bool confirmResult = await confirm;
@@ -376,9 +397,8 @@ public class TrustResetServiceTests
         Assert.True(confirmResult);
         Assert.Equal(1, trustStore.ClearCallCount);
         Assert.Equal(1, pairingCoordinator.CancelAllCallCount);
-        // The replacement challenge from the racing BeginReset never became the active one, so it
-        // cannot itself be confirmed.
-        Assert.False(await service.ConfirmResetAsync(replacementChallenge.Code));
+        Assert.Equal(FactoryResetBeginOutcome.AlreadyInProgress, replacement.Outcome);
+        Assert.Null(replacement.Challenge);
     }
 
     /// <summary>
@@ -404,7 +424,7 @@ public class TrustResetServiceTests
         trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", clock.UtcNow));
         sessionRegistry.Create(clientId);
         var service = new TrustResetService(trustStore, new ClientSessionInvalidator(sessionRegistry, notifier), pairingCoordinator, clock);
-        FactoryResetChallenge challenge = service.BeginReset();
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
 
         Assert.True(await service.ConfirmResetAsync(challenge.Code));
 

@@ -19,12 +19,16 @@ public interface ITrustResetService
     /// Issues a new factory-reset challenge, replacing any previously issued one, unless a
     /// <see cref="ConfirmResetAsync"/> invocation already in flight has irrevocably claimed the
     /// currently active challenge for execution: that claimant already won the race to execute it, so
-    /// this call cannot retroactively supersede it and the freshly issued challenge is returned to the
-    /// caller without ever becoming the active one. This mirrors how a claimed pairing credential
-    /// cannot be cancelled out from under an in-flight commit.
+    /// this call cannot retroactively supersede it. This mirrors how a claimed pairing credential
+    /// cannot be cancelled out from under an in-flight commit. Never returns a freshly generated
+    /// challenge that did not actually become the active one -- see <see cref="FactoryResetBeginResult"/>.
     /// </summary>
-    /// <returns>The challenge whose code must be confirmed to complete the reset.</returns>
-    FactoryResetChallenge BeginReset();
+    /// <returns>
+    /// <see cref="FactoryResetBeginOutcome.Started"/> with the challenge whose code must be confirmed
+    /// to complete the reset, or <see cref="FactoryResetBeginOutcome.AlreadyInProgress"/> with no
+    /// challenge when a claim on the currently active challenge is already held.
+    /// </returns>
+    FactoryResetBeginResult BeginReset();
 
     /// <summary>Confirms a factory-reset challenge and, if valid, performs the reset.</summary>
     /// <param name="code">The code to check against the currently active challenge.</param>
@@ -84,16 +88,18 @@ public sealed class TrustResetService : ITrustResetService
     }
 
     /// <inheritdoc/>
-    public FactoryResetChallenge BeginReset()
+    public FactoryResetBeginResult BeginReset()
     {
         var challenge = new FactoryResetChallenge(
             RandomNumberGenerator.GetInt32(0, 1_000_000)
                 .ToString("D" + Constants.FactoryResetChallengeCodeDigits, CultureInfo.InvariantCulture),
             clock.UtcNow + Constants.FactoryResetChallengeLifetime);
 
+        bool started;
         lock (gate)
         {
-            if (activeConfirmClaim is null)
+            started = activeConfirmClaim is null;
+            if (started)
             {
                 activeChallenge = challenge;
             }
@@ -101,7 +107,9 @@ public sealed class TrustResetService : ITrustResetService
             // challenge for execution -- see activeConfirmClaim's own remarks for what this closes.
         }
 
-        return challenge;
+        return started
+            ? new FactoryResetBeginResult(FactoryResetBeginOutcome.Started, challenge)
+            : new FactoryResetBeginResult(FactoryResetBeginOutcome.AlreadyInProgress, null);
     }
 
     /// <inheritdoc/>
