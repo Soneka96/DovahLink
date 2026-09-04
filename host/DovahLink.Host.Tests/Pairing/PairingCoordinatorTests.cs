@@ -1192,6 +1192,31 @@ public class PairingCoordinatorTests
 
     /// <summary>
     /// Verifies the same authoritative-admin-mutation guarantee as
+    /// <see cref="CommitPending_ResetTrustDuringPersistence_CannotRestoreTrustedCredential"/> for a
+    /// first-time pairing, where Reset Trust has no currently trusted record to revoke at all -- the
+    /// exact race <see cref="TrustStore.ResetTrustAsync"/>'s zero-affected fence advance exists to
+    /// close. Before that fix, this pending credential's captured fence generation would have observed
+    /// no movement and persisted regardless of the concurrent Reset Trust.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_ResetTrustWithNoTrustedRecordsDuringPersistence_CannotRestoreTrustedCredential()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
+
+        Assert.Empty(await trustStore.ResetTrustAsync());
+        PairingCommitResult result = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same authoritative-admin-mutation guarantee as
     /// <see cref="CommitPending_RevokeDuringPersistence_CannotRestoreTrustedCredential"/> for the global
     /// Factory Reset racing an in-flight commit: no trust record survives or reappears afterward.
     /// </summary>

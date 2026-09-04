@@ -2312,7 +2312,7 @@ public class PublicHelloAdmissionTests
         public Task ClearAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public long MutationGeneration => throw new NotSupportedException();
+        public long SecurityFenceGeneration => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<bool> TryUpsertIfGenerationAsync(TrustRecord record, long expectedGeneration, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -2450,7 +2450,7 @@ public class PublicHelloAdmissionTests
         public Task ClearAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public long MutationGeneration => throw new NotSupportedException();
+        public long SecurityFenceGeneration => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<bool> TryUpsertIfGenerationAsync(TrustRecord record, long expectedGeneration, CancellationToken cancellationToken = default) => throw new NotSupportedException();

@@ -545,11 +545,13 @@ public class TrustAdminServiceTests
 
     /// <summary>
     /// Verifies that Reset Trust with no trusted devices still cancels pairing (proven by the existing
-    /// <see cref="ResetTrustAsync_NoTrustedDevices_StillCancelsPairing"/> test) without the store ever
-    /// reporting a mutation that did not occur.
+    /// <see cref="ResetTrustAsync_NoTrustedDevices_StillCancelsPairing"/> test) and still advances the
+    /// trust store's own security fence -- reported here as a "ResetTrust" mutation event even though
+    /// no record changed -- so an in-flight pending pairing credential cannot slip past a concurrent
+    /// Reset Trust merely because nothing was left to revoke.
     /// </summary>
     [Fact]
-    public async Task ResetTrustAsync_NoTrustedDevices_StoreReportsNoMutation()
+    public async Task ResetTrustAsync_NoTrustedDevices_StillAdvancesSecurityFence()
     {
         List<string> order = [];
         var trustStore = new FakeTrustStore { OnMutationApplied = order.Add };
@@ -558,7 +560,7 @@ public class TrustAdminServiceTests
 
         await admin.ResetTrustAsync();
 
-        Assert.Equal(["CancelAll"], order);
+        Assert.Equal(["ResetTrust", "CancelAll"], order);
     }
 
     /// <summary>

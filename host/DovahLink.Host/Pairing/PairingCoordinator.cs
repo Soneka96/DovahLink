@@ -376,7 +376,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                     clientId,
                     credential,
                     displayName,
-                    trustStore.MutationGeneration,
+                    trustStore.SecurityFenceGeneration,
                     now);
                 ClearChallenge();
                 return new PairingConfirmationResult(
@@ -466,7 +466,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 return new PairingCommitResult(PairingCommitOutcome.PendingNotFound);
             }
 
-            if (trustStore.MutationGeneration != pending.MutationGeneration)
+            if (trustStore.SecurityFenceGeneration != pending.SecurityFenceGeneration)
             {
                 ClearPending(pending);
                 return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
@@ -501,7 +501,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
         {
             committed = await trustStore.TryUpsertIfGenerationAsync(
                 record,
-                reserved.MutationGeneration,
+                reserved.SecurityFenceGeneration,
                 cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -881,6 +881,6 @@ public sealed class PairingCoordinator : IPairingCoordinator
         ClientId ClientId,
         string Credential,
         string? DisplayName,
-        long MutationGeneration,
+        long SecurityFenceGeneration,
         DateTimeOffset CreatedAtUtc);
 }

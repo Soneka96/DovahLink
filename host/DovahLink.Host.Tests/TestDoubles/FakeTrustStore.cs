@@ -21,8 +21,8 @@ public sealed class FakeTrustStore : ITrustStore
     /// <summary>When set, <see cref="ClearAsync"/> throws this instead of clearing the records.</summary>
     public Exception? ThrowOnClear { get; set; }
 
-    /// <summary>The successful mutation count exposed to pending-pairing tests.</summary>
-    public long MutationGeneration { get; private set; }
+    /// <summary>The security fence generation exposed to pending-pairing tests. See <see cref="ITrustStore.SecurityFenceGeneration"/>.</summary>
+    public long SecurityFenceGeneration { get; private set; }
 
     /// <summary>Optional asynchronous work used to hold a clear in flight during concurrency tests.</summary>
     public Func<Task>? BeforeClear { get; set; }
@@ -59,7 +59,7 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         return Task.CompletedTask;
     }
 
@@ -78,7 +78,7 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId.Clear();
         ClearCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Clear");
     }
 
@@ -88,7 +88,7 @@ public sealed class FakeTrustStore : ITrustStore
         long expectedGeneration,
         CancellationToken cancellationToken = default)
     {
-        if (MutationGeneration != expectedGeneration)
+        if (SecurityFenceGeneration != expectedGeneration)
         {
             return Task.FromResult(false);
         }
@@ -105,7 +105,7 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         return Task.FromResult(true);
     }
 
@@ -116,7 +116,7 @@ public sealed class FakeTrustStore : ITrustStore
         await beforeConditionalUpsert();
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         return true;
     }
 
@@ -146,7 +146,7 @@ public sealed class FakeTrustStore : ITrustStore
             CredentialVerifier = string.Empty,
             BlockedAtUtc = null,
         };
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Revoke");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
@@ -173,7 +173,7 @@ public sealed class FakeTrustStore : ITrustStore
             CredentialVerifier = string.Empty,
             BlockedAtUtc = DateTimeOffset.UtcNow,
         };
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Block");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
@@ -199,7 +199,7 @@ public sealed class FakeTrustStore : ITrustStore
             State = KnownDeviceState.Unpaired,
             BlockedAtUtc = null,
         };
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Unblock");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
@@ -221,7 +221,7 @@ public sealed class FakeTrustStore : ITrustStore
         }
 
         recordsByClientId.Remove(clientId);
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Forget");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
@@ -247,11 +247,10 @@ public sealed class FakeTrustStore : ITrustStore
                 BlockedAtUtc = null,
             };
         }
-        if (affected.Count > 0)
-        {
-            MutationGeneration++;
-            OnMutationApplied?.Invoke("ResetTrust");
-        }
+        // Mirrors the real store: the fence advances even when nothing was affected, so a Reset
+        // Trust with zero currently trusted records still invalidates an in-flight pending pairing.
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("ResetTrust");
         return Task.FromResult<IReadOnlyList<ClientId>>(affected);
     }
 }

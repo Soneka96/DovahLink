@@ -61,7 +61,7 @@ public class TrustStoreTests
             persistence.SavedRecords.OrderBy(saved => saved.ClientId.Value));
     }
 
-    /// <summary>Verifies that a matching mutation generation permits a conditional upsert.</summary>
+    /// <summary>Verifies that a matching security fence generation permits a conditional upsert.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_MatchingGeneration_PersistsRecord()
     {
@@ -69,19 +69,19 @@ public class TrustStoreTests
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
 
-        bool committed = await store.TryUpsertIfGenerationAsync(record, store.MutationGeneration);
+        bool committed = await store.TryUpsertIfGenerationAsync(record, store.SecurityFenceGeneration);
 
         Assert.True(committed);
         Assert.Equal(record, store.TryGet(record.ClientId));
     }
 
-    /// <summary>Verifies that a stale mutation generation cannot recreate trust after another mutation.</summary>
+    /// <summary>Verifies that a stale security fence generation cannot recreate trust after another mutation.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_StaleGeneration_DoesNotMutateStore()
     {
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence);
-        long initialGeneration = store.MutationGeneration;
+        long initialGeneration = store.SecurityFenceGeneration;
         TrustRecord existing = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         TrustRecord attempted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
         await store.UpsertAsync(existing);
@@ -100,13 +100,13 @@ public class TrustStoreTests
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.TryUpsertIfGenerationAsync(record, generation));
 
         Assert.Null(store.TryGet(record.ClientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
     /// <summary>Verifies that a failed conditional replacement restores the prior record and generation.</summary>
@@ -119,13 +119,13 @@ public class TrustStoreTests
         TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Revoked, "oldhash", DateTimeOffset.UtcNow);
         TrustRecord replacement = original with { State = KnownDeviceState.Trusted, CredentialVerifier = "newhash" };
         await store.UpsertAsync(original);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.TryUpsertIfGenerationAsync(replacement, generation));
 
         Assert.Equal(original, store.TryGet(clientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
     /// <summary>Verifies that administration lookup returns the record matching its stable short ID.</summary>
@@ -264,6 +264,27 @@ public class TrustStoreTests
         Assert.Equal(blocked, store.TryGet(blocked.ClientId));
     }
 
+    /// <summary>
+    /// Verifies that Reset Trust with no currently trusted records still advances the security fence:
+    /// without this, an in-flight pending pairing credential whose captured fence generation still
+    /// matches could be persisted after a concurrent Reset Trust believed it had invalidated
+    /// everything, since nothing else would have moved the fence. Also verifies this fence-only
+    /// advance never writes to persistence, since nothing in the record set actually changed.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_NoTrustedRecords_StillAdvancesSecurityFenceGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        long initialGeneration = store.SecurityFenceGeneration;
+
+        IReadOnlyList<ClientId> affected = await store.ResetTrustAsync();
+
+        Assert.Empty(affected);
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+        Assert.Equal(0, persistence.SaveCallCount);
+    }
+
     /// <summary>Verifies that a failed Reset Trust persistence write restores the prior state.</summary>
     [Fact]
     public async Task ResetTrustAsync_PersistenceFails_RestoresTrustedRecord()
@@ -272,16 +293,16 @@ public class TrustStoreTests
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         await store.UpsertAsync(record);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.ResetTrustAsync());
 
         Assert.Equal(record, store.TryGet(record.ClientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
-    /// <summary>Verifies that a failed forget restores the removed record and mutation generation.</summary>
+    /// <summary>Verifies that a failed forget restores the removed record and security fence generation.</summary>
     [Fact]
     public async Task ForgetAsync_PersistenceFails_RestoresRecord()
     {
@@ -289,26 +310,26 @@ public class TrustStoreTests
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
         await store.UpsertAsync(record);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.ForgetAsync(record.ClientId));
 
         Assert.Equal(record, store.TryGet(record.ClientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
-    /// <summary>Verifies that a successful clear advances the mutation generation.</summary>
+    /// <summary>Verifies that a successful clear advances the security fence generation.</summary>
     [Fact]
-    public async Task ClearAsync_Success_AdvancesMutationGeneration()
+    public async Task ClearAsync_Success_AdvancesSecurityFenceGeneration()
     {
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence);
-        long initialGeneration = store.MutationGeneration;
+        long initialGeneration = store.SecurityFenceGeneration;
 
         await store.ClearAsync();
 
-        Assert.Equal(initialGeneration + 1, store.MutationGeneration);
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
     }
 
     /// <summary>Verifies that a store constructed over an empty persistence starts with no records.</summary>

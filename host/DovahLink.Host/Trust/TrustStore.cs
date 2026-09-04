@@ -23,14 +23,21 @@ public interface ITrustStore
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     Task ClearAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>The number of successful trust mutations applied by this store instance.</summary>
-    long MutationGeneration { get; }
+    /// <summary>
+    /// The monotonically advancing security fence used to invalidate an in-flight pending pairing
+    /// operation against a concurrent administrative trust mutation. It advances on every mutation
+    /// this store applies, including one that changed zero records (for example a Reset Trust with no
+    /// currently trusted devices): the fence's purpose is to guarantee that no pairing operation which
+    /// began before an administrative mutation can still complete after it, not to literally count
+    /// records changed.
+    /// </summary>
+    long SecurityFenceGeneration { get; }
 
-    /// <summary>Upserts a record only when the store still has the supplied generation.</summary>
+    /// <summary>Upserts a record only when the store still has the supplied fence generation.</summary>
     /// <param name="record">The record to store.</param>
-    /// <param name="expectedGeneration">The generation observed before a pending operation began.</param>
+    /// <param name="expectedGeneration">The fence generation observed before a pending operation began.</param>
     /// <param name="cancellationToken">The token used to cancel the persistence write.</param>
-    /// <returns><see langword="true"/> when the record was persisted; otherwise the generation changed first.</returns>
+    /// <returns><see langword="true"/> when the record was persisted; otherwise the fence generation changed first.</returns>
     Task<bool> TryUpsertIfGenerationAsync(
         TrustRecord record,
         long expectedGeneration,
@@ -75,8 +82,8 @@ public sealed class TrustStore : ITrustStore
     /// <summary>The in-memory index of every known trust record, keyed by client.</summary>
     private readonly Dictionary<ClientId, TrustRecord> recordsByClientId;
 
-    /// <summary>The successful mutation count used to fence pending pairing operations.</summary>
-    private long mutationGeneration;
+    /// <summary>The security fence generation used to invalidate pending pairing operations. See <see cref="ITrustStore.SecurityFenceGeneration"/>.</summary>
+    private long securityFenceGeneration;
 
     /// <summary>The time source used to record when a device becomes blocked.</summary>
     private readonly IClock clock;
@@ -157,7 +164,7 @@ public sealed class TrustStore : ITrustStore
                 await persistence.SaveAsync(snapshot, cancellationToken);
                 lock (recordsLock)
                 {
-                    mutationGeneration++;
+                    securityFenceGeneration++;
                 }
             }
             catch
@@ -206,7 +213,7 @@ public sealed class TrustStore : ITrustStore
                 await persistence.SaveAsync([], cancellationToken);
                 lock (recordsLock)
                 {
-                    mutationGeneration++;
+                    securityFenceGeneration++;
                 }
             }
             catch
@@ -230,13 +237,13 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public long MutationGeneration
+    public long SecurityFenceGeneration
     {
         get
         {
             lock (recordsLock)
             {
-                return mutationGeneration;
+                return securityFenceGeneration;
             }
         }
     }
@@ -254,7 +261,7 @@ public sealed class TrustStore : ITrustStore
             List<TrustRecord> snapshot;
             lock (recordsLock)
             {
-                if (mutationGeneration != expectedGeneration)
+                if (securityFenceGeneration != expectedGeneration)
                 {
                     return false;
                 }
@@ -269,7 +276,7 @@ public sealed class TrustStore : ITrustStore
                 await persistence.SaveAsync(snapshot, cancellationToken);
                 lock (recordsLock)
                 {
-                    mutationGeneration++;
+                    securityFenceGeneration++;
                 }
                 return true;
             }
@@ -351,6 +358,12 @@ public sealed class TrustStore : ITrustStore
                     .ToList();
                 if (affected.Count == 0)
                 {
+                    // No currently trusted record to revoke, but Reset Trust must still act as a
+                    // security fence: advancing it here still invalidates any pending pairing
+                    // operation that began before this call, even though there is nothing to write
+                    // to persistence -- pending pairing state cannot survive a host restart anyway,
+                    // so a persistence write here would only re-save an unchanged record set.
+                    securityFenceGeneration++;
                     return affected;
                 }
 
@@ -371,7 +384,7 @@ public sealed class TrustStore : ITrustStore
                 await persistence.SaveAsync(List(), cancellationToken);
                 lock (recordsLock)
                 {
-                    mutationGeneration++;
+                    securityFenceGeneration++;
                 }
                 return affected;
             }
@@ -447,7 +460,7 @@ public sealed class TrustStore : ITrustStore
                 await persistence.SaveAsync(snapshot, cancellationToken);
                 lock (recordsLock)
                 {
-                    mutationGeneration++;
+                    securityFenceGeneration++;
                 }
                 return outcome;
             }
