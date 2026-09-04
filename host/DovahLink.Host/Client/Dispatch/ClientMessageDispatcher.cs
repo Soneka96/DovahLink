@@ -397,7 +397,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                     PairingStatusSnapshot ownedSnapshot = pairingCoordinator.GetStatusSnapshot(clientId);
                     if (ownedSnapshot.Kind == PairingStatusKind.DisplayedChallenge)
                     {
-                        FireAndForget(adapterNotifier.NotifyCodeIncorrectAsync(ownedSnapshot.Challenge!.Code, cancellationToken));
+                        FireAndForget(() => adapterNotifier.NotifyCodeIncorrectAsync(ownedSnapshot.Challenge!.Code, cancellationToken));
                     }
                 }
 
@@ -417,7 +417,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return Task.FromResult(new ClientDispatchResult());
 
             case PairingConfirmOutcome.HardLimitReached:
-                FireAndForget(adapterNotifier.NotifyAttemptsExhaustedAsync(cancellationToken));
+                FireAndForget(() => adapterNotifier.NotifyAttemptsExhaustedAsync(cancellationToken));
                 SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.HardLimitReached });
                 return Task.FromResult(new ClientDispatchResult());
 
@@ -441,11 +441,28 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
 
     /// <summary>
     /// Starts a best-effort adapter notification without awaiting it, observing (and discarding) any
-    /// fault so it can never surface as an unobserved task exception. A best-effort notification never
-    /// blocks or changes an already-decided client outcome.
+    /// fault so it can never surface as an unobserved task exception. Invokes <paramref name="start"/>
+    /// itself inside the same try/catch: an <see cref="IPairingAdapterNotifier"/> implementation that
+    /// throws synchronously, before ever returning a <see cref="Task"/>, must be exactly as harmless as
+    /// one that returns a faulted <see cref="Task"/> -- a best-effort notification never blocks or
+    /// changes an already-decided client outcome, and a bug in the notifier must never prevent this
+    /// method's own caller from sending that outcome.
     /// </summary>
-    private static void FireAndForget(Task task) =>
+    /// <param name="start">Invokes the best-effort notification and returns its <see cref="Task"/>.</param>
+    private static void FireAndForget(Func<Task> start)
+    {
+        Task task;
+        try
+        {
+            task = start();
+        }
+        catch
+        {
+            return;
+        }
+
         task.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+    }
 
     /// <summary>
     /// Answers a <c>pairing_ack</c> with <c>pairing_outcome</c>: maps

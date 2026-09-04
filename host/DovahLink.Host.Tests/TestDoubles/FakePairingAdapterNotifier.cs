@@ -35,6 +35,12 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
     /// <summary>When set, <see cref="NotifyAttemptsExhaustedAsync"/> returns a faulted task carrying this exception instead of completing.</summary>
     public Exception? ThrowOnNotifyAttemptsExhausted { get; set; }
 
+    /// <summary>When set, <see cref="NotifyCodeIncorrectAsync"/> throws this synchronously before ever returning a <see cref="Task"/>, rather than returning a faulted one.</summary>
+    public Exception? ThrowSynchronouslyOnNotifyCodeIncorrect { get; set; }
+
+    /// <summary>When set, <see cref="NotifyAttemptsExhaustedAsync"/> throws this synchronously before ever returning a <see cref="Task"/>, rather than returning a faulted one.</summary>
+    public Exception? ThrowSynchronouslyOnNotifyAttemptsExhausted { get; set; }
+
     /// <summary>
     /// Optional asynchronous work awaited before <see cref="TryNotifyCodeAvailableAsync"/> resolves,
     /// after the code is already recorded in <see cref="DisplayedCodes"/>. Lets a test pause the
@@ -86,6 +92,11 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
     /// <inheritdoc/>
     public Task NotifyCodeIncorrectAsync(string code, CancellationToken cancellationToken)
     {
+        if (ThrowSynchronouslyOnNotifyCodeIncorrect is { } synchronousException)
+        {
+            throw synchronousException;
+        }
+
         IncorrectCodeNotifications.Add(code);
         return ThrowOnNotifyCodeIncorrect is { } exception ? Task.FromException(exception) : Task.CompletedTask;
     }
@@ -93,6 +104,11 @@ public sealed class FakePairingAdapterNotifier : IPairingAdapterNotifier
     /// <inheritdoc/>
     public Task NotifyAttemptsExhaustedAsync(CancellationToken cancellationToken)
     {
+        if (ThrowSynchronouslyOnNotifyAttemptsExhausted is { } synchronousException)
+        {
+            throw synchronousException;
+        }
+
         AttemptsExhaustedCallCount++;
         return ThrowOnNotifyAttemptsExhausted is { } exception ? Task.FromException(exception) : Task.CompletedTask;
     }

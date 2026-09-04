@@ -1039,6 +1039,104 @@ public class ClientMessageDispatcherTests
         await WaitUntilAsync(() => adapterNotifier.IncorrectCodeNotifications.Count > 0);
     }
 
+    /// <summary>
+    /// Verifies that a best-effort adapter notification implementation which throws synchronously --
+    /// before ever returning a <see cref="Task"/> -- is exactly as harmless as one that returns a
+    /// faulted <see cref="Task"/>: the pairing_outcome response still sends normally and no exception
+    /// propagates out of dispatch.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmAdapterNotificationThrowsSynchronously_DoesNotPropagateOrBlockResponse()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowSynchronouslyOnNotifyCodeIncorrect = new InvalidOperationException("adapter unavailable") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.False(result.IsProtocolViolation);
+    }
+
+    /// <summary>
+    /// Verifies the same synchronous-throw tolerance for the hard-wrong-attempt-limit notification: a
+    /// notifier that throws before ever returning a <see cref="Task"/> must never prevent the already-
+    /// decided <c>hard_limit_reached</c> response from sending.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmFifthWrongAttemptAdapterNotificationThrowsSynchronously_SendsHardLimitReached()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowSynchronouslyOnNotifyAttemptsExhausted = new InvalidOperationException("adapter unavailable") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        BeginAndDisplayPairing(pairingCoordinator, clientId);
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            pairingCoordinator.ConfirmCode(clientId, "000000", null);
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.HardLimitReached, outcome.Outcome);
+        Assert.False(result.IsProtocolViolation);
+    }
+
+    /// <summary>
+    /// Verifies the same async-fault tolerance already proven for the wrong-code redisplay
+    /// notification (<see cref="DispatchAsync_PairingConfirmAdapterNotificationFaults_DoesNotPropagateOrBlockResponse"/>)
+    /// for the hard-wrong-attempt-limit notification: a returned faulted <see cref="Task"/> never
+    /// prevents the already-decided <c>hard_limit_reached</c> response from sending.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmFifthWrongAttemptAdapterNotificationFaults_DoesNotPropagateOrBlockResponse()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyAttemptsExhausted = new InvalidOperationException("adapter unavailable") };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        ClientId clientId = ClientId.NewId();
+        BeginAndDisplayPairing(pairingCoordinator, clientId);
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            pairingCoordinator.ConfirmCode(clientId, "000000", null);
+            clock.Advance(TimeSpan.FromSeconds(1));
+        }
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.HardLimitReached, outcome.Outcome);
+        Assert.False(result.IsProtocolViolation);
+        await WaitUntilAsync(() => adapterNotifier.AttemptsExhaustedCallCount > 0);
+    }
+
     // ---- pairing_ack ----
 
     /// <summary>Verifies that a matching pending credential sends trusted and signals a session upgrade.</summary>
