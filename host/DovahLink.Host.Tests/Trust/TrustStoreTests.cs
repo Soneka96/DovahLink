@@ -1181,13 +1181,13 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Verifies the shortId incarnation-race guard directly: a mutation whose caller resolved
-    /// <paramref name="clientId"/> under one shortId must not apply against a current record that now
-    /// carries a different shortId -- deterministically reproducing the exact interleaving a stale
-    /// shortId-based administrative operation could otherwise land in (the target's prior incarnation
-    /// forgotten and its clientId re-paired under a new shortId before the queued mutation resumes) by
-    /// constructing that sequence directly rather than depending on real thread-scheduling or
-    /// mutation-semaphore ordering to reproduce it.
+    /// Verifies the shortId incarnation-race guard directly: a mutation whose caller resolved a
+    /// clientId under one shortId must not apply against a current record that now carries a different
+    /// shortId -- deterministically reproducing the exact interleaving a stale shortId-based
+    /// administrative operation could otherwise land in (the target's prior incarnation forgotten and
+    /// its clientId re-paired under a new shortId before the queued mutation resumes) by constructing
+    /// that sequence directly rather than depending on real thread-scheduling or mutation-semaphore
+    /// ordering to reproduce it.
     /// </summary>
     [Fact]
     public async Task RevokeAsync_CurrentRecordCarriesADifferentShortIdThanExpected_ReturnsNotFoundWithoutMutatingTheNewIncarnation()

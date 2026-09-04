@@ -501,8 +501,9 @@ public class TrustAdminServiceTests
     /// resolution and the mutation actually applying -- for example the original Known Device forgotten
     /// by a Factory Reset and the same client re-paired under a new shortId before this call resumes.
     /// <see cref="FakeTrustStore.AfterTryGetByShortId"/> deterministically injects that exact
-    /// replacement into the gap <see cref="TrustAdminService.MutateByShortIdAsync"/> itself has between
-    /// resolving the shortId and invoking the mutation, without depending on real thread scheduling.
+    /// replacement into the gap <see cref="TrustAdminService"/>'s own private shortId-resolution helper
+    /// has between resolving the shortId and invoking the mutation, without depending on real thread
+    /// scheduling.
     /// </summary>
     [Fact]
     public async Task RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()

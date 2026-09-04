@@ -378,6 +378,32 @@ public enum PublicWebSocketConnectionEndReason
 }
 
 /// <summary>
+/// A narrow, transport-independent classification of why an established public WebSocket connection
+/// ended, reported to <see cref="Client.Transport.IPublicWebSocketMessageHandler.HandleConnectionEnded"/>
+/// so a consumer (for example the pairing reconnect-grace decision) can distinguish ordinary
+/// connectivity loss from a deliberate security/protocol-driven termination without ever seeing a raw
+/// <see cref="PublicWebSocketConnectionEndReason"/>, a WebSocket close status, or any other transport
+/// implementation detail.
+/// </summary>
+public enum PublicConnectionTerminationKind
+{
+    /// <summary>
+    /// Ordinary connectivity loss or an orderly/expected close -- a normal peer close, network loss,
+    /// idle/keep-alive timeout, or a send failure indicating the peer is simply gone. Pairing reconnect
+    /// grace remains available.
+    /// </summary>
+    ConnectivityLoss,
+
+    /// <summary>
+    /// A deliberate security or protocol enforcement action -- invalid framing, an unsupported binary
+    /// message, an oversized message, an inbound rate-limit or outbound-capacity violation, fragment
+    /// assembly abuse, or an equivalent application-level protocol-violation or message-bound close.
+    /// Pairing must end outright rather than preserve reconnect grace.
+    /// </summary>
+    SecurityEnforcement,
+}
+
+/// <summary>
 /// Why <see cref="Client.Transport.PublicWebSocketHandshake.TryParseUpgradeRequest"/> rejected an
 /// upgrade request, or that it did not.
 /// </summary>

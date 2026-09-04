@@ -2170,6 +2170,33 @@ public class PublicHelloAdmissionTests
         Assert.Equal(sentBeforeRepeat, context.FakeConnection.SentPayloads.Count);
     }
 
+    /// <summary>
+    /// Verifies that reaching the session message bound is treated as a deliberate application-level
+    /// close for pairing purposes, the same as the protocol-violation threshold: ending the connection
+    /// afterward cancels pairing outright rather than granting ordinary reconnect grace, even when the
+    /// transport's own termination classification reports
+    /// <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/> -- proving this handler's own
+    /// <c>securityCloseRequested</c> tracking, not merely the transport classification, is what closes
+    /// this specific case.
+    /// </summary>
+    [Fact]
+    public void HandleConnectionEnded_AfterSessionMessageBoundReached_CancelsPairingInsteadOfNotifyingDisconnect()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
+        for (int i = 0; i < Constants.PublicProtocolMaxSessionMessages - 1; i++)
+        {
+            byte[] message = context.Codec.Encode(PublicMessageType.Ping, $"msg-{i}", sessionId, null, null, clientId, new object());
+            context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+        }
+        Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
+
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+
+        Assert.Equal([new ClientId(Guid.Parse(clientId))], context.PairingCoordinator.CancelledClientIds);
+        Assert.Empty(context.PairingCoordinator.DisconnectedClientIds);
+    }
+
     // ---- Protocol-violation close policy ----
 
     /// <summary>Verifies that the third protocol violation within the close-policy window closes the connection.</summary>
@@ -2261,7 +2288,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext(maxActiveSessions: 2);
         SessionId unrelatedSession = context.SessionRegistry.Create(ClientId.NewId());
 
-        context.Handler.HandleConnectionEnded();
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
 
         Assert.Equal(1, context.SessionRegistry.ActiveCount);
         Assert.True(context.SessionRegistry.IsActive(unrelatedSession, context.SessionRegistry.ConnectionIdFor(unrelatedSession)));
@@ -2274,7 +2301,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionIdText, out _);
 
-        context.Handler.HandleConnectionEnded();
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
 
         Assert.False(context.SessionRegistry.IsActive(new SessionId(Guid.Parse(sessionIdText)), context.SessionRegistry.ConnectionIdFor(new SessionId(Guid.Parse(sessionIdText)))));
     }
@@ -2286,7 +2313,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out _, out string clientId);
 
-        context.Handler.HandleConnectionEnded();
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
 
         Assert.Equal([new ClientId(Guid.Parse(clientId))], context.PairingCoordinator.DisconnectedClientIds);
     }
@@ -2297,7 +2324,7 @@ public class PublicHelloAdmissionTests
     {
         var context = new TestContext();
 
-        context.Handler.HandleConnectionEnded();
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
 
         Assert.Empty(context.PairingCoordinator.DisconnectedClientIds);
     }
@@ -2307,7 +2334,10 @@ public class PublicHelloAdmissionTests
     /// a deliberate protocol/security-driven termination -- cancels the admitted client's pairing
     /// operation outright instead of preserving it for the ordinary reconnect grace, per
     /// roadmap 3.1's "This grace period does not apply when the challenge ended because of ...
-    /// a protocol/security-driven termination".
+    /// a protocol/security-driven termination". Deliberately passes
+    /// <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/> to isolate that this handler's
+    /// own <c>securityCloseRequested</c> tracking alone is sufficient to cancel pairing, independent of
+    /// the transport's own classification.
     /// </summary>
     [Fact]
     public void HandleConnectionEnded_AfterSecurityCloseFromViolationThreshold_CancelsPairingInsteadOfNotifyingDisconnect()
@@ -2320,7 +2350,27 @@ public class PublicHelloAdmissionTests
         SendPing(context, sessionId, clientId, "msg-4");
         Assert.Equal(1, context.FakeConnection.RequestCloseCalls);
 
-        context.Handler.HandleConnectionEnded();
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+
+        Assert.Equal([new ClientId(Guid.Parse(clientId))], context.PairingCoordinator.CancelledClientIds);
+        Assert.Empty(context.PairingCoordinator.DisconnectedClientIds);
+    }
+
+    /// <summary>
+    /// Verifies the complementary case to <see cref="HandleConnectionEnded_AfterSecurityCloseFromViolationThreshold_CancelsPairingInsteadOfNotifyingDisconnect"/>:
+    /// a transport-level <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/> classification
+    /// alone -- covering enforcement such as oversized/binary/invalid-framing/rate-limit violations this
+    /// handler never itself observes as one of its own protocol violations -- is independently sufficient
+    /// to cancel pairing outright, without this handler's own <c>securityCloseRequested</c> ever having
+    /// been set.
+    /// </summary>
+    [Fact]
+    public void HandleConnectionEnded_WithSecurityEnforcementTerminationKind_CancelsPairingEvenWithoutOwnSecurityCloseRequested()
+    {
+        var context = new TestContext();
+        AdmitViaUnpairedHello(context, out _, out string clientId);
+
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.SecurityEnforcement);
 
         Assert.Equal([new ClientId(Guid.Parse(clientId))], context.PairingCoordinator.CancelledClientIds);
         Assert.Empty(context.PairingCoordinator.DisconnectedClientIds);

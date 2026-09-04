@@ -98,9 +98,9 @@ public class ClientSessionInvalidatorTests
 
     /// <summary>
     /// Verifies the security-mandated ordering: a session is already unauthorized in the registry --
-    /// removed, per <see cref="ISessionRegistry.IsActive"/> -- before <see cref="InvalidateClient"/>
-    /// even returns, well before <see cref="ClientSessionInvalidator.NotifyAndCloseAllAsync"/> attempts
-    /// any notification.
+    /// removed, per <see cref="ISessionRegistry.IsActive"/> -- before
+    /// <see cref="ClientSessionInvalidator.InvalidateClient"/> even returns, well before
+    /// <see cref="ClientSessionInvalidator.NotifyAndCloseAllAsync"/> attempts any notification.
     /// </summary>
     [Fact]
     public void InvalidateClient_SessionIsUnauthorizedAsSoonAsItReturns()

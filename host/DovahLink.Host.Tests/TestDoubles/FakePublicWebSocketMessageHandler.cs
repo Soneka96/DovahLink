@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using DovahLink.Host;
 using DovahLink.Host.Client.Transport;
 
 namespace DovahLink.Host.Tests.TestDoubles;
@@ -17,6 +18,9 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
 
     /// <summary>The number of times <see cref="HandleConnectionEnded"/> has been called.</summary>
     public int ConnectionEndedCalls { get; private set; }
+
+    /// <summary>Every <c>terminationKind</c> passed to <see cref="HandleConnectionEnded"/>, in call order.</summary>
+    public List<PublicConnectionTerminationKind> ReceivedTerminationKinds { get; } = [];
 
     /// <summary>
     /// The order in which <see cref="HandleConnectionEstablished"/>, <see cref="HandleConnectionEnded"/>,
@@ -69,9 +73,10 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     }
 
     /// <inheritdoc/>
-    public void HandleConnectionEnded()
+    public void HandleConnectionEnded(PublicConnectionTerminationKind terminationKind)
     {
         ConnectionEndedCalls++;
+        ReceivedTerminationKinds.Add(terminationKind);
         CallOrder.Enqueue("ConnectionEnded");
 
         if (ConnectionEndedFailure is not null)

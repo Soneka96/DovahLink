@@ -123,11 +123,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     private ClientId admittedClientId;
 
     /// <summary>
-    /// Whether this connection's own protocol-violation close policy (<see cref="RecordViolation"/>)
-    /// has requested this connection's close. Distinguishes a deliberate protocol/security-driven
-    /// termination from an ordinary disconnect (peer close, network loss, or connection timeout): per
-    /// the pairing reconnect-grace contract, only the latter preserves an owned pairing challenge for
-    /// reconnection -- a security-driven close must end it outright.
+    /// Whether this connection's own protocol-violation close policy (<see cref="RecordViolation"/>) or
+    /// its session message-bound close (<see cref="HandleMessageAsync"/>'s <c>reachedBound</c> branch)
+    /// has requested this connection's close. Distinguishes a deliberate application-level
+    /// protocol/security-driven termination from an ordinary disconnect (peer close, network loss, or
+    /// connection timeout): per the pairing reconnect-grace contract, only the latter preserves an
+    /// owned pairing challenge for reconnection -- a security-driven close must end it outright.
+    /// Combined with <see cref="HandleConnectionEnded"/>'s own <c>terminationKind</c> parameter, which
+    /// separately covers transport-level enforcement this handler never otherwise observes.
     /// </summary>
     private bool securityCloseRequested;
 
@@ -346,6 +349,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             // had its chance to enqueue onto the outbound queue before the orderly close begins here.
             if (reachedBound)
             {
+                // A deliberate application-level close, the same as the protocol-violation threshold
+                // in RecordViolation: it must end any owned pairing challenge outright rather than
+                // preserve it for ordinary reconnect grace.
+                lock (gate)
+                {
+                    securityCloseRequested = true;
+                }
+
                 connectionContext.RequestClose();
             }
         }
@@ -887,7 +898,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     }
 
     /// <inheritdoc/>
-    public void HandleConnectionEnded()
+    public void HandleConnectionEnded(PublicConnectionTerminationKind terminationKind)
     {
         bool wasAdmitted;
         SessionId currentSessionId;
@@ -908,11 +919,15 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         if (wasAdmitted)
         {
             sessionRegistry.Invalidate(currentSessionId, connectionId);
-            if (wasSecurityClose)
+            if (wasSecurityClose || terminationKind == PublicConnectionTerminationKind.SecurityEnforcement)
             {
                 // A deliberate protocol/security-driven termination ends any owned pairing challenge
                 // outright rather than preserving it for the ordinary reconnect grace, which applies
-                // only to connectivity loss (normal close, network loss, or connection timeout).
+                // only to connectivity loss (normal close, network loss, or connection timeout). This
+                // handler's own securityCloseRequested tracks its own application-level protocol-
+                // violation threshold and message-bound closes; terminationKind separately covers
+                // transport-level enforcement (oversized/binary/framing/rate-limit) this handler never
+                // otherwise observes -- either one alone is sufficient to end pairing outright.
                 pairingCoordinator.Cancel(currentClientId);
             }
             else

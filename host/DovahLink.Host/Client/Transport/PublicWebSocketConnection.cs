@@ -189,6 +189,17 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private int diagnosticReported;
 
     /// <summary>
+    /// The <see cref="PublicWebSocketConnectionEndReason"/> reported through
+    /// <see cref="ReportAbnormalEnd"/>, encoded as its underlying value plus one so zero can mean "no
+    /// abnormal end ever reported" (an ordinary peer close, cancellation, or orderly close) without a
+    /// nullable-enum <see cref="Volatile"/> access. Written exactly once, guarded by the same
+    /// <see cref="diagnosticReported"/> gate as the reason it mirrors, and read by
+    /// <see cref="ClassifyTerminationKind"/> to classify this connection's end for
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>.
+    /// </summary>
+    private int reportedAbnormalEndReasonPlusOne;
+
+    /// <summary>
     /// Whether this connection's teardown has already begun, written by <see cref="RunAsync"/> before
     /// it completes <see cref="outbound"/>'s writer, for any reason -- an orderly close, cancellation,
     /// a protocol violation, or a write failure. Checked alongside <see cref="orderlyCloseInProgress"/>
@@ -239,8 +250,35 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     {
         if (Interlocked.CompareExchange(ref diagnosticReported, 1, 0) == 0)
         {
+            Volatile.Write(ref reportedAbnormalEndReasonPlusOne, (int)reason + 1);
             diagnostics.ReportAbnormalEnd(reason);
         }
+    }
+
+    /// <summary>
+    /// Classifies this connection's termination for
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>: no abnormal end ever
+    /// reported (an ordinary peer close, cancellation, or orderly close), a send failure, or a missed
+    /// keep-alive pong -- all indicating the peer is simply gone rather than any deliberate
+    /// protocol/security enforcement -- classify as <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/>;
+    /// every other reported <see cref="PublicWebSocketConnectionEndReason"/> is a deliberate
+    /// protocol/security enforcement action and classifies as
+    /// <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/>.
+    /// </summary>
+    private PublicConnectionTerminationKind ClassifyTerminationKind()
+    {
+        int reasonPlusOne = Volatile.Read(ref reportedAbnormalEndReasonPlusOne);
+        if (reasonPlusOne == 0)
+        {
+            return PublicConnectionTerminationKind.ConnectivityLoss;
+        }
+
+        return (PublicWebSocketConnectionEndReason)(reasonPlusOne - 1) switch
+        {
+            PublicWebSocketConnectionEndReason.WriteFailure => PublicConnectionTerminationKind.ConnectivityLoss,
+            PublicWebSocketConnectionEndReason.KeepAliveTimeout => PublicConnectionTerminationKind.ConnectivityLoss,
+            _ => PublicConnectionTerminationKind.SecurityEnforcement,
+        };
     }
 
     /// <inheritdoc/>
@@ -359,7 +397,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     {
         try
         {
-            messageHandler.HandleConnectionEnded();
+            messageHandler.HandleConnectionEnded(ClassifyTerminationKind());
         }
         catch (Exception)
         {

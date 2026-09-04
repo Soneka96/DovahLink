@@ -555,6 +555,9 @@ public class PublicWebSocketConnectionTests
             $"Expected the pong timeout to add wait time beyond the {keepAliveInterval} interval alone, took {stopwatch.Elapsed}.");
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Silent-peer detection must not hang.");
         Assert.Equal([PublicWebSocketConnectionEndReason.KeepAliveTimeout], diagnostics.Reports);
+        // An unresponsive peer is connectivity loss, not protocol/security enforcement -- reconnect
+        // grace must remain available.
+        Assert.Equal([PublicConnectionTerminationKind.ConnectivityLoss], handler.ReceivedTerminationKinds);
 
         listener.Stop();
     }
@@ -618,6 +621,9 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.MessageTooLarge], diagnostics.Reports);
+        // A transport-level protocol enforcement action must classify as SecurityEnforcement so pairing
+        // is cancelled outright rather than granted ordinary reconnect grace.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -646,6 +652,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.FragmentAssemblyTimeout], diagnostics.Reports);
+        // Fragment-assembly abuse is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -796,6 +804,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal("frag"u8.ToArray(), Assert.Single(handler.ReceivedMessages));
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.InboundRateLimitExceeded], diagnostics.Reports);
+        // An inbound rate-limit violation is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -896,6 +906,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.InvalidFraming], diagnostics.Reports);
+        // Invalid framing is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         client.Dispose();
     }
 
@@ -923,6 +935,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.UnsupportedBinaryMessage], diagnostics.Reports);
+        // An unsupported binary message is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -985,6 +999,9 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal(["ConnectionEstablished", "ConnectionEnded", "Disconnected"], handler.CallOrder);
+        // An ordinary peer-initiated close is never a security/protocol enforcement action, so ordinary
+        // pairing reconnect grace must remain available for it.
+        Assert.Equal([PublicConnectionTerminationKind.ConnectivityLoss], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -1646,6 +1663,9 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.WriteFailure], diagnostics.Reports);
+        // A write failure indicates the peer is simply gone, not a deliberate protocol violation --
+        // reconnect grace must remain available.
+        Assert.Equal([PublicConnectionTerminationKind.ConnectivityLoss], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 

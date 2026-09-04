@@ -51,7 +51,15 @@ public interface IPublicWebSocketMessageHandler
     /// must never block on I/O or another connection's teardown -- that is what
     /// <see cref="HandleDisconnectedAsync"/> exists for instead.
     /// </summary>
-    void HandleConnectionEnded();
+    /// <param name="terminationKind">
+    /// The transport's own classification of why this connection ended -- see
+    /// <see cref="PublicConnectionTerminationKind"/>. An implementation combines this with any
+    /// application-level reason it independently tracks (for example its own protocol-violation
+    /// threshold) to decide pairing reconnect-grace eligibility; it must never treat a
+    /// <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/> classification here as proof that
+    /// no security/protocol enforcement occurred at the application layer.
+    /// </param>
+    void HandleConnectionEnded(PublicConnectionTerminationKind terminationKind);
 
     /// <summary>
     /// Gives the handler a bounded, best-effort opportunity to run additional disconnect cleanup or
