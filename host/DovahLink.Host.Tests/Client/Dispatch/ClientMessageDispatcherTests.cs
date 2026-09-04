@@ -1253,7 +1253,8 @@ public class ClientMessageDispatcherTests
         ClientId clientId = ClientId.NewId();
         PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
-        pairingCoordinator.CommitRenotify(clientId, started.Challenge!.Id);
+        PairingRenotifyResult peek = pairingCoordinator.TryRenotify(clientId);
+        pairingCoordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
@@ -1478,6 +1479,47 @@ public class ClientMessageDispatcherTests
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
         Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the actual double-display race this concept's redisplay reservation closes: while
+    /// dispatch A's adapter notification is still in flight, a concurrent <c>pairing_renotify</c> for
+    /// the same client (dispatch B) is told <c>already_idle</c> without ever reaching the adapter --
+    /// so the adapter is invoked at most once per outstanding reservation, never twice for one
+    /// eventual cooldown commit.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyConcurrentSecondRequest_NeverReachesAdapterWhileFirstIsInFlight()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var firstConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var secondConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
+
+        Task<ClientDispatchResult> dispatchA = dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
+        await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
+
+        await dispatcher.DispatchAsync(
+            clientId, SessionId.NewId(), new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload secondOutcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(secondConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, secondOutcome.Outcome);
+        Assert.Single(adapterNotifier.RedisplayedCodes);
+
+        releaseGate.SetResult();
+        await dispatchA;
+
+        (_, PairingOutcomePayload firstOutcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(firstConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Renotified, firstOutcome.Outcome);
     }
 
     /// <summary>

@@ -503,14 +503,18 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <summary>
     /// Answers a <c>pairing_renotify</c> with <c>pairing_outcome</c>. Applies the same atomic-display
     /// rule as <c>pairing_request</c>'s initial display: <see cref="IPairingCoordinator.TryRenotify"/>
-    /// only peeks eligibility -- returning the exact challenge identity and code together, atomically
-    /// -- the adapter is awaited outside any coordinator lock, and
-    /// <see cref="IPairingCoordinator.CommitRenotify"/> -- which alone applies the manual-redisplay
-    /// cooldown, identity-checked against that same challenge -- is called only once the adapter
-    /// accepts. A rejected redisplay leaves the challenge and cooldown state exactly as they were and
-    /// reports a retryable error rather than a fabricated <c>renotified</c> or a silently discarded
-    /// challenge. A stale acceptance for a challenge already replaced, cancelled, or expired can never
-    /// consume a later, unrelated challenge's cooldown. Only a genuine caller/request cancellation --
+    /// grants an exclusive redisplay reservation -- returning the exact challenge identity, reservation
+    /// identity, and code together, atomically -- the adapter is awaited outside any coordinator lock,
+    /// and <see cref="IPairingCoordinator.CommitRenotify"/> -- which alone applies the manual-redisplay
+    /// cooldown, identity-checked against that same reservation -- is called only once the adapter
+    /// accepts. Every exit from the adapter await that does not reach <c>CommitRenotify</c> releases the
+    /// reservation through <see cref="IPairingCoordinator.RollbackRenotify"/> in a <c>finally</c> block,
+    /// so a rejected, faulted, or cancelled redisplay always leaves the reservation retryable rather
+    /// than stuck, and never consumes the cooldown for a redisplay that never actually happened. A
+    /// rejected redisplay leaves the challenge and cooldown state exactly as they were and reports a
+    /// retryable error rather than a fabricated <c>renotified</c> or a silently discarded challenge. A
+    /// stale acceptance for a challenge already replaced, cancelled, or expired can never consume a
+    /// later, unrelated challenge's cooldown. Only a genuine caller/request cancellation --
     /// <paramref name="cancellationToken"/> itself requesting it -- propagates as
     /// <see cref="OperationCanceledException"/>; an adapter fault, including the adapter throwing its
     /// own independent <see cref="OperationCanceledException"/>, maps to a redacted retryable
@@ -533,33 +537,48 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return new ClientDispatchResult();
         }
 
-        bool accepted;
+        ChallengeId challengeId = peek.ChallengeId!.Value;
+        RenotifyClaimId claimId = peek.ClaimId!.Value;
+        bool resolved = false;
         try
         {
-            accepted = await adapterNotifier.TryNotifyRedisplayAsync(peek.Code!, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch
-        {
-            // The adapter faulted unexpectedly, or threw its own OperationCanceledException
-            // independent of the caller's own token -- either way this is not a genuine request
-            // cancellation, so it must not propagate a raw exception to the caller. CommitRenotify has
-            // not run, so the active challenge and its cooldown remain untouched.
-            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
-            return new ClientDispatchResult();
-        }
-        if (!accepted)
-        {
-            SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
-            return new ClientDispatchResult();
-        }
+            bool accepted;
+            try
+            {
+                accepted = await adapterNotifier.TryNotifyRedisplayAsync(peek.Code!, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // The adapter faulted unexpectedly, or threw its own OperationCanceledException
+                // independent of the caller's own token -- either way this is not a genuine request
+                // cancellation, so it must not propagate a raw exception to the caller.
+                // CommitRenotify has not run, so the active challenge and its cooldown remain
+                // untouched; the `finally` below releases the reservation for an immediate retry.
+                SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
+                return new ClientDispatchResult();
+            }
+            if (!accepted)
+            {
+                SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
+                return new ClientDispatchResult();
+            }
 
-        PairingRenotifyResult commit = pairingCoordinator.CommitRenotify(clientId, peek.ChallengeId!.Value);
-        SendPairingOutcome(connection, sessionId, envelope.MessageId, MapRenotifyOutcome(commit));
-        return new ClientDispatchResult();
+            PairingRenotifyResult commit = pairingCoordinator.CommitRenotify(clientId, challengeId, claimId);
+            resolved = true;
+            SendPairingOutcome(connection, sessionId, envelope.MessageId, MapRenotifyOutcome(commit));
+            return new ClientDispatchResult();
+        }
+        finally
+        {
+            if (!resolved)
+            {
+                pairingCoordinator.RollbackRenotify(clientId, challengeId, claimId);
+            }
+        }
     }
 
     /// <summary>Maps a <see cref="PairingRenotifyResult"/> -- from either a peek or a commit -- to its wire outcome.</summary>

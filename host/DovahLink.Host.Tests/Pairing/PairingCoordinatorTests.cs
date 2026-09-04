@@ -807,12 +807,14 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Verifies that a peek is owner-bound and never itself commits anything: repeating it while
-    /// still eligible keeps reporting <see cref="PairingRenotifyOutcome.Renotified"/> rather than
-    /// falling into a cooldown it never actually applied.
+    /// Verifies that a peek is owner-bound and, once it grants a reservation, never grants a second
+    /// concurrent one: a repeated peek by the same owner while its own reservation is still
+    /// outstanding reports <see cref="PairingRenotifyOutcome.AlreadyIdle"/> rather than also being
+    /// granted a reservation -- the exclusivity guarantee that closes the race where two concurrent
+    /// redisplay attempts could otherwise both reach the adapter before either commits its cooldown.
     /// </summary>
     [Fact]
-    public void TryRenotify_IsOwnerBoundAndDoesNotCommitCooldown()
+    public void TryRenotify_IsOwnerBoundAndDoesNotGrantASecondConcurrentReservation()
     {
         var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
         ClientId owner = ClientId.NewId();
@@ -824,8 +826,181 @@ public class PairingCoordinatorTests
         PairingRenotifyResult other = coordinator.TryRenotify(ClientId.NewId());
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, first.Outcome);
-        Assert.Equal(PairingRenotifyOutcome.Renotified, second.Outcome);
+        Assert.NotNull(first.ClaimId);
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, second.Outcome);
         Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, other.Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.RollbackRenotify"/> releases an outstanding
+    /// reservation without touching the cooldown, so an immediate retry peek is granted a fresh
+    /// reservation for the same still-active challenge rather than being told nothing is eligible.
+    /// </summary>
+    [Fact]
+    public void RollbackRenotify_ReleasesReservationWithoutCooldown_ImmediateRetrySucceeds()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(owner);
+        coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
+        PairingRenotifyResult first = coordinator.TryRenotify(owner);
+
+        coordinator.RollbackRenotify(owner, first.ChallengeId!.Value, first.ClaimId!.Value);
+
+        PairingRenotifyResult retry = coordinator.TryRenotify(owner);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, retry.Outcome);
+        Assert.NotNull(retry.ClaimId);
+        Assert.NotEqual(first.ClaimId, retry.ClaimId);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.RollbackRenotify"/> is a no-op for a stale
+    /// reservation -- one already resolved, or belonging to a challenge since cancelled, expired, or
+    /// replaced -- rather than disturbing whatever reservation (if any) actually exists now.
+    /// </summary>
+    [Fact]
+    public void RollbackRenotify_StaleReservationAfterReplacement_DoesNotDisturbReplacementReservation()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingRenotifyResult stalePeek = coordinator.TryRenotify(clientId);
+        coordinator.Cancel(clientId);
+        PairingStartResult replacement = coordinator.BeginPairing(clientId);
+        coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id);
+        PairingRenotifyResult replacementPeek = coordinator.TryRenotify(clientId);
+
+        coordinator.RollbackRenotify(clientId, stalePeek.ChallengeId!.Value, stalePeek.ClaimId!.Value);
+
+        Assert.Equal(
+            PairingRenotifyOutcome.Renotified,
+            coordinator.CommitRenotify(clientId, replacement.Challenge!.Id, replacementPeek.ClaimId!.Value).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.RollbackRenotify"/> is owner-bound: a non-owner
+    /// presenting another client's exact reservation identity cannot release it, symmetric with
+    /// <see cref="CommitRenotify_NonOwner_ReturnsAlreadyIdle"/>.
+    /// </summary>
+    [Fact]
+    public void RollbackRenotify_NonOwner_DoesNotReleaseReservation()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId owner = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, owner);
+        PairingRenotifyResult peek = coordinator.TryRenotify(owner);
+
+        coordinator.RollbackRenotify(ClientId.NewId(), peek.ChallengeId!.Value, peek.ClaimId!.Value);
+
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, coordinator.TryRenotify(owner).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that committing an already-resolved reservation a second time is a harmless
+    /// <see cref="PairingRenotifyOutcome.AlreadyIdle"/> rather than re-applying the cooldown or
+    /// disturbing a subsequently granted reservation.
+    /// </summary>
+    [Fact]
+    public void CommitRenotify_CalledTwiceForTheSameClaim_SecondCallReportsAlreadyIdle()
+    {
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingRenotifyResult peek = coordinator.TryRenotify(clientId);
+
+        PairingRenotifyResult first = coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
+        PairingRenotifyResult second = coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
+
+        Assert.Equal(PairingRenotifyOutcome.Renotified, first.Outcome);
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, second.Outcome);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that releasing an already-resolved reservation a second time is a harmless no-op
+    /// rather than clearing a subsequently granted reservation out from under it.
+    /// </summary>
+    [Fact]
+    public void RollbackRenotify_CalledTwiceForTheSameClaim_SecondCallDoesNotDisturbNewReservation()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingRenotifyResult firstPeek = coordinator.TryRenotify(clientId);
+        coordinator.RollbackRenotify(clientId, firstPeek.ChallengeId!.Value, firstPeek.ClaimId!.Value);
+        PairingRenotifyResult secondPeek = coordinator.TryRenotify(clientId);
+
+        coordinator.RollbackRenotify(clientId, firstPeek.ChallengeId!.Value, firstPeek.ClaimId!.Value);
+
+        Assert.Equal(
+            PairingRenotifyOutcome.Renotified,
+            coordinator.CommitRenotify(clientId, secondPeek.ChallengeId!.Value, secondPeek.ClaimId!.Value).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.Cancel"/> clears an outstanding redisplay
+    /// reservation the same way it clears the challenge itself: a stale commit or rollback for the
+    /// cancelled reservation is a no-op, and a fresh challenge started afterward is fully
+    /// renotify-eligible rather than permanently blocked by the abandoned reservation.
+    /// </summary>
+    [Fact]
+    public void Cancel_WhileRenotifyReservationOutstanding_ClearsReservationAndLeavesFutureRenotifyUsable()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingRenotifyResult peek = coordinator.TryRenotify(clientId);
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+        coordinator.RollbackRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
+
+        PairingStartResult replacement = BeginAndDisplayPairing(coordinator, clientId);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.CancelAll"/> clears an outstanding redisplay
+    /// reservation the same way <see cref="Cancel_WhileRenotifyReservationOutstanding_ClearsReservationAndLeavesFutureRenotifyUsable"/>
+    /// proves for a targeted <see cref="PairingCoordinator.Cancel"/>: without this, the abandoned
+    /// reservation would permanently block every future client's redisplay, since nothing else ever
+    /// clears a reservation bound to a challenge <see cref="PairingCoordinator.CancelAll"/> already
+    /// discarded.
+    /// </summary>
+    [Fact]
+    public void CancelAll_WhileRenotifyReservationOutstanding_ClearsReservationAndLeavesFutureRenotifyUsable()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        BeginAndDisplayPairing(coordinator, clientId);
+        coordinator.TryRenotify(clientId);
+
+        coordinator.CancelAll();
+
+        PairingStartResult replacement = BeginAndDisplayPairing(coordinator, clientId);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a challenge expiring while its redisplay reservation is still outstanding clears
+    /// the reservation the same way <see cref="Cancel_WhileRenotifyReservationOutstanding_ClearsReservationAndLeavesFutureRenotifyUsable"/>
+    /// proves for an explicit cancel: a subsequent commit for the expired reservation reports
+    /// <see cref="PairingRenotifyOutcome.AlreadyIdle"/> without consuming any cooldown.
+    /// </summary>
+    [Fact]
+    public void TryRenotify_ChallengeExpiresWhileReservationOutstanding_CommitReportsAlreadyIdle()
+    {
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingRenotifyResult peek = coordinator.TryRenotify(clientId);
+
+        clock.Advance(Constants.PairingChallengeLifetime + TimeSpan.FromSeconds(1));
+
+        PairingRenotifyResult commit = coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, commit.Outcome);
     }
 
     /// <summary>
@@ -855,10 +1030,14 @@ public class PairingCoordinatorTests
         ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
-        coordinator.CommitRenotify(clientId, start.Challenge!.Id);
+        PairingRenotifyResult firstPeek = coordinator.TryRenotify(clientId);
+        coordinator.CommitRenotify(clientId, firstPeek.ChallengeId!.Value, firstPeek.ClaimId!.Value);
         clock.Advance(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.CommitRenotify(clientId, start.Challenge.Id).Outcome);
+        PairingRenotifyResult secondPeek = coordinator.TryRenotify(clientId);
+        Assert.Equal(
+            PairingRenotifyOutcome.Renotified,
+            coordinator.CommitRenotify(clientId, secondPeek.ChallengeId!.Value, secondPeek.ClaimId!.Value).Outcome);
     }
 
     /// <summary>Verifies that cancellation only clears the requesting client's pairing operation.</summary>
@@ -963,7 +1142,7 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingStartOutcome.Started, coordinator.BeginPairing(clientId).Outcome);
     }
 
-    /// <summary>Verifies that committing a redisplay applies the cooldown, rate-limiting a further commit.</summary>
+    /// <summary>Verifies that committing a redisplay applies the cooldown, rate-limiting a further peek.</summary>
     [Fact]
     public void CommitRenotify_AppliesCooldownAndRateLimitsFurtherCommits()
     {
@@ -972,14 +1151,13 @@ public class PairingCoordinatorTests
         PairingStartResult start = coordinator.BeginPairing(owner);
         coordinator.CommitInitialDisplay(owner, start.Challenge!.Id);
 
-        PairingRenotifyResult first = coordinator.CommitRenotify(owner, start.Challenge!.Id);
-        PairingRenotifyResult cooldown = coordinator.CommitRenotify(owner, start.Challenge.Id);
-        PairingRenotifyResult peekDuringCooldown = coordinator.TryRenotify(owner);
+        PairingRenotifyResult peek = coordinator.TryRenotify(owner);
+        PairingRenotifyResult first = coordinator.CommitRenotify(owner, peek.ChallengeId!.Value, peek.ClaimId!.Value);
+        PairingRenotifyResult cooldown = coordinator.TryRenotify(owner);
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, first.Outcome);
         Assert.Equal(PairingRenotifyOutcome.Cooldown, cooldown.Outcome);
         Assert.NotNull(cooldown.RetryAfter);
-        Assert.Equal(PairingRenotifyOutcome.Cooldown, peekDuringCooldown.Outcome);
     }
 
     /// <summary>
@@ -997,7 +1175,7 @@ public class PairingCoordinatorTests
         PairingRenotifyResult peek = coordinator.TryRenotify(owner);
         coordinator.Cancel(owner);
 
-        PairingRenotifyResult commit = coordinator.CommitRenotify(owner, peek.ChallengeId!.Value);
+        PairingRenotifyResult commit = coordinator.CommitRenotify(owner, peek.ChallengeId!.Value, peek.ClaimId!.Value);
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, peek.Outcome);
         Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, commit.Outcome);
@@ -1115,7 +1293,7 @@ public class PairingCoordinatorTests
         ClientId owner = ClientId.NewId();
         PairingStartResult start = coordinator.BeginPairing(owner);
 
-        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, coordinator.CommitRenotify(ClientId.NewId(), start.Challenge!.Id).Outcome);
+        Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, coordinator.CommitRenotify(ClientId.NewId(), start.Challenge!.Id, default).Outcome);
     }
 
     /// <summary>Verifies that a peek honors the exact cooldown boundary the same way <see cref="CommitRenotify_AtExactCooldownBoundary_IsAllowed"/> proves for a commit.</summary>
@@ -1127,7 +1305,8 @@ public class PairingCoordinatorTests
         ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         coordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
-        coordinator.CommitRenotify(clientId, start.Challenge!.Id);
+        PairingRenotifyResult peek = coordinator.TryRenotify(clientId);
+        coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
         clock.Advance(TimeSpan.FromSeconds(5));
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
@@ -1237,11 +1416,14 @@ public class PairingCoordinatorTests
         PairingStartResult replacement = coordinator.BeginPairing(clientId);
         coordinator.CommitInitialDisplay(clientId, replacement.Challenge!.Id);
 
-        PairingRenotifyResult stale = coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value);
+        PairingRenotifyResult stale = coordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
 
         Assert.Equal(PairingRenotifyOutcome.AlreadyIdle, stale.Outcome);
-        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.TryRenotify(clientId).Outcome);
-        Assert.Equal(PairingRenotifyOutcome.Renotified, coordinator.CommitRenotify(clientId, replacement.Challenge!.Id).Outcome);
+        PairingRenotifyResult replacementPeek = coordinator.TryRenotify(clientId);
+        Assert.Equal(PairingRenotifyOutcome.Renotified, replacementPeek.Outcome);
+        Assert.Equal(
+            PairingRenotifyOutcome.Renotified,
+            coordinator.CommitRenotify(clientId, replacement.Challenge!.Id, replacementPeek.ClaimId!.Value).Outcome);
     }
 
     /// <summary>

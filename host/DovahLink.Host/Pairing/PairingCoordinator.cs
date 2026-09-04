@@ -39,19 +39,27 @@ public interface IPairingCoordinator
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Evaluates a redisplay request for <paramref name="clientId"/>'s owned active challenge without
-    /// committing the manual-redisplay cooldown. A caller that intends to actually redisplay the code
-    /// must await its own adapter notification outside any lock this coordinator holds, then call
-    /// <see cref="CommitRenotify"/> only once that notification is accepted -- this method alone never
-    /// changes coordinator state.
+    /// Evaluates a redisplay request for <paramref name="clientId"/>'s owned active challenge and, when
+    /// eligible, grants an exclusive redisplay reservation rather than merely peeking -- it does not
+    /// commit the manual-redisplay cooldown. A caller that intends to actually redisplay the code must
+    /// await its own adapter notification outside any lock this coordinator holds, then call
+    /// <see cref="CommitRenotify"/> once that notification is accepted, or
+    /// <see cref="RollbackRenotify"/> if it is rejected, faults, or the caller's own request is
+    /// cancelled -- every exit from that adapter I/O must resolve the granted reservation one way or
+    /// the other. While a reservation is already outstanding for the active challenge, a second
+    /// concurrent call reports <see cref="PairingRenotifyOutcome.AlreadyIdle"/> rather than also being
+    /// told it may redisplay: at most one caller may ever be mid-adapter-notification for one challenge
+    /// at a time, so two adapter notifications can never land against one cooldown commit.
     /// </summary>
     /// <param name="clientId">The client requesting redisplay.</param>
     /// <returns>
-    /// <see cref="PairingRenotifyOutcome.Renotified"/> when <paramref name="clientId"/> owns a
-    /// display-committed active challenge outside cooldown and redisplay may proceed;
-    /// <see cref="PairingRenotifyOutcome.Cooldown"/> with the remaining wait while the cooldown is
-    /// still active; <see cref="PairingRenotifyOutcome.AlreadyIdle"/> when <paramref name="clientId"/>
-    /// owns no active challenge, or owns one whose initial display has not yet committed.
+    /// <see cref="PairingRenotifyOutcome.Renotified"/>, with a reservation the caller must resolve via
+    /// <see cref="CommitRenotify"/> or <see cref="RollbackRenotify"/>, when <paramref name="clientId"/>
+    /// owns a display-committed active challenge outside cooldown with no reservation already
+    /// outstanding for it; <see cref="PairingRenotifyOutcome.Cooldown"/> with the remaining wait while
+    /// the cooldown is still active; <see cref="PairingRenotifyOutcome.AlreadyIdle"/> when
+    /// <paramref name="clientId"/> owns no active challenge, owns one whose initial display has not yet
+    /// committed, or a reservation for it is already outstanding.
     /// </returns>
     PairingRenotifyResult TryRenotify(ClientId clientId);
 
@@ -108,26 +116,51 @@ public interface IPairingCoordinator
     void CancelAll();
 
     /// <summary>
-    /// Commits a redisplay <see cref="TryRenotify"/> found eligible, applying the manual-redisplay
-    /// cooldown only now that the caller's adapter notification succeeded. Re-validates both ownership
-    /// and the exact challenge identity from current state rather than trusting the earlier
-    /// <see cref="TryRenotify"/> result: if the challenge was cancelled, replaced, expired, or its
-    /// cooldown was otherwise already consumed between the two calls, this reports that fresh outcome
-    /// instead of committing a cooldown against state that no longer matches it.
+    /// Commits a redisplay reservation <see cref="TryRenotify"/> granted, applying the
+    /// manual-redisplay cooldown only now that the caller's adapter notification succeeded.
+    /// Re-validates ownership, the exact challenge identity, and the exact reservation identity from
+    /// current state rather than trusting the earlier <see cref="TryRenotify"/> result: if the
+    /// challenge was cancelled, replaced, or expired, or this exact reservation was already resolved
+    /// (by a prior commit, rollback, or the challenge's own clear) between the two calls, this reports
+    /// <see cref="PairingRenotifyOutcome.AlreadyIdle"/> instead of committing a cooldown against state
+    /// that no longer matches it.
     /// </summary>
-    /// <param name="clientId">The client committing its previously evaluated redisplay.</param>
+    /// <param name="clientId">The client committing its previously granted reservation.</param>
     /// <param name="challengeId">
     /// The exact challenge identity <see cref="TryRenotify"/> returned alongside
     /// <see cref="PairingRenotifyOutcome.Renotified"/>.
     /// </param>
+    /// <param name="claimId">
+    /// The exact reservation identity <see cref="TryRenotify"/> granted alongside
+    /// <paramref name="challengeId"/>.
+    /// </param>
     /// <returns>
     /// <see cref="PairingRenotifyOutcome.Renotified"/> once the cooldown is committed against this
-    /// exact challenge; <see cref="PairingRenotifyOutcome.AlreadyIdle"/> without any state change if
-    /// <paramref name="challengeId"/> no longer matches the current active challenge -- including when
-    /// a replacement challenge for the same <paramref name="clientId"/> is now active; otherwise the
-    /// same outcome shape <see cref="TryRenotify"/> would report for the current state, uncommitted.
+    /// exact reservation; <see cref="PairingRenotifyOutcome.AlreadyIdle"/> without any state change if
+    /// <paramref name="challengeId"/> or <paramref name="claimId"/> no longer matches the current
+    /// outstanding reservation -- including when a replacement challenge for the same
+    /// <paramref name="clientId"/> is now active.
     /// </returns>
-    PairingRenotifyResult CommitRenotify(ClientId clientId, ChallengeId challengeId);
+    PairingRenotifyResult CommitRenotify(ClientId clientId, ChallengeId challengeId, RenotifyClaimId claimId);
+
+    /// <summary>
+    /// Releases a redisplay reservation <see cref="TryRenotify"/> granted, without applying the
+    /// manual-redisplay cooldown, for a caller whose adapter notification was rejected, faulted, or
+    /// was itself cancelled: the redisplay never actually happened, so the reservation must be freed
+    /// for an immediate retry rather than left stuck or falsely rate-limited. Identity-checked the
+    /// same way as <see cref="CommitRenotify"/>: a stale release for a reservation already resolved,
+    /// or for a challenge already replaced, cancelled, or expired, is simply a no-op.
+    /// </summary>
+    /// <param name="clientId">The client releasing its previously granted reservation.</param>
+    /// <param name="challengeId">
+    /// The exact challenge identity <see cref="TryRenotify"/> returned alongside
+    /// <see cref="PairingRenotifyOutcome.Renotified"/>.
+    /// </param>
+    /// <param name="claimId">
+    /// The exact reservation identity <see cref="TryRenotify"/> granted alongside
+    /// <paramref name="challengeId"/>.
+    /// </param>
+    void RollbackRenotify(ClientId clientId, ChallengeId challengeId, RenotifyClaimId claimId);
 
     /// <summary>
     /// Returns one coherent snapshot of <paramref name="clientId"/>'s pairing status, read once under
@@ -189,6 +222,23 @@ public sealed class PairingCoordinator : IPairingCoordinator
 
     /// <summary>The next instant at which automatic wrong-code redisplay is allowed.</summary>
     private DateTimeOffset? autoRenotifyCooldownUntilUtc;
+
+    /// <summary>
+    /// The identity of the single outstanding redisplay reservation <see cref="TryRenotify"/> granted,
+    /// or <see langword="null"/> while none is outstanding. Bound to
+    /// <see cref="renotifyClaimChallengeId"/>: while set, a second concurrent <see cref="TryRenotify"/>
+    /// call must never also be granted a reservation for the same challenge, and only
+    /// <see cref="CommitRenotify"/> or <see cref="RollbackRenotify"/> presenting this exact identity
+    /// together with <see cref="renotifyClaimChallengeId"/> may resolve it. Cleared alongside the
+    /// challenge itself by both <see cref="ClearChallenge"/> and <see cref="CancelAll"/>'s own inline
+    /// reset, so a stale commit or rollback for a since-cancelled, expired, or replaced challenge can
+    /// never resolve a different, current reservation, and an abandoned reservation can never
+    /// permanently block every later challenge's own redisplay.
+    /// </summary>
+    private RenotifyClaimId? renotifyClaim;
+
+    /// <summary>The exact challenge <see cref="renotifyClaim"/> was granted for.</summary>
+    private ChallengeId? renotifyClaimChallengeId;
 
     /// <summary>The pending credential waiting for client final confirmation.</summary>
     private PendingCredential? pendingCredential;
@@ -615,9 +665,26 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 DateTimeOffset now = clock.UtcNow;
                 ExpireChallengeIfNeeded(now);
                 PairingRenotifyResult evaluation = EvaluateRenotify(clientId, now);
-                return evaluation.Outcome == PairingRenotifyOutcome.Renotified
-                    ? evaluation with { ChallengeId = activeChallenge!.Id, Code = activeChallenge.Code }
-                    : evaluation;
+                if (evaluation.Outcome != PairingRenotifyOutcome.Renotified)
+                {
+                    return evaluation;
+                }
+
+                if (renotifyClaim is not null)
+                {
+                    // Another redisplay reservation is already outstanding for the active challenge --
+                    // its own adapter notification has not yet resolved. A second concurrent caller
+                    // must never also be told it may redisplay, or two adapter notifications could
+                    // land against one cooldown commit; reuse the same closed-vocabulary "nothing to do
+                    // right now" outcome an unclaimed reservation reports, rather than inventing new
+                    // wire vocabulary for an internal exclusivity race.
+                    return new PairingRenotifyResult(PairingRenotifyOutcome.AlreadyIdle);
+                }
+
+                RenotifyClaimId claim = RenotifyClaimId.New();
+                renotifyClaim = claim;
+                renotifyClaimChallengeId = activeChallenge!.Id;
+                return evaluation with { ChallengeId = activeChallenge.Id, Code = activeChallenge.Code, ClaimId = claim };
             }
         }
         finally
@@ -729,6 +796,8 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 lastConfirmAttemptUtc = null;
                 renotifyCooldownUntilUtc = null;
                 autoRenotifyCooldownUntilUtc = null;
+                renotifyClaim = null;
+                renotifyClaimChallengeId = null;
             }
         }
         finally
@@ -738,7 +807,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
     }
 
     /// <inheritdoc/>
-    public PairingRenotifyResult CommitRenotify(ClientId clientId, ChallengeId challengeId)
+    public PairingRenotifyResult CommitRenotify(ClientId clientId, ChallengeId challengeId, RenotifyClaimId claimId)
     {
         operationSemaphore.Wait();
         try
@@ -747,16 +816,20 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 DateTimeOffset now = clock.UtcNow;
                 ExpireChallengeIfNeeded(now);
-                if (activeChallenge is not { } current || current.OwnerClientId != clientId || current.Id != challengeId)
+                if (activeChallenge is not { } current || current.OwnerClientId != clientId || current.Id != challengeId ||
+                    renotifyClaim != claimId || renotifyClaimChallengeId != challengeId)
                 {
                     // The challenge this commit was evaluated for is no longer current -- cancelled,
-                    // expired, or replaced by a fresh challenge for the same owner. Report AlreadyIdle
+                    // expired, or replaced by a fresh challenge for the same owner -- or this exact
+                    // reservation was already resolved by a prior commit or rollback. Report AlreadyIdle
                     // for the caller's stale request without evaluating or mutating whatever challenge
                     // (if any) is actually active now; a replacement challenge's own cooldown must
                     // never be consumed by a commit that was never actually displayed for it.
                     return new PairingRenotifyResult(PairingRenotifyOutcome.AlreadyIdle);
                 }
 
+                renotifyClaim = null;
+                renotifyClaimChallengeId = null;
                 PairingRenotifyResult evaluation = EvaluateRenotify(clientId, now);
                 if (evaluation.Outcome == PairingRenotifyOutcome.Renotified)
                 {
@@ -764,6 +837,28 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 }
 
                 return evaluation;
+            }
+        }
+        finally
+        {
+            operationSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RollbackRenotify(ClientId clientId, ChallengeId challengeId, RenotifyClaimId claimId)
+    {
+        operationSemaphore.Wait();
+        try
+        {
+            lock (gate)
+            {
+                if (renotifyClaim == claimId && renotifyClaimChallengeId == challengeId &&
+                    activeChallenge is { } current && current.OwnerClientId == clientId && current.Id == challengeId)
+                {
+                    renotifyClaim = null;
+                    renotifyClaimChallengeId = null;
+                }
             }
         }
         finally
@@ -846,6 +941,8 @@ public sealed class PairingCoordinator : IPairingCoordinator
         lastConfirmAttemptUtc = null;
         renotifyCooldownUntilUtc = null;
         autoRenotifyCooldownUntilUtc = null;
+        renotifyClaim = null;
+        renotifyClaimChallengeId = null;
     }
 
     /// <summary>

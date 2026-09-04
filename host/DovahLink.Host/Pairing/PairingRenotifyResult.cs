@@ -18,4 +18,15 @@ public sealed record PairingRenotifyResult(
     PairingRenotifyOutcome Outcome,
     TimeSpan? RetryAfter = null,
     ChallengeId? ChallengeId = null,
-    string? Code = null);
+    string? Code = null)
+{
+    /// <summary>
+    /// The exact redisplay reservation this outcome grants, populated only alongside
+    /// <see cref="PairingRenotifyOutcome.Renotified"/> from <see cref="PairingCoordinator.TryRenotify"/>.
+    /// The caller must pass it back to <see cref="PairingCoordinator.CommitRenotify"/> on success or
+    /// <see cref="PairingCoordinator.RollbackRenotify"/> otherwise. Exists only to route a caller's own
+    /// redisplay attempt back to the coordinator call that resolves it; it never crosses the wire
+    /// protocol itself.
+    /// </summary>
+    public RenotifyClaimId? ClaimId { get; init; }
+}
