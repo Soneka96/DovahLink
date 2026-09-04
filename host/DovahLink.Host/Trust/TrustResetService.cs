@@ -172,14 +172,15 @@ public sealed class TrustResetService : ITrustResetService
         try
         {
             await trustStore.ClearAsync(cancellationToken);
-            // Every session becomes unauthorized in the registry -- InvalidateAllAsync's own first
-            // action, before its best-effort notification/close is attempted -- as close to the
-            // authoritative Clear as possible, closing the post-mutation window a concurrent request
-            // could otherwise still find IsActive true in. Pairing cancellation has no such window to
-            // close (a stale challenge is already fence-bound and safe), so it follows rather than
-            // races ahead of session invalidation.
-            await sessionInvalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset, cancellationToken);
+            // Every session becomes unauthorized in the registry -- InvalidateAll's own synchronous,
+            // immediate action -- as close to the authoritative Clear as possible, closing the
+            // post-mutation window a concurrent request could otherwise still find IsActive true in.
+            // Pairing cancellation follows immediately, before any best-effort notification is even
+            // attempted, per ai/context/protocol/security.md's authoritative-mutation -> unauthorized
+            // -> future authentication/pairing enforcement -> notification -> close ordering.
+            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateAll(SessionInvalidationReason.FactoryReset);
             pairingCoordinator.CancelAll();
+            await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
 
             lock (gate)
             {

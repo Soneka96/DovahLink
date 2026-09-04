@@ -560,7 +560,7 @@ public class TrustAdminServiceTests
 
         await admin.RevokeAsync(clientId);
 
-        Assert.Equal(["Revoke", "InvalidateAllForClient", "Notified:Revoked", "Cancel"], order);
+        Assert.Equal(["Revoke", "InvalidateAllForClient", "Cancel", "Notified:Revoked"], order);
     }
 
     /// <summary>Verifies the same mandated ordering for Block.</summary>
@@ -579,7 +579,7 @@ public class TrustAdminServiceTests
 
         await admin.BlockAsync(clientId);
 
-        Assert.Equal(["Block", "InvalidateAllForClient", "Notified:Blocked", "Cancel"], order);
+        Assert.Equal(["Block", "InvalidateAllForClient", "Cancel", "Notified:Blocked"], order);
     }
 
     /// <summary>Verifies the same mandated ordering for Reset Trust, including the batch invalidation of every affected device.</summary>
@@ -598,7 +598,96 @@ public class TrustAdminServiceTests
 
         await admin.ResetTrustAsync();
 
-        Assert.Equal(["ResetTrust", "InvalidateAllForClients", "Notified:TrustReset", "CancelAll"], order);
+        Assert.Equal(["ResetTrust", "InvalidateAllForClients", "CancelAll", "Notified:TrustReset"], order);
+    }
+
+    /// <summary>
+    /// Proves the client-scoped half of the lifecycle-linearization fix directly, from inside the
+    /// notifier itself rather than only from the ordering label list above: by the instant the first
+    /// (and only) target's best-effort notification is attempted, pairing has already been cancelled
+    /// for that exact client -- closing the window where a stale pairing challenge could otherwise
+    /// survive for the duration of an in-flight notification/close.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_PairingIsCancelledBeforeNotificationAttempted()
+    {
+        var trustStore = new FakeTrustStore();
+        var sessions = new FakeSessionRegistry();
+        var pairing = new FakePairingCoordinator();
+        ClientId clientId = ClientId.NewId();
+        var notifier = new FakeSessionTerminationNotifier
+        {
+            BeforeNotify = target =>
+            {
+                Assert.Equal([clientId], pairing.CancelledClientIds);
+                return Task.CompletedTask;
+            },
+        };
+        trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
+        sessions.Create(clientId);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
+
+        await admin.RevokeAsync(clientId);
+
+        Assert.Single(notifier.NotifiedTargets);
+    }
+
+    /// <summary>Verifies the same direct notifier-observed guarantee as <see cref="RevokeAsync_PairingIsCancelledBeforeNotificationAttempted"/> for Block.</summary>
+    [Fact]
+    public async Task BlockAsync_PairingIsCancelledBeforeNotificationAttempted()
+    {
+        var trustStore = new FakeTrustStore();
+        var sessions = new FakeSessionRegistry();
+        var pairing = new FakePairingCoordinator();
+        ClientId clientId = ClientId.NewId();
+        var notifier = new FakeSessionTerminationNotifier
+        {
+            BeforeNotify = target =>
+            {
+                Assert.Equal([clientId], pairing.CancelledClientIds);
+                return Task.CompletedTask;
+            },
+        };
+        trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
+        sessions.Create(clientId);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
+
+        await admin.BlockAsync(clientId);
+
+        Assert.Single(notifier.NotifiedTargets);
+    }
+
+    /// <summary>
+    /// Proves the batch half of the same lifecycle-linearization fix as
+    /// <see cref="RevokeAsync_PairingIsCancelledBeforeNotificationAttempted"/>: by the instant any
+    /// affected session's best-effort notification is attempted during a Reset Trust, pairing has
+    /// already been cancelled for every affected client, not merely the one about to be notified.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_PairingIsCancelledForEveryAffectedClientBeforeAnyNotificationAttempted()
+    {
+        var trustStore = new FakeTrustStore();
+        var sessions = new FakeSessionRegistry();
+        var pairing = new FakePairingCoordinator();
+        ClientId first = ClientId.NewId();
+        ClientId second = ClientId.NewId();
+        var notifier = new FakeSessionTerminationNotifier
+        {
+            BeforeNotify = target =>
+            {
+                Assert.Equal(1, pairing.CancelAllCallCount);
+                return Task.CompletedTask;
+            },
+        };
+        trustStore.Seed(new TrustRecord(first, "11111", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
+        trustStore.Seed(new TrustRecord(second, "22222", "Bedroom Tablet", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
+        sessions.Create(first);
+        sessions.Create(second);
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
+
+        await admin.ResetTrustAsync();
+
+        Assert.Equal(2, notifier.NotifiedTargets.Count);
     }
 
     /// <summary>

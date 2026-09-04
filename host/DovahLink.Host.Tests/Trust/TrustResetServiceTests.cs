@@ -428,7 +428,38 @@ public class TrustResetServiceTests
 
         Assert.True(await service.ConfirmResetAsync(challenge.Code));
 
-        Assert.Equal(["Clear", "InvalidateAll", "Notified:FactoryReset", "CancelAll"], order);
+        Assert.Equal(["Clear", "InvalidateAll", "CancelAll", "Notified:FactoryReset"], order);
+    }
+
+    /// <summary>
+    /// Proves the same lifecycle-linearization guarantee as
+    /// <see cref="ConfirmResetAsync_CorrectCode_AppliesSideEffectsInTheMandatedOrder"/> directly from
+    /// inside the notifier itself: by the instant the affected session's best-effort notification is
+    /// attempted, pairing has already been unconditionally cancelled for the confirmed Factory Reset.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_PairingIsCancelledBeforeNotificationAttempted()
+    {
+        var trustStore = new FakeTrustStore();
+        var sessionRegistry = new FakeSessionRegistry();
+        var pairingCoordinator = new FakePairingCoordinator();
+        ClientId clientId = ClientId.NewId();
+        var notifier = new FakeSessionTerminationNotifier
+        {
+            BeforeNotify = target =>
+            {
+                Assert.Equal(1, pairingCoordinator.CancelAllCallCount);
+                return Task.CompletedTask;
+            },
+        };
+        trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        sessionRegistry.Create(clientId);
+        var service = new TrustResetService(trustStore, new ClientSessionInvalidator(sessionRegistry, notifier), pairingCoordinator, new FakeClock());
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
+
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+
+        Assert.Single(notifier.NotifiedTargets);
     }
 
     /// <summary>

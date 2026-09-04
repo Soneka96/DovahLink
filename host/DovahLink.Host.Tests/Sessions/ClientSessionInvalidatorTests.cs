@@ -9,7 +9,7 @@ public class ClientSessionInvalidatorTests
 {
     /// <summary>Verifies that client-scoped invalidation notifies every affected session with the exact reason given.</summary>
     [Fact]
-    public async Task InvalidateClientAsync_NotifiesEveryAffectedSessionWithExactReason()
+    public async Task InvalidateClient_ThenNotifyAndCloseAllAsync_NotifiesEveryAffectedSessionWithExactReason()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier();
@@ -17,7 +17,8 @@ public class ClientSessionInvalidatorTests
         ClientId clientId = ClientId.NewId();
         sessionRegistry.TryCreate(clientId, ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
 
-        await invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         SessionInvalidationTarget target = Assert.Single(notifier.NotifiedTargets);
         Assert.Equal(sessionId, target.SessionId);
@@ -28,7 +29,7 @@ public class ClientSessionInvalidatorTests
 
     /// <summary>Verifies that client-scoped invalidation through the seam still exempts a developer-token session.</summary>
     [Fact]
-    public async Task InvalidateClientAsync_ExcludesOneTimeLocalTokenSession()
+    public async Task InvalidateClient_ExcludesOneTimeLocalTokenSession()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier();
@@ -37,7 +38,8 @@ public class ClientSessionInvalidatorTests
         ConnectionId developerConnection = ConnectionId.NewId();
         sessionRegistry.TryCreate(clientId, developerConnection, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId developerSession);
 
-        await invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Blocked);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(clientId, SessionInvalidationReason.Blocked);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Empty(notifier.NotifiedTargets);
         Assert.True(sessionRegistry.IsActive(developerSession, developerConnection));
@@ -46,11 +48,11 @@ public class ClientSessionInvalidatorTests
     /// <summary>
     /// Verifies that batch invalidation notifies every affected session across every listed client
     /// with the exact reason given, and still exempts a developer-token session -- the multi-client
-    /// counterpart to <see cref="InvalidateClientAsync_NotifiesEveryAffectedSessionWithExactReason"/>
-    /// and <see cref="InvalidateClientAsync_ExcludesOneTimeLocalTokenSession"/>.
+    /// counterpart to <see cref="InvalidateClient_ThenNotifyAndCloseAllAsync_NotifiesEveryAffectedSessionWithExactReason"/>
+    /// and <see cref="InvalidateClient_ExcludesOneTimeLocalTokenSession"/>.
     /// </summary>
     [Fact]
-    public async Task InvalidateClientsAsync_NotifiesEveryAffectedSessionAcrossEveryClientAndExcludesDeveloperToken()
+    public async Task InvalidateClients_ThenNotifyAndCloseAllAsync_NotifiesEveryAffectedSessionAcrossEveryClientAndExcludesDeveloperToken()
     {
         var sessionRegistry = new SessionRegistry(3);
         var notifier = new FakeSessionTerminationNotifier();
@@ -63,7 +65,8 @@ public class ClientSessionInvalidatorTests
         ConnectionId developerConnection = ConnectionId.NewId();
         sessionRegistry.TryCreate(developerClient, developerConnection, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId developerSession);
 
-        await invalidator.InvalidateClientsAsync([first, second, developerClient], SessionInvalidationReason.TrustReset);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClients([first, second, developerClient], SessionInvalidationReason.TrustReset);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Equal(2, notifier.NotifiedTargets.Count);
         Assert.All(notifier.NotifiedTargets, target => Assert.Equal(SessionInvalidationReason.TrustReset, target.Reason));
@@ -75,7 +78,7 @@ public class ClientSessionInvalidatorTests
 
     /// <summary>Verifies that unconditional invalidation through the seam still reaches a developer-token session.</summary>
     [Fact]
-    public async Task InvalidateAllAsync_IncludesOneTimeLocalTokenSession()
+    public async Task InvalidateAll_ThenNotifyAndCloseAllAsync_IncludesOneTimeLocalTokenSession()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier();
@@ -83,7 +86,8 @@ public class ClientSessionInvalidatorTests
         ConnectionId connectionId = ConnectionId.NewId();
         sessionRegistry.TryCreate(ClientId.NewId(), connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId sessionId);
 
-        await invalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateAll(SessionInvalidationReason.FactoryReset);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         SessionInvalidationTarget target = Assert.Single(notifier.NotifiedTargets);
         Assert.Equal(sessionId, target.SessionId);
@@ -94,11 +98,34 @@ public class ClientSessionInvalidatorTests
 
     /// <summary>
     /// Verifies the security-mandated ordering: a session is already unauthorized in the registry --
-    /// removed, per <see cref="ISessionRegistry.IsActive"/> -- before its best-effort terminal
-    /// notification is ever attempted.
+    /// removed, per <see cref="ISessionRegistry.IsActive"/> -- before <see cref="InvalidateClient"/>
+    /// even returns, well before <see cref="ClientSessionInvalidator.NotifyAndCloseAllAsync"/> attempts
+    /// any notification.
     /// </summary>
     [Fact]
-    public async Task InvalidateClientAsync_SessionIsUnauthorizedBeforeNotificationAttempted()
+    public void InvalidateClient_SessionIsUnauthorizedAsSoonAsItReturns()
+    {
+        var sessionRegistry = new SessionRegistry();
+        var notifier = new FakeSessionTerminationNotifier();
+        var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
+        ClientId clientId = ClientId.NewId();
+        ConnectionId connectionId = ConnectionId.NewId();
+        sessionRegistry.TryCreate(clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
+
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked);
+
+        Assert.Single(targets);
+        Assert.False(sessionRegistry.IsActive(sessionId, connectionId));
+    }
+
+    /// <summary>
+    /// Verifies the same unauthorized-before-notification ordering as
+    /// <see cref="InvalidateClient_SessionIsUnauthorizedAsSoonAsItReturns"/>, but observed from inside
+    /// the notifier itself once <see cref="ClientSessionInvalidator.NotifyAndCloseAllAsync"/> actually
+    /// runs against the already-invalidated target.
+    /// </summary>
+    [Fact]
+    public async Task NotifyAndCloseAllAsync_SessionIsUnauthorizedBeforeNotificationAttempted()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier();
@@ -108,7 +135,8 @@ public class ClientSessionInvalidatorTests
         sessionRegistry.TryCreate(clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
         notifier.OnNotify = target => Assert.False(sessionRegistry.IsActive(target.SessionId, target.ConnectionId));
 
-        await invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Single(notifier.NotifiedTargets);
     }
@@ -119,7 +147,7 @@ public class ClientSessionInvalidatorTests
     /// committed must not observe this best-effort step's failure.
     /// </summary>
     [Fact]
-    public async Task InvalidateAllAsync_NotifierFailure_DoesNotPropagateAndStillNotifiesOtherTargets()
+    public async Task NotifyAndCloseAllAsync_NotifierFailure_DoesNotPropagateAndStillNotifiesOtherTargets()
     {
         var sessionRegistry = new SessionRegistry(2);
         var notifier = new FakeSessionTerminationNotifier { ThrowOnNotify = new InvalidOperationException("transport unavailable") };
@@ -127,7 +155,8 @@ public class ClientSessionInvalidatorTests
         Assert.True(sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
         Assert.True(sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
 
-        await invalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateAll(SessionInvalidationReason.FactoryReset);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Equal(2, notifier.NotifiedTargets.Count);
     }
@@ -137,7 +166,7 @@ public class ClientSessionInvalidatorTests
     /// remains gone from the registry regardless of the best-effort step's own outcome.
     /// </summary>
     [Fact]
-    public async Task InvalidateClientAsync_NotifierFailure_DoesNotResurrectSession()
+    public async Task NotifyAndCloseAllAsync_NotifierFailure_DoesNotResurrectSession()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier { ThrowOnNotify = new InvalidOperationException("transport unavailable") };
@@ -146,55 +175,42 @@ public class ClientSessionInvalidatorTests
         ConnectionId connectionId = ConnectionId.NewId();
         sessionRegistry.TryCreate(clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
 
-        await invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Blocked);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(clientId, SessionInvalidationReason.Blocked);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.False(sessionRegistry.IsActive(sessionId, connectionId));
     }
 
     /// <summary>Verifies that invalidating a client with no active sessions completes cleanly without attempting any notification.</summary>
     [Fact]
-    public async Task InvalidateClientAsync_NoActiveSessions_CompletesWithoutNotifying()
+    public async Task InvalidateClient_NoActiveSessions_CompletesWithoutNotifying()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier();
         var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
 
-        await invalidator.InvalidateClientAsync(ClientId.NewId(), SessionInvalidationReason.Revoked);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(ClientId.NewId(), SessionInvalidationReason.Revoked);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Empty(notifier.NotifiedTargets);
     }
 
     /// <summary>Verifies that unconditional invalidation of an empty registry completes cleanly without attempting any notification.</summary>
     [Fact]
-    public async Task InvalidateAllAsync_NoActiveSessions_CompletesWithoutNotifying()
+    public async Task InvalidateAll_NoActiveSessions_CompletesWithoutNotifying()
     {
         var sessionRegistry = new SessionRegistry();
         var notifier = new FakeSessionTerminationNotifier();
         var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
 
-        await invalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateAll(SessionInvalidationReason.FactoryReset);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Empty(notifier.NotifiedTargets);
     }
 
-    /// <summary>Verifies the same unauthorized-before-notification ordering for unconditional invalidation as <see cref="InvalidateClientAsync_SessionIsUnauthorizedBeforeNotificationAttempted"/> proves for client-scoped.</summary>
-    [Fact]
-    public async Task InvalidateAllAsync_SessionIsUnauthorizedBeforeNotificationAttempted()
-    {
-        var sessionRegistry = new SessionRegistry();
-        var notifier = new FakeSessionTerminationNotifier();
-        var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
-        ConnectionId connectionId = ConnectionId.NewId();
-        sessionRegistry.TryCreate(ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId);
-        notifier.OnNotify = target => Assert.False(sessionRegistry.IsActive(target.SessionId, target.ConnectionId));
-
-        await invalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset);
-
-        Assert.Single(notifier.NotifiedTargets);
-    }
-
     /// <summary>
-    /// Verifies that an <see cref="OperationCanceledException"/> from the notifier is swallowed as an
+    /// Verifies an <see cref="OperationCanceledException"/> from the notifier is swallowed as an
     /// ordinary best-effort failure when the caller's own token was never cancelled.
     /// </summary>
     [Fact]
@@ -206,17 +222,18 @@ public class ClientSessionInvalidatorTests
         ClientId clientId = ClientId.NewId();
         sessionRegistry.TryCreate(clientId, ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _);
 
-        await invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Single(notifier.NotifiedTargets);
     }
 
     /// <summary>
-    /// Verifies that an <see cref="OperationCanceledException"/> from the notifier is swallowed as an
+    /// Verifies an <see cref="OperationCanceledException"/> from the notifier is swallowed as an
     /// ordinary best-effort failure even when it corresponds to the caller's own token actually being
     /// cancelled: every already-unauthorized target must still receive its best-effort teardown
     /// attempt regardless of why one target's own attempt was cancelled or failed, per
-    /// <see cref="NotifyAllAsync_FirstTargetCancelled_StillAttemptsRemainingTargets"/>.
+    /// <see cref="NotifyAndCloseAllAsync_FirstTargetCancelled_StillAttemptsRemainingTargets"/>.
     /// </summary>
     [Fact]
     public async Task NotifierOperationCanceledException_WithCancelledToken_IsSwallowedAsBestEffort()
@@ -229,7 +246,8 @@ public class ClientSessionInvalidatorTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await invalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked, cancellation.Token);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked);
+        await invalidator.NotifyAndCloseAllAsync(targets, cancellation.Token);
 
         Assert.Single(notifier.NotifiedTargets);
     }
@@ -243,7 +261,7 @@ public class ClientSessionInvalidatorTests
     /// enumerate first.
     /// </summary>
     [Fact]
-    public async Task NotifyAllAsync_FirstTargetCancelled_StillAttemptsRemainingTargets()
+    public async Task NotifyAndCloseAllAsync_FirstTargetCancelled_StillAttemptsRemainingTargets()
     {
         var sessionRegistry = new SessionRegistry(2);
         sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _);
@@ -251,7 +269,8 @@ public class ClientSessionInvalidatorTests
         var notifier = new FakeSessionTerminationNotifier { ThrowOnNotify = new OperationCanceledException("cancelled") };
         var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
 
-        await invalidator.InvalidateAllAsync(SessionInvalidationReason.FactoryReset);
+        IReadOnlyList<SessionInvalidationTarget> targets = invalidator.InvalidateAll(SessionInvalidationReason.FactoryReset);
+        await invalidator.NotifyAndCloseAllAsync(targets);
 
         Assert.Equal(2, notifier.NotifiedTargets.Count);
     }

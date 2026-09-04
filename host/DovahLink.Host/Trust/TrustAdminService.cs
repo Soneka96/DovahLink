@@ -175,17 +175,24 @@ public sealed class TrustAdminService : ITrustAdminService
         IReadOnlyList<ClientId> affected = await trustStore.ResetTrustAsync(cancellationToken);
         if (affected.Count > 0)
         {
-            // Every affected session becomes unauthorized in the registry -- InvalidateClientsAsync's
-            // own first action, before any of their best-effort notification/close is attempted -- as
-            // close to the authoritative trust mutation as possible, closing the post-mutation window a
-            // concurrent request on one of these sessions could otherwise still find IsActive true in.
-            // Batch invalidation also removes every affected client in one atomic registry pass, rather
-            // than a per-client loop that would leave client B authorized while client A's teardown is
-            // still in flight.
-            await sessionInvalidator.InvalidateClientsAsync(affected, SessionInvalidationReason.TrustReset, cancellationToken);
+            // Every affected session becomes unauthorized in the registry -- InvalidateClients's own
+            // synchronous, immediate action -- as close to the authoritative trust mutation as
+            // possible, closing the post-mutation window a concurrent request on one of these sessions
+            // could otherwise still find IsActive true in. Batch invalidation also removes every
+            // affected client in one atomic registry pass, rather than a per-client loop that would
+            // leave client B authorized while client A's teardown is still in flight. Pairing
+            // cancellation follows immediately, before any best-effort notification is even attempted,
+            // per ai/context/protocol/security.md's authoritative-mutation -> unauthorized -> future
+            // authentication/pairing enforcement -> notification -> close ordering.
+            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateClients(affected, SessionInvalidationReason.TrustReset);
+            pairingCoordinator.CancelAll();
+            await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
+        }
+        else
+        {
+            pairingCoordinator.CancelAll();
         }
 
-        pairingCoordinator.CancelAll();
         return affected;
     }
 
@@ -211,14 +218,16 @@ public sealed class TrustAdminService : ITrustAdminService
         TrustMutationOutcome outcome = await trustStore.RevokeAsync(clientId, cancellationToken);
         if (outcome == TrustMutationOutcome.Changed)
         {
-            // The session becomes unauthorized in the registry -- InvalidateClientAsync's own first
-            // action, before its best-effort notification/close is attempted -- as close to the
-            // authoritative trust mutation as possible, closing the post-mutation window a concurrent
-            // request on this session could otherwise still find IsActive true in. Pairing cancellation
-            // has no such window to close (a stale challenge is already fence-bound and safe), so it
-            // follows rather than races ahead of session invalidation.
-            await sessionInvalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Revoked, cancellationToken);
+            // The session becomes unauthorized in the registry -- InvalidateClient's own synchronous,
+            // immediate action -- as close to the authoritative trust mutation as possible, closing the
+            // post-mutation window a concurrent request on this session could otherwise still find
+            // IsActive true in. Pairing cancellation follows immediately, before any best-effort
+            // notification is even attempted, per ai/context/protocol/security.md's
+            // authoritative-mutation -> unauthorized -> future authentication/pairing enforcement ->
+            // notification -> close ordering.
+            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked);
             pairingCoordinator.Cancel(clientId);
+            await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
         }
 
         return outcome;
@@ -230,10 +239,10 @@ public sealed class TrustAdminService : ITrustAdminService
         TrustMutationOutcome outcome = await trustStore.BlockAsync(clientId, cancellationToken);
         if (outcome == TrustMutationOutcome.Changed)
         {
-            // See RevokeCoreAsync's own remarks for why session invalidation runs before pairing
-            // cancellation.
-            await sessionInvalidator.InvalidateClientAsync(clientId, SessionInvalidationReason.Blocked, cancellationToken);
+            // See RevokeCoreAsync's own remarks for this ordering.
+            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Blocked);
             pairingCoordinator.Cancel(clientId);
+            await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
         }
 
         return outcome;
