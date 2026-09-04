@@ -1,4 +1,5 @@
 using System.Text;
+using DovahLink.Host;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
@@ -1432,6 +1433,391 @@ public class PairingCoordinatorTests
         Assert.Null(trustStore.TryGet(clientId));
         Assert.Equal(PairingCommitOutcome.PendingNotFound,
             (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that a second concurrent <see cref="PairingCoordinator.CommitPendingAsync"/> call for
+    /// the exact same pending credential can never also claim it while a first call's exclusive claim
+    /// is still live: it observes <see cref="PairingCommitOutcome.PendingNotFound"/> without ever
+    /// reaching persistence, and exactly one persistence attempt -- the first call's own -- ever
+    /// succeeds. Closes the residual a bare claimed/unclaimed flag left open, where both calls could
+    /// observe "unclaimed" and both proceed toward persistence for the same reservation.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_ConcurrentSecondAck_NeverReachesPersistenceAndExactlyOnePersistenceAttemptSucceeds()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredUpsert.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+        Assert.Equal(0, trustStore.UpsertCallCount);
+
+        releaseUpsert.SetResult();
+        PairingCommitResult resultA = await ackA;
+
+        Assert.Equal(PairingCommitOutcome.Trusted, resultA.Outcome);
+        Assert.Equal(1, trustStore.UpsertCallCount);
+        Assert.Single(trustStore.List());
+    }
+
+    /// <summary>
+    /// Reproduces the previously exploitable ordering the exclusive claim identity now closes: a
+    /// second concurrent ACK arrives while the first already holds the exclusive claim, the first
+    /// ACK's own persistence then fails, and <see cref="PairingCoordinator.Cancel"/> races in
+    /// immediately afterward. Before this fix, releasing the first ACK's claim reset a shared boolean
+    /// flag with no memory of which call had reclaimed it, so a second ACK could go on to persist a
+    /// credential Cancel had already reported cancelled. With the claim identity, the second ACK never
+    /// claimed anything in the first place -- it already observed <see cref="PairingCommitOutcome.PendingNotFound"/>
+    /// before the first ACK even failed -- so Cancel's report and the trust store's actual state stay
+    /// coherent, and no further attempt with this credential can ever persist it.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_FirstAckFailsThenCancelRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredUpsert.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        releaseUpsert.SetException(new InvalidOperationException("Simulated persistence failure."));
+        PairingCommitResult resultA = await ackA;
+        Assert.Equal(PairingCommitOutcome.PersistenceFailed, resultA.Outcome);
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+        Assert.Null(trustStore.TryGet(clientId));
+
+        PairingCommitResult retry = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, retry.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same previously exploitable ordering as
+    /// <see cref="CommitPending_FirstAckFailsThenCancelRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist"/>
+    /// for the first ACK's own <see cref="CancellationToken"/> being cancelled during persistence
+    /// instead of persistence throwing.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_FirstAckCancelledThenCancelRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task.WaitAsync(cancellation.Token);
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!, cancellation.Token);
+        await enteredUpsert.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ackA);
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+        Assert.Null(trustStore.TryGet(clientId));
+
+        PairingCommitResult retry = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, retry.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PairingCoordinator.Cancel"/> landing before either of two concurrent
+    /// <see cref="PairingCoordinator.CommitPendingAsync"/> calls claims the reservation prevents both
+    /// from ever reaching persistence.
+    /// </summary>
+    [Fact]
+    public async Task Cancel_BeforeEitherAckClaims_PreventsBothAcksFromPersisting()
+    {
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+
+        PairingCommitResult ackA = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackA.Outcome);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+        Assert.Equal(0, trustStore.UpsertCallCount);
+    }
+
+    /// <summary>
+    /// Verifies the same non-blocking, non-invalidating guarantee as
+    /// <see cref="Cancel_DuringCommit_ReportsAlreadyIdleAndDoesNotInvalidateTheCommittingReservation"/>
+    /// with a losing concurrent second ACK also present: <see cref="PairingCoordinator.Cancel"/> still
+    /// reports <see cref="PairingCancelOutcome.AlreadyIdle"/> rather than falsely claiming it cancelled
+    /// a credential the real claimant goes on to persist.
+    /// </summary>
+    [Fact]
+    public async Task Cancel_AfterExclusiveClaimWithConcurrentSecondAck_ReportsAlreadyIdleAndClaimantStillReachesTrusted()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredUpsert.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        Assert.Equal(PairingCancelOutcome.AlreadyIdle, coordinator.Cancel(clientId));
+
+        releaseUpsert.SetResult();
+        PairingCommitResult resultA = await ackA;
+
+        Assert.Equal(PairingCommitOutcome.Trusted, resultA.Outcome);
+        Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies the same previously exploitable ordering as
+    /// <see cref="CommitPending_FirstAckFailsThenCancelRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist"/>
+    /// for the multi-client <see cref="PairingCoordinator.CancelAll"/> path.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_FirstAckFailsThenCancelAllRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredUpsert.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        releaseUpsert.SetException(new InvalidOperationException("Simulated persistence failure."));
+        PairingCommitResult resultA = await ackA;
+        Assert.Equal(PairingCommitOutcome.PersistenceFailed, resultA.Outcome);
+
+        coordinator.CancelAll();
+        Assert.Null(trustStore.TryGet(clientId));
+
+        PairingCommitResult retry = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, retry.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same previously exploitable ordering as
+    /// <see cref="CommitPending_FirstAckFailsThenCancelAllRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist"/>
+    /// for the first ACK's own <see cref="CancellationToken"/> being cancelled during persistence
+    /// instead of persistence throwing.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_FirstAckCancelledThenCancelAllRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task.WaitAsync(cancellation.Token);
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!, cancellation.Token);
+        await enteredUpsert.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ackA);
+
+        coordinator.CancelAll();
+        Assert.Null(trustStore.TryGet(clientId));
+
+        PairingCommitResult retry = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, retry.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same guarantee as
+    /// <see cref="Cancel_BeforeEitherAckClaims_PreventsBothAcksFromPersisting"/> for
+    /// <see cref="PairingCoordinator.CancelAll"/>.
+    /// </summary>
+    [Fact]
+    public async Task CancelAll_BeforeEitherAckClaims_PreventsBothAcksFromPersisting()
+    {
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        coordinator.CancelAll();
+
+        PairingCommitResult ackA = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackA.Outcome);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+        Assert.Equal(0, trustStore.UpsertCallCount);
+    }
+
+    /// <summary>
+    /// Verifies the same guarantee as
+    /// <see cref="Cancel_AfterExclusiveClaimWithConcurrentSecondAck_ReportsAlreadyIdleAndClaimantStillReachesTrusted"/>
+    /// for <see cref="PairingCoordinator.CancelAll"/>: it cannot undo an already-claimed reservation
+    /// even with a losing concurrent second ACK also present, and the real claimant still reaches
+    /// <see cref="PairingCommitOutcome.Trusted"/>.
+    /// </summary>
+    [Fact]
+    public async Task CancelAll_AfterExclusiveClaimWithConcurrentSecondAck_ClaimantStillReachesTrusted()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredUpsert.Task;
+
+        PairingCommitResult ackB = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, ackB.Outcome);
+
+        coordinator.CancelAll();
+
+        releaseUpsert.SetResult();
+        PairingCommitResult resultA = await ackA;
+
+        Assert.Equal(PairingCommitOutcome.Trusted, resultA.Outcome);
+        Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies that a claimed reservation's five-minute finalization lifetime expiring while its
+    /// commit is still in flight never clears it out from under the claimant: pending expiry must
+    /// defer to a live commit claim the same way <see cref="PairingCoordinator.Cancel"/> and
+    /// <see cref="PairingCoordinator.CancelAll"/> already do, so a slow persistence write outliving the
+    /// pending lifetime still finalizes to <see cref="PairingCommitOutcome.Trusted"/> rather than
+    /// racing an expiry that silently discards the reservation mid-commit.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_PendingExpiresWhileClaimIsLive_DoesNotClearTheCommittingReservationAndClaimantStillReachesTrusted()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task;
+            },
+        };
+        var clock = new FakeClock();
+        var coordinator = new PairingCoordinator(trustStore, clock);
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> ackA = coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        await enteredUpsert.Task;
+
+        clock.Advance(Constants.PairingPendingCredentialLifetime + TimeSpan.FromSeconds(1));
+
+        // GetStatusSnapshot runs the same pending-expiry check every other entry point does; it must
+        // still report the reservation as owned by this client rather than silently discarding it.
+        PairingStatusSnapshot snapshotWhileClaimed = coordinator.GetStatusSnapshot(clientId);
+        Assert.Equal(PairingStatusKind.PendingCredential, snapshotWhileClaimed.Kind);
+
+        releaseUpsert.SetResult();
+        PairingCommitResult resultA = await ackA;
+
+        Assert.Equal(PairingCommitOutcome.Trusted, resultA.Outcome);
+        Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
     }
 
     /// <summary>

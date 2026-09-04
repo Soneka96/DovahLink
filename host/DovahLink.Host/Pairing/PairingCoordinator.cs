@@ -194,16 +194,23 @@ public sealed class PairingCoordinator : IPairingCoordinator
     private PendingCredential? pendingCredential;
 
     /// <summary>
-    /// Whether <see cref="pendingCredential"/> has been irrevocably claimed by an in-flight
-    /// <see cref="CommitPendingAsync"/> call for persistence. While true, <see cref="Cancel"/>,
-    /// <see cref="CancelAll"/>, and <see cref="ExpirePendingIfNeeded"/> must never clear or replace
-    /// <see cref="pendingCredential"/>: the commit already won the race to finalize it, so
-    /// cancellation can no longer truthfully claim it cancelled that exact credential. Reset back to
-    /// <see langword="false"/> whenever the claiming call's own attempt resolves -- through
-    /// <see cref="ClearPending"/> on a durable outcome, or <see cref="ReleaseCommitClaim"/> when the
-    /// attempt never reached persistence or the persistence attempt itself faulted or was cancelled.
+    /// The identity of the single <see cref="CommitPendingAsync"/> invocation that has irrevocably
+    /// claimed <see cref="pendingCredential"/> for persistence, or <see langword="null"/> while it is
+    /// unclaimed. While set, <see cref="Cancel"/>, <see cref="CancelAll"/>, and
+    /// <see cref="ExpirePendingIfNeeded"/> must never clear or replace <see cref="pendingCredential"/>:
+    /// the claimant already won the race to finalize it, so cancellation can no longer truthfully
+    /// claim it cancelled that exact credential. Also gates <see cref="CommitPendingAsync"/> itself: a
+    /// concurrent call arriving while this is already set is not the claimant and must never re-claim
+    /// or proceed toward persistence, closing the residual a bare claimed/unclaimed flag left open --
+    /// two concurrent calls both observing "unclaimed" and both winning would otherwise both reach
+    /// persistence for the same reservation. Reset back to <see langword="null"/> whenever the
+    /// claiming call's own attempt resolves -- through <see cref="ClearPending"/> on a durable outcome,
+    /// or <see cref="ReleaseCommitClaim"/> when the attempt never reached persistence or the
+    /// persistence attempt itself faulted or was cancelled -- and only ever by the exact invocation
+    /// that owns the current claim identity, so one call's release can never release a different
+    /// concurrent call's claim.
     /// </summary>
-    private bool pendingCommitInFlight;
+    private CommitClaimId? pendingCommitClaim;
 
     /// <summary>Creates a pairing coordinator.</summary>
     /// <param name="trustStore">The store used for mutation fencing and final persistence.</param>
@@ -425,26 +432,31 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// <summary>
     /// Finalizes a matching pending credential after the client durably saved it. Never holds
     /// <see cref="operationSemaphore"/> while awaiting <see cref="trustStore"/>'s persistence: under
-    /// one <see cref="gate"/>-scoped block it re-validates the reservation, checks it against the
-    /// trust store's current <see cref="ITrustStore.SecurityFenceGeneration"/>, and -- only if both
-    /// hold -- irrevocably claims it via <see cref="pendingCommitInFlight"/> before releasing the
-    /// lock, awaiting persistence unguarded, then finalizing through <see cref="ClearPending"/>. A
-    /// slow or blocked write can therefore never synchronously block unrelated pairing lifecycle work
-    /// -- <see cref="Cancel"/>, <see cref="NotifyDisconnected"/>, <see cref="CancelAll"/>, or another
+    /// one <see cref="gate"/>-scoped block it re-validates the reservation, checks whether another
+    /// invocation already owns <see cref="pendingCommitClaim"/>, and checks it against the trust
+    /// store's current <see cref="ITrustStore.SecurityFenceGeneration"/> -- only if all three hold --
+    /// irrevocably claims it with a fresh <see cref="CommitClaimId"/> before releasing the lock,
+    /// awaiting persistence unguarded, then finalizing through <see cref="ClearPending"/>. A slow or
+    /// blocked write can therefore never synchronously block unrelated pairing lifecycle work --
+    /// <see cref="Cancel"/>, <see cref="NotifyDisconnected"/>, <see cref="CancelAll"/>, or another
     /// coordinator operation racing it during connection teardown. This claim is what linearizes ACK
-    /// against Cancel/CancelAll for the exact same credential, closing the residual a plain identity
-    /// compare-and-swap could not: once claimed, <see cref="pendingCommitInFlight"/> stops
-    /// <see cref="Cancel"/>/<see cref="CancelAll"/> from ever clearing or replacing this reservation,
-    /// so persistence is the sole remaining authority over whether it becomes Trusted, and no
-    /// concurrent cancellation can report <see cref="PairingCancelOutcome.Cancelled"/> for a credential
-    /// that goes on to persist durably. A cancellation that instead lands before the claim -- while
-    /// <see cref="pendingCommitInFlight"/> is still false -- clears the reservation outright, so this
-    /// call finds nothing to claim and reports <see cref="PairingCommitOutcome.PendingNotFound"/>
-    /// without ever attempting persistence. If this call's own attempt does not reach a durable
-    /// outcome -- a short-id generator exhaustion before persistence is even attempted, a thrown
-    /// persistence exception, or the caller's own token being cancelled -- it releases its claim
-    /// through <see cref="ReleaseCommitClaim"/> without clearing the pending credential, leaving it
-    /// exactly as retryable and cancellable as it was before this call claimed it.
+    /// against both Cancel/CancelAll and a second concurrent ACK for the exact same credential: once
+    /// claimed, <see cref="pendingCommitClaim"/> stops <see cref="Cancel"/>/<see cref="CancelAll"/>
+    /// from ever clearing or replacing this reservation, and stops a concurrent
+    /// <see cref="CommitPendingAsync"/> call from ever claiming it too, so persistence is the sole
+    /// remaining authority over whether it becomes Trusted, and no concurrent cancellation can report
+    /// <see cref="PairingCancelOutcome.Cancelled"/> for a credential that goes on to persist durably --
+    /// nor can a losing concurrent ACK ever reach persistence for it. A cancellation that instead lands
+    /// before the claim -- while <see cref="pendingCommitClaim"/> is still <see langword="null"/> --
+    /// clears the reservation outright, so this call finds nothing to claim and reports
+    /// <see cref="PairingCommitOutcome.PendingNotFound"/> without ever attempting persistence; a losing
+    /// concurrent ACK that arrives after another call already claimed the reservation reports the same
+    /// <see cref="PairingCommitOutcome.PendingNotFound"/> without persisting anything. If the winning
+    /// call's own attempt does not reach a durable outcome -- a short-id generator exhaustion before
+    /// persistence is even attempted, a thrown persistence exception, or the caller's own token being
+    /// cancelled -- it releases its own claim through <see cref="ReleaseCommitClaim"/> without clearing
+    /// the pending credential, leaving it exactly as retryable and cancellable as it was before this
+    /// call claimed it.
     /// </summary>
     /// <param name="clientId">The client that owns the pending credential.</param>
     /// <param name="credential">The raw credential echoed by the client.</param>
@@ -457,6 +469,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
         ArgumentNullException.ThrowIfNull(credential);
 
         PendingCredential? pending;
+        CommitClaimId claim = default;
         bool generationInvalidated = false;
         TrustRecord? existingRecord;
         string? shortId;
@@ -472,21 +485,30 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 {
                     pending = null;
                 }
+                else if (pendingCommitClaim is not null)
+                {
+                    // Another concurrent CommitPendingAsync invocation already exclusively claimed
+                    // this exact reservation for finalization. This call is not the claimant and must
+                    // never enter short-id generation or persistence for it -- see
+                    // pendingCommitClaim's own remarks for what this closes.
+                    pending = null;
+                }
                 else if (trustStore.SecurityFenceGeneration != current.SecurityFenceGeneration)
                 {
                     // The security fence advanced since this credential was issued: drop the
                     // reservation now, under this same lock, so nothing can race to claim it after
                     // this check.
                     pendingCredential = null;
-                    pendingCommitInFlight = false;
+                    pendingCommitClaim = null;
                     pending = null;
                     generationInvalidated = true;
                 }
                 else
                 {
                     // Claim the reservation irrevocably before releasing the lock -- see
-                    // pendingCommitInFlight's own remarks for what this closes.
-                    pendingCommitInFlight = true;
+                    // pendingCommitClaim's own remarks for what this closes.
+                    claim = CommitClaimId.New();
+                    pendingCommitClaim = claim;
                     pending = current;
                 }
             }
@@ -516,7 +538,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
             shortId = existingRecord?.ShortId ?? GenerateUniqueShortId();
             if (shortId is null)
             {
-                ReleaseCommitClaim(pending);
+                ReleaseCommitClaim(pending, claim);
                 return new PairingCommitResult(PairingCommitOutcome.GeneratorFailed);
             }
         }
@@ -547,29 +569,30 @@ public sealed class PairingCoordinator : IPairingCoordinator
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            ReleaseCommitClaim(reserved);
+            ReleaseCommitClaim(reserved, claim);
             throw;
         }
         catch
         {
-            ReleaseCommitClaim(reserved);
+            ReleaseCommitClaim(reserved, claim);
             return new PairingCommitResult(PairingCommitOutcome.PersistenceFailed);
         }
 
         if (!committed)
         {
             // The fence moved between the claim and this write through some other trust mutation --
-            // never a Cancel/CancelAll, which this claim already made impossible -- so the reservation
-            // is genuinely invalidated rather than merely un-claimed.
-            ClearPending(reserved);
+            // never a Cancel/CancelAll or a concurrent ACK, which this claim already made impossible --
+            // so the reservation is genuinely invalidated rather than merely un-claimed.
+            ClearPending(reserved, claim);
             return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
         }
 
-        if (!ClearPending(reserved))
+        if (!ClearPending(reserved, claim))
         {
-            // Unreachable under the claim above: once pendingCommitInFlight is set, Cancel/CancelAll/
-            // expiry can never clear or replace this exact reservation, so ClearPending always finds
-            // it still live here. Kept as a defensive invariant check rather than assumed.
+            // Unreachable under the claim above: once pendingCommitClaim is set to this call's own
+            // identity, Cancel/CancelAll/expiry/a concurrent ACK can never clear or replace this exact
+            // reservation, so ClearPending always finds it still live here. Kept as a defensive
+            // invariant check rather than assumed.
             return new PairingCommitResult(PairingCommitOutcome.PairingInvalidated);
         }
 
@@ -616,7 +639,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 ExpirePendingIfNeeded(now);
                 if (pendingCredential is { ClientId: var pendingClient } && pendingClient == clientId)
                 {
-                    if (pendingCommitInFlight)
+                    if (pendingCommitClaim is not null)
                     {
                         // An in-flight commit has already irrevocably claimed this exact reservation
                         // for persistence: cancellation can no longer truthfully undo it, so this
@@ -693,7 +716,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
             {
                 activeChallenge = null;
                 committedDisplayChallengeId = null;
-                if (!pendingCommitInFlight)
+                if (pendingCommitClaim is null)
                 {
                     // An in-flight commit has already irrevocably claimed the pending credential for
                     // persistence: this administrative cancellation can no longer undo it and must
@@ -827,42 +850,49 @@ public sealed class PairingCoordinator : IPairingCoordinator
 
     /// <summary>
     /// Clears the matching pending credential after finalization or invalidation, reporting whether
-    /// <paramref name="pending"/> was still the live reservation, and resets
-    /// <see cref="pendingCommitInFlight"/> alongside it. Once <see cref="CommitPendingAsync"/> has
-    /// claimed <paramref name="pending"/>, nothing else can clear or replace it before this call does,
-    /// so <see langword="false"/> is expected only from a caller that never actually claimed it.
+    /// <paramref name="pending"/> was still the live reservation under <paramref name="claim"/>'s
+    /// exact identity, and resets <see cref="pendingCommitClaim"/> alongside it. Once
+    /// <see cref="CommitPendingAsync"/> has claimed <paramref name="pending"/> under
+    /// <paramref name="claim"/>, nothing else can clear or replace it before this call does, so
+    /// <see langword="false"/> is expected only from a caller that never actually held this exact
+    /// claim.
     /// </summary>
     /// <param name="pending">The exact reservation to clear.</param>
-    /// <returns><see langword="true"/> if <paramref name="pending"/> was still live and is now cleared.</returns>
-    private bool ClearPending(PendingCredential pending)
+    /// <param name="claim">The exact claim identity this invocation was granted.</param>
+    /// <returns><see langword="true"/> if <paramref name="pending"/> was still live under <paramref name="claim"/> and is now cleared.</returns>
+    private bool ClearPending(PendingCredential pending, CommitClaimId claim)
     {
         lock (gate)
         {
-            if (pendingCredential != pending)
+            if (pendingCredential != pending || pendingCommitClaim != claim)
             {
                 return false;
             }
 
             pendingCredential = null;
-            pendingCommitInFlight = false;
+            pendingCommitClaim = null;
             return true;
         }
     }
 
     /// <summary>
     /// Releases <see cref="CommitPendingAsync"/>'s irrevocable claim on <paramref name="pending"/>
-    /// without clearing it, for a commit attempt that never reached persistence or whose persistence
-    /// attempt itself faulted or was cancelled: the pending credential remains exactly as retryable
-    /// and cancellable as it was before this call claimed it.
+    /// under <paramref name="claim"/>'s exact identity without clearing it, for a commit attempt that
+    /// never reached persistence or whose persistence attempt itself faulted or was cancelled: the
+    /// pending credential remains exactly as retryable and cancellable as it was before this call
+    /// claimed it. Comparing <paramref name="claim"/> rather than only <paramref name="pending"/>
+    /// ensures this call can only ever release its own claim, never one a different concurrent
+    /// invocation currently holds for the same reservation.
     /// </summary>
     /// <param name="pending">The exact reservation this call had claimed.</param>
-    private void ReleaseCommitClaim(PendingCredential pending)
+    /// <param name="claim">The exact claim identity this invocation was granted.</param>
+    private void ReleaseCommitClaim(PendingCredential pending, CommitClaimId claim)
     {
         lock (gate)
         {
-            if (pendingCredential == pending)
+            if (pendingCredential == pending && pendingCommitClaim == claim)
             {
-                pendingCommitInFlight = false;
+                pendingCommitClaim = null;
             }
         }
     }
@@ -888,12 +918,12 @@ public sealed class PairingCoordinator : IPairingCoordinator
 
     /// <summary>
     /// Expires a pending credential after its five-minute finalization lifetime, unless
-    /// <see cref="pendingCommitInFlight"/> means an in-flight commit has already irrevocably claimed
+    /// <see cref="pendingCommitClaim"/> means an in-flight commit has already irrevocably claimed
     /// it -- expiry must never clear a reservation a commit may currently be persisting.
     /// </summary>
     private void ExpirePendingIfNeeded(DateTimeOffset now)
     {
-        if (!pendingCommitInFlight && pendingCredential is { } pending &&
+        if (pendingCommitClaim is null && pendingCredential is { } pending &&
             now - pending.CreatedAtUtc >= Constants.PairingPendingCredentialLifetime)
         {
             pendingCredential = null;
