@@ -34,6 +34,15 @@ public sealed class FakeTrustStore : ITrustStore
     public Func<Task>? BeforeConditionalUpsert { get; set; }
 
     /// <summary>
+    /// Optional synchronous hook invoked immediately after <see cref="TryGetByShortId"/> resolves a
+    /// record, before returning it to the caller. Lets a shortId-incarnation-race test deterministically
+    /// simulate another mutation (for example a Factory Reset followed by re-pairing under a new
+    /// shortId) landing in the exact gap between a caller's shortId resolution and its subsequent
+    /// mutation attempt, without depending on real thread scheduling or mutation-semaphore ordering.
+    /// </summary>
+    public Action? AfterTryGetByShortId { get; set; }
+
+    /// <summary>
     /// Optional hook invoked with a short label immediately after a mutation successfully applies
     /// (<c>"Revoke"</c>, <c>"Block"</c>, <c>"Unblock"</c>, <c>"Forget"</c>, <c>"ResetTrust"</c>,
     /// <c>"Rename"</c>, or <c>"Clear"</c>), letting a test build a cross-collaborator call-order timeline together with
@@ -134,17 +143,25 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public TrustRecord? TryGetByShortId(string shortId) =>
-        recordsByClientId.Values.FirstOrDefault(record => record.ShortId == shortId);
+    public TrustRecord? TryGetByShortId(string shortId)
+    {
+        TrustRecord? resolved = recordsByClientId.Values.FirstOrDefault(record => record.ShortId == shortId);
+        AfterTryGetByShortId?.Invoke();
+        return resolved;
+    }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
             return Task.FromException<TrustMutationOutcome>(exception);
         }
         if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedShortId is not null && record.ShortId != expectedShortId)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -165,13 +182,17 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
             return Task.FromException<TrustMutationOutcome>(exception);
         }
         if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedShortId is not null && record.ShortId != expectedShortId)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -196,13 +217,17 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
             return Task.FromException<TrustMutationOutcome>(exception);
         }
         if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedShortId is not null && record.ShortId != expectedShortId)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -222,13 +247,17 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
             return Task.FromException<TrustMutationOutcome>(exception);
         }
         if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedShortId is not null && record.ShortId != expectedShortId)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }

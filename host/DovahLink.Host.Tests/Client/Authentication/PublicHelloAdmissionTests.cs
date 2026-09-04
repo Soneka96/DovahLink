@@ -2498,16 +2498,16 @@ public class PublicHelloAdmissionTests
         public TrustRecord? TryGetByShortId(string shortId) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -2646,16 +2646,16 @@ public class PublicHelloAdmissionTests
         public TrustRecord? TryGetByShortId(string shortId) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

@@ -1180,6 +1180,106 @@ public class TrustStoreTests
         Assert.Null(store.TryGet(original.ClientId));
     }
 
+    /// <summary>
+    /// Verifies the shortId incarnation-race guard directly: a mutation whose caller resolved
+    /// <paramref name="clientId"/> under one shortId must not apply against a current record that now
+    /// carries a different shortId -- deterministically reproducing the exact interleaving a stale
+    /// shortId-based administrative operation could otherwise land in (the target's prior incarnation
+    /// forgotten and its clientId re-paired under a new shortId before the queued mutation resumes) by
+    /// constructing that sequence directly rather than depending on real thread-scheduling or
+    /// mutation-semaphore ordering to reproduce it.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_CurrentRecordCarriesADifferentShortIdThanExpected_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+
+        // The exact incarnation race: the original Known Device (shortId 11111) is forgotten by a
+        // Factory Reset, and the same clientId re-pairs afterward under a brand new shortId -- a
+        // structurally different Known Device from the caller's perspective, even though it shares the
+        // same durable clientId.
+        await store.ClearAsync();
+        var newIncarnation = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(newIncarnation);
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, expectedShortId: "11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(newIncarnation, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a matching shortId precondition still permits the mutation, the complementary case to the mismatch above.</summary>
+    [Fact]
+    public async Task RevokeAsync_CurrentRecordCarriesTheExpectedShortId_Commits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, expectedShortId: "11111");
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(clientId)!.State);
+    }
+
+    /// <summary>Verifies the same shortId incarnation-race guard as Revoke's own for <see cref="TrustStore.BlockAsync"/>.</summary>
+    [Fact]
+    public async Task BlockAsync_CurrentRecordCarriesADifferentShortIdThanExpected_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        await store.ClearAsync();
+        var newIncarnation = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(newIncarnation);
+
+        TrustMutationOutcome outcome = await store.BlockAsync(clientId, expectedShortId: "11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(newIncarnation, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies the same shortId incarnation-race guard as Revoke's own for <see cref="TrustStore.UnblockAsync"/>.</summary>
+    [Fact]
+    public async Task UnblockAsync_CurrentRecordCarriesADifferentShortIdThanExpected_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        await store.ClearAsync();
+        var newIncarnation = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(newIncarnation);
+
+        TrustMutationOutcome outcome = await store.UnblockAsync(clientId, expectedShortId: "11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(newIncarnation, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies the same shortId incarnation-race guard as Revoke's own for <see cref="TrustStore.ForgetAsync"/>.</summary>
+    [Fact]
+    public async Task ForgetAsync_CurrentRecordCarriesADifferentShortIdThanExpected_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        await store.ClearAsync();
+        var newIncarnation = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(newIncarnation);
+
+        TrustMutationOutcome outcome = await store.ForgetAsync(clientId, expectedShortId: "11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(newIncarnation, store.TryGet(clientId));
+    }
+
     /// <summary>Verifies that a security snapshot for a known client returns its record together with the current generation.</summary>
     [Fact]
     public async Task GetSecuritySnapshot_KnownClient_ReturnsRecordAndCurrentGeneration()

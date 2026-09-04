@@ -493,6 +493,33 @@ public class TrustAdminServiceTests
         Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(clientId)!.State);
     }
 
+    /// <summary>
+    /// Proves the shortId-incarnation-race fix end-to-end through <see cref="TrustAdminService"/>'s own
+    /// wiring, not only the underlying <see cref="ITrustStore"/> guard: an administrative operation that
+    /// resolved shortId <c>11111</c> to a device must not fall through to mutating a different, later
+    /// incarnation of the exact same <see cref="ClientId"/> that appears in the gap between that
+    /// resolution and the mutation actually applying -- for example the original Known Device forgotten
+    /// by a Factory Reset and the same client re-paired under a new shortId before this call resumes.
+    /// <see cref="FakeTrustStore.AfterTryGetByShortId"/> deterministically injects that exact
+    /// replacement into the gap <see cref="TrustAdminService.MutateByShortIdAsync"/> itself has between
+    /// resolving the shortId and invoking the mutation, without depending on real thread scheduling.
+    /// </summary>
+    [Fact]
+    public async Task RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+
+        TrustMutationOutcome outcome = await admin.RevokeByShortIdAsync("11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, trustStore.TryGet(clientId));
+    }
+
     /// <summary>Verifies that an unknown short ID produces a not-found outcome without mutation.</summary>
     [Fact]
     public async Task BlockByShortIdAsync_UnknownId_ReturnsNotFound()
@@ -533,6 +560,69 @@ public class TrustAdminServiceTests
         Assert.Equal(TrustMutationOutcome.Changed, await admin.UnblockByShortIdAsync("12345"));
         Assert.Equal(TrustMutationOutcome.Changed, await admin.ForgetByShortIdAsync("12345"));
         Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same end-to-end incarnation-race guarantee as
+    /// <see cref="RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement"/>
+    /// for <see cref="TrustAdminService.BlockByShortIdAsync"/>.
+    /// </summary>
+    [Fact]
+    public async Task BlockByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+
+        TrustMutationOutcome outcome = await admin.BlockByShortIdAsync("11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same end-to-end incarnation-race guarantee as
+    /// <see cref="RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement"/>
+    /// for <see cref="TrustAdminService.UnblockByShortIdAsync"/>.
+    /// </summary>
+    [Fact]
+    public async Task UnblockByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+
+        TrustMutationOutcome outcome = await admin.UnblockByShortIdAsync("11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same end-to-end incarnation-race guarantee as
+    /// <see cref="RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement"/>
+    /// for <see cref="TrustAdminService.ForgetByShortIdAsync"/>.
+    /// </summary>
+    [Fact]
+    public async Task ForgetByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow);
+        trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+
+        TrustMutationOutcome outcome = await admin.ForgetByShortIdAsync("11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, trustStore.TryGet(clientId));
     }
 
     /// <summary>
