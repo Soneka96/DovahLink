@@ -230,6 +230,45 @@ public class TrustResetServiceTests
     }
 
     /// <summary>
+    /// Proves the confirmed Factory Reset replacement race is closed: once an in-flight
+    /// <see cref="TrustResetService.ConfirmResetAsync"/> has irrevocably claimed the active challenge
+    /// and moved on to its destructive work, a concurrent <see cref="TrustResetService.BeginReset"/>
+    /// must not silently replace it -- the claimed challenge still completes the reset exactly once,
+    /// and the freshly issued challenge from the racing <c>BeginReset</c> never becomes usable.
+    /// </summary>
+    [Fact]
+    public async Task BeginReset_DuringInFlightConfirm_DoesNotReplaceClaimedChallengeAndConfirmStillSucceeds()
+    {
+        var trustStore = new FakeTrustStore();
+        var enteredClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClear = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        trustStore.BeforeClear = async () =>
+        {
+            enteredClear.SetResult();
+            await releaseClear.Task;
+        };
+        var pairingCoordinator = new FakePairingCoordinator();
+        var service = new TrustResetService(trustStore, Invalidator(new FakeSessionRegistry()), pairingCoordinator, new FakeClock());
+        FactoryResetChallenge claimedChallenge = service.BeginReset();
+
+        Task<bool> confirm = service.ConfirmResetAsync(claimedChallenge.Code);
+        await enteredClear.Task;
+
+        // Races a fresh BeginReset while the confirm above already holds the claim.
+        FactoryResetChallenge replacementChallenge = service.BeginReset();
+
+        releaseClear.SetResult();
+        bool confirmResult = await confirm;
+
+        Assert.True(confirmResult);
+        Assert.Equal(1, trustStore.ClearCallCount);
+        Assert.Equal(1, pairingCoordinator.CancelAllCallCount);
+        // The replacement challenge from the racing BeginReset never became the active one, so it
+        // cannot itself be confirmed.
+        Assert.False(await service.ConfirmResetAsync(replacementChallenge.Code));
+    }
+
+    /// <summary>
     /// Verifies the exact security-mandated ordering for a confirmed Factory Reset: the trust store is
     /// cleared before every session becomes unauthorized in the registry, before pairing is cancelled,
     /// before its best-effort terminal notification carries the exact <c>factory_reset</c> reason --
