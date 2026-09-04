@@ -170,7 +170,11 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return new ClientDispatchResult();
         }
 
-        SendRenameOutcome(connection, sessionId, envelope.MessageId, RenameOutcomeWireValue.Renamed, payload.DisplayName);
+        // An empty displayName clears the device's name; the wire contract represents "no name" as
+        // null, never an empty string, so a cleared name is normalized here before it is echoed back.
+        SendRenameOutcome(
+            connection, sessionId, envelope.MessageId, RenameOutcomeWireValue.Renamed,
+            string.IsNullOrEmpty(payload.DisplayName) ? null : payload.DisplayName);
         return new ClientDispatchResult();
     }
 

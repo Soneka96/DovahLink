@@ -104,9 +104,13 @@ public class ClientMessageDispatcherTests
         Assert.False(result.IsProtocolViolation);
     }
 
-    /// <summary>Verifies that an empty display name -- which clears the name -- is accepted and echoed back empty.</summary>
+    /// <summary>
+    /// Verifies that an empty display name -- which clears the name -- is accepted and echoed back as
+    /// <see langword="null"/>, per the canonical wire contract's null-means-no-name representation,
+    /// never an empty string.
+    /// </summary>
     [Fact]
-    public async Task DispatchAsync_RenameRequestWithEmptyDisplayName_SendsRenamedOutcomeWithEmptyName()
+    public async Task DispatchAsync_RenameRequestWithEmptyDisplayName_SendsRenamedOutcomeWithNullName()
     {
         var trustAdminService = new FakeTrustAdminService();
         var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
@@ -119,7 +123,7 @@ public class ClientMessageDispatcherTests
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.Renamed, outcome.Outcome);
-        Assert.Equal(string.Empty, outcome.DisplayName);
+        Assert.Null(outcome.DisplayName);
     }
 
     /// <summary>Verifies that a malformed rename_request sends a malformed_message error, reports a violation, and never reaches the trust service.</summary>
