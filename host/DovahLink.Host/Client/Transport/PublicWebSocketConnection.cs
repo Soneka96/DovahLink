@@ -180,22 +180,18 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private int outboundOutstandingMessages;
 
     /// <summary>
-    /// Guards <see cref="ReportAbnormalEnd"/> so at most one root-cause reason ever reaches
-    /// <see cref="diagnostics"/> for this connection, even when concurrent paths (for example a
-    /// <see cref="TrySend"/> rejection on one thread cascading into the read or writer loop's own
-    /// cancellation reaction) could otherwise each attempt to attribute a different reason to the
-    /// same underlying failure.
-    /// </summary>
-    private int diagnosticReported;
-
-    /// <summary>
     /// The <see cref="PublicWebSocketConnectionEndReason"/> reported through
     /// <see cref="ReportAbnormalEnd"/>, encoded as its underlying value plus one so zero can mean "no
     /// abnormal end ever reported" (an ordinary peer close, cancellation, or orderly close) without a
-    /// nullable-enum <see cref="Volatile"/> access. Written exactly once, guarded by the same
-    /// <see cref="diagnosticReported"/> gate as the reason it mirrors, and read by
-    /// <see cref="ClassifyTerminationKind"/> to classify this connection's end for
-    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>.
+    /// nullable-enum <see cref="Volatile"/> access. This encoded value is itself the single
+    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/>-guarded gate: the decision that one
+    /// root-cause reason won and the exact value of that winning reason become observable together, as
+    /// one atomic state transition, so a concurrent reader (for example <see cref="ClassifyTerminationKind"/>
+    /// running from this connection's own teardown while a racing <see cref="TrySend"/> rejection is still
+    /// inside <see cref="ReportAbnormalEnd"/> on another thread) can never observe a reason that has won
+    /// but is not yet visible. Written exactly once -- every later writer's <see cref="Interlocked.CompareExchange(ref int, int, int)"/>
+    /// attempt loses and is a silent no-op -- and read by <see cref="ClassifyTerminationKind"/> to
+    /// classify this connection's end for <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>.
     /// </summary>
     private int reportedAbnormalEndReasonPlusOne;
 
@@ -243,14 +239,17 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// reason, but only the first time this is called for this connection instance -- every later
     /// call is a silent no-op, so a race between multiple paths independently deciding the connection
     /// must end abnormally can never produce more than one diagnostic report, and whichever call wins
-    /// is treated as the true root cause.
+    /// is treated as the true root cause. The win itself is decided by one atomic
+    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/> on <see cref="reportedAbnormalEndReasonPlusOne"/>
+    /// using the encoded reason as the exchanged value, so there is no intermediate state in which a
+    /// reason has won but <see cref="ClassifyTerminationKind"/> cannot yet see which one.
     /// </summary>
     /// <param name="reason">The structured, non-sensitive reason enforcement occurred.</param>
     private void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
     {
-        if (Interlocked.CompareExchange(ref diagnosticReported, 1, 0) == 0)
+        int encodedReason = (int)reason + 1;
+        if (Interlocked.CompareExchange(ref reportedAbnormalEndReasonPlusOne, encodedReason, 0) == 0)
         {
-            Volatile.Write(ref reportedAbnormalEndReasonPlusOne, (int)reason + 1);
             diagnostics.ReportAbnormalEnd(reason);
         }
     }

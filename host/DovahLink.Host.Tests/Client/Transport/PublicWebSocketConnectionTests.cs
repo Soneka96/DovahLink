@@ -2505,6 +2505,83 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>
+    /// Verifies, across many repetitions of a genuine cross-thread race (a <see cref="Barrier"/>
+    /// release, never <see cref="Task.Delay(TimeSpan)"/>), that an outbound-queue overflow -- <see cref="PublicWebSocketConnection.TrySend"/>
+    /// called from a thread other than the one running <see cref="PublicWebSocketConnection.RunAsync"/>,
+    /// per its documented any-thread contract -- always classifies as
+    /// <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/>, even when this connection's
+    /// teardown is triggered at nearly the same instant by a wholly independent cause: an external
+    /// cancellation this test owns directly, not the overflow's own internal self-requested-close
+    /// reaction. This is exactly the shape of the historical bug in this connection's abnormal-end
+    /// publication: a security reason whose publication has already started must never lose a race
+    /// against an independently triggered classification and surface as ordinary
+    /// <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/> instead. Also closes the coverage
+    /// gap for <see cref="PublicWebSocketConnectionEndReason.OutboundCapacityExceeded"/> reaching
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/> end-to-end through a real
+    /// <see cref="PublicWebSocketConnection.RunAsync"/> run, not merely <see cref="PublicWebSocketConnection.TrySend"/> in isolation.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_OutboundCapacityExceededRacedAgainstIndependentTeardown_AlwaysClassifiesSecurityEnforcement()
+    {
+        for (int iteration = 0; iteration < 50; iteration++)
+        {
+            var handler = new FakePublicWebSocketMessageHandler();
+            var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+            (TcpListener listener, int port) = StartLoopbackListener();
+            Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+            using var clientWebSocket = new ClientWebSocket();
+            Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+            using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+            // ignoreCancellation: true so the writer's own blocked send cannot independently report a
+            // genuine WriteFailure once the external cancellation below fires -- that would be a second,
+            // real root cause fairly racing this test's intended OutboundCapacityExceeded, not the
+            // publication race this test targets. Only this test's own Release() may unblock it.
+            var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream(), ignoreCancellation: true);
+            var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+            var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options, diagnostics);
+            using var externalCancellation = new CancellationTokenSource();
+            Task runTask = connection.RunAsync(externalCancellation.Token);
+            await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+            // The handshake response was the first write; this send is the second and blocks until
+            // released below, holding the single allowed message slot forever so the next TrySend
+            // deterministically overflows rather than racing a real drain.
+            Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+            await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var barrier = new Barrier(2);
+            var overflow = new Thread(() =>
+            {
+                barrier.SignalAndWait();
+                connection.TrySend(Encoding.UTF8.GetBytes("second"));
+            });
+            var independentTeardown = new Thread(() =>
+            {
+                barrier.SignalAndWait();
+                externalCancellation.Cancel();
+            });
+            overflow.Start();
+            independentTeardown.Start();
+            overflow.Join();
+            independentTeardown.Join();
+
+            blockingStream.Release();
+            // The teardown trigger is the external token itself, so RunAsync's documented contract is
+            // to let that cancellation propagate rather than swallow it -- unlike the internal
+            // self-requested-close paths every other test in this file exercises.
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(1, handler.ConnectionEndedCalls);
+            Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
+            // Exactly one root-cause reason must ever reach diagnostics, even though the overflow and
+            // the independent teardown were racing to decide this connection's fate at the same instant.
+            Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
+            listener.Stop();
+        }
+    }
+
     /// <summary>Starts a loopback <see cref="TcpListener"/> on an operating-system-assigned port.</summary>
     private static (TcpListener Listener, int Port) StartLoopbackListener()
     {
