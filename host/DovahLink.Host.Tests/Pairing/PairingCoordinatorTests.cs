@@ -398,6 +398,29 @@ public class PairingCoordinatorTests
         Assert.Equal(PairingCommitOutcome.Trusted, retried.Outcome);
     }
 
+    /// <summary>
+    /// Verifies that a thrown persistence exception releases the commit's claim rather than leaving
+    /// the pending credential stuck uncancellable: unlike
+    /// <see cref="CommitPending_PersistenceFailure_IsRetryable"/>'s retry path, this proves the client
+    /// can instead choose to give up and cancel it normally afterward.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_PersistenceFailure_ReleasesClaimSoCancelSucceeds()
+    {
+        var trustStore = new FakeTrustStore { ThrowOnUpsert = new IOException("disk full") };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        PairingCommitResult failed = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.PersistenceFailed, failed.Outcome);
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+        Assert.Equal(PairingCommitOutcome.PendingNotFound,
+            (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
     /// <summary>Verifies that credential-generation failure leaves the active challenge retryable.</summary>
     [Fact]
     public void ConfirmCode_CredentialGenerationFails_PreservesChallenge()
@@ -488,6 +511,9 @@ public class PairingCoordinatorTests
 
         Assert.Equal(PairingCommitOutcome.GeneratorFailed, result.Outcome);
         Assert.Equal(PairingStartOutcome.Resumed, coordinator.BeginPairing(clientId).Outcome);
+        // A generator failure never reaches persistence, so it must release its claim rather than
+        // leave the pending credential stuck uncancellable: Cancel succeeds normally afterward.
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
     }
 
     /// <summary>Verifies that cancellation before finalization leaves the pending credential retryable.</summary>
@@ -545,17 +571,54 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
+    /// Verifies that a cancellation propagated during persistence releases the commit's claim rather
+    /// than leaving the pending credential stuck uncancellable: unlike
+    /// <see cref="CommitPending_CancelledDuringPersistenceAwait_PropagatesAndPreservesPendingCredential"/>'s
+    /// retry path, this proves the client can instead choose to give up and cancel it normally
+    /// afterward.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_CancelledDuringPersistenceAwait_ReleasesClaimSoCancelSucceeds()
+    {
+        var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        var trustStore = new FakeTrustStore
+        {
+            BeforeConditionalUpsert = async () =>
+            {
+                enteredUpsert.SetResult();
+                await releaseUpsert.Task.WaitAsync(cancellation.Token);
+            },
+        };
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!, cancellation.Token);
+        await enteredUpsert.Task;
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => commit);
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+        Assert.Equal(PairingCommitOutcome.PendingNotFound,
+            (await coordinator.CommitPendingAsync(clientId, issued.Credential!)).Outcome);
+    }
+
+    /// <summary>
     /// Verifies that <see cref="PairingCoordinator.CommitPendingAsync"/> does not hold the
     /// pairing-operation lock across its persistence await: <see cref="PairingCoordinator.CancelAll"/>
     /// completes immediately even while a commit's trust-store write is deliberately blocked, rather
-    /// than being forced to wait behind it the way holding the lock across the await would require.
-    /// Cancellation still wins what is reported, per <see cref="PairingCoordinator.CommitPendingAsync"/>'s
-    /// own remarks: the commit reports <see cref="PairingCommitOutcome.PairingInvalidated"/> rather than
-    /// <see cref="PairingCommitOutcome.Trusted"/>, even though the blocked write still lands durably once
-    /// released -- the one documented residual case a non-blocking cancellation cannot close.
+    /// than being forced to wait behind it the way holding the lock across the await would require. The
+    /// commit has already irrevocably claimed this exact reservation by the time the write is observed
+    /// entered, so <see cref="PairingCoordinator.CancelAll"/> racing in cannot invalidate it: the commit
+    /// still reports <see cref="PairingCommitOutcome.Trusted"/> once the write completes, closing the
+    /// orphaned-Trusted residual a plain identity compare-and-swap could not.
     /// </summary>
     [Fact]
-    public async Task CancelAll_DuringCommit_ProceedsWithoutWaitingForPersistenceAndCommitReportsInvalidated()
+    public async Task CancelAll_DuringCommit_DoesNotInvalidateTheIrrevocablyCommittingReservation()
     {
         var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -582,21 +645,19 @@ public class PairingCoordinatorTests
         releaseUpsert.SetResult();
         PairingCommitResult result = await commit;
 
-        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
-        // Documented residual: the write already landed durably before CancelAll's clear was observed.
-        // It is orphaned, not a security exposure -- nothing else can present the discarded credential,
-        // and the client's own next pairing attempt overwrites this exact record.
+        Assert.Equal(PairingCommitOutcome.Trusted, result.Outcome);
         Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
     }
 
     /// <summary>
-    /// Verifies the same cancellation-wins guarantee for the single-client <see cref="PairingCoordinator.Cancel"/>
-    /// path -- the ordinary <c>pairing_cancel</c> route, which unlike administrative invalidation
-    /// carries no trust-store mutation-generation fence of its own -- symmetric with
-    /// <see cref="CancelAll_DuringCommit_ProceedsWithoutWaitingForPersistenceAndCommitReportsInvalidated"/>.
+    /// Verifies the same non-blocking, non-invalidating guarantee for the single-client
+    /// <see cref="PairingCoordinator.Cancel"/> path -- the ordinary <c>pairing_cancel</c> route --
+    /// symmetric with <see cref="CancelAll_DuringCommit_DoesNotInvalidateTheIrrevocablyCommittingReservation"/>.
+    /// <see cref="PairingCoordinator.Cancel"/> itself reports <see cref="PairingCancelOutcome.AlreadyIdle"/>
+    /// rather than falsely claiming it cancelled a credential that goes on to persist.
     /// </summary>
     [Fact]
-    public async Task Cancel_DuringCommit_ProceedsWithoutWaitingForPersistenceAndCommitReportsInvalidated()
+    public async Task Cancel_DuringCommit_ReportsAlreadyIdleAndDoesNotInvalidateTheCommittingReservation()
     {
         var enteredUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseUpsert = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -615,7 +676,7 @@ public class PairingCoordinatorTests
 
         Task<PairingCommitResult> commit = coordinator.CommitPendingAsync(clientId, issued.Credential!);
         await enteredUpsert.Task;
-        Task cancel = Task.Run(() => coordinator.Cancel(clientId));
+        Task<PairingCancelOutcome> cancel = Task.Run(() => coordinator.Cancel(clientId));
         Task observationWindow = Task.Delay(TimeSpan.FromSeconds(2));
 
         Assert.Same(cancel, await Task.WhenAny(cancel, observationWindow));
@@ -623,8 +684,53 @@ public class PairingCoordinatorTests
         releaseUpsert.SetResult();
         PairingCommitResult result = await commit;
 
-        Assert.Equal(PairingCommitOutcome.PairingInvalidated, result.Outcome);
+        Assert.Equal(PairingCancelOutcome.AlreadyIdle, await cancel);
+        Assert.Equal(PairingCommitOutcome.Trusted, result.Outcome);
         Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies the other linearization order from
+    /// <see cref="Cancel_DuringCommit_ReportsAlreadyIdleAndDoesNotInvalidateTheCommittingReservation"/>:
+    /// when <see cref="PairingCoordinator.Cancel"/> clears the pending credential before a commit ever
+    /// claims it, that commit must never reach persistence at all -- it reports
+    /// <see cref="PairingCommitOutcome.PendingNotFound"/>, and no trust record is written.
+    /// </summary>
+    [Fact]
+    public async Task Cancel_BeforeCommitClaims_PreventsCommitFromPersisting()
+    {
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+        PairingCommitResult result = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, result.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the same before-the-claim linearization as
+    /// <see cref="Cancel_BeforeCommitClaims_PreventsCommitFromPersisting"/> for the administrative
+    /// <see cref="PairingCoordinator.CancelAll"/> path.
+    /// </summary>
+    [Fact]
+    public async Task CancelAll_BeforeCommitClaims_PreventsCommitFromPersisting()
+    {
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        coordinator.CancelAll();
+        PairingCommitResult result = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, result.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
     }
 
     /// <summary>
