@@ -303,7 +303,15 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 ExpireChallengeIfNeeded(now);
                 ExpirePendingIfNeeded(now);
 
-                if (trustStore.TryGet(clientId)?.State == KnownDeviceState.Blocked)
+                // One coherent snapshot for both the Blocked eligibility decision and the generation
+                // stamped onto a new challenge below: two independent trustStore reads here could
+                // observe a non-Blocked state from before an administrative mutation (Block, Revoke,
+                // Reset Trust, or Factory Reset) commits together with the generation from after it
+                // commits, making a stale challenge look as though it was created after a Block that
+                // should have prevented it, or after some other mutation whose own staleness check
+                // then never fires -- see TrustSecuritySnapshot's own remarks.
+                TrustSecuritySnapshot securitySnapshot = trustStore.GetSecuritySnapshot(clientId);
+                if (securitySnapshot.Record?.State == KnownDeviceState.Blocked)
                 {
                     return new PairingStartResult(PairingStartOutcome.Blocked, null);
                 }
@@ -327,7 +335,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 {
                     return new PairingStartResult(PairingStartOutcome.GeneratorFailed, null);
                 }
-                var challenge = new PairingChallenge(ChallengeId.NewId(), clientId, code, now + Constants.PairingChallengeLifetime, trustStore.SecurityFenceGeneration);
+                var challenge = new PairingChallenge(ChallengeId.NewId(), clientId, code, now + Constants.PairingChallengeLifetime, securitySnapshot.SecurityFenceGeneration);
                 activeChallenge = challenge;
                 committedDisplayChallengeId = null;
                 wrongAttempts = 0;

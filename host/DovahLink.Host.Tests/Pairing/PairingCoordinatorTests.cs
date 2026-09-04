@@ -1998,6 +1998,124 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
+    /// Reproduces the confirmed BeginPairing coherent-snapshot fix end-to-end against the real
+    /// <see cref="TrustStore"/>: while a concurrent <see cref="TrustStore.BlockAsync"/>'s persistence
+    /// write is still in flight -- so the store's live state and generation are still the pre-Block
+    /// values -- <see cref="PairingCoordinator.BeginPairing"/> must observe the non-Blocked state
+    /// together with the pre-Block generation and start a challenge stamped with it. Once Block
+    /// actually commits afterward, that challenge is stale: a subsequently correct
+    /// <see cref="PairingCoordinator.ConfirmCode"/> must report
+    /// <see cref="PairingConfirmOutcome.PairingInvalidated"/> rather than issuing a credential, proving
+    /// the eligibility decision made before the Block and the generation stamped onto the challenge
+    /// came from the same coherent pre-Block snapshot rather than two independent reads that could
+    /// straddle the commit.
+    /// </summary>
+    [Fact]
+    public async Task BeginPairing_DuringConcurrentBlockPersistence_StampsPreBlockGenerationAndLaterConfirmIsInvalidated()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        long preBlockGeneration = trustStore.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> block = trustStore.BlockAsync(clientId);
+        await enteredSave.Task;
+
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await block);
+
+        Assert.Equal(PairingStartOutcome.Started, start.Outcome);
+        Assert.Equal(preBlockGeneration, start.Challenge!.SecurityFenceGeneration);
+        Assert.NotEqual(preBlockGeneration, trustStore.SecurityFenceGeneration);
+
+        coordinator.CommitInitialDisplay(clientId, start.Challenge.Id);
+        PairingConfirmationResult confirmed = coordinator.ConfirmCode(clientId, start.Challenge.Code, null);
+
+        Assert.Equal(PairingConfirmOutcome.PairingInvalidated, confirmed.Outcome);
+        Assert.Null(confirmed.Credential);
+    }
+
+    /// <summary>
+    /// Verifies the complementary linearization to
+    /// <see cref="BeginPairing_DuringConcurrentBlockPersistence_StampsPreBlockGenerationAndLaterConfirmIsInvalidated"/>:
+    /// once an administrative Block has fully committed before <see cref="PairingCoordinator.BeginPairing"/>
+    /// is ever called, its coherent snapshot observes the new Blocked state together with the new
+    /// generation and rejects the operation outright -- pairing never starts, so there is no challenge
+    /// for a post-Block generation to be stamped onto at all.
+    /// </summary>
+    [Fact]
+    public async Task BeginPairing_AfterBlockCommits_ObservesPostBlockSnapshotAndReturnsBlocked()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+
+        Assert.Equal(TrustMutationOutcome.Changed, await trustStore.BlockAsync(clientId));
+        PairingStartResult result = coordinator.BeginPairing(clientId);
+
+        Assert.Equal(PairingStartOutcome.Blocked, result.Outcome);
+        Assert.Null(result.Challenge);
+    }
+
+    /// <summary>
+    /// Verifies the coherent-snapshot fix generalizes beyond Block to any generation-advancing
+    /// administrative mutation: a concurrent Revoke never sets Blocked eligibility, so it must not
+    /// prevent the challenge from starting, but its in-flight persistence must still leave the
+    /// snapshot's generation coherent with the record it was read alongside -- proven the same way as
+    /// <see cref="BeginPairing_DuringConcurrentBlockPersistence_StampsPreBlockGenerationAndLaterConfirmIsInvalidated"/>
+    /// by a subsequent correct confirm reporting <see cref="PairingConfirmOutcome.PairingInvalidated"/>
+    /// once Revoke has committed.
+    /// </summary>
+    [Fact]
+    public async Task BeginPairing_DuringConcurrentRevokePersistence_StampsPreRevokeGenerationAndLaterConfirmIsInvalidated()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        long preRevokeGeneration = trustStore.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> revoke = trustStore.RevokeAsync(clientId);
+        await enteredSave.Task;
+
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await revoke);
+
+        Assert.Equal(PairingStartOutcome.Started, start.Outcome);
+        Assert.Equal(preRevokeGeneration, start.Challenge!.SecurityFenceGeneration);
+        Assert.NotEqual(preRevokeGeneration, trustStore.SecurityFenceGeneration);
+
+        coordinator.CommitInitialDisplay(clientId, start.Challenge.Id);
+        PairingConfirmationResult confirmed = coordinator.ConfirmCode(clientId, start.Challenge.Code, null);
+
+        Assert.Equal(PairingConfirmOutcome.PairingInvalidated, confirmed.Outcome);
+        Assert.Null(confirmed.Credential);
+    }
+
+    /// <summary>
     /// Verifies that a second concurrent <see cref="PairingCoordinator.CommitPendingAsync"/> call for
     /// the exact same pending credential can never also claim it while a first call's exclusive claim
     /// is still live: it observes <see cref="PairingCommitOutcome.PendingNotFound"/> without ever
