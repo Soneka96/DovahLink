@@ -907,4 +907,14 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             // failure here must still not prevent this connection's read loop from starting.
         }
     }
+
+    /// <summary>
+    /// Test-only, non-mutating check of whether <see cref="TrySend"/> currently has room to admit one
+    /// more message under <see cref="PublicWebSocketTransportOptions.OutboundQueueMaxMessages"/>,
+    /// without <see cref="TrySend"/>'s own side effect of requesting a forced close on a failed
+    /// reservation. Lets a test poll for the outbound slot actually becoming free again without every
+    /// failing poll attempt itself tearing down the connection under observation.
+    /// </summary>
+    internal bool HasSpareOutboundMessageCapacity =>
+        Volatile.Read(ref outboundOutstandingMessages) < options.OutboundQueueMaxMessages;
 }

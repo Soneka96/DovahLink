@@ -1495,8 +1495,12 @@ public class PublicWebSocketConnectionTests
         // block on the writer loop's own continuation after its send completes, which races the
         // peer's independent receive-completion continuation on the shared thread pool with no
         // ordering guarantee between the two. Poll the actual condition under test -- the slot
-        // becoming available again -- instead of inferring it from that unrelated event.
-        await WaitUntilAsync(() => connection.TrySend(Encoding.UTF8.GetBytes("second")), runTask);
+        // becoming available again -- through the non-mutating HasSpareOutboundMessageCapacity check
+        // rather than TrySend itself: TrySend's own failure path requests this connection's forced
+        // close, so using it as the poll predicate would let the first failing poll tear down the very
+        // connection the test is waiting on.
+        await WaitUntilAsync(() => connection.HasSpareOutboundMessageCapacity, runTask);
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second")));
 
         listener.Stop();
         connection.RequestClose();
