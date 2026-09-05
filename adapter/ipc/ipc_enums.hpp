@@ -32,6 +32,15 @@ enum class IpcMessageKind : std::uint8_t {
   kListenEvent = 8,
   ///  Sent by the host to ask the adapter to perform one opaque sample token.
   kReadSample = 9,
+  ///  Sent by the host to ask the adapter to present a pairing code. See
+  ///  `IpcPairingDisplayMessage`.
+  kPairingDisplay = 10,
+  ///  Sent by the adapter in response to a pairing display request. See
+  ///  `IpcPairingDisplayAckMessage`.
+  kPairingDisplayAck = 11,
+  ///  Sent by the host to present a no-code attempts-exhausted notification.
+  ///  See `IpcPairingAttemptsExhaustedMessage`.
+  kPairingAttemptsExhausted = 12,
 };
 
 ///  Why a private IPC channel is being closed.
@@ -70,6 +79,18 @@ enum class IpcHelloRejectReason : std::uint8_t {
   ///  The Hello's `ownerLifetimeId` did not match the value this host
   ///  process was launched with.
   kLifetimeMismatch = 3,
+};
+
+///  Which Skyrim-facing pairing-code display intent an
+///  `IpcPairingDisplayMessage` carries.
+enum class PairingDisplayMode : std::uint8_t {
+  ///  The first display of a freshly generated code.
+  kInitial = 0,
+  ///  A client-requested manual redisplay of the still-active code.
+  kManualRedisplay = 1,
+  ///  A best-effort redisplay after a wrong evaluated code, shown with
+  ///  incorrect-attempt presentation.
+  kWrongCodeRedisplay = 2,
 };
 
 } //  namespace dovahlink::adapter::ipc

@@ -7,6 +7,9 @@
 #include "ipc/ipc_hello_ack_message.hpp"
 #include "ipc/ipc_hello_message.hpp"
 #include "ipc/ipc_listen_event_message.hpp"
+#include "ipc/ipc_pairing_attempts_exhausted_message.hpp"
+#include "ipc/ipc_pairing_display_ack_message.hpp"
+#include "ipc/ipc_pairing_display_message.hpp"
 #include "ipc/ipc_read_sample_message.hpp"
 #include "ipc/ipc_reject_message.hpp"
 #include "ipc/ipc_resynchronize_request_message.hpp"
@@ -21,6 +24,8 @@ using IpcMessage =
     std::variant<IpcHelloMessage, IpcHelloAckMessage,
                  IpcResynchronizeRequestMessage, IpcResynchronizeResultMessage,
                  IpcCloseMessage, IpcRejectMessage, IpcCancelMessage,
-                 IpcListenEventMessage, IpcReadSampleMessage>;
+                 IpcListenEventMessage, IpcReadSampleMessage,
+                 IpcPairingDisplayMessage, IpcPairingDisplayAckMessage,
+                 IpcPairingAttemptsExhaustedMessage>;
 
 } //  namespace dovahlink::adapter::ipc

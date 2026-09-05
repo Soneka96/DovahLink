@@ -80,4 +80,11 @@ inline constexpr std::size_t kIpcHostProofBytes = 32;
 inline constexpr std::size_t kIpcHostProofMessageBytes =
     kIpcChallengeBytes + 8 + 16 + kIpcOwnerLifetimeIdBytes;
 
+//  ---- Pairing ----
+
+///  The number of ASCII decimal digits in an `IpcPairingDisplayMessage`'s
+///  pairing code, matching the host's own generated pairing challenge code
+///  length.
+inline constexpr std::size_t kPairingChallengeCodeDigits = 6;
+
 } //  namespace dovahlink::adapter::ipc

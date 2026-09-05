@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -54,7 +55,18 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-  return value >= 1 && value <= 9;
+  return value >= 1 && value <= 12;
+}
+
+///  Whether `value` is one of `PairingDisplayMode`'s contiguous defined
+///  values.
+constexpr bool IsDefinedPairingDisplayMode(std::uint8_t value) {
+  return value <= 2;
+}
+
+///  Whether every character in `text` is an ASCII decimal digit.
+constexpr bool AreAllAsciiDigits(std::string_view text) {
+  return std::ranges::all_of(text, [](char c) { return c >= '0' && c <= '9'; });
 }
 
 ///  Whether `value` is one of `IpcCloseReason`'s contiguous defined values.
@@ -143,6 +155,35 @@ IpcFrameCodec::EncodeReadSample(const IpcReadSampleMessage &readSample) {
   return payload;
 }
 
+std::vector<std::byte> IpcFrameCodec::EncodePairingDisplay(
+    const IpcPairingDisplayMessage &pairingDisplay) {
+  if (pairingDisplay.correlationId == 0) {
+    throw std::invalid_argument(
+        "A pairing-display request must have a nonzero correlation id.");
+  }
+
+  if (!IsDefinedPairingDisplayMode(std::to_underlying(pairingDisplay.mode))) {
+    throw std::invalid_argument(
+        "The pairing-display mode is not a recognized value.");
+  }
+
+  if (pairingDisplay.code.size() != kPairingChallengeCodeDigits ||
+      !AreAllAsciiDigits(pairingDisplay.code)) {
+    throw std::invalid_argument(
+        "A pairing code must be exactly kPairingChallengeCodeDigits ASCII "
+        "decimal digits.");
+  }
+
+  std::vector<std::byte> payload(1 + kPairingChallengeCodeDigits);
+  payload[0] = static_cast<std::byte>(std::to_underlying(pairingDisplay.mode));
+  for (std::size_t index = 0; index < pairingDisplay.code.size(); ++index) {
+    payload[1 + index] = static_cast<std::byte>(
+        static_cast<unsigned char>(pairingDisplay.code[index]));
+  }
+
+  return payload;
+}
+
 std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage &message) const {
   IpcMessageKind kind{};
   std::uint64_t correlationId = 0;
@@ -186,6 +227,25 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage &message) const {
         } else if constexpr (std::is_same_v<T, IpcReadSampleMessage>) {
           kind = IpcMessageKind::kReadSample;
           payload = EncodeReadSample(value);
+        } else if constexpr (std::is_same_v<T, IpcPairingDisplayMessage>) {
+          kind = IpcMessageKind::kPairingDisplay;
+          payload = EncodePairingDisplay(value);
+        } else if constexpr (std::is_same_v<T, IpcPairingDisplayAckMessage>) {
+          if (value.correlationId == 0) {
+            throw std::invalid_argument(
+                "A pairing-display acknowledgement must identify a nonzero "
+                "request correlation id.");
+          }
+          kind = IpcMessageKind::kPairingDisplayAck;
+          payload = {static_cast<std::byte>(value.accepted ? 1 : 0)};
+        } else if constexpr (std::is_same_v<
+                                 T, IpcPairingAttemptsExhaustedMessage>) {
+          if (value.correlationId != 0) {
+            throw std::invalid_argument(
+                "An attempts-exhausted notification must have correlation id "
+                "zero.");
+          }
+          kind = IpcMessageKind::kPairingAttemptsExhausted;
         }
       },
       message);
@@ -368,6 +428,50 @@ IpcFrameCodec::DecodeReadSample(std::uint64_t correlationId,
 }
 
 std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodePairingDisplay(std::uint64_t correlationId,
+                                    std::span<const std::byte> payload) {
+  if (correlationId == 0 || payload.size() != 1 + kPairingChallengeCodeDigits) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  const auto modeByte = std::to_integer<std::uint8_t>(payload[0]);
+  if (!IsDefinedPairingDisplayMode(modeByte)) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  std::string code(kPairingChallengeCodeDigits, '\0');
+  for (std::size_t index = 0; index < kPairingChallengeCodeDigits; ++index) {
+    const auto digitByte = std::to_integer<std::uint8_t>(payload[1 + index]);
+    if (digitByte < static_cast<std::uint8_t>('0') ||
+        digitByte > static_cast<std::uint8_t>('9')) {
+      return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+    code[index] = static_cast<char>(digitByte);
+  }
+
+  return IpcMessage{IpcPairingDisplayMessage{
+      .correlationId = correlationId,
+      .code = std::move(code),
+      .mode = static_cast<PairingDisplayMode>(modeByte)}};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodePairingDisplayAck(std::uint64_t correlationId,
+                                       std::span<const std::byte> payload) {
+  if (correlationId == 0 || payload.size() != 1) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  const auto acceptedByte = std::to_integer<std::uint8_t>(payload[0]);
+  if (acceptedByte > 1) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  return IpcMessage{IpcPairingDisplayAckMessage{.correlationId = correlationId,
+                                                .accepted = acceptedByte == 1}};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
   if (frame.size() < kIpcFrameHeaderBytes || frame.size() > kMaxIpcFrameBytes) {
     return std::unexpected(IpcRejectReason::kMalformedFrameLength);
@@ -409,6 +513,16 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
     return DecodeListenEvent(correlationId, payload);
   case IpcMessageKind::kReadSample:
     return DecodeReadSample(correlationId, payload);
+  case IpcMessageKind::kPairingDisplay:
+    return DecodePairingDisplay(correlationId, payload);
+  case IpcMessageKind::kPairingDisplayAck:
+    return DecodePairingDisplayAck(correlationId, payload);
+  case IpcMessageKind::kPairingAttemptsExhausted:
+    if (correlationId != 0 || !payload.empty()) {
+      return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+    return IpcMessage{
+        IpcPairingAttemptsExhaustedMessage{.correlationId = correlationId}};
   }
 
   return std::unexpected(IpcRejectReason::kUnknownMessageKind);

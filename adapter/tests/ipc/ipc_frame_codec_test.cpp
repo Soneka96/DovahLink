@@ -32,6 +32,9 @@ using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcListenEventMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcMessageKind;
+using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
+using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
+using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
@@ -43,6 +46,8 @@ using dovahlink::adapter::ipc::kIpcHostProofBytes;
 using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxIpcFrameBytes;
 using dovahlink::adapter::ipc::kMaxIpcPeerProofTokenBytes;
+using dovahlink::adapter::ipc::kPairingChallengeCodeDigits;
+using dovahlink::adapter::ipc::PairingDisplayMode;
 
 namespace {
 
@@ -424,6 +429,47 @@ TEST_CASE("maximum correlation id round-trips exactly",
   CHECK(cancel->correlationId == kMaxCorrelationId);
 }
 
+TEST_CASE("pairing-display request round-trips for every display mode",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (PairingDisplayMode mode :
+       {PairingDisplayMode::kInitial, PairingDisplayMode::kManualRedisplay,
+        PairingDisplayMode::kWrongCodeRedisplay}) {
+    IpcPairingDisplayMessage original{
+        .correlationId = 7, .code = "048372", .mode = mode};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
+TEST_CASE("pairing-display acknowledgement round-trips for both outcomes",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (bool accepted : {true, false}) {
+    IpcPairingDisplayAckMessage original{.correlationId = 7,
+                                         .accepted = accepted};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
+TEST_CASE("attempts-exhausted notification round-trips",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  IpcPairingAttemptsExhaustedMessage original{.correlationId = 0};
+
+  auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+  REQUIRE(result.has_value());
+  CHECK(*result == IpcMessage{original});
+}
+
 //  ---- Encode failures ----
 
 TEST_CASE("encoding a hello with an oversized token throws",
@@ -443,6 +489,76 @@ TEST_CASE("encoding a close with nonzero correlation id throws",
 
   CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcCloseMessage{
                       .correlationId = 1, .reason = IpcCloseReason::kNormal}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a pairing-display request with a zero correlation id "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                      .correlationId = 0,
+                      .code = "123456",
+                      .mode = PairingDisplayMode::kInitial}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a pairing-display request with an invalid mode throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                      .correlationId = 1,
+                      .code = "123456",
+                      .mode = static_cast<PairingDisplayMode>(250)}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a pairing-display request with a code of the wrong "
+          "length throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (const std::string &code :
+       {std::string("12345"), std::string("1234567"), std::string()}) {
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                        .correlationId = 1,
+                        .code = code,
+                        .mode = PairingDisplayMode::kInitial}}),
+                    std::invalid_argument);
+  }
+}
+
+TEST_CASE("encoding a pairing-display request with a non-digit code throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (const std::string &code :
+       {std::string("12a456"), std::string("12345a")}) {
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                        .correlationId = 1,
+                        .code = code,
+                        .mode = PairingDisplayMode::kInitial}}),
+                    std::invalid_argument);
+  }
+}
+
+TEST_CASE("encoding a pairing-display acknowledgement with a zero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayAckMessage{
+                      .correlationId = 0, .accepted = true}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding an attempts-exhausted notification with a nonzero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{
+                      IpcPairingAttemptsExhaustedMessage{.correlationId = 1}}),
                   std::invalid_argument);
 }
 
@@ -504,7 +620,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  for (std::byte kindByte : {std::byte{0}, std::byte{10}, std::byte{250}}) {
+  //  13 is the value immediately past the currently highest defined kind
+  //  (kPairingAttemptsExhausted = 12); update this alongside any future kind
+  //  addition so it keeps testing the actual boundary.
+  for (std::byte kindByte : {std::byte{0}, std::byte{13}, std::byte{250}}) {
     std::vector<std::byte> frame =
         codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
     frame[4] = kindByte;
@@ -855,6 +974,147 @@ TEST_CASE("capture intents preserve the maximum correlation id",
   }
 }
 
+TEST_CASE("a pairing-display request with a zero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> payload(1 + kPairingChallengeCodeDigits);
+  payload[0] =
+      std::byte{static_cast<std::uint8_t>(PairingDisplayMode::kInitial)};
+  for (std::size_t index = 0; index < kPairingChallengeCodeDigits; ++index) {
+    payload[1 + index] = std::byte{static_cast<std::uint8_t>('1' + index)};
+  }
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplay, 0, payload);
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display request with an unrecognized mode fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> payload(1 + kPairingChallengeCodeDigits,
+                                 std::byte{'1'});
+  payload[0] = std::byte{250};
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplay, 1, payload);
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display request with a non-digit code fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  //  Index 1 (the first code byte, right after the mode byte) and the last
+  //  code byte both exercise the validation loop's boundaries, not only a
+  //  middle position.
+  for (std::size_t nonDigitOffset :
+       {std::size_t{1}, kPairingChallengeCodeDigits}) {
+    std::vector<std::byte> payload(1 + kPairingChallengeCodeDigits,
+                                   std::byte{'1'});
+    payload[0] =
+        std::byte{static_cast<std::uint8_t>(PairingDisplayMode::kInitial)};
+    payload[nonDigitOffset] = std::byte{'a'};
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPairingDisplay, 1, payload);
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("a pairing-display request payload of the wrong length fails "
+          "closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (std::size_t payloadSize :
+       {kPairingChallengeCodeDigits, kPairingChallengeCodeDigits + 2}) {
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPairingDisplay, 1,
+                   std::vector<std::byte>(payloadSize));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("a pairing-display acknowledgement with a zero correlation id "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplayAck, 0, {std::byte{1}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display acknowledgement with an out-of-range accepted "
+          "byte fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplayAck, 1, {std::byte{2}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display acknowledgement payload of the wrong length "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (std::size_t payloadSize : {std::size_t{0}, std::size_t{2}}) {
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPairingDisplayAck, 1,
+                   std::vector<std::byte>(payloadSize));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("an attempts-exhausted notification with a nonzero correlation id "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingAttemptsExhausted, 1, {});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("an attempts-exhausted notification carrying an unexpected "
+          "payload fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingAttemptsExhausted, 0, {std::byte{0}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
 TEST_CASE("host and adapter share exact no-version golden wire vectors",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
@@ -917,6 +1177,20 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
                                        .sampleToken = 0xA1B2C3D4}},
        Bytes({0x0D, 0x00, 0x00, 0x00, 0x09, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33,
               0x22, 0x11, 0xD4, 0xC3, 0xB2, 0xA1})},
+      //  7-byte payload: 1 mode byte + 6 ASCII code digits.
+      {IpcMessage{
+           IpcPairingDisplayMessage{.correlationId = 8,
+                                    .code = "123456",
+                                    .mode = PairingDisplayMode::kInitial}},
+       Bytes({0x10, 0x00, 0x00, 0x00, 0x0A, 0x08, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36})},
+      {IpcMessage{
+           IpcPairingDisplayAckMessage{.correlationId = 9, .accepted = true}},
+       Bytes({0x0A, 0x00, 0x00, 0x00, 0x0B, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x01})},
+      {IpcMessage{IpcPairingAttemptsExhaustedMessage{.correlationId = 0}},
+       Bytes({0x09, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00})},
   };
 
   for (const auto &[message, expected] : vectors) {

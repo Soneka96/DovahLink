@@ -111,6 +111,25 @@ private:
   static std::expected<IpcMessage, IpcRejectReason>
   DecodeReadSample(std::uint64_t correlationId,
                    std::span<const std::byte> payload);
+
+  ///  Encodes an `IpcPairingDisplayMessage` payload: one mode byte followed by
+  ///  the fixed-length code digits.
+  ///  @throws std::invalid_argument The correlation id, mode, or code is
+  ///  invalid.
+  static std::vector<std::byte>
+  EncodePairingDisplay(const IpcPairingDisplayMessage &pairingDisplay);
+
+  ///  Decodes a pairing-display request, validating its mode and fixed-length
+  ///  code digits.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodePairingDisplay(std::uint64_t correlationId,
+                       std::span<const std::byte> payload);
+
+  ///  Decodes a pairing-display acknowledgement, validating its boolean
+  ///  field.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodePairingDisplayAck(std::uint64_t correlationId,
+                          std::span<const std::byte> payload);
 };
 
 } //  namespace dovahlink::adapter::ipc
