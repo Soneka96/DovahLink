@@ -55,6 +55,7 @@ find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_adapter_runtime STATIC
     runtime/commonlib_adapter_task_marshaller.cpp
     papyrus/commonlib_adapter_status_papyrus_adapter.cpp
+    ipc/commonlib_adapter_pairing_notification_sink.cpp
 )
 target_link_libraries(dovahlink_adapter_runtime PUBLIC dovahlink_adapter_core CommonLibSSE::CommonLibSSE)
 

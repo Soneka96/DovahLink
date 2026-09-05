@@ -5,6 +5,7 @@
 #include "identity/adapter_instance_id.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 #include "ipc/adapter_ipc_target.hpp"
+#include "ipc/adapter_pairing_notification_sink.hpp"
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_message.hpp"
 #include "runtime/adapter_task_marshaller.hpp"
@@ -100,6 +101,8 @@ public:
   ///  thread.
   ///  @param dispatcher Performs the one generic key-to-Skyrim translation.
   ///  @param captureQueue Receives owned captured values for handoff.
+  ///  @param pairingNotificationSink Presents host-decided pairing-display
+  ///  and attempts-exhausted notifications at the Skyrim-facing display seam.
   ///  @param onGameThreadDispatchRejected Invoked when a resynchronization,
   ///  listen-event, or read-sample request is rejected at the
   ///  `kMaxPendingGameThreadDispatches` bound instead of being marshaled onto
@@ -111,6 +114,7 @@ public:
       runtime::IAdapterTaskMarshaller &taskMarshaller,
       dispatch::IAdapterNativeDispatcher &dispatcher,
       capture::IAdapterCaptureHandoffQueue &captureQueue,
+      IAdapterPairingNotificationSink &pairingNotificationSink,
       std::function<void()> onGameThreadDispatchRejected = [] {});
 
   ///  Invalidates deferred game-thread tasks and waits for any task already
@@ -169,6 +173,17 @@ private:
   ///  queue.
   void HandleReadSample(const IpcReadSampleMessage &readSample);
 
+  ///  Marshals a pairing-display request onto the game thread, presents it
+  ///  through `pairingNotificationSink_`, and replies with an
+  ///  `IpcPairingDisplayAckMessage` carrying the sink's accepted value.
+  void HandlePairingDisplay(const IpcPairingDisplayMessage &pairingDisplay);
+
+  ///  Marshals a no-code attempts-exhausted notification onto the game
+  ///  thread and presents it through `pairingNotificationSink_`. Best
+  ///  effort; sends no reply.
+  void HandlePairingAttemptsExhausted(
+      const IpcPairingAttemptsExhaustedMessage &pairingAttemptsExhausted);
+
   ///  Admits `task` against `kMaxPendingGameThreadDispatches` and marshals it
   ///  onto the game thread, wrapped so its slot in
   ///  `pendingGameThreadDispatchCount_` is always released -- whether `task`
@@ -210,6 +225,9 @@ private:
   dispatch::IAdapterNativeDispatcher &dispatcher_;
   ///  Receives owned captured values for handoff.
   capture::IAdapterCaptureHandoffQueue &captureQueue_;
+  ///  Presents host-decided pairing-display and attempts-exhausted
+  ///  notifications at the Skyrim-facing display seam.
+  IAdapterPairingNotificationSink &pairingNotificationSink_;
   ///  Invoked when a deferred game-thread dispatch is rejected at the
   ///  `kMaxPendingGameThreadDispatches` bound.
   std::function<void()> onGameThreadDispatchRejected_;

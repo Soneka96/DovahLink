@@ -32,6 +32,7 @@ using dovahlink::adapter::ipc::BuildHostProofMessage;
 using dovahlink::adapter::ipc::ComputeIpcHmacSha256;
 using dovahlink::adapter::ipc::FixedAdapterIpcPeerProofProvider;
 using dovahlink::adapter::ipc::IAdapterIpcConnection;
+using dovahlink::adapter::ipc::IAdapterPairingNotificationSink;
 using dovahlink::adapter::ipc::IpcCancelMessage;
 using dovahlink::adapter::ipc::IpcCloseMessage;
 using dovahlink::adapter::ipc::IpcCloseReason;
@@ -40,6 +41,9 @@ using dovahlink::adapter::ipc::IpcHelloMessage;
 using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcListenEventMessage;
 using dovahlink::adapter::ipc::IpcMessage;
+using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
+using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
+using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
@@ -48,6 +52,7 @@ using dovahlink::adapter::ipc::IpcResynchronizeResultMessage;
 using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxPendingGameThreadDispatches;
 using dovahlink::adapter::ipc::kMaxPendingIpcCancellations;
+using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::runtime::IAdapterTaskMarshaller;
 
 namespace {
@@ -166,6 +171,36 @@ private:
   std::vector<AdapterCaptureWorkItem> enqueued_;
 };
 
+///  A fake `IAdapterPairingNotificationSink` that records every call and
+///  returns a configurable accepted result.
+class FakeAdapterPairingNotificationSink final
+    : public IAdapterPairingNotificationSink {
+public:
+  bool Display(const std::string &code, PairingDisplayMode mode) override {
+    displayed_.emplace_back(code, mode);
+    return displayResult_;
+  }
+
+  void NotifyAttemptsExhausted() override { ++attemptsExhaustedCalls_; }
+
+  ///  The (code, mode) pairs passed to `Display`, in call order.
+  const std::vector<std::pair<std::string, PairingDisplayMode>> &
+  Displayed() const {
+    return displayed_;
+  }
+
+  ///  The number of times `NotifyAttemptsExhausted` was called.
+  std::size_t AttemptsExhaustedCalls() const { return attemptsExhaustedCalls_; }
+
+  ///  Sets the result `Display` returns for every subsequent call.
+  void SetDisplayResult(bool result) { displayResult_ = result; }
+
+private:
+  std::vector<std::pair<std::string, PairingDisplayMode>> displayed_;
+  std::size_t attemptsExhaustedCalls_ = 0;
+  bool displayResult_ = true;
+};
+
 ///  A fake `IAdapterIpcConnection` that records every message sent through
 ///  it, instead of any real transport.
 class FakeAdapterIpcConnection final : public IAdapterIpcConnection {
@@ -226,6 +261,7 @@ struct SessionFixture {
   FakeAdapterTaskMarshaller marshaller;
   FakeAdapterNativeDispatcher dispatcher;
   FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
   ///  The number of times `session` reported a rejected game-thread dispatch.
   std::size_t rejectedDispatchCount = 0;
   ///  When true, the rejection callback throws instead of just counting, so
@@ -236,6 +272,7 @@ struct SessionFixture {
                             marshaller,
                             dispatcher,
                             captureQueue,
+                            pairingNotificationSink,
                             [this] {
                               ++rejectedDispatchCount;
                               if (throwOnRejectedDispatch) {
@@ -545,11 +582,13 @@ TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
   FakeAdapterTaskMarshaller marshaller;
   FakeAdapterNativeDispatcher dispatcher;
   FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
   FakeAdapterIpcConnection connection;
 
   {
     AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
-                              marshaller, dispatcher, captureQueue};
+                              marshaller,         dispatcher,
+                              captureQueue,       pairingNotificationSink};
     session.AttachConnection(connection);
     Authenticate(session, connection, target);
     session.HandleMessage(
@@ -790,10 +829,11 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
   std::shared_future<void> releaseFuture = releasePromise.get_future().share();
   BlockingAdapterNativeDispatcher dispatcher{enteredPromise, releaseFuture};
   FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
   FakeAdapterIpcConnection connection;
   auto session = std::make_unique<AdapterIpcSession>(
       SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-      captureQueue);
+      captureQueue, pairingNotificationSink);
   session->AttachConnection(connection);
   Authenticate(*session, connection, target);
   session->HandleMessage(
@@ -846,10 +886,11 @@ TEST_CASE("AdapterIpcSession's queued game-thread dispatch stays safe to run "
   FakeAdapterTaskMarshaller marshaller;
   FakeAdapterNativeDispatcher dispatcher;
   FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
   FakeAdapterIpcConnection connection;
   auto session = std::make_unique<AdapterIpcSession>(
       SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-      captureQueue);
+      captureQueue, pairingNotificationSink);
   session->AttachConnection(connection);
   Authenticate(*session, connection, target);
 
@@ -1483,4 +1524,227 @@ TEST_CASE("AdapterIpcSession cancels a read-sample dispatch received before "
 
   CHECK(fixture.dispatcher.DispatchedKeys().empty());
   CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession handles a pairing-display request by "
+          "presenting it through the sink and acknowledging it, for every "
+          "display mode") {
+  for (PairingDisplayMode mode :
+       {PairingDisplayMode::kInitial, PairingDisplayMode::kManualRedisplay,
+        PairingDisplayMode::kWrongCodeRedisplay}) {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    CHECK(fixture.session.HandleMessage(IpcMessage{IpcPairingDisplayMessage{
+              .correlationId = 5, .code = "123456", .mode = mode}}) ==
+          AdapterIpcMessageDisposition::kContinue);
+    REQUIRE(fixture.pairingNotificationSink.Displayed().empty());
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.pairingNotificationSink.Displayed().size() == 1);
+    CHECK(fixture.pairingNotificationSink.Displayed().front().first ==
+          "123456");
+    CHECK(fixture.pairingNotificationSink.Displayed().front().second == mode);
+    REQUIRE(connection.Sent().size() == 1);
+    auto *ack =
+        std::get_if<IpcPairingDisplayAckMessage>(&connection.Sent().front());
+    REQUIRE(ack != nullptr);
+    CHECK(ack->correlationId == 5);
+    CHECK(ack->accepted);
+  }
+}
+
+TEST_CASE("AdapterIpcSession's pairing-display acknowledgement reflects a "
+          "declined sink result") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.pairingNotificationSink.SetDisplayResult(false);
+
+  fixture.session.HandleMessage(IpcMessage{
+      IpcPairingDisplayMessage{.correlationId = 5,
+                               .code = "123456",
+                               .mode = PairingDisplayMode::kInitial}});
+  fixture.marshaller.RunAllPending();
+
+  REQUIRE(connection.Sent().size() == 1);
+  auto *ack =
+      std::get_if<IpcPairingDisplayAckMessage>(&connection.Sent().front());
+  REQUIRE(ack != nullptr);
+  CHECK_FALSE(ack->accepted);
+}
+
+TEST_CASE("AdapterIpcSession handles an attempts-exhausted notification by "
+          "presenting it through the sink and sending no reply") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcPairingAttemptsExhaustedMessage{.correlationId = 0}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.pairingNotificationSink.AttemptsExhaustedCalls() == 0);
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.pairingNotificationSink.AttemptsExhaustedCalls() == 1);
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession never dispatches a pairing-display or "
+          "attempts-exhausted notification received before any accepted, "
+          "matching-proof HelloAck") {
+  SessionFixture fixture;
+
+  fixture.session.HandleMessage(IpcMessage{
+      IpcPairingDisplayMessage{.correlationId = 1,
+                               .code = "123456",
+                               .mode = PairingDisplayMode::kInitial}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcPairingAttemptsExhaustedMessage{.correlationId = 0}});
+
+  CHECK(fixture.marshaller.PendingCount() == 0);
+  CHECK(fixture.pairingNotificationSink.Displayed().empty());
+  CHECK(fixture.pairingNotificationSink.AttemptsExhaustedCalls() == 0);
+}
+
+TEST_CASE("AdapterIpcSession cancels a pairing-display dispatch received "
+          "before its marshaled task runs, sending no acknowledgement") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcPairingDisplayMessage{.correlationId = 11,
+                                     .code = "123456",
+                                     .mode = PairingDisplayMode::kInitial}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 11}}) == AdapterIpcMessageDisposition::kContinue);
+
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.pairingNotificationSink.Displayed().empty());
+  CHECK(connection.Sent().empty());
+}
+
+namespace {
+
+///  A sink whose every method throws, so a test can prove
+///  `AdapterIpcSession`'s marshaled pairing-display and attempts-exhausted
+///  tasks contain a sink failure the same way they already contain a
+///  dispatcher failure.
+class ThrowingPairingNotificationSink final
+    : public IAdapterPairingNotificationSink {
+public:
+  bool Display(const std::string &, PairingDisplayMode) override {
+    throw std::runtime_error("Display failed");
+  }
+  void NotifyAttemptsExhausted() override {
+    throw std::runtime_error("NotifyAttemptsExhausted failed");
+  }
+};
+
+} //  namespace
+
+TEST_CASE("AdapterIpcSession contains an exception thrown by the pairing "
+          "notification sink inside a marshaled pairing-display task") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  ThrowingPairingNotificationSink throwingSink;
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterIpcConnection connection;
+  AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
+                            marshaller,         dispatcher,
+                            captureQueue,       throwingSink};
+  session.AttachConnection(connection);
+  Authenticate(session, connection, target);
+
+  session.HandleMessage(IpcMessage{
+      IpcPairingDisplayMessage{.correlationId = 1,
+                               .code = "123456",
+                               .mode = PairingDisplayMode::kInitial}});
+  session.HandleMessage(
+      IpcMessage{IpcPairingAttemptsExhaustedMessage{.correlationId = 0}});
+
+  //  If either exception escaped, it would propagate out of RunAllPending()
+  //  and fail this test.
+  REQUIRE_NOTHROW(marshaller.RunAllPending());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending pairing-display request after "
+          "disconnect") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.session.HandleMessage(IpcMessage{
+      IpcPairingDisplayMessage{.correlationId = 1,
+                               .code = "123456",
+                               .mode = PairingDisplayMode::kInitial}});
+  fixture.session.HandleDisconnected();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.pairingNotificationSink.Displayed().empty());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending pairing-display request after "
+          "logical closing, even before the physical disconnect notifies "
+          "the session") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.session.HandleMessage(IpcMessage{
+      IpcPairingDisplayMessage{.correlationId = 1,
+                               .code = "123456",
+                               .mode = PairingDisplayMode::kInitial}});
+  fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.pairingNotificationSink.Displayed().empty());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending pairing-display request from an "
+          "older connection generation after reconnect") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.session.HandleMessage(IpcMessage{
+      IpcPairingDisplayMessage{.correlationId = 1,
+                               .code = "123456",
+                               .mode = PairingDisplayMode::kInitial}});
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  //  A full second handshake is not needed to prove the old generation's
+  //  pending work is dropped: HandleConnected alone unconditionally bumps
+  //  connectionGeneration_, matching "drops pending intent requests from an
+  //  older generation after reconnect"'s identical shape for listen-event
+  //  and read-sample.
+  fixture.session.HandleDisconnected();
+  fixture.session.HandleConnected(fixture.target);
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.pairingNotificationSink.Displayed().empty());
 }

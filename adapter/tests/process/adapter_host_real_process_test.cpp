@@ -261,6 +261,18 @@ public:
   void Stop() override {}
 };
 
+///  Presents nothing, since this cross-process test is concerned with IPC
+///  connection recovery, not pairing display.
+class NoopPairingNotificationSink final
+    : public dovahlink::adapter::ipc::IAdapterPairingNotificationSink {
+public:
+  bool Display(const std::string &,
+               dovahlink::adapter::ipc::PairingDisplayMode) override {
+    return true;
+  }
+  void NotifyAttemptsExhausted() override {}
+};
+
 ///  A real loopback listener that occupies a port without speaking the
 ///  private IPC protocol, representing stale rendezvous data naming an
 ///  unrelated process.
@@ -536,10 +548,11 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
   ImmediateTaskMarshaller taskMarshaller;
   AdapterNativeDispatcher dispatcher;
   NoopCaptureQueue captureQueue;
+  NoopPairingNotificationSink pairingNotificationSink;
   std::unique_ptr<AdapterHostSupervisor> supervisor;
   AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
                             ownerLifetimeId, taskMarshaller, dispatcher,
-                            captureQueue);
+                            captureQueue, pairingNotificationSink);
   std::atomic<int> connectedCount = 0;
   std::mutex targetMutex;
   std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> connectedTarget;

@@ -38,10 +38,12 @@ AdapterIpcSession::AdapterIpcSession(
     runtime::IAdapterTaskMarshaller &taskMarshaller,
     dispatch::IAdapterNativeDispatcher &dispatcher,
     capture::IAdapterCaptureHandoffQueue &captureQueue,
+    IAdapterPairingNotificationSink &pairingNotificationSink,
     std::function<void()> onGameThreadDispatchRejected)
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
       taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
       captureQueue_(captureQueue),
+      pairingNotificationSink_(pairingNotificationSink),
       onGameThreadDispatchRejected_(std::move(onGameThreadDispatchRejected)) {}
 
 AdapterIpcSession::~AdapterIpcSession() {
@@ -165,10 +167,17 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
         } else if constexpr (std::is_same_v<T, IpcCancelMessage>) {
           HandleCancel(value);
           return AdapterIpcMessageDisposition::kContinue;
+        } else if constexpr (std::is_same_v<T, IpcPairingDisplayMessage>) {
+          HandlePairingDisplay(value);
+          return AdapterIpcMessageDisposition::kContinue;
+        } else if constexpr (std::is_same_v<
+                                 T, IpcPairingAttemptsExhaustedMessage>) {
+          HandlePairingAttemptsExhausted(value);
+          return AdapterIpcMessageDisposition::kContinue;
         } else {
-          //  IpcHelloMessage and IpcResynchronizeResultMessage are
-          //  adapter-outbound only; receiving either is a protocol
-          //  violation from the host.
+          //  IpcHelloMessage, IpcResynchronizeResultMessage, and
+          //  IpcPairingDisplayAckMessage are adapter-outbound only;
+          //  receiving any of them is a protocol violation from the host.
           if (connection_ != nullptr) {
             connection_->TrySend(IpcMessage{IpcRejectMessage{
                 .correlationId = value.correlationId,
@@ -347,6 +356,97 @@ void AdapterIpcSession::HandleReadSample(
         captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
             .intentKey = sampleToken, .capturedValue = *captured});
       }
+    } catch (...) {
+      //  Contained; see HandleResynchronizeRequest's task for why.
+    }
+  });
+}
+
+void AdapterIpcSession::HandlePairingDisplay(
+    const IpcPairingDisplayMessage &pairingDisplay) {
+  std::string code = pairingDisplay.code;
+  PairingDisplayMode mode = pairingDisplay.mode;
+  std::uint64_t correlationId = pairingDisplay.correlationId;
+  std::uint64_t connectionGeneration;
+  bool authenticated;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    connectionGeneration = connectionGeneration_;
+    authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+  }
+  if (!authenticated) {
+    //  The host-authentication result must be accepted before any
+    //  host-directed intent reaches game-thread dispatch, per the
+    //  mandatory Concept 03 handoff requirement.
+    return;
+  }
+  auto callbackMutex = callbackMutex_;
+  auto lifetimeToken = lifetimeToken_;
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              code = std::move(code), mode, correlationId,
+                              connectionGeneration] {
+    std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+    if (!lifetimeToken->load()) {
+      return;
+    }
+    try {
+      {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        //  Re-checked at execution time, not just at enqueue time; see
+        //  HandleListenEvent's identical guard for why.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated ||
+            ConsumeCancellationLocked(correlationId)) {
+          return;
+        }
+      }
+      bool accepted = pairingNotificationSink_.Display(code, mode);
+      if (connection_ != nullptr) {
+        connection_->TrySend(IpcMessage{IpcPairingDisplayAckMessage{
+            .correlationId = correlationId, .accepted = accepted}});
+      }
+    } catch (...) {
+      //  Contained; see HandleResynchronizeRequest's task for why.
+    }
+  });
+}
+
+void AdapterIpcSession::HandlePairingAttemptsExhausted(
+    const IpcPairingAttemptsExhaustedMessage &) {
+  std::uint64_t connectionGeneration;
+  bool authenticated;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    connectionGeneration = connectionGeneration_;
+    authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+  }
+  if (!authenticated) {
+    //  The host-authentication result must be accepted before any
+    //  host-directed intent reaches game-thread dispatch, per the
+    //  mandatory Concept 03 handoff requirement.
+    return;
+  }
+  auto callbackMutex = callbackMutex_;
+  auto lifetimeToken = lifetimeToken_;
+  ScheduleGameThreadDispatch([this, callbackMutex = std::move(callbackMutex),
+                              lifetimeToken = std::move(lifetimeToken),
+                              connectionGeneration] {
+    std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+    if (!lifetimeToken->load()) {
+      return;
+    }
+    try {
+      {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        //  Re-checked at execution time, not just at enqueue time; see
+        //  HandleListenEvent's identical guard for why.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated) {
+          return;
+        }
+      }
+      pairingNotificationSink_.NotifyAttemptsExhausted();
     } catch (...) {
       //  Contained; see HandleResynchronizeRequest's task for why.
     }
