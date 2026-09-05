@@ -434,7 +434,15 @@ public class PublicEnvelopeCodecTests
     public static IEnumerable<object[]> AllPairingOutcomeWireValues() =>
         Enum.GetValues<PairingOutcomeWireValue>().Select(value => new object[] { value });
 
-    /// <summary>Verifies every canonical <see cref="PairingStatusWireState"/> round-trips through its snake_case wire form.</summary>
+    /// <summary>
+    /// Verifies every canonical <see cref="PairingStatusWireState"/> other than
+    /// <see cref="PairingStatusWireState.OtherDevicePairing"/> round-trips through its snake_case wire
+    /// form via <see cref="PairingStatusPayload"/>. <see cref="PairingStatusWireState.OtherDevicePairing"/>
+    /// is excluded because it never actually travels through this DTO on the wire -- it uses the
+    /// field-omitting <see cref="PairingStatusOtherDevicePayload"/> instead, already covered by
+    /// <see cref="Encode_PairingStatusOtherDevicePayload_OmitsExpiresInSecondsKey"/> and
+    /// <see cref="EncodeThenDecode_PairingStatusOtherDevicePayload_RoundTrips"/>.
+    /// </summary>
     [Theory]
     [MemberData(nameof(AllPairingStatusWireStates))]
     public void EncodeThenDecode_EveryPairingStatusWireState_RoundTrips(PairingStatusWireState state)
@@ -447,9 +455,16 @@ public class PublicEnvelopeCodecTests
         Assert.Equal(state, decoded!.State);
     }
 
-    /// <summary>Every canonical <see cref="PairingStatusWireState"/> value, for the exhaustive round-trip theory above.</summary>
+    /// <summary>
+    /// Every canonical <see cref="PairingStatusWireState"/> value except
+    /// <see cref="PairingStatusWireState.OtherDevicePairing"/>, for the exhaustive round-trip theory
+    /// above -- that one state is excluded because it never travels through <see cref="PairingStatusPayload"/>
+    /// on the wire; see the theory's own remarks for its dedicated coverage instead.
+    /// </summary>
     public static IEnumerable<object[]> AllPairingStatusWireStates() =>
-        Enum.GetValues<PairingStatusWireState>().Select(value => new object[] { value });
+        Enum.GetValues<PairingStatusWireState>()
+            .Where(value => value != PairingStatusWireState.OtherDevicePairing)
+            .Select(value => new object[] { value });
 
     /// <summary>Verifies every canonical <see cref="RenameOutcomeWireValue"/> round-trips through its snake_case wire form.</summary>
     [Theory]
