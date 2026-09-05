@@ -14,6 +14,8 @@
 #include "ipc/ipc_reject_message.hpp"
 #include "ipc/ipc_resynchronize_request_message.hpp"
 #include "ipc/ipc_resynchronize_result_message.hpp"
+#include "ipc/ipc_trust_admin_request_message.hpp"
+#include "ipc/ipc_trust_admin_result_message.hpp"
 
 namespace dovahlink::adapter::ipc {
 
@@ -26,6 +28,7 @@ using IpcMessage =
                  IpcCloseMessage, IpcRejectMessage, IpcCancelMessage,
                  IpcListenEventMessage, IpcReadSampleMessage,
                  IpcPairingDisplayMessage, IpcPairingDisplayAckMessage,
-                 IpcPairingAttemptsExhaustedMessage>;
+                 IpcPairingAttemptsExhaustedMessage,
+                 IpcTrustAdminRequestMessage, IpcTrustAdminResultMessage>;
 
 } //  namespace dovahlink::adapter::ipc

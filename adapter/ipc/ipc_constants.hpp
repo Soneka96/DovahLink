@@ -87,4 +87,19 @@ inline constexpr std::size_t kIpcHostProofMessageBytes =
 ///  length.
 inline constexpr std::size_t kPairingChallengeCodeDigits = 6;
 
+//  ---- Trust administration ----
+
+///  The number of ASCII decimal digits in an `IpcTrustAdminRequestMessage`'s
+///  `shortId` argument, matching the host's own generated short id length.
+inline constexpr std::size_t kPairingShortIdDigits = 5;
+
+///  The number of ASCII decimal digits in an `IpcTrustAdminRequestMessage`'s
+///  `confirmationCode` argument, matching the host's own generated Factory
+///  Reset confirmation code length.
+inline constexpr std::size_t kFactoryResetChallengeCodeDigits = 6;
+
+///  The maximum UTF-8 byte length of an `IpcTrustAdminResultMessage`'s
+///  `resultText`, matching the host's own bound on formatted result text.
+inline constexpr std::size_t kMaxIpcTrustAdminResultTextBytes = 4096;
+
 } //  namespace dovahlink::adapter::ipc
