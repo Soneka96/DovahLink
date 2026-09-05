@@ -1,4 +1,5 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Trust;
@@ -40,7 +41,14 @@ public interface ITrustStore
     /// set is durably persisted, and a failed or cancelled write leaves the store exactly as it was.
     /// </summary>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    Task ClearAsync(CancellationToken cancellationToken = default);
+    /// <param name="onPublished">
+    /// Invoked synchronously, once persistence has succeeded and the empty set has just become the
+    /// published state, before any other caller can observe that state or a session's authorization
+    /// against it -- the single ordering point at which a caller may deauthorize every affected
+    /// session as part of the same indivisible event. Must be synchronous and bounded: it must never
+    /// call back into pairing state, notification, transport, or persistence.
+    /// </param>
+    Task ClearAsync(CancellationToken cancellationToken = default, Action? onPublished = null);
 
     /// <summary>
     /// The monotonically advancing security fence used to invalidate an in-flight pending pairing
@@ -89,7 +97,16 @@ public interface ITrustStore
     /// without mutation. Omit (or pass <see langword="null"/>) when the caller already resolved and
     /// authorized <paramref name="clientId"/> directly and has no shortId precondition to enforce.
     /// </param>
-    Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null);
+    /// <param name="onPublished">
+    /// Invoked synchronously, only when this call actually changes the record, once persistence has
+    /// succeeded and the change has just become the published state, before any other caller can
+    /// observe it or a session's authorization against it -- the single ordering point at which a
+    /// caller may deauthorize <paramref name="clientId"/>'s affected sessions as part of the same
+    /// indivisible event. Must be synchronous and bounded: it must never call back into pairing
+    /// state, notification, transport, or persistence.
+    /// </param>
+    Task<TrustMutationOutcome> RevokeAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null);
 
     /// <summary>
     /// Blocks a currently <see cref="KnownDeviceState.Trusted"/> or <see cref="KnownDeviceState.Revoked"/>
@@ -101,22 +118,45 @@ public interface ITrustStore
     /// <param name="clientId">The device to block.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
-    Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null);
+    /// <param name="onPublished">See <see cref="RevokeAsync"/>'s own remarks for this callback's contract.</param>
+    Task<TrustMutationOutcome> BlockAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null);
 
-    /// <summary>Unblocks a blocked device and returns it to the unpaired state.</summary>
+    /// <summary>
+    /// Unblocks a blocked device and returns it to the unpaired state. Has no <c>onPublished</c>
+    /// parameter, unlike <see cref="RevokeAsync"/>/<see cref="BlockAsync"/>: unblocking only restores
+    /// eligibility for a future pairing, it never removes an already-authorized session's current
+    /// trust, so there is never a session to deauthorize as part of this publish.
+    /// </summary>
     /// <param name="clientId">The device to unblock.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
     Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null);
 
-    /// <summary>Forgets an eligible revoked or unpaired device completely.</summary>
+    /// <summary>
+    /// Forgets an eligible revoked or unpaired device completely. Has no <c>onPublished</c> parameter
+    /// for the same reason as <see cref="UnblockAsync"/>: eligible only for a device that is already
+    /// <see cref="KnownDeviceState.Revoked"/> or <see cref="KnownDeviceState.Unpaired"/>, neither of
+    /// which has a currently trusted session to deauthorize.
+    /// </summary>
     /// <param name="clientId">The device to forget.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
     Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null);
 
     /// <summary>Applies Reset Trust to every trusted device and returns affected identities.</summary>
-    Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default);
+    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    /// <param name="onPublished">
+    /// Invoked synchronously, once persistence (if any was needed) has succeeded and the change has
+    /// just become the published state, before any other caller can observe it or a session's
+    /// authorization against it -- the single ordering point at which a caller may deauthorize the
+    /// affected sessions as part of the same indivisible event. Invoked with the exact affected
+    /// client list this call returns, including an empty list when no record was currently trusted.
+    /// Must be synchronous and bounded: it must never call back into pairing state, notification,
+    /// transport, or persistence.
+    /// </param>
+    Task<IReadOnlyList<ClientId>> ResetTrustAsync(
+        CancellationToken cancellationToken = default, Action<IReadOnlyList<ClientId>>? onPublished = null);
 
     /// <summary>
     /// Renames a currently trusted device, resolving and validating its current state inside this
@@ -128,13 +168,15 @@ public interface ITrustStore
     /// <param name="clientId">The device to rename.</param>
     /// <param name="displayName">The new display name, or an empty value to clear it.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
     /// <returns>
     /// <see cref="TrustMutationOutcome.Changed"/> once persisted; <see cref="TrustMutationOutcome.NotFound"/>
     /// for an unrecognized <paramref name="clientId"/>; <see cref="TrustMutationOutcome.NotEligible"/>
     /// when the device is not currently <see cref="KnownDeviceState.Trusted"/>, with no persistence in
     /// either rejection case.
     /// </returns>
-    Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default);
+    Task<TrustMutationOutcome> RenameIfTrustedAsync(
+        ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null);
 }
 
 /// <summary>
@@ -158,6 +200,24 @@ public sealed class TrustStore : ITrustStore
     /// <summary>Guards <see cref="recordsByClientId"/> against concurrent reads during a mutation.</summary>
     private readonly object recordsLock = new();
 
+    /// <summary>
+    /// The linearization point every administrative-mutation publish (<see cref="RevokeAsync"/>,
+    /// <see cref="BlockAsync"/>, <see cref="ResetTrustAsync"/>, <see cref="ClearAsync"/>) shares with
+    /// <see cref="Sessions.ISessionRegistry"/>'s own active-session check, so a client's trust record
+    /// changing and the sessions that change affects becoming unauthorized are always one indivisible
+    /// event to every other caller of either type -- see each of those methods' own
+    /// <c>onPublished</c> parameter. Deliberately a separate, outer lock from <see cref="recordsLock"/>:
+    /// an ordinary read (<see cref="TryGet"/>, <see cref="GetSecuritySnapshot"/>, <see cref="List"/>,
+    /// <see cref="SecurityFenceGeneration"/>) or a pairing-commit publish
+    /// (<see cref="TryUpsertIfGenerationAsync"/>, <see cref="UpsertAsync"/>) never needs to be ordered
+    /// against a session's authorization the way an administrative mutation's own removal of trust
+    /// does, so those paths use <see cref="recordsLock"/> alone and never acquire this gate --
+    /// avoiding needless contention and, together with <see cref="Pairing.PairingCoordinator"/>'s own
+    /// locks never being acquired while this gate is held, keeping lock acquisition consistently
+    /// ordered gate-then-<see cref="recordsLock"/> everywhere it participates at all.
+    /// </summary>
+    private readonly ISecurityStateGate securityStateGate;
+
     /// <summary>The in-memory index of every known trust record, keyed by client.</summary>
     private readonly Dictionary<ClientId, TrustRecord> recordsByClientId;
 
@@ -170,25 +230,29 @@ public sealed class TrustStore : ITrustStore
     /// <summary>Creates a trust store pre-populated with already-loaded records.</summary>
     /// <param name="persistence">The persistence adapter to write through to.</param>
     /// <param name="clock">The time source used for trust-state timestamps.</param>
+    /// <param name="securityStateGate">The linearization point shared with <see cref="Sessions.ISessionRegistry"/>.</param>
     /// <param name="initialRecords">The records loaded from persistence to start from.</param>
-    private TrustStore(ITrustStorePersistence persistence, IClock clock, IReadOnlyList<TrustRecord> initialRecords)
+    private TrustStore(ITrustStorePersistence persistence, IClock clock, ISecurityStateGate securityStateGate, IReadOnlyList<TrustRecord> initialRecords)
     {
         this.persistence = persistence;
         this.clock = clock;
+        this.securityStateGate = securityStateGate;
         recordsByClientId = initialRecords.ToDictionary(record => record.ClientId);
     }
 
     /// <summary>Creates a trust store, loading its initial contents from <paramref name="persistence"/>.</summary>
     /// <param name="persistence">The persistence adapter to load from and write through to.</param>
     /// <param name="clock">The time source used for trust-state timestamps.</param>
+    /// <param name="securityStateGate">The linearization point shared with <see cref="Sessions.ISessionRegistry"/>.</param>
     /// <param name="cancellationToken">The token used to cancel the initial load.</param>
     public static async Task<TrustStore> CreateAsync(
         ITrustStorePersistence persistence,
         IClock clock,
+        ISecurityStateGate securityStateGate,
         CancellationToken cancellationToken = default)
     {
         IReadOnlyList<TrustRecord> initialRecords = await persistence.LoadAsync(cancellationToken);
-        return new TrustStore(persistence, clock, initialRecords);
+        return new TrustStore(persistence, clock, securityStateGate, initialRecords);
     }
 
     /// <inheritdoc/>
@@ -257,17 +321,27 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAsync(CancellationToken cancellationToken = default, Action? onPublished = null)
     {
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
         {
             await persistence.SaveAsync([], cancellationToken);
 
-            lock (recordsLock)
+            securityStateGate.Enter();
+            try
             {
-                recordsByClientId.Clear();
-                securityFenceGeneration++;
+                lock (recordsLock)
+                {
+                    recordsByClientId.Clear();
+                    securityFenceGeneration++;
+                }
+
+                onPublished?.Invoke();
+            }
+            finally
+            {
+                securityStateGate.Exit();
             }
         }
         finally
@@ -343,16 +417,19 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+    public Task<TrustMutationOutcome> RevokeAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
         MutateAsync(clientId, record => record.State == KnownDeviceState.Trusted
             ? record with { State = KnownDeviceState.Revoked, CredentialVerifier = string.Empty, BlockedAtUtc = null }
             : null,
             TrustMutationOutcome.NotEligible,
             cancellationToken,
-            expectedShortId: expectedShortId);
+            expectedShortId: expectedShortId,
+            onPublished: onPublished);
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+    public Task<TrustMutationOutcome> BlockAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
         MutateAsync(clientId, record => record.State switch
         {
             KnownDeviceState.Blocked => record,
@@ -367,7 +444,8 @@ public sealed class TrustStore : ITrustStore
             TrustMutationOutcome.AlreadyInState,
             cancellationToken,
             notEligibleOutcome: TrustMutationOutcome.NotEligible,
-            expectedShortId: expectedShortId);
+            expectedShortId: expectedShortId,
+            onPublished: onPublished);
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
@@ -389,7 +467,8 @@ public sealed class TrustStore : ITrustStore
             expectedShortId: expectedShortId);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ClientId>> ResetTrustAsync(
+        CancellationToken cancellationToken = default, Action<IReadOnlyList<ClientId>>? onPublished = null)
     {
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
@@ -404,17 +483,6 @@ public sealed class TrustStore : ITrustStore
                     .Where(record => record.State == KnownDeviceState.Trusted)
                     .Select(record => record.ClientId)
                     .ToList();
-                if (affected.Count == 0)
-                {
-                    // No currently trusted record to revoke, but Reset Trust must still act as a
-                    // security fence: advancing it here still invalidates any pending pairing
-                    // operation that began before this call, even though there is nothing to write
-                    // to persistence -- pending pairing state cannot survive a host restart anyway,
-                    // so a persistence write here would only re-save an unchanged record set.
-                    securityFenceGeneration++;
-                    return affected;
-                }
-
                 revokedByClientId = affected.ToDictionary(
                     clientId => clientId,
                     clientId => recordsByClientId[clientId] with
@@ -423,21 +491,38 @@ public sealed class TrustStore : ITrustStore
                         CredentialVerifier = string.Empty,
                         BlockedAtUtc = null,
                     });
-                proposedSnapshot = current
-                    .Select(record => revokedByClientId.GetValueOrDefault(record.ClientId, record))
-                    .ToList();
+                proposedSnapshot = affected.Count == 0
+                    ? current
+                    : current.Select(record => revokedByClientId.GetValueOrDefault(record.ClientId, record)).ToList();
             }
 
-            await persistence.SaveAsync(proposedSnapshot, cancellationToken);
-
-            lock (recordsLock)
+            if (affected.Count > 0)
             {
-                foreach ((ClientId clientId, TrustRecord revoked) in revokedByClientId)
-                {
-                    recordsByClientId[clientId] = revoked;
-                }
-                securityFenceGeneration++;
+                await persistence.SaveAsync(proposedSnapshot, cancellationToken);
             }
+            // else: no currently trusted record to revoke, so a persistence write here would only
+            // re-save an unchanged record set. Reset Trust must still act as a security fence below,
+            // advancing the generation and running onPublished, even though nothing was written.
+
+            securityStateGate.Enter();
+            try
+            {
+                lock (recordsLock)
+                {
+                    foreach ((ClientId clientId, TrustRecord revoked) in revokedByClientId)
+                    {
+                        recordsByClientId[clientId] = revoked;
+                    }
+                    securityFenceGeneration++;
+                }
+
+                onPublished?.Invoke(affected);
+            }
+            finally
+            {
+                securityStateGate.Exit();
+            }
+
             return affected;
         }
         finally
@@ -447,12 +532,14 @@ public sealed class TrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default) =>
+    public Task<TrustMutationOutcome> RenameIfTrustedAsync(
+        ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
         MutateAsync(clientId, record => record.State == KnownDeviceState.Trusted
             ? record with { DisplayName = displayName }
             : null,
             TrustMutationOutcome.NotEligible,
-            cancellationToken);
+            cancellationToken,
+            expectedShortId: expectedShortId);
 
     /// <summary>
     /// Applies one persisted trust mutation, publishing it only once persistence succeeds.
@@ -484,6 +571,7 @@ public sealed class TrustStore : ITrustStore
     /// <see cref="ITrustStore.RevokeAsync"/>'s) for the incarnation race this closes. A mismatch
     /// reports <see cref="TrustMutationOutcome.NotFound"/> without mutation.
     /// </param>
+    /// <param name="onPublished">See <see cref="ITrustStore.RevokeAsync"/>'s own remarks for this callback's contract.</param>
     private async Task<TrustMutationOutcome> MutateAsync(
         ClientId clientId,
         Func<TrustRecord, TrustRecord?> mutation,
@@ -491,7 +579,8 @@ public sealed class TrustStore : ITrustStore
         CancellationToken cancellationToken,
         bool removeWhenNull = false,
         TrustMutationOutcome? notEligibleOutcome = null,
-        string? expectedShortId = null)
+        string? expectedShortId = null,
+        Action? onPublished = null)
     {
         await mutationSemaphore.WaitAsync(cancellationToken);
         try
@@ -537,18 +626,29 @@ public sealed class TrustStore : ITrustStore
 
             await persistence.SaveAsync(proposedSnapshot, cancellationToken);
 
-            lock (recordsLock)
+            securityStateGate.Enter();
+            try
             {
-                if (removeWhenNull)
+                lock (recordsLock)
                 {
-                    recordsByClientId.Remove(clientId);
+                    if (removeWhenNull)
+                    {
+                        recordsByClientId.Remove(clientId);
+                    }
+                    else
+                    {
+                        recordsByClientId[clientId] = mutatedRecord!;
+                    }
+                    securityFenceGeneration++;
                 }
-                else
-                {
-                    recordsByClientId[clientId] = mutatedRecord!;
-                }
-                securityFenceGeneration++;
+
+                onPublished?.Invoke();
             }
+            finally
+            {
+                securityStateGate.Exit();
+            }
+
             return TrustMutationOutcome.Changed;
         }
         finally

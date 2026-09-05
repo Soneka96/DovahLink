@@ -81,7 +81,7 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAsync(CancellationToken cancellationToken = default, Action? onPublished = null)
     {
         if (ThrowOnClear is { } exception)
         {
@@ -97,6 +97,7 @@ public sealed class FakeTrustStore : ITrustStore
         ClearCallCount++;
         SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Clear");
+        onPublished?.Invoke();
     }
 
     /// <inheritdoc/>
@@ -151,7 +152,8 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
+    public Task<TrustMutationOutcome> RevokeAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -178,11 +180,13 @@ public sealed class FakeTrustStore : ITrustStore
         };
         SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Revoke");
+        onPublished?.Invoke();
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
+    public Task<TrustMutationOutcome> BlockAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -213,6 +217,7 @@ public sealed class FakeTrustStore : ITrustStore
         };
         SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("Block");
+        onPublished?.Invoke();
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
@@ -273,7 +278,8 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ClientId>> ResetTrustAsync(
+        CancellationToken cancellationToken = default, Action<IReadOnlyList<ClientId>>? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -297,17 +303,23 @@ public sealed class FakeTrustStore : ITrustStore
         // Trust with zero currently trusted records still invalidates an in-flight pending pairing.
         SecurityFenceGeneration++;
         OnMutationApplied?.Invoke("ResetTrust");
+        onPublished?.Invoke(affected);
         return Task.FromResult<IReadOnlyList<ClientId>>(affected);
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> RenameIfTrustedAsync(
+        ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
             return Task.FromException<TrustMutationOutcome>(exception);
         }
         if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedShortId is not null && record.ShortId != expectedShortId)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }

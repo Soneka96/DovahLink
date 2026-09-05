@@ -4,6 +4,7 @@ using DovahLink.Host.Pairing;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 
 namespace DovahLink.Host.Tests.Pairing;
 
@@ -1577,7 +1578,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
@@ -1618,7 +1619,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
@@ -1659,7 +1660,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
@@ -1703,7 +1704,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
@@ -1725,7 +1726,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
@@ -1769,7 +1770,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
@@ -1807,7 +1808,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
@@ -1847,7 +1848,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
@@ -1875,7 +1876,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1909,7 +1910,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1943,7 +1944,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1975,7 +1976,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2015,7 +2016,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         long preBlockGeneration = trustStore.SecurityFenceGeneration;
@@ -2059,7 +2060,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
 
@@ -2084,7 +2085,7 @@ public class PairingCoordinatorTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         long preRevokeGeneration = trustStore.SecurityFenceGeneration;

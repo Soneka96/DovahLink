@@ -7,6 +7,7 @@ using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
@@ -277,7 +278,7 @@ public class PublicHelloAdmissionTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
         var codec = new PublicEnvelopeCodec();
@@ -321,7 +322,7 @@ public class PublicHelloAdmissionTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
         var codec = new PublicEnvelopeCodec();
@@ -363,7 +364,7 @@ public class PublicHelloAdmissionTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
         var codec = new PublicEnvelopeCodec();
@@ -394,7 +395,7 @@ public class PublicHelloAdmissionTests
     {
         ClientId clientId = ClientId.NewId();
         var persistence = new FakeTrustStorePersistence();
-        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock());
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
         var codec = new PublicEnvelopeCodec();
@@ -2536,7 +2537,7 @@ public class PublicHelloAdmissionTests
         public Task UpsertAsync(TrustRecord record, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task ClearAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task ClearAsync(CancellationToken cancellationToken = default, Action? onPublished = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public long SecurityFenceGeneration => throw new NotSupportedException();
@@ -2548,10 +2549,14 @@ public class PublicHelloAdmissionTests
         public TrustRecord? TryGetByShortId(string shortId) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> RevokeAsync(
+            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> BlockAsync(
+            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
@@ -2560,10 +2565,14 @@ public class PublicHelloAdmissionTests
         public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ClientId>> ResetTrustAsync(
+            CancellationToken cancellationToken = default, Action<IReadOnlyList<ClientId>>? onPublished = null) =>
+            throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> RenameIfTrustedAsync(
+            ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+            throw new NotSupportedException();
     }
 
     /// <summary>
@@ -2688,7 +2697,7 @@ public class PublicHelloAdmissionTests
         public Task UpsertAsync(TrustRecord record, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task ClearAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task ClearAsync(CancellationToken cancellationToken = default, Action? onPublished = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public long SecurityFenceGeneration => throw new NotSupportedException();
@@ -2700,10 +2709,14 @@ public class PublicHelloAdmissionTests
         public TrustRecord? TryGetByShortId(string shortId) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> RevokeAsync(
+            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> BlockAsync(
+            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
@@ -2712,9 +2725,13 @@ public class PublicHelloAdmissionTests
         public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ClientId>> ResetTrustAsync(
+            CancellationToken cancellationToken = default, Action<IReadOnlyList<ClientId>>? onPublished = null) =>
+            throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> RenameIfTrustedAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> RenameIfTrustedAsync(
+            ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+            throw new NotSupportedException();
     }
 }

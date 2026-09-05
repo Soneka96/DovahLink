@@ -1,4 +1,5 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 using DovahLink.Host.Trust;
 using DovahLink.Host.Tests.TestDoubles;
 
@@ -1376,9 +1377,254 @@ public class TrustStoreTests
         Assert.Equal(blocked, store.TryGet(clientId));
     }
 
+    /// <summary>Verifies that a successful Revoke invokes <c>onPublished</c> exactly once, after the mutation is already visible.</summary>
+    [Fact]
+    public async Task RevokeAsync_Changed_InvokesOnPublishedExactlyOnceAfterPublish()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        int callCount = 0;
+        KnownDeviceState? stateInsideCallback = null;
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, onPublished: () =>
+        {
+            callCount++;
+            // The published state must already be visible to a reentrant read from inside this exact
+            // callback -- the whole point of onPublished running inside the same critical section as
+            // the publish it follows.
+            stateInsideCallback = store.TryGet(clientId)!.State;
+        });
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(1, callCount);
+        Assert.Equal(KnownDeviceState.Revoked, stateInsideCallback);
+    }
+
+    /// <summary>Verifies that a Revoke which changes nothing never invokes <c>onPublished</c>, the symmetric negative to the case above.</summary>
+    [Fact]
+    public async Task RevokeAsync_NotEligible_DoesNotInvokeOnPublished()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        bool invoked = false;
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, onPublished: () => invoked = true);
+
+        Assert.Equal(TrustMutationOutcome.NotEligible, outcome);
+        Assert.False(invoked);
+    }
+
+    /// <summary>
+    /// Verifies persist-before-publish still holds with <c>onPublished</c> wired in: the callback must
+    /// not run while persistence is still in flight, only once the write has actually succeeded.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WhilePersistenceBlocked_DoesNotInvokeOnPublishedUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+        bool invoked = false;
+
+        Task<TrustMutationOutcome> revoke = store.RevokeAsync(clientId, onPublished: () => invoked = true);
+        await enteredSave.Task;
+
+        Assert.False(invoked);
+        Assert.Equal(KnownDeviceState.Trusted, store.TryGet(clientId)!.State);
+
+        releaseSave.SetResult();
+        await revoke;
+
+        Assert.True(invoked);
+    }
+
+    /// <summary>Verifies that a failed persistence write never invokes <c>onPublished</c>, since nothing was ever published.</summary>
+    [Fact]
+    public async Task RevokeAsync_PersistenceFails_DoesNotInvokeOnPublished()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        persistence.ThrowOnSave = new IOException("disk full");
+        bool invoked = false;
+
+        await Assert.ThrowsAsync<IOException>(() => store.RevokeAsync(clientId, onPublished: () => invoked = true));
+
+        Assert.False(invoked);
+        Assert.Equal(KnownDeviceState.Trusted, store.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies that an <c>onPublished</c> callback which throws still releases the gate rather than
+    /// leaving it permanently held: the exception propagates to the caller, but a later mutation for a
+    /// different client is not blocked forever behind the faulted call.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_OnPublishedThrows_PropagatesAndStillReleasesTheGate()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.RevokeAsync(clientId, onPublished: () => throw new InvalidOperationException("boom")));
+
+        // The mutation itself already published before the callback threw.
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(clientId)!.State);
+
+        ClientId otherClientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(otherClientId, "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow));
+        TrustMutationOutcome outcome = await store.RevokeAsync(otherClientId);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+    }
+
+    /// <summary>Verifies that a successful Block invokes <c>onPublished</c> exactly once.</summary>
+    [Fact]
+    public async Task BlockAsync_Changed_InvokesOnPublishedExactlyOnce()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        int callCount = 0;
+
+        TrustMutationOutcome outcome = await store.BlockAsync(clientId, onPublished: () => callCount++);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(1, callCount);
+    }
+
+    /// <summary>Verifies that an already-blocked Block never invokes <c>onPublished</c>, the symmetric negative.</summary>
+    [Fact]
+    public async Task BlockAsync_AlreadyInState_DoesNotInvokeOnPublished()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        bool invoked = false;
+
+        TrustMutationOutcome outcome = await store.BlockAsync(clientId, onPublished: () => invoked = true);
+
+        Assert.Equal(TrustMutationOutcome.AlreadyInState, outcome);
+        Assert.False(invoked);
+    }
+
+    /// <summary>Verifies that Reset Trust invokes <c>onPublished</c> with the exact affected client list, once, after publish.</summary>
+    [Fact]
+    public async Task ResetTrustAsync_AffectedRecords_InvokesOnPublishedWithAffectedClientList()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId trustedClientId = ClientId.NewId();
+        ClientId unpairedClientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(trustedClientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        await store.UpsertAsync(new TrustRecord(unpairedClientId, "CD34", "Bedroom Tablet", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        int callCount = 0;
+        IReadOnlyList<ClientId>? affectedInsideCallback = null;
+
+        IReadOnlyList<ClientId> affected = await store.ResetTrustAsync(onPublished: list =>
+        {
+            callCount++;
+            affectedInsideCallback = list;
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.Equal([trustedClientId], affected);
+        Assert.Equal([trustedClientId], affectedInsideCallback);
+    }
+
+    /// <summary>Verifies that Reset Trust with nothing currently trusted still invokes <c>onPublished</c>, with an empty list.</summary>
+    [Fact]
+    public async Task ResetTrustAsync_NoAffectedRecords_InvokesOnPublishedWithEmptyList()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        int callCount = 0;
+        IReadOnlyList<ClientId>? affectedInsideCallback = null;
+
+        IReadOnlyList<ClientId> affected = await store.ResetTrustAsync(onPublished: list =>
+        {
+            callCount++;
+            affectedInsideCallback = list;
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.Empty(affected);
+        Assert.Empty(affectedInsideCallback!);
+    }
+
+    /// <summary>Verifies that Clear invokes <c>onPublished</c> exactly once, after the empty store is already visible.</summary>
+    [Fact]
+    public async Task ClearAsync_InvokesOnPublishedExactlyOnceAfterPublish()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        await store.UpsertAsync(new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        int callCount = 0;
+        int recordCountInsideCallback = -1;
+
+        await store.ClearAsync(onPublished: () =>
+        {
+            callCount++;
+            recordCountInsideCallback = store.List().Count;
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.Equal(0, recordCountInsideCallback);
+    }
+
+    /// <summary>Verifies the same shortId incarnation-race guard as Revoke's own for <see cref="TrustStore.RenameIfTrustedAsync"/>.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_CurrentRecordCarriesADifferentShortIdThanExpected_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        await store.ClearAsync();
+        var newIncarnation = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(newIncarnation);
+
+        TrustMutationOutcome outcome = await store.RenameIfTrustedAsync(clientId, "Renamed", expectedShortId: "11111");
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(newIncarnation, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a matching shortId precondition still permits the rename, the complementary case to the mismatch above.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_CurrentRecordCarriesTheExpectedShortId_Commits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+
+        TrustMutationOutcome outcome = await store.RenameIfTrustedAsync(clientId, "Renamed", expectedShortId: "11111");
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal("Renamed", store.TryGet(clientId)!.DisplayName);
+    }
+
     /// <summary>Creates a trust store with a controllable clock for tests.</summary>
     private static Task<TrustStore> CreateStoreAsync(
         FakeTrustStorePersistence persistence,
         FakeClock? clock = null) =>
-        TrustStore.CreateAsync(persistence, clock ?? new FakeClock());
+        TrustStore.CreateAsync(persistence, clock ?? new FakeClock(), new SecurityStateGate());
 }
