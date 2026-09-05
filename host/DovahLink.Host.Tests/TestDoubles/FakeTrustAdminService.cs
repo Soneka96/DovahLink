@@ -4,29 +4,40 @@ using DovahLink.Host.Trust;
 namespace DovahLink.Host.Tests.TestDoubles;
 
 /// <summary>
-/// A narrow <see cref="ITrustAdminService"/> stand-in exercising only <see cref="RenameAsync"/>, the
-/// sole member the client message dispatcher under test calls. Every other member is not called by
-/// that consumer and is not implemented.
+/// A narrow <see cref="ITrustAdminService"/> stand-in exercising only <see cref="RenameAsync"/> and
+/// <see cref="TryCaptureTrustedIncarnation"/>, the sole members the client message dispatcher under test
+/// calls. Every other member is not called by that consumer and is not implemented.
 /// </summary>
 public sealed class FakeTrustAdminService : ITrustAdminService
 {
     /// <summary>The most recent call to <see cref="RenameAsync"/>, or <see langword="null"/> if it was never called.</summary>
-    public (ClientId ClientId, string DisplayName)? LastRenameCall { get; private set; }
+    public (ClientId ClientId, string DisplayName, KnownDeviceIncarnationId ExpectedIncarnation)? LastRenameCall { get; private set; }
 
     /// <summary>When set, <see cref="RenameAsync"/> throws this instead of recording the call.</summary>
     public Exception? ThrowOnRename { get; set; }
 
+    /// <summary>
+    /// The value <see cref="TryCaptureTrustedIncarnation"/> returns, or <see langword="null"/> to
+    /// simulate an unrecognized or not-currently-Trusted identity. Defaults to a fresh incarnation so a
+    /// test exercising <see cref="RenameAsync"/>'s own outcome mapping does not need to configure this
+    /// unless the capture step itself is what it is testing.
+    /// </summary>
+    public KnownDeviceIncarnationId? IncarnationToCapture { get; set; } = KnownDeviceIncarnationId.NewId();
+
     /// <inheritdoc/>
-    public Task RenameAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default)
+    public Task RenameAsync(ClientId clientId, string displayName, KnownDeviceIncarnationId expectedIncarnation, CancellationToken cancellationToken = default)
     {
         if (ThrowOnRename is { } exception)
         {
             throw exception;
         }
 
-        LastRenameCall = (clientId, displayName);
+        LastRenameCall = (clientId, displayName, expectedIncarnation);
         return Task.CompletedTask;
     }
+
+    /// <inheritdoc/>
+    public KnownDeviceIncarnationId? TryCaptureTrustedIncarnation(ClientId clientId) => IncarnationToCapture;
 
     /// <summary>Not called by the dispatcher under test.</summary>
     public IReadOnlyList<TrustRecord> List(string scope = "all") => throw new NotSupportedException();

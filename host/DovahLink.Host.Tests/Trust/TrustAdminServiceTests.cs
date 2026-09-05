@@ -70,9 +70,10 @@ public class TrustAdminServiceTests
         TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         trustStore.Seed(original);
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+        KnownDeviceIncarnationId incarnation = admin.TryCaptureTrustedIncarnation(clientId)!.Value;
 
-        await admin.RenameAsync(clientId, "Bedroom PC");
-        await admin.RenameAsync(clientId, string.Empty);
+        await admin.RenameAsync(clientId, "Bedroom PC", incarnation);
+        await admin.RenameAsync(clientId, string.Empty, incarnation);
 
         Assert.Equal(string.Empty, trustStore.TryGet(clientId)!.DisplayName);
         Assert.Equal(original.ShortId, trustStore.TryGet(clientId)!.ShortId);
@@ -86,20 +87,71 @@ public class TrustAdminServiceTests
         ClientId clientId = ClientId.NewId();
         trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow));
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+        KnownDeviceIncarnationId incarnation = admin.TryCaptureTrustedIncarnation(clientId)!.Value;
 
-        await Assert.ThrowsAsync<ArgumentException>(() => admin.RenameAsync(clientId, "Bad\nName"));
+        await Assert.ThrowsAsync<ArgumentException>(() => admin.RenameAsync(clientId, "Bad\nName", incarnation));
     }
 
-    /// <summary>Verifies that non-trusted devices cannot be renamed.</summary>
+    /// <summary>
+    /// Verifies that a non-trusted device cannot be renamed even when the caller supplies the exact
+    /// incarnation its own current, non-Trusted record carries -- <see cref="TrustAdminService.RenameAsync"/>'s
+    /// own eligibility check is enforced independently of the incarnation precondition, defense-in-depth
+    /// against a caller that captured an incarnation before a concurrent Revoke/Block landed but is only
+    /// now reaching the actual mutation.
+    /// </summary>
     [Fact]
     public async Task RenameAsync_NonTrustedDevice_Throws()
     {
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
-        trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
+        var record = new TrustRecord(clientId, "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        trustStore.Seed(record);
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => admin.RenameAsync(clientId, "New Name"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => admin.RenameAsync(clientId, "New Name", record.Incarnation));
+    }
+
+    /// <summary>Verifies that a currently Trusted device's incarnation is captured.</summary>
+    [Fact]
+    public void TryCaptureTrustedIncarnation_TrustedClient_ReturnsIncarnation()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        var record = new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        trustStore.Seed(record);
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+
+        Assert.Equal(record.Incarnation, admin.TryCaptureTrustedIncarnation(clientId));
+    }
+
+    /// <summary>
+    /// Verifies that an unrecognized client -- one with no Known Device record at all -- captures no
+    /// incarnation, the same result a known-but-non-Trusted client also reports (see
+    /// <see cref="TryCaptureTrustedIncarnation_NonTrustedStates_ReturnsNull"/>): the caller cannot
+    /// distinguish "never known" from "known but not currently Trusted" from this result alone, by
+    /// design, since a rename is rejected identically either way.
+    /// </summary>
+    [Fact]
+    public void TryCaptureTrustedIncarnation_UnknownClient_ReturnsNull()
+    {
+        var admin = new TrustAdminService(new FakeTrustStore(), Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+
+        Assert.Null(admin.TryCaptureTrustedIncarnation(ClientId.NewId()));
+    }
+
+    /// <summary>Verifies that every non-Trusted state -- not merely one of them -- captures no incarnation.</summary>
+    [Theory]
+    [InlineData(KnownDeviceState.Revoked)]
+    [InlineData(KnownDeviceState.Blocked)]
+    [InlineData(KnownDeviceState.Unpaired)]
+    public void TryCaptureTrustedIncarnation_NonTrustedStates_ReturnsNull(KnownDeviceState state)
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", null, state, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+        var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
+
+        Assert.Null(admin.TryCaptureTrustedIncarnation(clientId));
     }
 
     /// <summary>Verifies that revocation destroys the verifier, cancels pairing, and invalidates sessions.</summary>
@@ -1032,9 +1084,11 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Proves race G (rename replacement-incarnation race): an old Full session's
-    /// <see cref="TrustAdminService.RenameAsync"/> call captures the <see cref="TrustRecord.Incarnation"/>
-    /// of the Known Device visible at that instant, then gets queued behind another mutation's own
+    /// Proves race G (rename replacement-incarnation race) at the <see cref="TrustAdminService"/>/
+    /// <see cref="TrustStore"/> integration level, using real collaborators rather than the
+    /// <see cref="TrustStoreTests"/> unit-level proof alone: a caller (the dispatcher's own session
+    /// -authorization boundary, in production) already captured the Known Device's incarnation before
+    /// this rename call was even issued, then the rename call gets queued behind another mutation's own
     /// persistence write -- exactly as <see cref="TrustStore"/>'s <c>mutationSemaphore</c> serializes
     /// every mutation. By the time the queued rename's own check finally runs, the other mutation has
     /// already replaced the client's Known Device with a brand new incarnation (a forget-and-re-pair
@@ -1053,6 +1107,11 @@ public class TrustAdminServiceTests
         (TrustStore trustStore, _, _, TrustAdminService admin, _) = await ComposeRealCollaboratorsAsync(persistence);
         ClientId clientId = ClientId.NewId();
         await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+
+        // The caller already captured the still-current incarnation A, exactly as the dispatcher's own
+        // session-authorization boundary would while it is still the authority.
+        KnownDeviceIncarnationId capturedIncarnation = admin.TryCaptureTrustedIncarnation(clientId)!.Value;
+
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         persistence.BeforeSave = async () =>
@@ -1068,14 +1127,84 @@ public class TrustAdminServiceTests
         Task swapTask = trustStore.UpsertAsync(newIncarnation);
         await enteredSave.Task;
 
-        // The old Full session's rename starts now: it captures the still-current incarnation A
-        // synchronously, then queues behind the swap's still-held mutation serialization.
-        Task renameTask = admin.RenameAsync(clientId, "Renamed By Stale Session");
+        // The old Full session's rename starts now, carrying the incarnation it already captured, and
+        // queues behind the swap's still-held mutation serialization.
+        Task renameTask = admin.RenameAsync(clientId, "Renamed By Stale Session", capturedIncarnation);
 
         releaseSave.SetResult();
         await swapTask;
 
         await Assert.ThrowsAsync<KeyNotFoundException>(() => renameTask);
         Assert.Equal(newIncarnation, trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Proves the rename authorization-boundary invariant's "request wins" ordering, using real
+    /// <see cref="SessionRegistry"/> and <see cref="TrustStore"/> collaborators: an old Full session
+    /// captures its target incarnation through <see cref="ISessionRegistry.TryExecuteIfActive{T}"/> while
+    /// it is still active -- the same linearization point <see cref="DovahLink.Host.Client.Dispatch.ClientMessageDispatcher"/>'s
+    /// own <c>rename_request</c> handling uses -- before a later administrative mutation replaces the Known
+    /// Device with a brand new incarnation (a forget-and-re-pair collapsed into one replacing
+    /// <see cref="ITrustStore.UpsertAsync"/> for this test's purposes, deliberately reassigned the exact
+    /// same shortId). The captured incarnation is honored as authoritative: the async rename that
+    /// resumes afterward, carrying it, must reject the replacement rather than silently renaming it.
+    /// </summary>
+    [Fact]
+    public async Task RenameAuthorizationBoundary_RequestCapturesBeforeReplacement_ReplacementCannotBeRenamed()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, _, TrustAdminService admin, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Full, out SessionId sessionId));
+
+        bool captured = sessions.TryExecuteIfActive(
+            sessionId, connectionId, () => admin.TryCaptureTrustedIncarnation(clientId), out KnownDeviceIncarnationId? capturedIncarnation);
+        Assert.True(captured);
+        Assert.NotNull(capturedIncarnation);
+
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        await trustStore.UpsertAsync(replacement);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => admin.RenameAsync(clientId, "Renamed By Stale Session", capturedIncarnation.Value));
+        Assert.Equal(replacement, trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Proves the rename authorization-boundary invariant's "admin wins" ordering, the same deterministic
+    /// nested-callback technique race A/D above use: the incarnation capture attempt runs from inside
+    /// <see cref="ITrustStore.RevokeAsync"/>'s own <c>onPublished</c> callback, on the same thread still
+    /// holding the shared <see cref="SecurityStateGate"/> that <see cref="ISessionRegistry.TryExecuteIfActive{T}"/>
+    /// also requires, immediately after the session was deauthorized as part of that same atomic publish
+    /// -- deterministic because a genuinely later, real cross-thread capture attempt could only observe
+    /// the session gone even later than this exact instant, never earlier. The capture must fail
+    /// outright: in production this means <see cref="DovahLink.Host.Client.Dispatch.ClientMessageDispatcher"/>
+    /// never calls <see cref="TrustAdminService.RenameAsync"/> at all, reporting <c>stale_session</c> instead --
+    /// there is no target incarnation for a rename to even be attempted against.
+    /// </summary>
+    [Fact]
+    public async Task RenameAuthorizationBoundary_AdminMutationWinsFirst_CaptureNeverSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, _, TrustAdminService admin, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Full, out SessionId sessionId));
+
+        bool captureAttempted = false;
+        bool captureSucceeded = false;
+        TrustMutationOutcome outcome = await trustStore.RevokeAsync(clientId, onPublished: () =>
+        {
+            sessions.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
+            captureAttempted = true;
+            captureSucceeded = sessions.TryExecuteIfActive(
+                sessionId, connectionId, () => admin.TryCaptureTrustedIncarnation(clientId), out KnownDeviceIncarnationId? _);
+        });
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.True(captureAttempted);
+        Assert.False(captureSucceeded);
     }
 }

@@ -96,11 +96,12 @@ public static class Fixtures
     /// Builds a <see cref="ClientMessageDispatcher"/> the same way as <see cref="BuildClientMessageDispatcher"/>,
     /// together with one already-active session for <paramref name="clientId"/> on the returned
     /// <see cref="ConnectionId"/>, registered on a fresh <see cref="FakeSessionRegistry"/> the built
-    /// dispatcher uses for its own client-bound pairing-mutation authorization guard. A test exercising
-    /// <c>pairing_request</c>, <c>pairing_cancel</c>, <c>pairing_renotify</c>, or <c>pairing_confirm</c>
-    /// -- every message type the dispatcher gates on session liveness -- needs a genuinely registered
-    /// session rather than an arbitrary unregistered <see cref="SessionId"/>, or every such dispatch
-    /// would be rejected as stale before ever reaching the pairing coordinator.
+    /// dispatcher uses for its own client-bound authorization guard. A test exercising
+    /// <c>pairing_request</c>, <c>pairing_cancel</c>, <c>pairing_renotify</c>, <c>pairing_confirm</c>, or
+    /// <c>rename_request</c> -- every message type the dispatcher gates on session liveness -- needs a
+    /// genuinely registered session rather than an arbitrary unregistered <see cref="SessionId"/>, or
+    /// every such dispatch would be rejected as stale before ever reaching the pairing coordinator or
+    /// trust admin service.
     /// </summary>
     /// <param name="clientId">The client identity the registered session belongs to.</param>
     /// <param name="codec">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>

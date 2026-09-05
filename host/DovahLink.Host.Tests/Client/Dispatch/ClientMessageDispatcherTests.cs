@@ -83,18 +83,18 @@ public class ClientMessageDispatcherTests
     public async Task DispatchAsync_RenameRequest_SendsRenamedOutcome()
     {
         var trustAdminService = new FakeTrustAdminService();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        ClientId clientId = ClientId.NewId();
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec, trustAdminService: trustAdminService);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
-        SessionId sessionId = SessionId.NewId();
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, sessionId, ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
-        Assert.Equal((clientId, "New Name"), trustAdminService.LastRenameCall);
+        Assert.Equal((clientId, "New Name", trustAdminService.IncarnationToCapture!.Value), trustAdminService.LastRenameCall);
         (PublicEnvelope outcomeEnvelope, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.RenameOutcome, outcomeEnvelope.MessageType);
         Assert.Equal("msg-1", outcomeEnvelope.CorrelationId);
@@ -113,13 +113,14 @@ public class ClientMessageDispatcherTests
     public async Task DispatchAsync_RenameRequestWithEmptyDisplayName_SendsRenamedOutcomeWithNullName()
     {
         var trustAdminService = new FakeTrustAdminService();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(ClientId.NewId(), codec: Codec, trustAdminService: trustAdminService);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = string.Empty });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(ClientId.NewId(), sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.Renamed, outcome.Outcome);
@@ -145,18 +146,71 @@ public class ClientMessageDispatcherTests
         Assert.Null(trustAdminService.LastRenameCall);
     }
 
+    /// <summary>
+    /// Verifies that an already-invalidated session is rejected with <c>stale_session</c> before the
+    /// dispatcher ever captures a target incarnation or calls the trust admin service at all -- a stale
+    /// request must never even resolve a target for a later mutation a newer session incarnation for
+    /// this client may since own.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_RenameRequestStaleSession_SendsStaleSessionErrorWithoutCapturingIncarnation()
+    {
+        var trustAdminService = new FakeTrustAdminService();
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
+
+        // No session was ever registered on the fresh FakeSessionRegistry BuildClientMessageDispatcher
+        // uses by default, so this sessionId/connectionId pair is never active.
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        Assert.Null(trustAdminService.LastRenameCall);
+    }
+
+    /// <summary>
+    /// Verifies that a capture finding no record, or one that is not currently Trusted, maps directly to
+    /// <c>not_trusted</c> without ever calling <see cref="ITrustAdminService.RenameAsync"/> -- there is no
+    /// incarnation to authorize a mutation against, so no mutation attempt should be made at all.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_RenameRequestNoTrustedIncarnationCaptured_SendsNotTrustedOutcomeWithoutCallingRenameAsync()
+    {
+        var trustAdminService = new FakeTrustAdminService { IncarnationToCapture = null };
+        ClientId clientId = ClientId.NewId();
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec, trustAdminService: trustAdminService);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(RenameOutcomeWireValue.NotTrusted, outcome.Outcome);
+        Assert.Null(trustAdminService.LastRenameCall);
+    }
+
     /// <summary>Verifies that an invalid display name (rejected by the trust service) maps to invalid_display_name, not a raw exception.</summary>
     [Fact]
     public async Task DispatchAsync_RenameRequestInvalidDisplayName_SendsInvalidDisplayNameOutcome()
     {
         var trustAdminService = new FakeTrustAdminService { ThrowOnRename = new ArgumentException("too long") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        ClientId clientId = ClientId.NewId();
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec, trustAdminService: trustAdminService);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "Bad\nName" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.InvalidDisplayName, outcome.Outcome);
@@ -168,30 +222,41 @@ public class ClientMessageDispatcherTests
     public async Task DispatchAsync_RenameRequestUnknownIdentity_SendsNotTrustedOutcome()
     {
         var trustAdminService = new FakeTrustAdminService { ThrowOnRename = new KeyNotFoundException("no known device") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        ClientId clientId = ClientId.NewId();
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec, trustAdminService: trustAdminService);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.NotTrusted, outcome.Outcome);
     }
 
-    /// <summary>Verifies that a not-currently-trusted identity (InvalidOperationException) maps to not_trusted, never a raw exception.</summary>
+    /// <summary>
+    /// Verifies that a not-currently-trusted identity (InvalidOperationException) maps to not_trusted,
+    /// never a raw exception. Represents a race between this dispatcher's own incarnation capture and
+    /// <see cref="ITrustAdminService.RenameAsync"/>'s own store mutation -- the capture found a Trusted
+    /// record, but a concurrent administrative mutation changed its state before the mutation actually
+    /// applied -- distinct from <see cref="DispatchAsync_RenameRequestNoTrustedIncarnationCaptured_SendsNotTrustedOutcomeWithoutCallingRenameAsync"/>,
+    /// where no capture ever succeeds at all.
+    /// </summary>
     [Fact]
     public async Task DispatchAsync_RenameRequestNotCurrentlyTrusted_SendsNotTrustedOutcome()
     {
         var trustAdminService = new FakeTrustAdminService { ThrowOnRename = new InvalidOperationException("not trusted") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        ClientId clientId = ClientId.NewId();
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec, trustAdminService: trustAdminService);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.NotTrusted, outcome.Outcome);
@@ -202,13 +267,15 @@ public class ClientMessageDispatcherTests
     public async Task DispatchAsync_RenameRequestUnexpectedFailure_SendsRedactedRetryableInternalError()
     {
         var trustAdminService = new FakeTrustAdminService { ThrowOnRename = new IOException("disk full, path C:\\secret\\trust-store.dat") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        ClientId clientId = ClientId.NewId();
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec, trustAdminService: trustAdminService);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -222,7 +289,9 @@ public class ClientMessageDispatcherTests
     public async Task DispatchAsync_RenameRequestCancelled_PropagatesCancellation()
     {
         var trustAdminService = new FakeTrustAdminService { ThrowOnRename = new OperationCanceledException() };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, trustAdminService: trustAdminService);
+        ClientId clientId = ClientId.NewId();
+        (ClientMessageDispatcher dispatcher, SessionId sessionId, ConnectionId connectionId) =
+            Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec, trustAdminService: trustAdminService);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(
@@ -231,7 +300,7 @@ public class ClientMessageDispatcherTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, cancellation.Token));
+            dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, cancellation.Token));
         Assert.Empty(fakeConnection.SentPayloads);
     }
 

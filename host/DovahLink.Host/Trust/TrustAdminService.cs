@@ -20,8 +20,32 @@ public interface ITrustAdminService
     /// <summary>Changes a trusted device's optional display name.</summary>
     /// <param name="clientId">The device to rename.</param>
     /// <param name="displayName">The new name, or an empty value to clear it.</param>
+    /// <param name="expectedIncarnation">
+    /// The Known Device incarnation this rename was authorized against, captured by the caller (via
+    /// <see cref="TryCaptureTrustedIncarnation"/>) while its own authorization boundary -- for example a
+    /// session's <see cref="ISessionRegistry.TryExecuteIfActive{T}"/> -- was still the authority, never
+    /// re-resolved here after that boundary has already been released. The mutation is applied only if
+    /// <paramref name="clientId"/>'s current record still carries this exact incarnation; a mismatch
+    /// reports the same rejection as an unrecognized or non-Trusted identity.
+    /// </param>
     /// <param name="cancellationToken">The token used to cancel persistence.</param>
-    Task RenameAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default);
+    Task RenameAsync(ClientId clientId, string displayName, KnownDeviceIncarnationId expectedIncarnation, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Synchronously and without side effects reads whether <paramref name="clientId"/> currently has a
+    /// <see cref="KnownDeviceState.Trusted"/> record and, if so, its incarnation -- the narrow, bounded
+    /// read a caller performs while its own authorization boundary is still the authority, so the
+    /// captured value can be trusted as an <see cref="RenameAsync"/> precondition for a later async
+    /// mutation authorized against this exact snapshot rather than a snapshot re-resolved after that
+    /// boundary was released. Never awaits, persists, notifies, or performs adapter/transport I/O.
+    /// </summary>
+    /// <param name="clientId">The device to read.</param>
+    /// <returns>
+    /// The device's current incarnation when it is currently <see cref="KnownDeviceState.Trusted"/>;
+    /// otherwise <see langword="null"/>, whether because the identity is unrecognized or because it is
+    /// known but not currently Trusted.
+    /// </returns>
+    KnownDeviceIncarnationId? TryCaptureTrustedIncarnation(ClientId clientId);
 
     /// <summary>Revokes a trusted device and invalidates its sessions.</summary>
     Task RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default);
@@ -115,26 +139,19 @@ public sealed class TrustAdminService : ITrustAdminService
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Captures the currently trusted record's <see cref="TrustRecord.Incarnation"/> synchronously,
-    /// before this method's own mutation call ever awaits anything, and carries it through as an
-    /// <c>expectedIncarnation</c> precondition -- never a bare current-state read taken again just
-    /// before the mutation, which would only move the same race rather than close it. This closes the
+    /// Applies the mutation using exactly the <paramref name="expectedIncarnation"/> the caller already
+    /// captured -- never re-resolving <paramref name="clientId"/>'s current record here. This closes the
     /// stale async request ABA race: if this exact Known Device is forgotten and <paramref name="clientId"/>
     /// later re-pairs -- even under the exact same reused shortId -- while this call is still queued
-    /// behind another in-flight <see cref="ITrustStore"/> mutation, the captured incarnation no longer
-    /// matches the replacement record's own, and the eventual <see cref="ITrustStore.RenameIfTrustedAsync"/>
-    /// call reports <see cref="TrustMutationOutcome.NotFound"/> rather than silently renaming the
-    /// replacement.
+    /// behind another in-flight <see cref="ITrustStore"/> mutation, the caller's earlier-captured
+    /// incarnation no longer matches the replacement record's own, and the eventual
+    /// <see cref="ITrustStore.RenameIfTrustedAsync"/> call reports <see cref="TrustMutationOutcome.NotFound"/>
+    /// rather than silently renaming the replacement.
     /// </remarks>
-    public async Task RenameAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default)
+    public async Task RenameAsync(ClientId clientId, string displayName, KnownDeviceIncarnationId expectedIncarnation, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(displayName);
         ValidateDisplayName(displayName);
-        KnownDeviceIncarnationId? expectedIncarnation = trustStore.TryGet(clientId)?.Incarnation;
-        if (expectedIncarnation is null)
-        {
-            throw new KeyNotFoundException($"No known device for client '{clientId}'.");
-        }
 
         TrustMutationOutcome outcome = await trustStore.RenameIfTrustedAsync(clientId, displayName, cancellationToken, expectedIncarnation);
         if (outcome == TrustMutationOutcome.NotFound)
@@ -146,6 +163,10 @@ public sealed class TrustAdminService : ITrustAdminService
             throw new InvalidOperationException("Only a trusted device can be renamed.");
         }
     }
+
+    /// <inheritdoc/>
+    public KnownDeviceIncarnationId? TryCaptureTrustedIncarnation(ClientId clientId) =>
+        trustStore.TryGet(clientId) is { State: KnownDeviceState.Trusted } record ? record.Incarnation : null;
 
     /// <inheritdoc/>
     public async Task RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default)

@@ -26,13 +26,14 @@ public interface IClientMessageDispatcher
     /// <param name="sessionId">The connection's admitted session identity.</param>
     /// <param name="connectionId">
     /// The connection's own identity, used to re-verify this exact session incarnation is still active
-    /// immediately before a narrow, synchronous, client-bound pairing-state mutation
+    /// immediately before a narrow, synchronous, client-bound state read or mutation
     /// (<c>pairing_request</c>'s <see cref="IPairingCoordinator.BeginPairing"/>, <c>pairing_cancel</c>'s
     /// <see cref="IPairingCoordinator.Cancel"/>, <c>pairing_renotify</c>'s
-    /// <see cref="IPairingCoordinator.TryRenotify"/> peek, and <c>pairing_confirm</c>'s
-    /// <see cref="IPairingCoordinator.ConfirmCode"/>) -- closing the check-then-act gap a session check
-    /// performed only once, upstream of this call, would leave open against a concurrent administrative
-    /// invalidation.
+    /// <see cref="IPairingCoordinator.TryRenotify"/> peek, <c>pairing_confirm</c>'s
+    /// <see cref="IPairingCoordinator.ConfirmCode"/>, and <c>rename_request</c>'s
+    /// <see cref="ITrustAdminService.TryCaptureTrustedIncarnation"/>) -- closing the check-then-act gap a
+    /// session check performed only once, upstream of this call, would leave open against a concurrent
+    /// administrative invalidation.
     /// </param>
     /// <param name="connection">The connection to send the response or error on.</param>
     /// <param name="envelope">The already-decoded, already-authorized client envelope to dispatch.</param>
@@ -116,7 +117,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             case PublicMessageType.Ping:
                 return HandlePingAsync(sessionId, connection, envelope);
             case PublicMessageType.RenameRequest:
-                return HandleRenameRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
+                return HandleRenameRequestAsync(clientId, sessionId, connectionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingRequest:
                 return HandlePairingRequestAsync(clientId, sessionId, connectionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingConfirm:
@@ -154,10 +155,17 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <c>renamed</c>, a shape/length/control-character rejection from <see cref="ITrustAdminService.RenameAsync"/>
     /// to <c>invalid_display_name</c>, an unrecognized-or-not-currently-trusted identity to
     /// <c>not_trusted</c>, and any other failure to a safe correlated <c>internal_error</c> -- never a
-    /// raw trust-store exception.
+    /// raw trust-store exception. Re-verifies this exact session incarnation is still active through
+    /// <see cref="ISessionRegistry.TryExecuteIfActive{T}"/>, capturing
+    /// <see cref="ITrustAdminService.TryCaptureTrustedIncarnation"/>'s snapshot inside that same guarded
+    /// critical section, before ever calling <see cref="ITrustAdminService.RenameAsync"/>: an
+    /// already-invalidated session must never capture a target incarnation at all, let alone one a
+    /// concurrent administrative mutation subsequently replaced. A no-record-or-not-currently-Trusted
+    /// capture reports <c>not_trusted</c> immediately, without ever calling
+    /// <see cref="ITrustAdminService.RenameAsync"/> at all.
     /// </summary>
     private async Task<ClientDispatchResult> HandleRenameRequestAsync(
-        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+        ClientId clientId, SessionId sessionId, ConnectionId connectionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
     {
         if (!codec.TryDecodePayload(envelope, out RenameRequestPayload? payload))
         {
@@ -165,9 +173,22 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return new ClientDispatchResult(IsProtocolViolation: true);
         }
 
+        if (!sessionRegistry.TryExecuteIfActive(
+            sessionId, connectionId, () => trustAdminService.TryCaptureTrustedIncarnation(clientId), out KnownDeviceIncarnationId? expectedIncarnation))
+        {
+            SendStaleSessionError(connection, sessionId, envelope.MessageId);
+            return new ClientDispatchResult(IsProtocolViolation: true);
+        }
+
+        if (expectedIncarnation is null)
+        {
+            SendRenameOutcome(connection, sessionId, envelope.MessageId, RenameOutcomeWireValue.NotTrusted, null);
+            return new ClientDispatchResult();
+        }
+
         try
         {
-            await trustAdminService.RenameAsync(clientId, payload.DisplayName, cancellationToken);
+            await trustAdminService.RenameAsync(clientId, payload.DisplayName, expectedIncarnation.Value, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
