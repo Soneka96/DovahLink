@@ -1,4 +1,6 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
+using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
@@ -829,4 +831,244 @@ public class TrustAdminServiceTests
     /// </summary>
     private static IClientSessionInvalidator Invalidator(FakeSessionRegistry sessions) =>
         new ClientSessionInvalidator(sessions, new FakeSessionTerminationNotifier());
+
+    // ---- Security-state gate linearization: admin mutation publication vs. session authorization ----
+    //
+    // The tests below use real TrustStore, SessionRegistry, and PairingCoordinator instances sharing
+    // one SecurityStateGate -- not FakeTrustStore/FakeSessionRegistry -- because the property under
+    // test (a trust mutation's publication and the sessions it affects becoming unauthorized are one
+    // indivisible event) only exists once those two real collaborators share a real lock; a fake has
+    // no such lock to prove ordering against.
+
+    /// <summary>
+    /// Composes a real <see cref="TrustStore"/>, <see cref="SessionRegistry"/>, and
+    /// <see cref="PairingCoordinator"/> sharing one <see cref="SecurityStateGate"/>, plus a
+    /// <see cref="TrustAdminService"/> wired over them, for tests proving the linearization between an
+    /// administrative mutation's publication and session authorization.
+    /// </summary>
+    /// <param name="persistence">The persistence adapter the store writes through to.</param>
+    private static async Task<(TrustStore TrustStore, SessionRegistry Sessions, PairingCoordinator Pairing, TrustAdminService Admin, FakeSessionTerminationNotifier Notifier)>
+        ComposeRealCollaboratorsAsync(FakeTrustStorePersistence persistence)
+    {
+        var securityStateGate = new SecurityStateGate();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), securityStateGate);
+        var sessions = new SessionRegistry(securityStateGate);
+        var pairing = new PairingCoordinator(trustStore, new FakeClock());
+        var notifier = new FakeSessionTerminationNotifier();
+        var admin = new TrustAdminService(trustStore, new ClientSessionInvalidator(sessions, notifier), pairing);
+        return (trustStore, sessions, pairing, admin, notifier);
+    }
+
+    /// <summary>
+    /// Proves race A (Revoke wins first): an old Restricted session attempting <c>pairing_request</c>
+    /// from the exact instant its own deauthorization commits -- nested inside
+    /// <see cref="ITrustStore.RevokeAsync"/>'s own <c>onPublished</c> callback, running on the same
+    /// thread still holding the shared <see cref="SecurityStateGate"/> that
+    /// <see cref="ISessionRegistry.TryExecuteIfActive{T}"/> also requires -- can never create a new
+    /// challenge under the post-Revoke generation: deterministic because a genuinely later, real
+    /// cross-thread attempt could only observe the session gone even later than this exact instant,
+    /// never earlier. This mirrors exactly what <see cref="TrustAdminService"/>'s own
+    /// <c>onPublished</c> wiring does (<see cref="IClientSessionInvalidator.InvalidateClient"/>),
+    /// proven here directly against <see cref="ITrustStore"/> so the test controls the nested attempt.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_OldSessionAttemptsPairingAtTheInstantDeauthorizationCommits_CannotCreateNewChallenge()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, _, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        bool staleAttemptRan = false;
+        TrustMutationOutcome outcome = await trustStore.RevokeAsync(clientId, onPublished: () =>
+        {
+            sessions.InvalidateAllForClient(clientId, SessionInvalidationReason.Revoked);
+            staleAttemptRan = sessions.TryExecuteIfActive(sessionId, connectionId, () => pairing.BeginPairing(clientId), out PairingStartResult _);
+        });
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.False(staleAttemptRan);
+        Assert.Equal(PairingStatusKind.Idle, pairing.GetStatusSnapshot(clientId).Kind);
+        Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Proves the same race A end to end through <see cref="TrustAdminService.RevokeAsync"/> itself:
+    /// once it returns, the old session it just invalidated can never resume pairing, and the store
+    /// stays Revoked -- Revoke cannot be undone by a stale session.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_ThroughTrustAdminService_OldSessionCannotResumePairingAfterwardsAndRevokedStaysAuthoritative()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, TrustAdminService admin, FakeSessionTerminationNotifier notifier) =
+            await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        await admin.RevokeAsync(clientId);
+
+        bool started = sessions.TryExecuteIfActive(sessionId, connectionId, () => pairing.BeginPairing(clientId), out PairingStartResult _);
+        Assert.False(started);
+        Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(clientId)!.State);
+        // The best-effort notification step still runs, after the atomic publish-and-deauthorize, with
+        // the exact session it just invalidated -- the onPublished rewiring only changed when
+        // deauthorization happens, not the notification step that follows it.
+        SessionInvalidationTarget notified = Assert.Single(notifier.NotifiedTargets);
+        Assert.Equal(sessionId, notified.SessionId);
+        Assert.Equal(SessionInvalidationReason.Revoked, notified.Reason);
+    }
+
+    /// <summary>
+    /// Proves race C (request legitimately wins first): a challenge started before Revoke is created
+    /// under the pre-Revoke generation, and Revoke's own <see cref="IPairingCoordinator.Cancel"/> call
+    /// -- which runs after the atomic publish-and-deauthorize step, exactly as the mandated ordering
+    /// requires -- tears it down rather than leaving it reachable. Nothing stale survives either way:
+    /// this is the legal opposite ordering to race A, not a second bug.
+    /// </summary>
+    [Fact]
+    public async Task PairingRequest_LegitimatelyBeforeRevoke_CreatesChallengeThatRevokeThenCancels()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, TrustAdminService admin, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        bool started = sessions.TryExecuteIfActive(sessionId, connectionId, () => pairing.BeginPairing(clientId), out PairingStartResult beginResult);
+        Assert.True(started);
+        Assert.Equal(PairingStartOutcome.Started, beginResult.Outcome);
+
+        await admin.RevokeAsync(clientId);
+
+        Assert.Equal(PairingStatusKind.Idle, pairing.GetStatusSnapshot(clientId).Kind);
+        Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Proves race D (Reset Trust equivalent of race A): the same nested-callback proof against
+    /// <see cref="ITrustStore.ResetTrustAsync"/>, mirroring <see cref="TrustAdminService.ResetTrustAsync"/>'s
+    /// own <c>onPublished</c> wiring (<see cref="IClientSessionInvalidator.InvalidateClients"/>).
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_OldSessionAttemptsPairingAtTheInstantDeauthorizationCommits_CannotCreateNewChallenge()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, _, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        bool staleAttemptRan = false;
+        IReadOnlyList<ClientId> affected = await trustStore.ResetTrustAsync(onPublished: affectedClients =>
+        {
+            sessions.InvalidateAllForClients(affectedClients, SessionInvalidationReason.TrustReset);
+            staleAttemptRan = sessions.TryExecuteIfActive(sessionId, connectionId, () => pairing.BeginPairing(clientId), out PairingStartResult _);
+        });
+
+        Assert.Equal([clientId], affected);
+        Assert.False(staleAttemptRan);
+        Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Proves race E (Block equivalent of race A), and that Blocked stays authoritative: the old
+    /// session cannot create a new challenge, and the record remains Blocked rather than being
+    /// silently overwritten by a stale pairing completion.
+    /// </summary>
+    [Fact]
+    public async Task BlockAsync_OldSessionAttemptsPairingAtTheInstantDeauthorizationCommits_CannotCreateNewChallengeAndBlockedStaysAuthoritative()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, _, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        bool staleAttemptRan = false;
+        TrustMutationOutcome outcome = await trustStore.BlockAsync(clientId, onPublished: () =>
+        {
+            sessions.InvalidateAllForClient(clientId, SessionInvalidationReason.Blocked);
+            staleAttemptRan = sessions.TryExecuteIfActive(sessionId, connectionId, () => pairing.BeginPairing(clientId), out PairingStartResult _);
+        });
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.False(staleAttemptRan);
+        Assert.Equal(KnownDeviceState.Blocked, trustStore.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Proves race F (developer-token semantics survive the new atomic path): a developer-token
+    /// session for the same self-declared <see cref="ClientId"/> a client-scoped Revoke targets is
+    /// never deauthorized by it, exactly as before this fix -- <c>onPublished</c> only ever calls
+    /// <see cref="IClientSessionInvalidator.InvalidateClient"/>, which already excludes
+    /// <see cref="SessionAuthenticationSource.OneTimeLocalToken"/> sessions.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_DeveloperTokenSessionSharingTheClientId_IsNeverInvalidated()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, _, TrustAdminService admin, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId sessionId));
+
+        await admin.RevokeAsync(clientId);
+
+        Assert.True(sessions.IsActive(sessionId, connectionId));
+    }
+
+    /// <summary>
+    /// Proves race G (rename replacement-incarnation race): an old Full session's
+    /// <see cref="TrustAdminService.RenameAsync"/> call captures the shortId of the Known Device
+    /// incarnation visible at that instant, then gets queued behind another mutation's own persistence
+    /// write -- exactly as <see cref="TrustStore"/>'s <c>mutationSemaphore</c> serializes every
+    /// mutation. By the time the queued rename's own check finally runs, the other mutation has
+    /// already replaced the client's Known Device with a brand new incarnation (a
+    /// forget-and-re-pair collapsed into one replacing <see cref="ITrustStore.UpsertAsync"/> for this
+    /// test's purposes) -- a structurally different Known Device sharing only the same durable
+    /// <see cref="ClientId"/>. The stale captured shortId no longer matches it, so the rename must be
+    /// rejected as <see cref="TrustMutationOutcome.NotFound"/> rather than silently renaming the
+    /// replacement.
+    /// </summary>
+    [Fact]
+    public async Task RenameAsync_QueuedBehindConcurrentIncarnationSwap_DoesNotRenameTheReplacement()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, _, _, TrustAdminService admin, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+        var newIncarnation = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+
+        // The incarnation swap is already in flight and holds the store's mutation serialization,
+        // blocked in its own gated persistence write below -- the original record (shortId 11111) is
+        // still the only one visible to any reader at this point.
+        Task swapTask = trustStore.UpsertAsync(newIncarnation);
+        await enteredSave.Task;
+
+        // The old Full session's rename starts now: it captures the still-current shortId 11111
+        // synchronously, then queues behind the swap's still-held mutation serialization.
+        Task renameTask = admin.RenameAsync(clientId, "Renamed By Stale Session");
+
+        releaseSave.SetResult();
+        await swapTask;
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => renameTask);
+        Assert.Equal(newIncarnation, trustStore.TryGet(clientId));
+    }
 }

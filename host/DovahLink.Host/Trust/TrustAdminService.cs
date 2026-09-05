@@ -114,11 +114,29 @@ public sealed class TrustAdminService : ITrustAdminService
         " reset-trust | reset | confirm-reset -confirm <code> | help";
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Captures the currently trusted record's <see cref="TrustRecord.ShortId"/> synchronously, before
+    /// this method's own mutation call ever awaits anything, and carries it through as an
+    /// <c>expectedShortId</c> precondition -- never a bare current-state read taken again just before
+    /// the mutation, which would only move the same race rather than close it. This closes the stale
+    /// async request incarnation race: if this exact Known Device is forgotten and <paramref name="clientId"/>
+    /// later re-pairs under a new incarnation while this call is still queued behind another
+    /// in-flight <see cref="ITrustStore"/> mutation, the captured shortId no longer matches the
+    /// replacement record's own, and the eventual <see cref="ITrustStore.RenameIfTrustedAsync"/> call
+    /// reports <see cref="TrustMutationOutcome.NotFound"/> rather than silently renaming the
+    /// replacement.
+    /// </remarks>
     public async Task RenameAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(displayName);
         ValidateDisplayName(displayName);
-        TrustMutationOutcome outcome = await trustStore.RenameIfTrustedAsync(clientId, displayName, cancellationToken);
+        string? expectedShortId = trustStore.TryGet(clientId)?.ShortId;
+        if (expectedShortId is null)
+        {
+            throw new KeyNotFoundException($"No known device for client '{clientId}'.");
+        }
+
+        TrustMutationOutcome outcome = await trustStore.RenameIfTrustedAsync(clientId, displayName, cancellationToken, expectedShortId);
         if (outcome == TrustMutationOutcome.NotFound)
         {
             throw new KeyNotFoundException($"No known device for client '{clientId}'.");
@@ -170,27 +188,31 @@ public sealed class TrustAdminService : ITrustAdminService
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Every affected session becomes unauthorized in the registry -- <c>onPublished</c>'s own
+    /// synchronous, immediate <see cref="IClientSessionInvalidator.InvalidateClients"/> call, run by
+    /// <see cref="ITrustStore.ResetTrustAsync"/> itself inside the same security-state-gate critical
+    /// section its own publish and generation advance happen in -- so no request on one of these
+    /// sessions can ever observe the mutation already published while still finding itself active in
+    /// the registry: no such post-mutation window exists for it to land in at all, closing the race a
+    /// separate call issued only after this method's own <c>await</c> returned could otherwise leave
+    /// open. Batch invalidation also removes every affected client in one atomic registry pass, rather
+    /// than a per-client loop that would leave client B authorized while client A's teardown is still
+    /// in flight. Pairing cancellation follows immediately after, before any best-effort notification
+    /// is even attempted, per <c>ai/context/protocol/security.md</c>'s authoritative-mutation -&gt;
+    /// unauthorized -&gt; future authentication/pairing enforcement -&gt; notification -&gt; close
+    /// ordering.
+    /// </remarks>
     public async Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<ClientId> affected = await trustStore.ResetTrustAsync(cancellationToken);
+        IReadOnlyList<SessionInvalidationTarget> targets = [];
+        IReadOnlyList<ClientId> affected = await trustStore.ResetTrustAsync(
+            cancellationToken, onPublished: affectedClients => targets = sessionInvalidator.InvalidateClients(affectedClients, SessionInvalidationReason.TrustReset));
+
+        pairingCoordinator.CancelAll();
         if (affected.Count > 0)
         {
-            // Every affected session becomes unauthorized in the registry -- InvalidateClients's own
-            // synchronous, immediate action -- as close to the authoritative trust mutation as
-            // possible, closing the post-mutation window a concurrent request on one of these sessions
-            // could otherwise still find IsActive true in. Batch invalidation also removes every
-            // affected client in one atomic registry pass, rather than a per-client loop that would
-            // leave client B authorized while client A's teardown is still in flight. Pairing
-            // cancellation follows immediately, before any best-effort notification is even attempted,
-            // per ai/context/protocol/security.md's authoritative-mutation -> unauthorized -> future
-            // authentication/pairing enforcement -> notification -> close ordering.
-            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateClients(affected, SessionInvalidationReason.TrustReset);
-            pairingCoordinator.CancelAll();
             await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
-        }
-        else
-        {
-            pairingCoordinator.CancelAll();
         }
 
         return affected;
@@ -212,23 +234,30 @@ public sealed class TrustAdminService : ITrustAdminService
     public Task<TrustMutationOutcome> ForgetByShortIdAsync(string shortId, CancellationToken cancellationToken = default) =>
         MutateByShortIdAsync(shortId, ForgetCoreAsync, cancellationToken);
 
-    /// <summary>Revokes a client and performs successful-mutation side effects.</summary>
+    /// <summary>
+    /// Revokes a client and performs successful-mutation side effects. The session becomes
+    /// unauthorized in the registry -- <c>onPublished</c>'s own synchronous, immediate
+    /// <see cref="IClientSessionInvalidator.InvalidateClient"/> call, run by
+    /// <see cref="ITrustStore.RevokeAsync"/> itself inside the same security-state-gate critical
+    /// section its own publish and generation advance happen in -- so no request on this session can
+    /// ever observe the mutation already published while still finding itself active in the registry:
+    /// no such post-mutation window exists for it to land in at all, closing the race a separate call
+    /// issued only after this method's own <c>await</c> returned could otherwise leave open. Pairing
+    /// cancellation follows immediately after, before any best-effort notification is even attempted,
+    /// per <c>ai/context/protocol/security.md</c>'s authoritative-mutation -&gt; unauthorized -&gt;
+    /// future authentication/pairing enforcement -&gt; notification -&gt; close ordering.
+    /// </summary>
     /// <param name="clientId">The client to revoke.</param>
     /// <param name="expectedShortId">The shortId precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     private async Task<TrustMutationOutcome> RevokeCoreAsync(ClientId clientId, string? expectedShortId, CancellationToken cancellationToken)
     {
-        TrustMutationOutcome outcome = await trustStore.RevokeAsync(clientId, cancellationToken, expectedShortId);
+        IReadOnlyList<SessionInvalidationTarget> targets = [];
+        TrustMutationOutcome outcome = await trustStore.RevokeAsync(
+            clientId, cancellationToken, expectedShortId,
+            onPublished: () => targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked));
         if (outcome == TrustMutationOutcome.Changed)
         {
-            // The session becomes unauthorized in the registry -- InvalidateClient's own synchronous,
-            // immediate action -- as close to the authoritative trust mutation as possible, closing the
-            // post-mutation window a concurrent request on this session could otherwise still find
-            // IsActive true in. Pairing cancellation follows immediately, before any best-effort
-            // notification is even attempted, per ai/context/protocol/security.md's
-            // authoritative-mutation -> unauthorized -> future authentication/pairing enforcement ->
-            // notification -> close ordering.
-            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked);
             pairingCoordinator.Cancel(clientId);
             await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
         }
@@ -236,17 +265,18 @@ public sealed class TrustAdminService : ITrustAdminService
         return outcome;
     }
 
-    /// <summary>Blocks a client and performs successful-mutation side effects.</summary>
+    /// <summary>Blocks a client and performs successful-mutation side effects. See <see cref="RevokeCoreAsync"/>'s own remarks for this ordering.</summary>
     /// <param name="clientId">The client to block.</param>
     /// <param name="expectedShortId">The shortId precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     private async Task<TrustMutationOutcome> BlockCoreAsync(ClientId clientId, string? expectedShortId, CancellationToken cancellationToken)
     {
-        TrustMutationOutcome outcome = await trustStore.BlockAsync(clientId, cancellationToken, expectedShortId);
+        IReadOnlyList<SessionInvalidationTarget> targets = [];
+        TrustMutationOutcome outcome = await trustStore.BlockAsync(
+            clientId, cancellationToken, expectedShortId,
+            onPublished: () => targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Blocked));
         if (outcome == TrustMutationOutcome.Changed)
         {
-            // See RevokeCoreAsync's own remarks for this ordering.
-            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Blocked);
             pairingCoordinator.Cancel(clientId);
             await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
         }
