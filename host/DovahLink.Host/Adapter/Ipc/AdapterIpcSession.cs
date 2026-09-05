@@ -59,6 +59,40 @@ public interface IAdapterIpcSession
 
     /// <summary>Records that the physical connection ended, deactivating this session's connection lease exactly once.</summary>
     void HandleDisconnected();
+
+    /// <summary>
+    /// Prepares a host-directed pairing-display request, or <see langword="null"/> before a
+    /// successful handshake or when the current connection generation is no longer active.
+    /// </summary>
+    /// <param name="code">The code to display.</param>
+    /// <param name="mode">Which display intent this request carries.</param>
+    IpcPairingDisplayMessage? PreparePairingDisplay(string code, PairingDisplayMode mode);
+
+    /// <summary>
+    /// Prepares a host-directed no-code attempts-exhausted notification, or <see langword="null"/>
+    /// before a successful handshake or when the current connection generation is no longer active.
+    /// </summary>
+    IpcPairingAttemptsExhaustedMessage? PreparePairingAttemptsExhausted();
+
+    /// <summary>
+    /// Validates a received pairing-display acknowledgement against the currently pending request and
+    /// active connection generation, removing it from the pending set when it matches.
+    /// </summary>
+    /// <param name="ack">The received acknowledgement.</param>
+    /// <returns>
+    /// The acknowledgement's <see cref="IpcPairingDisplayAckMessage.Accepted"/> value when it matches a
+    /// currently pending request on the still-active connection generation; otherwise
+    /// <see langword="null"/>, meaning the acknowledgement must be ignored.
+    /// </returns>
+    bool? HandlePairingDisplayAck(IpcPairingDisplayAckMessage ack);
+
+    /// <summary>
+    /// Withdraws a previously prepared pairing-display request that could not actually be sent (for
+    /// example a full outbound queue), so a later stray acknowledgement carrying the same correlation
+    /// id is never mistaken for a reply to a request the adapter was never asked to display.
+    /// </summary>
+    /// <param name="correlationId">The correlation id of the request to withdraw.</param>
+    void CancelPendingPairingDisplay(ulong correlationId);
 }
 
 /// <inheritdoc cref="IAdapterIpcSession"/>
@@ -106,6 +140,12 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
 
     /// <summary>Guards <see cref="HandleDisconnected"/> so it deactivates the lease at most once.</summary>
     private int disconnected;
+
+    /// <summary>Guards <see cref="pendingPairingDisplayCorrelationIds"/> against concurrent access from the connection's send and receive paths.</summary>
+    private readonly object pendingPairingDisplayGate = new();
+
+    /// <summary>The correlation ids of pairing-display requests currently awaiting an acknowledgement.</summary>
+    private readonly HashSet<ulong> pendingPairingDisplayCorrelationIds = [];
 
     /// <summary>Creates a session for one connection attempt.</summary>
     /// <param name="lifecycle">The sole gateway for this session's connection-lifecycle mutations.</param>
@@ -276,4 +316,53 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
 
     /// <summary>Issues the next monotonic outbound correlation id, starting at 1.</summary>
     private ulong NextCorrelationId() => (ulong)Interlocked.Increment(ref nextCorrelationId);
+
+    /// <inheritdoc/>
+    public IpcPairingDisplayMessage? PreparePairingDisplay(string code, PairingDisplayMode mode)
+    {
+        if (lease is null || !lifecycle.IsActive(lease))
+        {
+            return null;
+        }
+
+        ulong correlationId = NextCorrelationId();
+        lock (pendingPairingDisplayGate)
+        {
+            pendingPairingDisplayCorrelationIds.Add(correlationId);
+        }
+
+        return new IpcPairingDisplayMessage(correlationId, code, mode);
+    }
+
+    /// <inheritdoc/>
+    public IpcPairingAttemptsExhaustedMessage? PreparePairingAttemptsExhausted() =>
+        lease is null || !lifecycle.IsActive(lease) ? null : new IpcPairingAttemptsExhaustedMessage(0);
+
+    /// <inheritdoc/>
+    public bool? HandlePairingDisplayAck(IpcPairingDisplayAckMessage ack)
+    {
+        if (lease is null || !lifecycle.IsActive(lease))
+        {
+            return null;
+        }
+
+        lock (pendingPairingDisplayGate)
+        {
+            if (!pendingPairingDisplayCorrelationIds.Remove(ack.CorrelationId))
+            {
+                return null;
+            }
+        }
+
+        return ack.Accepted;
+    }
+
+    /// <inheritdoc/>
+    public void CancelPendingPairingDisplay(ulong correlationId)
+    {
+        lock (pendingPairingDisplayGate)
+        {
+            pendingPairingDisplayCorrelationIds.Remove(correlationId);
+        }
+    }
 }

@@ -851,6 +851,296 @@ public class AdapterIpcConnectionTests
         client.Dispose();
     }
 
+    // ---- Pairing display ----
+
+    /// <summary>Verifies that a pairing-display request is refused before the session has anything to prepare it from.</summary>
+    [Fact]
+    public void TrySendPairingDisplay_SessionRefuses_ReturnsFalse()
+    {
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        bool enqueued = connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+    }
+
+    /// <summary>Verifies that an attempts-exhausted notification is refused before the session has anything to prepare it from.</summary>
+    [Fact]
+    public void TrySendPairingAttemptsExhausted_SessionRefuses_ReturnsFalse()
+    {
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        Assert.False(connection.TrySendPairingAttemptsExhausted());
+    }
+
+    /// <summary>Verifies that a queued pairing-display request is actually written to the peer once connected.</summary>
+    [Fact]
+    public async Task TrySendPairingDisplay_Connected_DeliversFrameToPeer()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        bool enqueued = connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId);
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        Assert.Equal(9UL, correlationId);
+        var pairingDisplay = Assert.IsType<IpcPairingDisplayMessage>(delivered);
+        Assert.Equal("123456", pairingDisplay.Code);
+        Assert.Equal(PairingDisplayMode.Initial, pairingDisplay.Mode);
+    }
+
+    /// <summary>Verifies that a queued attempts-exhausted notification is actually written to the peer once connected.</summary>
+    [Fact]
+    public async Task TrySendPairingAttemptsExhausted_Connected_DeliversFrameToPeer()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { PairingAttemptsExhaustedResult = new IpcPairingAttemptsExhaustedMessage(0) };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        bool enqueued = connection.TrySendPairingAttemptsExhausted();
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        Assert.IsType<IpcPairingAttemptsExhaustedMessage>(delivered);
+    }
+
+    /// <summary>
+    /// Verifies that the bounded outbound queue refuses a pairing-display request once full, and that
+    /// the session is told to withdraw the correlation id it had already registered as pending -- so a
+    /// later stray acknowledgement for a request that was never actually sent cannot be mistaken for a
+    /// legitimate reply.
+    /// </summary>
+    [Fact]
+    public void TrySendPairingDisplay_QueueFull_ReturnsFalseAndCancelsPendingCorrelation()
+    {
+        var fakeSession = new FakeAdapterIpcSession { PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial) };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out _));
+        }
+
+        bool enqueued = connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+        Assert.Contains(9UL, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
+    }
+
+    /// <summary>
+    /// Verifies that a rate-limit close -- a connection ending via forced writer closure rather than an
+    /// ordinary peer disconnect -- still resolves an outstanding acknowledgement wait as not accepted
+    /// instead of leaving it hanging.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_ForceClosedBlockedWriter_ReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 2);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // acknowledgement
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await client.WriteAsync(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF }); // malformed frame length forces closure
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        blockingStream.Release();
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that an acknowledgement arriving from the peer resolves the matching pending wait with its accepted value.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AwaitPairingDisplayAckAsync_AckArrives_ReturnsAcceptedValue(bool accepted)
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = accepted,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, accepted)));
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(accepted, result);
+        Assert.Single(fakeSession.HandledPairingDisplayAcks);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that awaiting an acknowledgement for a correlation id that was never sent returns false immediately.</summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_UnknownCorrelationId_ReturnsFalseImmediately()
+    {
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(999, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        Assert.False(result);
+    }
+
+    /// <summary>Verifies that awaiting an acknowledgement that never arrives times out and returns false rather than hanging.</summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_NoAckArrives_TimesOutAndReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that awaiting an acknowledgement with an already-cancelled token returns false rather than throwing.</summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Cancelled_ReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), cancellation.Token)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a connection ending while an acknowledgement wait is outstanding resolves it as not accepted rather than hanging forever.</summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_ConnectionEndsWhileWaiting_ReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        client.Dispose();
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an acknowledgement the session does not recognize as valid (a stale or mismatched
+    /// correlation, or a superseded connection generation) never resolves the pending wait -- the wait
+    /// times out on its own bound instead of resolving with a value the session never approved.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_SessionRejectsAck_TimesOutRatherThanResolving()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = null,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(200), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, true)));
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Single(fakeSession.HandledPairingDisplayAcks);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>
     /// <param name="runTask">The connection task under test.</param>
     /// <param name="blockingStream">The stream expected to be force-disposed.</param>

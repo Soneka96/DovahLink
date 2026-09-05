@@ -51,6 +51,21 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>An optional callback invoked synchronously at the end of <see cref="HandleDisconnected"/>, letting a test observe collaborator state exactly as it stood when the connection notified this session of disconnection.</summary>
     public Action? OnDisconnected { get; set; }
 
+    /// <summary>The message <see cref="PreparePairingDisplay"/> returns.</summary>
+    public IpcPairingDisplayMessage? PairingDisplayResult { get; set; }
+
+    /// <summary>The message <see cref="PreparePairingAttemptsExhausted"/> returns.</summary>
+    public IpcPairingAttemptsExhaustedMessage? PairingAttemptsExhaustedResult { get; set; }
+
+    /// <summary>The result <see cref="HandlePairingDisplayAck"/> returns.</summary>
+    public bool? PairingDisplayAckResult { get; set; }
+
+    /// <summary>The acknowledgements passed to <see cref="HandlePairingDisplayAck"/>, in call order.</summary>
+    public List<IpcPairingDisplayAckMessage> HandledPairingDisplayAcks { get; } = [];
+
+    /// <summary>The correlation ids passed to <see cref="CancelPendingPairingDisplay"/>, in call order.</summary>
+    public List<ulong> CancelledPendingPairingDisplayCorrelationIds { get; } = [];
+
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
     {
@@ -102,4 +117,20 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
         DisconnectedCalls++;
         OnDisconnected?.Invoke();
     }
+
+    /// <inheritdoc/>
+    public IpcPairingDisplayMessage? PreparePairingDisplay(string code, PairingDisplayMode mode) => PairingDisplayResult;
+
+    /// <inheritdoc/>
+    public IpcPairingAttemptsExhaustedMessage? PreparePairingAttemptsExhausted() => PairingAttemptsExhaustedResult;
+
+    /// <inheritdoc/>
+    public bool? HandlePairingDisplayAck(IpcPairingDisplayAckMessage ack)
+    {
+        HandledPairingDisplayAcks.Add(ack);
+        return PairingDisplayAckResult;
+    }
+
+    /// <inheritdoc/>
+    public void CancelPendingPairingDisplay(ulong correlationId) => CancelledPendingPairingDisplayCorrelationIds.Add(correlationId);
 }

@@ -60,4 +60,18 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
 
     /// <inheritdoc/>
     public bool TryCancel(ulong correlationId) => false;
+
+    /// <inheritdoc/>
+    public bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId)
+    {
+        correlationId = 0;
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendPairingAttemptsExhausted() => false;
+
+    /// <inheritdoc/>
+    public Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken) =>
+        Task.FromResult(false);
 }

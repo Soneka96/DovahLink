@@ -415,14 +415,22 @@ public class AdapterIpcSessionTests
     [InlineData(typeof(IpcListenEventMessage))]
     [InlineData(typeof(IpcReadSampleMessage))]
     [InlineData(typeof(IpcHelloAckMessage))]
+    [InlineData(typeof(IpcPairingDisplayMessage))]
+    [InlineData(typeof(IpcPairingAttemptsExhaustedMessage))]
+    [InlineData(typeof(IpcPairingDisplayAckMessage))]
     public void HandleFrame_UnexpectedMessageKind_RejectsAndCloses(Type messageType)
     {
         (AdapterIpcSession session, _, _) = HandshakenSession();
-        IpcMessage message = messageType == typeof(IpcListenEventMessage)
-            ? new IpcListenEventMessage(5, 1)
-            : messageType == typeof(IpcReadSampleMessage)
-                ? new IpcReadSampleMessage(5, 1)
-                : new IpcHelloAckMessage(5, true, IpcHelloRejectReason.None);
+        IpcMessage message = messageType switch
+        {
+            not null when messageType == typeof(IpcListenEventMessage) => new IpcListenEventMessage(5, 1),
+            not null when messageType == typeof(IpcReadSampleMessage) => new IpcReadSampleMessage(5, 1),
+            not null when messageType == typeof(IpcPairingDisplayMessage) =>
+                new IpcPairingDisplayMessage(5, "123456", PairingDisplayMode.Initial),
+            not null when messageType == typeof(IpcPairingAttemptsExhaustedMessage) => new IpcPairingAttemptsExhaustedMessage(5),
+            not null when messageType == typeof(IpcPairingDisplayAckMessage) => new IpcPairingDisplayAckMessage(5, true),
+            _ => new IpcHelloAckMessage(5, true, IpcHelloRejectReason.None),
+        };
 
         AdapterIpcOutcome outcome = session.HandleFrame(message);
 
@@ -613,6 +621,187 @@ public class AdapterIpcSessionTests
         Assert.Null(firstSession.PrepareListenEvent(1));
         firstSession.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
         Assert.True(tracker.NeedsResynchronization);
+    }
+
+    // ---- Pairing display ----
+
+    /// <summary>Verifies that preparing a pairing-display request before a successful handshake returns null.</summary>
+    [Fact]
+    public void PreparePairingDisplay_BeforeHandshake_ReturnsNull()
+    {
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+
+        Assert.Null(session.PreparePairingDisplay("123456", PairingDisplayMode.Initial));
+    }
+
+    /// <summary>Verifies that preparing a pairing-display request after handshake returns a message with a nonzero correlation id and the requested code and mode.</summary>
+    [Fact]
+    public void PreparePairingDisplay_AfterHandshake_ReturnsMessage()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        IpcPairingDisplayMessage? message = session.PreparePairingDisplay("048372", PairingDisplayMode.ManualRedisplay);
+
+        Assert.NotNull(message);
+        Assert.NotEqual(0UL, message.CorrelationId);
+        Assert.Equal("048372", message.Code);
+        Assert.Equal(PairingDisplayMode.ManualRedisplay, message.Mode);
+    }
+
+    /// <summary>Verifies that successive pairing-display preparations issue distinct correlation ids.</summary>
+    [Fact]
+    public void PreparePairingDisplay_IssuesDistinctCorrelationIds()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        IpcPairingDisplayMessage? first = session.PreparePairingDisplay("123456", PairingDisplayMode.Initial);
+        IpcPairingDisplayMessage? second = session.PreparePairingDisplay("123456", PairingDisplayMode.Initial);
+
+        Assert.NotEqual(first!.CorrelationId, second!.CorrelationId);
+    }
+
+    /// <summary>Verifies that preparing an attempts-exhausted notification before a successful handshake returns null.</summary>
+    [Fact]
+    public void PreparePairingAttemptsExhausted_BeforeHandshake_ReturnsNull()
+    {
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+
+        Assert.Null(session.PreparePairingAttemptsExhausted());
+    }
+
+    /// <summary>Verifies that preparing an attempts-exhausted notification after handshake returns a message with correlation id zero.</summary>
+    [Fact]
+    public void PreparePairingAttemptsExhausted_AfterHandshake_ReturnsMessageWithZeroCorrelationId()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        IpcPairingAttemptsExhaustedMessage? message = session.PreparePairingAttemptsExhausted();
+
+        Assert.NotNull(message);
+        Assert.Equal(0UL, message.CorrelationId);
+    }
+
+    /// <summary>Verifies that a stale, already-superseded lease can no longer prepare a pairing-display request.</summary>
+    [Fact]
+    public void PreparePairingDisplay_AfterReconnectSameInstanceId_OldSessionReturnsNull()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        var firstSession = new AdapterIpcSession(lifecycle, verifier);
+        firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
+        firstSession.CommitHandshake();
+
+        var secondSession = new AdapterIpcSession(lifecycle, verifier);
+        secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
+        secondSession.CommitHandshake();
+
+        Assert.Null(firstSession.PreparePairingDisplay("123456", PairingDisplayMode.Initial));
+        Assert.Null(firstSession.PreparePairingAttemptsExhausted());
+    }
+
+    /// <summary>Verifies that an acknowledgement matching a currently pending request returns its accepted value and consumes the pending entry.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HandlePairingDisplayAck_MatchingPendingCorrelation_ReturnsAcceptedValue(bool accepted)
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+        IpcPairingDisplayMessage request = session.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
+
+        bool? result = session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(request.CorrelationId, accepted));
+
+        Assert.Equal(accepted, result);
+    }
+
+    /// <summary>Verifies that an acknowledgement whose correlation id was never prepared is ignored.</summary>
+    [Fact]
+    public void HandlePairingDisplayAck_MismatchedCorrelation_ReturnsNull()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+        IpcPairingDisplayMessage request = session.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
+
+        bool? result = session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(request.CorrelationId + 1, true));
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that a repeated acknowledgement for an already-consumed correlation id is ignored rather than re-applied.</summary>
+    [Fact]
+    public void HandlePairingDisplayAck_RepeatedForSameCorrelation_SecondCallReturnsNull()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+        IpcPairingDisplayMessage request = session.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
+        session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(request.CorrelationId, true));
+
+        bool? result = session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(request.CorrelationId, true));
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that an acknowledgement arriving before any handshake is ignored safely.</summary>
+    [Fact]
+    public void HandlePairingDisplayAck_BeforeHandshake_ReturnsNull()
+    {
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+
+        Assert.Null(session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(1, true)));
+    }
+
+    /// <summary>
+    /// Verifies that an acknowledgement for a still-pending correlation id is ignored once a newer
+    /// connection has since superseded this session's own lease -- a late acknowledgement from an
+    /// older adapter connection can never resolve a request issued on a newer one.
+    /// </summary>
+    [Fact]
+    public void HandlePairingDisplayAck_AfterReconnectSameInstanceId_OldSessionStaysRejected()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        var firstSession = new AdapterIpcSession(lifecycle, verifier);
+        firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
+        firstSession.CommitHandshake();
+        IpcPairingDisplayMessage request = firstSession.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
+
+        var secondSession = new AdapterIpcSession(lifecycle, verifier);
+        secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
+        secondSession.CommitHandshake();
+
+        bool? result = firstSession.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(request.CorrelationId, true));
+
+        Assert.Null(result);
+    }
+
+    /// <summary>
+    /// Verifies that withdrawing a prepared request that was never actually sent removes it from the
+    /// pending set, so a later stray acknowledgement for that same correlation id is ignored rather
+    /// than mistaken for a reply to a request the adapter was never asked to display.
+    /// </summary>
+    [Fact]
+    public void CancelPendingPairingDisplay_ThenAckArrives_IsIgnored()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+        IpcPairingDisplayMessage request = session.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
+
+        session.CancelPendingPairingDisplay(request.CorrelationId);
+        bool? result = session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(request.CorrelationId, true));
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that withdrawing a correlation id that was never prepared is a harmless no-op.</summary>
+    [Fact]
+    public void CancelPendingPairingDisplay_UnknownCorrelationId_DoesNotThrow()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        session.CancelPendingPairingDisplay(999);
     }
 
     /// <summary>Creates a session that has already completed and committed a successful handshake against a fresh tracker and lifecycle.</summary>

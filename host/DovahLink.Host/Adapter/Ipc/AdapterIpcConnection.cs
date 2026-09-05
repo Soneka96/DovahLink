@@ -36,6 +36,28 @@ public interface IAdapterIpcConnection
     /// <param name="correlationId">The nonzero correlation id of the request to cancel.</param>
     /// <returns><see langword="true"/> when the cancellation was accepted onto the outbound queue.</returns>
     bool TryCancel(ulong correlationId);
+
+    /// <summary>Attempts to enqueue a host-directed pairing-display request.</summary>
+    /// <param name="code">The code to display.</param>
+    /// <param name="mode">Which display intent this request carries.</param>
+    /// <param name="correlationId">The request's correlation id when enqueued; otherwise zero.</param>
+    /// <returns><see langword="true"/> when the request was accepted onto the outbound queue.</returns>
+    bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId);
+
+    /// <summary>Attempts to enqueue a host-directed no-code attempts-exhausted notification.</summary>
+    /// <returns><see langword="true"/> when the notification was accepted onto the outbound queue.</returns>
+    bool TrySendPairingAttemptsExhausted();
+
+    /// <summary>
+    /// Waits for the adapter's acknowledgement to a previously enqueued pairing-display request,
+    /// bounded by <paramref name="timeout"/>. A timeout, cancellation, disconnection, or an
+    /// acknowledgement that does not match a currently pending request on the active connection
+    /// generation are all reported as <see langword="false"/>, identically to an explicit rejection.
+    /// </summary>
+    /// <param name="correlationId">The correlation id returned by <see cref="TrySendPairingDisplay"/>.</param>
+    /// <param name="timeout">The maximum time to wait for the acknowledgement.</param>
+    /// <param name="cancellationToken">The token used to stop waiting early.</param>
+    Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
 /// <inheritdoc cref="IAdapterIpcConnection"/>
@@ -68,6 +90,12 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <summary>The bounded outbound frame queue drained by <see cref="WriterLoopAsync"/>.</summary>
     private readonly Channel<byte[]> outbound = Channel.CreateBounded<byte[]>(
         new BoundedChannelOptions(Constants.MaxIpcQueuedMessages) { SingleReader = true, SingleWriter = false });
+
+    /// <summary>Guards <see cref="pendingPairingDisplayAcks"/> against concurrent access.</summary>
+    private readonly object pendingPairingDisplayAcksGate = new();
+
+    /// <summary>The acknowledgement waiters for pairing-display requests currently outstanding.</summary>
+    private readonly Dictionary<ulong, TaskCompletionSource<bool>> pendingPairingDisplayAcks = [];
 
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
@@ -114,6 +142,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             // teardown can land in the channel after this generation's unavailability is published.
             outbound.Writer.TryComplete();
             session.HandleDisconnected();
+            FailAllPendingPairingDisplayAcks();
             bool forceClose = cancellationToken.IsCancellationRequested ||
                 ioCancellation.IsCancellationRequested ||
                 inboundRateLimitExceeded ||
@@ -202,6 +231,75 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         return message is not null && outbound.Writer.TryWrite(codec.Encode(message));
     }
 
+    /// <inheritdoc/>
+    public bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId)
+    {
+        IpcPairingDisplayMessage? message = session.PreparePairingDisplay(code, mode);
+        if (message is null)
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        lock (pendingPairingDisplayAcksGate)
+        {
+            pendingPairingDisplayAcks[message.CorrelationId] = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        if (!outbound.Writer.TryWrite(codec.Encode(message)))
+        {
+            lock (pendingPairingDisplayAcksGate)
+            {
+                pendingPairingDisplayAcks.Remove(message.CorrelationId);
+            }
+
+            session.CancelPendingPairingDisplay(message.CorrelationId);
+            correlationId = 0;
+            return false;
+        }
+
+        correlationId = message.CorrelationId;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendPairingAttemptsExhausted()
+    {
+        IpcPairingAttemptsExhaustedMessage? message = session.PreparePairingAttemptsExhausted();
+        return message is not null && outbound.Writer.TryWrite(codec.Encode(message));
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<bool>? tcs;
+        lock (pendingPairingDisplayAcksGate)
+        {
+            pendingPairingDisplayAcks.TryGetValue(correlationId, out tcs);
+        }
+
+        if (tcs is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await tcs.Task.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
+        {
+            return false;
+        }
+        finally
+        {
+            lock (pendingPairingDisplayAcksGate)
+            {
+                pendingPairingDisplayAcks.Remove(correlationId);
+            }
+        }
+    }
+
     /// <summary>
     /// Reads and evaluates the connecting adapter's first frame within
     /// <see cref="Constants.AdapterIpcHandshakeTimeout"/>, which must be a Hello. A peer that
@@ -270,12 +368,56 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 return;
             }
 
+            if (decodeResult.Message is IpcPairingDisplayAckMessage pairingDisplayAck)
+            {
+                ResolvePairingDisplayAck(pairingDisplayAck);
+                continue;
+            }
+
             AdapterIpcOutcome outcome = session.HandleFrame(decodeResult.Message!);
             EnqueueOutcome(outcome);
             if (outcome.ShouldClose)
             {
                 return;
             }
+        }
+    }
+
+    /// <summary>Resolves the pending acknowledgement wait matching a received pairing-display acknowledgement, if any.</summary>
+    /// <param name="ack">The received acknowledgement.</param>
+    private void ResolvePairingDisplayAck(IpcPairingDisplayAckMessage ack)
+    {
+        bool? accepted = session.HandlePairingDisplayAck(ack);
+        if (accepted is null)
+        {
+            return;
+        }
+
+        TaskCompletionSource<bool>? tcs;
+        lock (pendingPairingDisplayAcksGate)
+        {
+            pendingPairingDisplayAcks.Remove(ack.CorrelationId, out tcs);
+        }
+
+        tcs?.TrySetResult(accepted.Value);
+    }
+
+    /// <summary>
+    /// Resolves every still-outstanding pairing-display acknowledgement wait as not accepted, so a
+    /// caller awaiting one never hangs past this connection's teardown.
+    /// </summary>
+    private void FailAllPendingPairingDisplayAcks()
+    {
+        List<TaskCompletionSource<bool>> waiters;
+        lock (pendingPairingDisplayAcksGate)
+        {
+            waiters = [.. pendingPairingDisplayAcks.Values];
+            pendingPairingDisplayAcks.Clear();
+        }
+
+        foreach (TaskCompletionSource<bool> tcs in waiters)
+        {
+            tcs.TrySetResult(false);
         }
     }
 
