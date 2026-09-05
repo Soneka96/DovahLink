@@ -329,14 +329,24 @@ public class PairingCoordinatorTests
         Assert.Null(result.Challenge);
     }
 
-    /// <summary>Verifies that re-pairing preserves a known device's identity metadata.</summary>
+    /// <summary>
+    /// Verifies that re-pairing preserves a known device's identity metadata, including its
+    /// <see cref="TrustRecord.Incarnation"/>: the same Known Device re-pairing after Revoke must never
+    /// mint a new incarnation, since only destroying the record entirely (Forget, Factory Reset) ends
+    /// one -- see <see cref="CommitPending_AfterForget_MintsNewIncarnationEvenWithSameShortId"/> for
+    /// the contrasting case.
+    /// </summary>
     [Fact]
     public async Task CommitPending_ExistingRecord_PreservesShortIdAndPairedAt()
     {
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
         DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
-        trustStore.Seed(new TrustRecord(clientId, "12345", "Old Name", KnownDeviceState.Revoked, "oldhash", pairedAt));
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", "Old Name", KnownDeviceState.Revoked, "oldhash", pairedAt)
+        {
+            Incarnation = incarnation,
+        });
         var coordinator = new PairingCoordinator(trustStore, new FakeClock());
         PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
@@ -348,6 +358,84 @@ public class PairingCoordinatorTests
         Assert.Equal("12345", updated.ShortId);
         Assert.Equal(pairedAt, updated.PairedAtUtc);
         Assert.Equal("Old Name", updated.DisplayName);
+        Assert.Equal(incarnation, updated.Incarnation);
+    }
+
+    /// <summary>Verifies that a Blocked device returning to Unpaired and then re-pairing preserves its incarnation.</summary>
+    [Fact]
+    public async Task CommitPending_AfterUnblock_PreservesIncarnation()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        {
+            Incarnation = incarnation,
+        });
+        await trustStore.UnblockAsync(clientId);
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, null);
+
+        await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        TrustRecord updated = trustStore.TryGet(clientId)!;
+
+        Assert.Equal(incarnation, updated.Incarnation);
+    }
+
+    /// <summary>Verifies that a first-time pairing (no existing record for the client) mints a fresh, non-empty incarnation.</summary>
+    [Fact]
+    public async Task CommitPending_NoExistingRecord_MintsDistinctNonEmptyIncarnations()
+    {
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        ClientId first = ClientId.NewId();
+        ClientId second = ClientId.NewId();
+        // The coordinator holds a single global challenge/pending-credential slot (see
+        // BeginPairing_WhileCredentialPending_IsOwnerBound), so each pairing must fully commit
+        // before the next one can begin.
+        PairingConfirmationResult firstIssued = coordinator.ConfirmCode(
+            first, BeginAndDisplayPairing(coordinator, first).Challenge!.Code, null);
+        await coordinator.CommitPendingAsync(first, firstIssued.Credential!);
+        PairingConfirmationResult secondIssued = coordinator.ConfirmCode(
+            second, BeginAndDisplayPairing(coordinator, second).Challenge!.Code, null);
+        await coordinator.CommitPendingAsync(second, secondIssued.Credential!);
+
+        KnownDeviceIncarnationId firstIncarnation = trustStore.TryGet(first)!.Incarnation;
+        KnownDeviceIncarnationId secondIncarnation = trustStore.TryGet(second)!.Incarnation;
+        Assert.NotEqual(default, firstIncarnation);
+        Assert.NotEqual(default, secondIncarnation);
+        Assert.NotEqual(firstIncarnation, secondIncarnation);
+    }
+
+    /// <summary>
+    /// Verifies the ABA-defeating distinction that gives <see cref="TrustRecord.Incarnation"/> its
+    /// meaning: forgetting a Known Device and letting the same client re-pair mints a genuinely new
+    /// incarnation, even when the deterministic short-id generator hands the replacement the exact same
+    /// short id the forgotten record held.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_AfterForget_MintsNewIncarnationEvenWithSameShortId()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock(), shortIdGenerator: () => "11111");
+        PairingConfirmationResult firstIssued = coordinator.ConfirmCode(
+            clientId, BeginAndDisplayPairing(coordinator, clientId).Challenge!.Code, null);
+        await coordinator.CommitPendingAsync(clientId, firstIssued.Credential!);
+        KnownDeviceIncarnationId originalIncarnation = trustStore.TryGet(clientId)!.Incarnation;
+        Assert.Equal("11111", trustStore.TryGet(clientId)!.ShortId);
+        await trustStore.RevokeAsync(clientId);
+        await trustStore.ForgetAsync(clientId);
+        Assert.Null(trustStore.TryGet(clientId));
+
+        PairingConfirmationResult secondIssued = coordinator.ConfirmCode(
+            clientId, BeginAndDisplayPairing(coordinator, clientId).Challenge!.Code, null);
+        await coordinator.CommitPendingAsync(clientId, secondIssued.Credential!);
+
+        TrustRecord replacement = trustStore.TryGet(clientId)!;
+        Assert.Equal("11111", replacement.ShortId);
+        Assert.NotEqual(originalIncarnation, replacement.Incarnation);
     }
 
     /// <summary>Verifies that an expired challenge reports expiry and can be replaced by a fresh one.</summary>

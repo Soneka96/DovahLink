@@ -244,7 +244,10 @@ public class TrustStoreTests
     {
         TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
         DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
-        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt)
+        {
+            Incarnation = KnownDeviceIncarnationId.NewId(),
+        };
         await store.UpsertAsync(original);
 
         TrustMutationOutcome outcome = await store.RevokeAsync(original.ClientId);
@@ -256,6 +259,35 @@ public class TrustStoreTests
         Assert.Equal(original.ShortId, revoked.ShortId);
         Assert.Equal(original.DisplayName, revoked.DisplayName);
         Assert.Equal(original.PairedAtUtc, revoked.PairedAtUtc);
+        Assert.Equal(original.Incarnation, revoked.Incarnation);
+    }
+
+    /// <summary>
+    /// Verifies that a Known Device's incarnation survives every ordinary state transition of the same
+    /// record -- Trusted &#8594; Revoked &#8594; Blocked &#8594; Unpaired -- since only destroying the
+    /// record entirely (Forget, Factory Reset) may ever end an incarnation.
+    /// </summary>
+    [Fact]
+    public async Task Revoke_Block_Unblock_Chain_PreservesIncarnationThroughout()
+    {
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow)
+        {
+            Incarnation = incarnation,
+        };
+        await store.UpsertAsync(original);
+
+        await store.RevokeAsync(original.ClientId);
+        Assert.Equal(incarnation, store.TryGet(original.ClientId)!.Incarnation);
+
+        await store.BlockAsync(original.ClientId);
+        Assert.Equal(incarnation, store.TryGet(original.ClientId)!.Incarnation);
+
+        await store.UnblockAsync(original.ClientId);
+        TrustRecord unblocked = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Unpaired, unblocked.State);
+        Assert.Equal(incarnation, unblocked.Incarnation);
     }
 
     /// <summary>
@@ -366,7 +398,10 @@ public class TrustStoreTests
     public async Task ResetTrustAsync_RevokesTrustedOnly()
     {
         TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
-        TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow)
+        {
+            Incarnation = KnownDeviceIncarnationId.NewId(),
+        };
         TrustRecord revoked = new(ClientId.NewId(), "12346", "Revoked", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
         TrustRecord blocked = new(ClientId.NewId(), "12347", "Blocked", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         await store.UpsertAsync(trusted);
@@ -378,6 +413,7 @@ public class TrustStoreTests
         Assert.Equal([trusted.ClientId], affected);
         Assert.Equal(KnownDeviceState.Revoked, store.TryGet(trusted.ClientId)!.State);
         Assert.Empty(store.TryGet(trusted.ClientId)!.CredentialVerifier);
+        Assert.Equal(trusted.Incarnation, store.TryGet(trusted.ClientId)!.Incarnation);
         Assert.Equal(revoked, store.TryGet(revoked.ClientId));
         Assert.Equal(blocked, store.TryGet(blocked.ClientId));
     }
@@ -920,7 +956,10 @@ public class TrustStoreTests
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence);
         DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
-        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt)
+        {
+            Incarnation = KnownDeviceIncarnationId.NewId(),
+        };
         await store.UpsertAsync(original);
         long generationBeforeRename = store.SecurityFenceGeneration;
 
@@ -933,6 +972,7 @@ public class TrustStoreTests
         Assert.Equal(original.CredentialVerifier, renamed.CredentialVerifier);
         Assert.Equal(original.PairedAtUtc, renamed.PairedAtUtc);
         Assert.Equal(original.State, renamed.State);
+        Assert.Equal(original.Incarnation, renamed.Incarnation);
         Assert.Equal(generationBeforeRename + 1, store.SecurityFenceGeneration);
         Assert.Equal(renamed, Assert.Single(persistence.SavedRecords));
     }

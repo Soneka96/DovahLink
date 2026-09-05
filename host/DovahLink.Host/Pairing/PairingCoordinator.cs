@@ -642,7 +642,14 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 effectiveDisplayName,
                 KnownDeviceState.Trusted,
                 credentialVerifierHasher(reserved.Credential),
-                existingRecord?.PairedAtUtc ?? reserved.CreatedAtUtc);
+                existingRecord?.PairedAtUtc ?? reserved.CreatedAtUtc)
+            {
+                // Renewing or re-pairing an existing Known Device keeps its incarnation identity; only a
+                // client with no current record at all (first pairing, or re-pairing after Forget/Factory
+                // Reset destroyed the previous record) mints a new one -- see TrustRecord.Incarnation's
+                // own remarks for why this must never regenerate on an ordinary renewal.
+                Incarnation = existingRecord?.Incarnation ?? KnownDeviceIncarnationId.NewId(),
+            };
 
             bool committed;
             try
