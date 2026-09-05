@@ -1,8 +1,10 @@
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
@@ -79,12 +81,48 @@ public static class Fixtures
         IPairingCoordinator? pairingCoordinator = null,
         IPairingAdapterNotifier? adapterNotifier = null,
         IPlayContextTracker? playContextTracker = null,
-        IClock? clock = null) =>
+        IClock? clock = null,
+        ISessionRegistry? sessionRegistry = null) =>
         new(
             codec ?? new PublicEnvelopeCodec(),
             trustAdminService ?? new FakeTrustAdminService(),
             pairingCoordinator ?? new PairingCoordinator(new FakeTrustStore(), clock ?? new FakeClock()),
             adapterNotifier ?? new FakePairingAdapterNotifier(),
             playContextTracker ?? new FakePlayContextTracker(),
-            clock ?? new FakeClock());
+            clock ?? new FakeClock(),
+            sessionRegistry ?? new FakeSessionRegistry());
+
+    /// <summary>
+    /// Builds a <see cref="ClientMessageDispatcher"/> the same way as <see cref="BuildClientMessageDispatcher"/>,
+    /// together with one already-active session for <paramref name="clientId"/> on the returned
+    /// <see cref="ConnectionId"/>, registered on a fresh <see cref="FakeSessionRegistry"/> the built
+    /// dispatcher uses for its own client-bound pairing-mutation authorization guard. A test exercising
+    /// <c>pairing_request</c>, <c>pairing_cancel</c>, <c>pairing_renotify</c>, or <c>pairing_confirm</c>
+    /// -- every message type the dispatcher gates on session liveness -- needs a genuinely registered
+    /// session rather than an arbitrary unregistered <see cref="SessionId"/>, or every such dispatch
+    /// would be rejected as stale before ever reaching the pairing coordinator.
+    /// </summary>
+    /// <param name="clientId">The client identity the registered session belongs to.</param>
+    /// <param name="codec">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
+    /// <param name="trustAdminService">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
+    /// <param name="pairingCoordinator">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
+    /// <param name="adapterNotifier">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
+    /// <param name="playContextTracker">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
+    /// <param name="clock">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
+    public static (ClientMessageDispatcher Dispatcher, SessionId SessionId, ConnectionId ConnectionId) BuildClientMessageDispatcherWithActiveSession(
+        ClientId clientId,
+        IPublicEnvelopeCodec? codec = null,
+        ITrustAdminService? trustAdminService = null,
+        IPairingCoordinator? pairingCoordinator = null,
+        IPairingAdapterNotifier? adapterNotifier = null,
+        IPlayContextTracker? playContextTracker = null,
+        IClock? clock = null)
+    {
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        SessionId sessionId = sessionRegistry.Create(clientId, connectionId);
+        ClientMessageDispatcher dispatcher = BuildClientMessageDispatcher(
+            codec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
+        return (dispatcher, sessionId, connectionId);
+    }
 }

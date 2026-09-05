@@ -12,8 +12,8 @@ public sealed class FakeClientMessageDispatcher : IClientMessageDispatcher
     /// <summary>The result <see cref="DispatchAsync"/> returns for every call.</summary>
     public ClientDispatchResult ResultToReturn { get; set; } = new();
 
-    /// <summary>Every call's client id, session id, and message type, in call order.</summary>
-    public List<(ClientId ClientId, SessionId SessionId, PublicMessageType MessageType)> Calls { get; } = [];
+    /// <summary>Every call's client id, session id, connection id, and message type, in call order.</summary>
+    public List<(ClientId ClientId, SessionId SessionId, ConnectionId ConnectionId, PublicMessageType MessageType)> Calls { get; } = [];
 
     /// <summary>
     /// Optional hook invoked immediately before <see cref="DispatchAsync"/> returns
@@ -26,11 +26,12 @@ public sealed class FakeClientMessageDispatcher : IClientMessageDispatcher
     public Task<ClientDispatchResult> DispatchAsync(
         ClientId clientId,
         SessionId sessionId,
+        ConnectionId connectionId,
         IPublicConnectionContext connection,
         PublicEnvelope envelope,
         CancellationToken cancellationToken)
     {
-        Calls.Add((clientId, sessionId, envelope.MessageType));
+        Calls.Add((clientId, sessionId, connectionId, envelope.MessageType));
         BeforeReturning?.Invoke();
         return Task.FromResult(ResultToReturn);
     }

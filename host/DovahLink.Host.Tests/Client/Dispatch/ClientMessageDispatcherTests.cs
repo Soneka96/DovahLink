@@ -29,7 +29,7 @@ public class ClientMessageDispatcherTests
         SessionId sessionId = SessionId.NewId();
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), sessionId, connection, envelope, CancellationToken.None);
+            ClientId.NewId(), sessionId, ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (PublicEnvelope pongEnvelope, EmptyPayload _) = DecodeSent<EmptyPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.Pong, pongEnvelope.MessageType);
@@ -51,7 +51,7 @@ public class ClientMessageDispatcherTests
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.Ping, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (PublicEnvelope pongEnvelope, _) = DecodeSent<EmptyPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(playContextId.ToString(), pongEnvelope.PlayContextId);
@@ -67,7 +67,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildRawEnvelope("ping", "msg-1", "session-1", """{"unexpectedField":true}""");
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (PublicEnvelope errorEnvelope, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.Error, errorEnvelope.MessageType);
@@ -92,7 +92,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, sessionId, connection, envelope, CancellationToken.None);
+            clientId, sessionId, ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         Assert.Equal((clientId, "New Name"), trustAdminService.LastRenameCall);
         (PublicEnvelope outcomeEnvelope, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
@@ -119,7 +119,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = string.Empty });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.Renamed, outcome.Outcome);
@@ -137,7 +137,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildRawEnvelope("rename_request", "msg-1", "session-1", "{}");
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -156,7 +156,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "Bad\nName" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.InvalidDisplayName, outcome.Outcome);
@@ -174,7 +174,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.NotTrusted, outcome.Outcome);
@@ -191,7 +191,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, RenameOutcomePayload outcome) = DecodeSent<RenameOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(RenameOutcomeWireValue.NotTrusted, outcome.Outcome);
@@ -208,7 +208,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.RenameRequest, "msg-1", "session-1", new RenameRequestPayload { DisplayName = "New Name" });
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -231,7 +231,7 @@ public class ClientMessageDispatcherTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, cancellation.Token));
+            dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, cancellation.Token));
         Assert.Empty(fakeConnection.SentPayloads);
     }
 
@@ -244,14 +244,14 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (PublicEnvelope statusEnvelope, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.PairingStatus, statusEnvelope.MessageType);
@@ -271,14 +271,14 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = false };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingStatusWireState.Unavailable, status.State);
@@ -299,14 +299,14 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeAvailable = new InvalidOperationException("adapter unavailable") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -327,14 +327,14 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeAvailable = new OperationCanceledException("adapter-side timeout") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -354,17 +354,17 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeAvailable = new OperationCanceledException("connection closing") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, cancellation.Token));
+            dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, cancellation.Token));
 
         Assert.Empty(fakeConnection.SentPayloads);
         Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
@@ -377,16 +377,16 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingStatusWireState.InProgress, status.State);
@@ -400,15 +400,16 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingStatusWireState.InProgress, status.State);
@@ -421,13 +422,15 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         pairingCoordinator.BeginPairing(ClientId.NewId());
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         byte[] sent = Assert.Single(fakeConnection.SentPayloads);
         using JsonDocument document = JsonDocument.Parse(sent);
@@ -453,12 +456,14 @@ public class ClientMessageDispatcherTests
             BeginPairingResult = new PairingStartResult(PairingStartOutcome.Resumed, null),
             StatusSnapshotResult = new PairingStatusSnapshot(PairingStatusKind.OtherDeviceActive, null),
         };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         byte[] sent = Assert.Single(fakeConnection.SentPayloads);
         using JsonDocument document = JsonDocument.Parse(sent);
@@ -482,12 +487,14 @@ public class ClientMessageDispatcherTests
             BeginPairingResult = new PairingStartResult(PairingStartOutcome.Resumed, null),
             StatusSnapshotResult = new PairingStatusSnapshot(PairingStatusKind.Idle, null),
         };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingStatusWireState.Unavailable, status.State);
@@ -500,12 +507,14 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock, pairingCodeGenerator: () => null);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -522,7 +531,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildRawEnvelope("pairing_request", "msg-1", "session-1", """{"unexpectedField":true}""");
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -541,14 +550,14 @@ public class ClientMessageDispatcherTests
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
 
         pairingCoordinator.Cancel(clientId);
@@ -571,14 +580,14 @@ public class ClientMessageDispatcherTests
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = false, BeforeNotifyCodeAvailable = () => releaseGate.Task };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
 
         pairingCoordinator.Cancel(clientId);
@@ -606,19 +615,26 @@ public class ClientMessageDispatcherTests
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
+        ClientId clientId = ClientId.NewId();
+        // Two active sessions for the same client -- one per socket -- since this test exercises two
+        // concurrent connections legitimately racing an ordinary pairing_request, not a stale session.
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId firstConnectionId = ConnectionId.NewId();
+        ConnectionId secondConnectionId = ConnectionId.NewId();
+        SessionId firstSessionId = sessionRegistry.Create(clientId, firstConnectionId);
+        SessionId secondSessionId = sessionRegistry.Create(clientId, secondConnectionId);
         var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
         var firstConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var secondConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
         Task<ClientDispatchResult> firstDispatch = dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
+            clientId, firstSessionId, firstConnectionId, new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
 
         await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
+            clientId, secondSessionId, secondConnectionId, new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
 
         (_, PairingStatusPayload secondStatus) = DecodeSent<PairingStatusPayload>(Assert.Single(secondConnection.SentPayloads));
         Assert.Equal(PairingStatusWireState.Unavailable, secondStatus.State);
@@ -640,14 +656,14 @@ public class ClientMessageDispatcherTests
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
 
         pairingCoordinator.CancelAll();
@@ -670,14 +686,14 @@ public class ClientMessageDispatcherTests
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, BeforeNotifyCodeAvailable = () => releaseGate.Task };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
 
-        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.DisplayedCodes.Count > 0);
 
         pairingCoordinator.NotifyDisconnected(clientId);
@@ -715,7 +731,7 @@ public class ClientMessageDispatcherTests
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = code });
 
-        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -732,16 +748,17 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1",
             new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Living Room PC" });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
@@ -763,17 +780,18 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var trustStore = new FakeTrustStore();
         var pairingCoordinator = new PairingCoordinator(trustStore, clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         await trustStore.ClearAsync();
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1",
             new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Living Room PC" });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.PairingInvalidated, outcome.Outcome);
@@ -790,17 +808,17 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
@@ -821,16 +839,16 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         pairingCoordinator.BeginPairing(clientId);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
@@ -847,18 +865,18 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, "000000", null);
         clock.Advance(TimeSpan.FromSeconds(1));
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
@@ -871,16 +889,17 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Expired, outcome.Outcome);
@@ -894,17 +913,17 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         Assert.Empty(adapterNotifier.IncorrectCodeNotifications);
         Assert.Equal(0, adapterNotifier.AttemptsExhaustedCallCount);
@@ -916,16 +935,17 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, "000000", null);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.PacingLimited, outcome.Outcome);
@@ -938,17 +958,18 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, "000000", null);
         clock.Advance(TimeSpan.FromMilliseconds(500));
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(1, outcome.RetryAfterSeconds);
@@ -961,11 +982,11 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         BeginAndDisplayPairing(pairingCoordinator, clientId);
         for (int attempt = 0; attempt < 4; attempt++)
         {
@@ -975,7 +996,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.HardLimitReached, outcome.Outcome);
@@ -988,15 +1009,16 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock, credentialGenerator: () => null);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = start.Challenge!.Code });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -1013,7 +1035,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildRawEnvelope("pairing_confirm", "msg-1", "session-1", "{}");
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -1031,17 +1053,18 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1",
             new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Bad\nName" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -1058,18 +1081,18 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyCodeIncorrect = new InvalidOperationException("adapter unavailable") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
@@ -1089,18 +1112,18 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowSynchronouslyOnNotifyCodeIncorrect = new InvalidOperationException("adapter unavailable") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
@@ -1118,11 +1141,11 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowSynchronouslyOnNotifyAttemptsExhausted = new InvalidOperationException("adapter unavailable") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         BeginAndDisplayPairing(pairingCoordinator, clientId);
         for (int attempt = 0; attempt < 4; attempt++)
         {
@@ -1133,7 +1156,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.HardLimitReached, outcome.Outcome);
@@ -1152,11 +1175,11 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyAttemptsExhausted = new InvalidOperationException("adapter unavailable") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         BeginAndDisplayPairing(pairingCoordinator, clientId);
         for (int attempt = 0; attempt < 4; attempt++)
         {
@@ -1167,7 +1190,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.PairingConfirm, "msg-1", "session-1", new PairingConfirmPayload { Code = "000000" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.HardLimitReached, outcome.Outcome);
@@ -1200,7 +1223,7 @@ public class ClientMessageDispatcherTests
         PairingConfirmationResult issued = pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = credential });
 
-        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -1227,7 +1250,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
@@ -1261,7 +1284,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.AlreadyTrusted, outcome.Outcome);
@@ -1284,7 +1307,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = "deadbeefdeadbeefdeadbeefdeadbeef" });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.PendingNotFound, outcome.Outcome);
@@ -1312,7 +1335,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.PairingInvalidated, outcome.Outcome);
@@ -1337,7 +1360,7 @@ public class ClientMessageDispatcherTests
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+            clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -1362,7 +1385,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(
             PublicMessageType.PairingAck, "msg-1", "session-1", new PairingAckPayload { Credential = issued.Credential! });
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -1379,7 +1402,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildRawEnvelope("pairing_ack", "msg-1", "session-1", "{}");
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -1404,7 +1427,7 @@ public class ClientMessageDispatcherTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, cancellation.Token));
+            dispatcher.DispatchAsync(clientId, SessionId.NewId(), ConnectionId.NewId(), connection, envelope, cancellation.Token));
         Assert.Empty(fakeConnection.SentPayloads);
     }
 
@@ -1417,16 +1440,16 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
@@ -1444,18 +1467,18 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         PairingRenotifyResult peek = pairingCoordinator.TryRenotify(clientId);
         pairingCoordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.RenotifyCooldown, outcome.Outcome);
@@ -1470,13 +1493,14 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
@@ -1494,15 +1518,15 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier();
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         pairingCoordinator.BeginPairing(clientId);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
@@ -1520,16 +1544,16 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = false };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -1550,16 +1574,16 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyRedisplay = new InvalidOperationException("adapter unavailable") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -1580,16 +1604,16 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyRedisplay = new OperationCanceledException("adapter-side timeout") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.InternalError, error.Code);
@@ -1609,11 +1633,11 @@ public class ClientMessageDispatcherTests
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
         var adapterNotifier = new FakePairingAdapterNotifier { ThrowOnNotifyRedisplay = new OperationCanceledException("connection closing") };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
@@ -1621,7 +1645,7 @@ public class ClientMessageDispatcherTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, cancellation.Token));
+            dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, cancellation.Token));
 
         Assert.Empty(fakeConnection.SentPayloads);
         Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
@@ -1637,7 +1661,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildRawEnvelope("pairing_renotify", "msg-1", "session-1", """{"unexpectedField":true}""");
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
@@ -1659,13 +1683,13 @@ public class ClientMessageDispatcherTests
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
 
         pairingCoordinator.Cancel(clientId);
@@ -1696,18 +1720,25 @@ public class ClientMessageDispatcherTests
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
+        // Two active sessions for the same client -- one per socket -- since this test exercises two
+        // concurrent connections legitimately racing an ordinary pairing_renotify, not a stale session.
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId firstConnectionId = ConnectionId.NewId();
+        ConnectionId secondConnectionId = ConnectionId.NewId();
+        SessionId firstSessionId = sessionRegistry.Create(clientId, firstConnectionId);
+        SessionId secondSessionId = sessionRegistry.Create(clientId, secondConnectionId);
         var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
         var firstConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var secondConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         Task<ClientDispatchResult> dispatchA = dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
+            clientId, firstSessionId, firstConnectionId, new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
 
         await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
+            clientId, secondSessionId, secondConnectionId, new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload secondOutcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(secondConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, secondOutcome.Outcome);
@@ -1734,13 +1765,13 @@ public class ClientMessageDispatcherTests
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
-        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        Task<ClientDispatchResult> dispatchTask = dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
 
         pairingCoordinator.Cancel(clientId);
@@ -1766,13 +1797,20 @@ public class ClientMessageDispatcherTests
         pairingCoordinator.CommitInitialDisplay(clientId, start.Challenge!.Id);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var adapterNotifier = new FakePairingAdapterNotifier { AcceptRedisplay = true, BeforeNotifyRedisplay = () => releaseGate.Task };
+        // Two active sessions for the same client -- one per socket -- since the second dispatch below
+        // is an ordinary fresh request on a different connection, not a stale-session replay.
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId firstConnectionId = ConnectionId.NewId();
+        ConnectionId secondConnectionId = ConnectionId.NewId();
+        SessionId firstSessionId = sessionRegistry.Create(clientId, firstConnectionId);
+        SessionId secondSessionId = sessionRegistry.Create(clientId, secondConnectionId);
         var dispatcher = Fixtures.BuildClientMessageDispatcher(
-            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock);
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
         var firstConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         Task<ClientDispatchResult> staleDispatch = dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
+            clientId, firstSessionId, firstConnectionId, new PublicConnectionContext(firstConnection), envelope, CancellationToken.None);
         await WaitUntilAsync(() => adapterNotifier.RedisplayedCodes.Count > 0);
 
         pairingCoordinator.Cancel(clientId);
@@ -1784,7 +1822,7 @@ public class ClientMessageDispatcherTests
         adapterNotifier.BeforeNotifyRedisplay = null;
         var secondConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         await dispatcher.DispatchAsync(
-            clientId, SessionId.NewId(), new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
+            clientId, secondSessionId, secondConnectionId, new PublicConnectionContext(secondConnection), envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(secondConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Renotified, outcome.Outcome);
@@ -1798,14 +1836,15 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         pairingCoordinator.BeginPairing(clientId);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (PublicEnvelope outcomeEnvelope, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
@@ -1820,15 +1859,16 @@ public class ClientMessageDispatcherTests
     {
         var clock = new FakeClock();
         var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
-        ClientId clientId = ClientId.NewId();
         PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
         pairingCoordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(clientId, SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Cancelled, outcome.Outcome);
@@ -1838,12 +1878,13 @@ public class ClientMessageDispatcherTests
     [Fact]
     public async Task DispatchAsync_PairingCancelNothingOwned_SendsAlreadyIdle()
     {
-        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec);
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(clientId, codec: Codec);
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
 
-        await dispatcher.DispatchAsync(ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.AlreadyIdle, outcome.Outcome);
@@ -1859,11 +1900,259 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildRawEnvelope("pairing_cancel", "msg-1", "session-1", """{"unexpectedField":true}""");
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
         Assert.True(result.IsProtocolViolation);
+    }
+
+    // ---- session-incarnation authorization guard ----
+
+    /// <summary>
+    /// A -- invalidation wins: an administrative security mutation (Revoke, Reset Trust, or Factory
+    /// Reset) invalidates this exact session incarnation after the connection handler's own earlier
+    /// admission check already passed, but before this dispatch reaches
+    /// <see cref="ISessionRegistry.TryExecuteIfActive{T}"/>'s own linearization point. Expects
+    /// <c>stale_session</c>, <see cref="IPairingCoordinator.BeginPairing"/> never invoked (no challenge
+    /// exists), and no adapter notification.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestSessionInvalidatedBeforeGuard_RejectsStaleSessionWithoutBeginningPairing()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true };
+        ClientId clientId = ClientId.NewId();
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        SessionId sessionId = sessionRegistry.Create(clientId, connectionId);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        sessionRegistry.Invalidate(sessionId, connectionId);
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        Assert.Equal(PairingStatusKind.Idle, pairingCoordinator.GetStatusSnapshot(clientId).Kind);
+        Assert.Empty(adapterNotifier.DisplayedCodes);
+    }
+
+    /// <summary>
+    /// B -- request wins: this dispatch's own <see cref="IPairingCoordinator.BeginPairing"/> commits
+    /// under the guard while the session is still genuinely active, so it legitimately reserves the
+    /// challenge. Only afterward -- from inside the adapter's own initial-display acknowledgement,
+    /// entirely outside the guard's critical section -- does an administrative mutation invalidate the
+    /// session and cancel pairing, proving no lock is held across that adapter await (the invalidation
+    /// and cancellation run synchronously inside this hook without ever blocking). The existing
+    /// cancellation/fence machinery then resolves the race the same way
+    /// <see cref="DispatchAsync_PairingRequestAdministrativeCancelAllDuringDisplayAcknowledgement_ReportsUnavailable"/>
+    /// already proves: <c>unavailable</c>, never a stale <c>available</c>.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestSessionWinsGuardThenInvalidatedDuringAdapterAck_SafelyReportsUnavailable()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        ClientId clientId = ClientId.NewId();
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
+        SessionId sessionId = sessionRegistry.Create(clientId, connectionId);
+        var adapterNotifier = new FakePairingAdapterNotifier
+        {
+            AcceptDisplay = true,
+            BeforeNotifyCodeAvailable = () =>
+            {
+                sessionRegistry.Invalidate(sessionId, connectionId);
+                pairingCoordinator.CancelAll();
+                return Task.CompletedTask;
+            },
+        };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Equal(PairingStatusKind.Idle, pairingCoordinator.GetStatusSnapshot(clientId).Kind);
+        Assert.False(sessionRegistry.IsActive(sessionId, connectionId));
+    }
+
+    /// <summary>
+    /// Covers the <c>pairing_request</c> resumed-status-read path this guard folds
+    /// <see cref="IPairingCoordinator.BeginPairing"/> and <see cref="IPairingCoordinator.GetStatusSnapshot"/>
+    /// into one critical section for: an old, already-invalidated session must never resume and read
+    /// status for a challenge a fresh session incarnation for the same client subsequently created --
+    /// the stale rejection happens before <see cref="IPairingCoordinator.BeginPairing"/> ever runs, so
+    /// the would-be <see cref="PairingStartOutcome.Resumed"/> status read never runs either.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestFromInvalidatedOldSession_RejectsStaleSessionWithoutReadingFreshSessionsStatus()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true };
+        ClientId clientId = ClientId.NewId();
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId oldConnectionId = ConnectionId.NewId();
+        SessionId oldSessionId = sessionRegistry.Create(clientId, oldConnectionId);
+        sessionRegistry.Invalidate(oldSessionId, oldConnectionId);
+        ConnectionId freshConnectionId = ConnectionId.NewId();
+        SessionId freshSessionId = sessionRegistry.Create(clientId, freshConnectionId);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
+        var freshConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope requestEnvelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+        await dispatcher.DispatchAsync(
+            clientId, freshSessionId, freshConnectionId, new PublicConnectionContext(freshConnection), requestEnvelope, CancellationToken.None);
+        PairingStatusSnapshot freshChallengeBeforeStaleResume = pairingCoordinator.GetStatusSnapshot(clientId);
+        Assert.Equal(PairingStatusKind.DisplayedChallenge, freshChallengeBeforeStaleResume.Kind);
+
+        // The old session's own pairing_request would resolve to PairingStartOutcome.Resumed and read
+        // the fresh session's own displayed challenge if it ever reached BeginPairing/GetStatusSnapshot.
+        var oldConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, oldSessionId, oldConnectionId, new PublicConnectionContext(oldConnection), requestEnvelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(oldConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        Assert.Equal(freshChallengeBeforeStaleResume, pairingCoordinator.GetStatusSnapshot(clientId));
+    }
+
+    /// <summary>
+    /// C -- an old, already-invalidated session must never cancel pairing state a fresh session
+    /// incarnation for the same client subsequently created: pairing state is bound to the client id,
+    /// not to any one session, so without this guard the stale <c>pairing_cancel</c> would reach
+    /// <see cref="IPairingCoordinator.Cancel"/> and clear it anyway.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingCancelFromInvalidatedOldSession_RejectsStaleSessionAndLeavesFreshSessionsChallengeUntouched()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true };
+        ClientId clientId = ClientId.NewId();
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId oldConnectionId = ConnectionId.NewId();
+        SessionId oldSessionId = sessionRegistry.Create(clientId, oldConnectionId);
+        sessionRegistry.Invalidate(oldSessionId, oldConnectionId);
+        ConnectionId freshConnectionId = ConnectionId.NewId();
+        SessionId freshSessionId = sessionRegistry.Create(clientId, freshConnectionId);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
+        var freshConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope requestEnvelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+        await dispatcher.DispatchAsync(
+            clientId, freshSessionId, freshConnectionId, new PublicConnectionContext(freshConnection), requestEnvelope, CancellationToken.None);
+        PairingStatusSnapshot freshChallengeBeforeStaleCancel = pairingCoordinator.GetStatusSnapshot(clientId);
+        Assert.Equal(PairingStatusKind.DisplayedChallenge, freshChallengeBeforeStaleCancel.Kind);
+
+        var oldConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope cancelEnvelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-2", "session-1", new EmptyPayload());
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, oldSessionId, oldConnectionId, new PublicConnectionContext(oldConnection), cancelEnvelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(oldConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        Assert.Equal(freshChallengeBeforeStaleCancel, pairingCoordinator.GetStatusSnapshot(clientId));
+    }
+
+    /// <summary>
+    /// D -- the equivalent guarantee for <c>pairing_renotify</c>: an old, already-invalidated session
+    /// must never acquire a redisplay reservation or trigger an adapter redisplay for a fresh session
+    /// incarnation's own challenge.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRenotifyFromInvalidatedOldSession_RejectsStaleSessionWithoutRedisplayingFreshSessionsChallenge()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true, AcceptRedisplay = true };
+        ClientId clientId = ClientId.NewId();
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId oldConnectionId = ConnectionId.NewId();
+        SessionId oldSessionId = sessionRegistry.Create(clientId, oldConnectionId);
+        sessionRegistry.Invalidate(oldSessionId, oldConnectionId);
+        ConnectionId freshConnectionId = ConnectionId.NewId();
+        SessionId freshSessionId = sessionRegistry.Create(clientId, freshConnectionId);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
+        var freshConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope requestEnvelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+        await dispatcher.DispatchAsync(
+            clientId, freshSessionId, freshConnectionId, new PublicConnectionContext(freshConnection), requestEnvelope, CancellationToken.None);
+        PairingStatusSnapshot freshChallengeBeforeStaleRenotify = pairingCoordinator.GetStatusSnapshot(clientId);
+
+        var oldConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope renotifyEnvelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-2", "session-1", new EmptyPayload());
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, oldSessionId, oldConnectionId, new PublicConnectionContext(oldConnection), renotifyEnvelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(oldConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        // The fresh session's own display already consumed adapterNotifier's one DisplayedCodes entry;
+        // the stale renotify must never add a RedisplayedCodes entry alongside it.
+        Assert.Empty(adapterNotifier.RedisplayedCodes);
+        Assert.Equal(freshChallengeBeforeStaleRenotify, pairingCoordinator.GetStatusSnapshot(clientId));
+        // The reservation remains fully available for the fresh session's own legitimate renotify.
+        Assert.Equal(PairingRenotifyOutcome.Renotified, pairingCoordinator.TryRenotify(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// E -- the equivalent guarantee for <c>pairing_confirm</c>: an old, already-invalidated session
+    /// must never evaluate or mutate challenge/pacing/pending state a fresh session incarnation's own
+    /// challenge owns, even when it presents the exact currently-correct code.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmFromInvalidatedOldSession_RejectsStaleSessionWithoutEvaluatingFreshSessionsCode()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier { AcceptDisplay = true };
+        ClientId clientId = ClientId.NewId();
+        var sessionRegistry = new FakeSessionRegistry();
+        ConnectionId oldConnectionId = ConnectionId.NewId();
+        SessionId oldSessionId = sessionRegistry.Create(clientId, oldConnectionId);
+        sessionRegistry.Invalidate(oldSessionId, oldConnectionId);
+        ConnectionId freshConnectionId = ConnectionId.NewId();
+        SessionId freshSessionId = sessionRegistry.Create(clientId, freshConnectionId);
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(
+            codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock, sessionRegistry: sessionRegistry);
+        var freshConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope requestEnvelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+        await dispatcher.DispatchAsync(
+            clientId, freshSessionId, freshConnectionId, new PublicConnectionContext(freshConnection), requestEnvelope, CancellationToken.None);
+        string freshChallengeCode = pairingCoordinator.GetStatusSnapshot(clientId).Challenge!.Code;
+
+        var oldConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        PublicEnvelope confirmEnvelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-2", "session-1", new PairingConfirmPayload { Code = freshChallengeCode });
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            clientId, oldSessionId, oldConnectionId, new PublicConnectionContext(oldConnection), confirmEnvelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(oldConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.True(result.IsProtocolViolation);
+        // The stale confirm never reached ConfirmCode: the exact-correct code the fresh session's own
+        // challenge is still waiting on can still be confirmed afterward, through the fresh session.
+        var freshConnectionForConfirm = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        await dispatcher.DispatchAsync(
+            clientId, freshSessionId, freshConnectionId, new PublicConnectionContext(freshConnectionForConfirm), confirmEnvelope, CancellationToken.None);
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(freshConnectionForConfirm.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.CredentialIssued, outcome.Outcome);
     }
 
     // ---- unhandled message types ----
@@ -1884,7 +2173,7 @@ public class ClientMessageDispatcherTests
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.Pong, "msg-1", "session-1", new EmptyPayload());
 
         ClientDispatchResult result = await dispatcher.DispatchAsync(
-            ClientId.NewId(), SessionId.NewId(), connection, envelope, CancellationToken.None);
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
 
         Assert.Empty(fakeConnection.SentPayloads);
         Assert.False(result.IsProtocolViolation);

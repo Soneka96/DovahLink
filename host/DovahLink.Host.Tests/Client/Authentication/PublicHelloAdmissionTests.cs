@@ -1801,7 +1801,7 @@ public class PublicHelloAdmissionTests
         byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
-        (ClientId dispatchedClientId, SessionId dispatchedSessionId, PublicMessageType dispatchedType) = Assert.Single(context.Dispatcher.Calls);
+        (ClientId dispatchedClientId, SessionId dispatchedSessionId, _, PublicMessageType dispatchedType) = Assert.Single(context.Dispatcher.Calls);
         Assert.Equal(clientId, dispatchedClientId.ToString());
         Assert.Equal(sessionId, dispatchedSessionId.ToString());
         Assert.Equal(messageType, dispatchedType);
@@ -1863,7 +1863,7 @@ public class PublicHelloAdmissionTests
         byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, clientId, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
-        (ClientId dispatchedClientId, SessionId dispatchedSessionId, PublicMessageType dispatchedType) = Assert.Single(context.Dispatcher.Calls);
+        (ClientId dispatchedClientId, SessionId dispatchedSessionId, _, PublicMessageType dispatchedType) = Assert.Single(context.Dispatcher.Calls);
         Assert.Equal(clientId, dispatchedClientId.ToString());
         Assert.Equal(sessionId, dispatchedSessionId.ToString());
         Assert.Equal(messageType, dispatchedType);

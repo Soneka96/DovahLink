@@ -314,7 +314,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                     // above; every other message this dispatcher is responsible for is mapped to its
                     // owning service.
                     ClientDispatchResult dispatchResult = await dispatcher.DispatchAsync(
-                        currentClientId, currentSessionId, connectionContext, envelope, cancellationToken).ConfigureAwait(false);
+                        currentClientId, currentSessionId, connectionId, connectionContext, envelope, cancellationToken).ConfigureAwait(false);
                     if (dispatchResult.IsProtocolViolation)
                     {
                         RecordViolation(connectionContext);

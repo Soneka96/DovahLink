@@ -3,6 +3,7 @@ using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
 
@@ -23,6 +24,16 @@ public interface IClientMessageDispatcher
     /// </summary>
     /// <param name="clientId">The connection's admitted client identity.</param>
     /// <param name="sessionId">The connection's admitted session identity.</param>
+    /// <param name="connectionId">
+    /// The connection's own identity, used to re-verify this exact session incarnation is still active
+    /// immediately before a narrow, synchronous, client-bound pairing-state mutation
+    /// (<c>pairing_request</c>'s <see cref="IPairingCoordinator.BeginPairing"/>, <c>pairing_cancel</c>'s
+    /// <see cref="IPairingCoordinator.Cancel"/>, <c>pairing_renotify</c>'s
+    /// <see cref="IPairingCoordinator.TryRenotify"/> peek, and <c>pairing_confirm</c>'s
+    /// <see cref="IPairingCoordinator.ConfirmCode"/>) -- closing the check-then-act gap a session check
+    /// performed only once, upstream of this call, would leave open against a concurrent administrative
+    /// invalidation.
+    /// </param>
     /// <param name="connection">The connection to send the response or error on.</param>
     /// <param name="envelope">The already-decoded, already-authorized client envelope to dispatch.</param>
     /// <param name="cancellationToken">The token used to cancel any awaited service call.</param>
@@ -30,6 +41,7 @@ public interface IClientMessageDispatcher
     Task<ClientDispatchResult> DispatchAsync(
         ClientId clientId,
         SessionId sessionId,
+        ConnectionId connectionId,
         IPublicConnectionContext connection,
         PublicEnvelope envelope,
         CancellationToken cancellationToken);
@@ -56,6 +68,14 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <summary>The time source used to compute a challenge's remaining code validity.</summary>
     private readonly IClock clock;
 
+    /// <summary>
+    /// Establishes the authorization linearization point for a narrow, synchronous, client-bound
+    /// pairing-state mutation: verifies this exact session incarnation is still active immediately
+    /// before the mutation runs, in the same critical section every session invalidation also
+    /// serializes on.
+    /// </summary>
+    private readonly ISessionRegistry sessionRegistry;
+
     /// <summary>Creates a client message dispatcher.</summary>
     /// <param name="codec">Decodes and encodes every message this dispatcher sends or receives.</param>
     /// <param name="trustAdminService">Applies rename mutations to the durable trust store.</param>
@@ -63,13 +83,15 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <param name="adapterNotifier">The injected, narrow host-owned seam used to request a Skyrim-facing pairing notification.</param>
     /// <param name="playContextTracker">Supplies the <c>playContextId</c> stamped onto every host-originated envelope.</param>
     /// <param name="clock">The time source used to compute a challenge's remaining code validity.</param>
+    /// <param name="sessionRegistry">Establishes the authorization linearization point for a client-bound pairing-state mutation.</param>
     public ClientMessageDispatcher(
         IPublicEnvelopeCodec codec,
         ITrustAdminService trustAdminService,
         IPairingCoordinator pairingCoordinator,
         IPairingAdapterNotifier adapterNotifier,
         IPlayContextTracker playContextTracker,
-        IClock clock)
+        IClock clock,
+        ISessionRegistry sessionRegistry)
     {
         this.codec = codec;
         this.trustAdminService = trustAdminService;
@@ -77,12 +99,14 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         this.adapterNotifier = adapterNotifier;
         this.playContextTracker = playContextTracker;
         this.clock = clock;
+        this.sessionRegistry = sessionRegistry;
     }
 
     /// <inheritdoc/>
     public Task<ClientDispatchResult> DispatchAsync(
         ClientId clientId,
         SessionId sessionId,
+        ConnectionId connectionId,
         IPublicConnectionContext connection,
         PublicEnvelope envelope,
         CancellationToken cancellationToken)
@@ -94,15 +118,15 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             case PublicMessageType.RenameRequest:
                 return HandleRenameRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingRequest:
-                return HandlePairingRequestAsync(clientId, sessionId, connection, envelope, cancellationToken);
+                return HandlePairingRequestAsync(clientId, sessionId, connectionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingConfirm:
-                return HandlePairingConfirmAsync(clientId, sessionId, connection, envelope, cancellationToken);
+                return HandlePairingConfirmAsync(clientId, sessionId, connectionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingAck:
                 return HandlePairingAckAsync(clientId, sessionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingRenotify:
-                return HandlePairingRenotifyAsync(clientId, sessionId, connection, envelope, cancellationToken);
+                return HandlePairingRenotifyAsync(clientId, sessionId, connectionId, connection, envelope, cancellationToken);
             case PublicMessageType.PairingCancel:
-                return HandlePairingCancelAsync(clientId, sessionId, connection, envelope);
+                return HandlePairingCancelAsync(clientId, sessionId, connectionId, connection, envelope);
             default:
                 // Every client-originated message type this dispatcher owns is mapped above. A
                 // server-originated type can never actually reach here: the connection handler's
@@ -192,10 +216,17 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// genuine caller/request cancellation -- <paramref name="cancellationToken"/> itself requesting
     /// it -- propagates as <see cref="OperationCanceledException"/>; an adapter fault, including the
     /// adapter throwing its own independent <see cref="OperationCanceledException"/>, maps to a
-    /// redacted retryable <c>internal_error</c> instead of leaking the raw exception.
+    /// redacted retryable <c>internal_error</c> instead of leaking the raw exception. Before either
+    /// call, re-verifies this exact session incarnation is still active through
+    /// <see cref="ISessionRegistry.TryExecuteIfActive{T}"/>, folding <see cref="IPairingCoordinator.BeginPairing"/>
+    /// and, only for the <see cref="PairingStartOutcome.Resumed"/> outcome, the follow-up
+    /// <see cref="IPairingCoordinator.GetStatusSnapshot"/> into that same guarded critical section: a
+    /// session already invalidated by a concurrent administrative mutation can never start a fresh
+    /// challenge under post-mutation state, nor resume and read status for a challenge a newer session
+    /// incarnation for the same <paramref name="clientId"/> subsequently created.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingRequestAsync(
-        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+        ClientId clientId, SessionId sessionId, ConnectionId connectionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
     {
         if (!codec.TryDecodePayload(envelope, out EmptyPayload? _))
         {
@@ -203,7 +234,24 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return new ClientDispatchResult(IsProtocolViolation: true);
         }
 
-        PairingStartResult start = pairingCoordinator.BeginPairing(clientId);
+        if (!sessionRegistry.TryExecuteIfActive(
+            sessionId,
+            connectionId,
+            () =>
+            {
+                PairingStartResult beginResult = pairingCoordinator.BeginPairing(clientId);
+                PairingStatusSnapshot? resumedSnapshot = beginResult.Outcome == PairingStartOutcome.Resumed
+                    ? pairingCoordinator.GetStatusSnapshot(clientId)
+                    : null;
+                return (Start: beginResult, ResumedSnapshot: resumedSnapshot);
+            },
+            out (PairingStartResult Start, PairingStatusSnapshot? ResumedSnapshot) begin))
+        {
+            SendStaleSessionError(connection, sessionId, envelope.MessageId);
+            return new ClientDispatchResult(IsProtocolViolation: true);
+        }
+
+        PairingStartResult start = begin.Start;
         switch (start.Outcome)
         {
             case PairingStartOutcome.Started:
@@ -257,7 +305,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 }
 
             case PairingStartOutcome.Resumed:
-                PairingStatusSnapshot snapshot = pairingCoordinator.GetStatusSnapshot(clientId);
+                PairingStatusSnapshot snapshot = begin.ResumedSnapshot!;
                 switch (snapshot.Kind)
                 {
                     case PairingStatusKind.DisplayedChallenge:
@@ -341,6 +389,16 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         connection.TrySend(Encode(PublicMessageType.Error, sessionId, correlationId, payload));
     }
 
+    /// <summary>
+    /// Sends the canonical <c>stale_session</c> error for a client-bound pairing-state mutation
+    /// <see cref="ISessionRegistry.TryExecuteIfActive{T}"/> refused to run because this exact session
+    /// incarnation was already invalidated -- by a concurrent administrative mutation -- between the
+    /// caller's earlier admission check and this dispatch reaching its own authorization linearization
+    /// point.
+    /// </summary>
+    private void SendStaleSessionError(IPublicConnectionContext connection, SessionId sessionId, string correlationId) =>
+        SendError(connection, sessionId, correlationId, PublicProtocolErrorCode.StaleSession, "This session is no longer active.");
+
     /// <summary>Encodes a host-originated message stamped with a fresh message id and the current play-context snapshot.</summary>
     private byte[] Encode<TPayload>(PublicMessageType messageType, SessionId sessionId, string? correlationId, TPayload payload)
     {
@@ -357,10 +415,17 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// wrong-code redisplay when the coordinator's own auto-renotify cooldown permits it and a
     /// no-code attempts-exhausted notification once the hard wrong-attempt limit cancels the
     /// challenge -- neither notification blocks or changes the outcome already decided, and neither
-    /// discloses the code through the public response.
+    /// discloses the code through the public response. Re-verifies this exact session incarnation is
+    /// still active through <see cref="ISessionRegistry.TryExecuteIfActive{T}"/> immediately before
+    /// <see cref="IPairingCoordinator.ConfirmCode"/>: an already-invalidated session must never evaluate
+    /// or mutate challenge/pacing/pending state a newer session incarnation for the same
+    /// <paramref name="clientId"/> subsequently created. The lock <see cref="ISessionRegistry.TryExecuteIfActive{T}"/>
+    /// holds is released through its own exception-safe critical section even when the guarded call
+    /// throws, so <see cref="ArgumentException"/> from an invalid <c>displayName</c> still propagates
+    /// out to this method's own catch below exactly as before.
     /// </summary>
     private Task<ClientDispatchResult> HandlePairingConfirmAsync(
-        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+        ClientId clientId, SessionId sessionId, ConnectionId connectionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
     {
         if (!codec.TryDecodePayload(envelope, out PairingConfirmPayload? payload))
         {
@@ -381,7 +446,12 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         PairingConfirmationResult confirm;
         try
         {
-            confirm = pairingCoordinator.ConfirmCode(clientId, payload.Code, payload.DisplayName);
+            if (!sessionRegistry.TryExecuteIfActive(
+                sessionId, connectionId, () => pairingCoordinator.ConfirmCode(clientId, payload.Code, payload.DisplayName), out confirm))
+            {
+                SendStaleSessionError(connection, sessionId, envelope.MessageId);
+                return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
+            }
         }
         catch (ArgumentException)
         {
@@ -392,7 +462,6 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The display name is not valid.");
             return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
         }
-
 
         switch (confirm.Outcome)
         {
@@ -575,10 +644,14 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <see cref="OperationCanceledException"/>; an adapter fault, including the adapter throwing its
     /// own independent <see cref="OperationCanceledException"/>, maps to a redacted retryable
     /// <c>internal_error</c> instead of leaking the raw exception. Either way <see cref="IPairingCoordinator.CommitRenotify"/>
-    /// is never reached, so the active challenge and its cooldown remain exactly as they were.
+    /// is never reached, so the active challenge and its cooldown remain exactly as they were. The
+    /// initial <see cref="IPairingCoordinator.TryRenotify"/> peek itself first re-verifies this exact
+    /// session incarnation is still active through <see cref="ISessionRegistry.TryExecuteIfActive{T}"/>;
+    /// only that narrow, synchronous peek runs inside the guarded critical section -- never the adapter
+    /// await, which stays outside it exactly as the rest of this method already requires.
     /// </summary>
     private async Task<ClientDispatchResult> HandlePairingRenotifyAsync(
-        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
+        ClientId clientId, SessionId sessionId, ConnectionId connectionId, IPublicConnectionContext connection, PublicEnvelope envelope, CancellationToken cancellationToken)
     {
         if (!codec.TryDecodePayload(envelope, out EmptyPayload? _))
         {
@@ -586,7 +659,12 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return new ClientDispatchResult(IsProtocolViolation: true);
         }
 
-        PairingRenotifyResult peek = pairingCoordinator.TryRenotify(clientId);
+        if (!sessionRegistry.TryExecuteIfActive(sessionId, connectionId, () => pairingCoordinator.TryRenotify(clientId), out PairingRenotifyResult peek))
+        {
+            SendStaleSessionError(connection, sessionId, envelope.MessageId);
+            return new ClientDispatchResult(IsProtocolViolation: true);
+        }
+
         if (peek.Outcome != PairingRenotifyOutcome.Renotified)
         {
             SendPairingOutcome(connection, sessionId, envelope.MessageId, MapRenotifyOutcome(peek));
@@ -649,9 +727,16 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         _ => new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.AlreadyIdle },
     };
 
-    /// <summary>Answers a <c>pairing_cancel</c> with <c>pairing_outcome</c>. Never touches persisted trust or the adapter.</summary>
+    /// <summary>
+    /// Answers a <c>pairing_cancel</c> with <c>pairing_outcome</c>. Never touches persisted trust or the
+    /// adapter. Re-verifies this exact session incarnation is still active through
+    /// <see cref="ISessionRegistry.TryExecuteIfActive{T}"/> immediately before
+    /// <see cref="IPairingCoordinator.Cancel"/>: because pairing state is bound to <paramref name="clientId"/>
+    /// rather than to any one session, an already-invalidated session must never be able to cancel
+    /// pairing state a newer session incarnation for the same client subsequently created.
+    /// </summary>
     private Task<ClientDispatchResult> HandlePairingCancelAsync(
-        ClientId clientId, SessionId sessionId, IPublicConnectionContext connection, PublicEnvelope envelope)
+        ClientId clientId, SessionId sessionId, ConnectionId connectionId, IPublicConnectionContext connection, PublicEnvelope envelope)
     {
         if (!codec.TryDecodePayload(envelope, out EmptyPayload? _))
         {
@@ -659,7 +744,12 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
         }
 
-        PairingCancelOutcome cancelOutcome = pairingCoordinator.Cancel(clientId);
+        if (!sessionRegistry.TryExecuteIfActive(sessionId, connectionId, () => pairingCoordinator.Cancel(clientId), out PairingCancelOutcome cancelOutcome))
+        {
+            SendStaleSessionError(connection, sessionId, envelope.MessageId);
+            return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
+        }
+
         PairingOutcomeWireValue wireOutcome = cancelOutcome == PairingCancelOutcome.Cancelled
             ? PairingOutcomeWireValue.Cancelled
             : PairingOutcomeWireValue.AlreadyIdle;
