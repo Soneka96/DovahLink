@@ -1,4 +1,5 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 
 namespace DovahLink.Host.Sessions;
 
@@ -151,8 +152,17 @@ public interface ISessionRegistry
 /// <inheritdoc cref="ISessionRegistry"/>
 public sealed class SessionRegistry : ISessionRegistry
 {
-    /// <summary>Guards <see cref="sessionsById"/> against concurrent access.</summary>
-    private readonly object gate = new();
+    /// <summary>
+    /// The linearization point every method here shares with <see cref="Trust.TrustStore"/>'s own
+    /// administrative-mutation publish, so a client's trust record changing and the sessions that
+    /// change affects becoming unauthorized are always one indivisible event to every other caller of
+    /// either type -- see <see cref="Trust.ITrustStore.RevokeAsync"/>'s own <c>onPublished</c> remarks.
+    /// Also this registry's own internal mutual exclusion, replacing what used to be a private
+    /// <c>object</c> field: every method here still serializes on this exact same gate the way it
+    /// always serialized on that field, so <see cref="TryExecuteIfActive{T}"/>'s own documented
+    /// guarantee against a concurrent invalidation is entirely unchanged.
+    /// </summary>
+    private readonly ISecurityStateGate securityStateGate;
 
     /// <summary>The maximum number of active sessions admitted at once.</summary>
     private readonly int maxActiveSessions;
@@ -161,14 +171,16 @@ public sealed class SessionRegistry : ISessionRegistry
     private readonly Dictionary<SessionId, ActiveSessionRecord> sessionsById = new();
 
     /// <summary>Creates a registry with an explicit active-session admission bound.</summary>
+    /// <param name="securityStateGate">The linearization point shared with <see cref="Trust.TrustStore"/>.</param>
     /// <param name="maxActiveSessions">The maximum number of simultaneous active sessions.</param>
-    public SessionRegistry(int maxActiveSessions = Constants.MaxActiveSessions)
+    public SessionRegistry(ISecurityStateGate securityStateGate, int maxActiveSessions = Constants.MaxActiveSessions)
     {
         if (maxActiveSessions <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maxActiveSessions));
         }
 
+        this.securityStateGate = securityStateGate;
         this.maxActiveSessions = maxActiveSessions;
     }
 
@@ -177,9 +189,14 @@ public sealed class SessionRegistry : ISessionRegistry
     {
         get
         {
-            lock (gate)
+            securityStateGate.Enter();
+            try
             {
                 return sessionsById.Count;
+            }
+            finally
+            {
+                securityStateGate.Exit();
             }
         }
     }
@@ -192,9 +209,14 @@ public sealed class SessionRegistry : ISessionRegistry
     /// <exception cref="KeyNotFoundException"><paramref name="sessionId"/> is not currently active.</exception>
     public SessionTrustTier TrustTierFor(SessionId sessionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             return sessionsById[sessionId].TrustTier;
+        }
+        finally
+        {
+            securityStateGate.Exit();
         }
     }
 
@@ -206,7 +228,8 @@ public sealed class SessionRegistry : ISessionRegistry
         SessionTrustTier trustTier,
         out SessionId sessionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             if (sessionsById.Count >= maxActiveSessions)
             {
@@ -224,24 +247,34 @@ public sealed class SessionRegistry : ISessionRegistry
                 sessionId, clientId, connectionId, SessionState.Active, authenticationSource, trustTier);
             return true;
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
     public void Invalidate(SessionId sessionId, ConnectionId connectionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             if (sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) && record.ConnectionId == connectionId)
             {
                 sessionsById.Remove(sessionId);
             }
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
     public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             var targets = new List<SessionInvalidationTarget>();
             foreach (SessionId sessionId in sessionsById
@@ -257,13 +290,18 @@ public sealed class SessionRegistry : ISessionRegistry
 
             return targets;
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
     public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason)
     {
         var clientIdSet = new HashSet<ClientId>(clientIds);
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             var targets = new List<SessionInvalidationTarget>();
             foreach (SessionId sessionId in sessionsById
@@ -279,23 +317,33 @@ public sealed class SessionRegistry : ISessionRegistry
 
             return targets;
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
     public bool IsActive(SessionId sessionId, ConnectionId connectionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) &&
                 record.ConnectionId == connectionId &&
                 record.State == SessionState.Active;
+        }
+        finally
+        {
+            securityStateGate.Exit();
         }
     }
 
     /// <inheritdoc/>
     public IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             List<SessionInvalidationTarget> targets = sessionsById.Values
                 .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource))
@@ -303,23 +351,33 @@ public sealed class SessionRegistry : ISessionRegistry
             sessionsById.Clear();
             return targets;
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
     public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) &&
                 record.ConnectionId == connectionId &&
                 record.State == SessionState.Active;
+        }
+        finally
+        {
+            securityStateGate.Exit();
         }
     }
 
     /// <inheritdoc/>
     public bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             if (!sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) ||
                 record.ConnectionId != connectionId ||
@@ -331,12 +389,17 @@ public sealed class SessionRegistry : ISessionRegistry
             sessionsById[sessionId] = record with { TrustTier = SessionTrustTier.Full };
             return true;
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
     public bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             if (!sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) ||
                 record.ConnectionId != connectionId || record.State != SessionState.Active)
@@ -347,6 +410,10 @@ public sealed class SessionRegistry : ISessionRegistry
 
             result = action();
             return true;
+        }
+        finally
+        {
+            securityStateGate.Exit();
         }
     }
 }

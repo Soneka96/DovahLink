@@ -1,4 +1,5 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
 
 namespace DovahLink.Host.Tests.Sessions;
@@ -10,7 +11,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryCreate_ReturnsAnActiveOwnedSession()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
 
         Assert.True(registry.TryCreate(
@@ -24,7 +25,7 @@ public class SessionRegistryTests
     [Fact]
     public void IsActive_UnknownSession_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
 
         Assert.False(registry.IsActive(SessionId.NewId(), ConnectionId.NewId()));
     }
@@ -33,7 +34,7 @@ public class SessionRegistryTests
     [Fact]
     public void Invalidate_OwnerConnection_RemovesSession()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -50,7 +51,7 @@ public class SessionRegistryTests
     [Fact]
     public void Invalidate_WrongConnection_LeavesSessionActive()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId owner = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), owner, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -65,7 +66,7 @@ public class SessionRegistryTests
     [Fact]
     public void IsActive_SessionCannotCrossConnections()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId owner = ConnectionId.NewId();
         ConnectionId otherConnection = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
@@ -79,7 +80,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClient_InvalidatesOnlyThatClientsSessions()
     {
-        var registry = new SessionRegistry(3);
+        var registry = new SessionRegistry(new SecurityStateGate(), 3);
         ClientId targetClient = ClientId.NewId();
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
@@ -107,7 +108,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClient_PreservesAuthenticationSourceInTarget()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ClientId clientId = ClientId.NewId();
         Assert.True(registry.TryCreate(
             clientId, ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
@@ -127,7 +128,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClient_DeveloperTokenSession_IsExempt()
     {
-        var registry = new SessionRegistry(2);
+        var registry = new SessionRegistry(new SecurityStateGate(), 2);
         ClientId clientId = ClientId.NewId();
         ConnectionId developerConnection = ConnectionId.NewId();
         ConnectionId trustedConnection = ConnectionId.NewId();
@@ -151,7 +152,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClients_InvalidatesEveryListedClientsSessions()
     {
-        var registry = new SessionRegistry(3);
+        var registry = new SessionRegistry(new SecurityStateGate(), 3);
         ClientId first = ClientId.NewId();
         ClientId second = ClientId.NewId();
         ClientId unrelated = ClientId.NewId();
@@ -182,7 +183,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClients_DeveloperTokenSession_IsExempt()
     {
-        var registry = new SessionRegistry(2);
+        var registry = new SessionRegistry(new SecurityStateGate(), 2);
         ClientId clientId = ClientId.NewId();
         ConnectionId developerConnection = ConnectionId.NewId();
         ConnectionId trustedConnection = ConnectionId.NewId();
@@ -206,7 +207,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAll_DeveloperTokenSession_IsNotExempt()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId sessionId));
@@ -221,7 +222,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAll_PreservesAuthenticationSourceInTarget()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         Assert.True(registry.TryCreate(
             ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out _));
 
@@ -239,7 +240,7 @@ public class SessionRegistryTests
     public void TryCreate_RecordsTheSuppliedAuthenticationSourceAndTrustTier(
         SessionAuthenticationSource authenticationSource, SessionTrustTier trustTier)
     {
-        var registry = new SessionRegistry(2);
+        var registry = new SessionRegistry(new SecurityStateGate(), 2);
         ClientId clientId = ClientId.NewId();
         ConnectionId connectionId = ConnectionId.NewId();
         ConnectionId otherConnection = ConnectionId.NewId();
@@ -262,7 +263,7 @@ public class SessionRegistryTests
     [Fact]
     public void Create_ReconnectWithNewConnection_CreatesFreshOwnedSession()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ClientId clientId = ClientId.NewId();
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
@@ -282,7 +283,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryCreate_AtCapacity_RejectsAdditionalSession()
     {
-        var registry = new SessionRegistry(1);
+        var registry = new SessionRegistry(new SecurityStateGate(), 1);
         Assert.True(registry.TryCreate(
             ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
 
@@ -295,7 +296,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task TryCreate_ConcurrentCalls_RespectCapacity()
     {
-        var registry = new SessionRegistry(1);
+        var registry = new SessionRegistry(new SecurityStateGate(), 1);
 
         (bool Accepted, SessionId SessionId)[] results = await Task.WhenAll(
             Enumerable.Range(0, 32).Select(_ => Task.Run(() =>
@@ -314,7 +315,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task ConcurrentOwnerAndAdministrativeInvalidation_CleansAllSessions()
     {
-        var registry = new SessionRegistry(32);
+        var registry = new SessionRegistry(new SecurityStateGate(), 32);
         ClientId clientId = ClientId.NewId();
         (SessionId SessionId, ConnectionId ConnectionId)[] sessions = Enumerable.Range(0, 16)
             .Select(_ =>
@@ -341,7 +342,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task ConcurrentCreateAndInvalidation_RespectOwnershipAndCapacity()
     {
-        var registry = new SessionRegistry(1);
+        var registry = new SessionRegistry(new SecurityStateGate(), 1);
         ClientId clientId = ClientId.NewId();
 
         Task[] operations = Enumerable.Range(0, 32)
@@ -372,7 +373,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAll_RemovesEverySession()
     {
-        var registry = new SessionRegistry(2);
+        var registry = new SessionRegistry(new SecurityStateGate(), 2);
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
@@ -391,14 +392,14 @@ public class SessionRegistryTests
     [Fact]
     public void Constructor_NonPositiveCapacity_Throws()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SessionRegistry(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SessionRegistry(new SecurityStateGate(), 0));
     }
 
     /// <summary>Verifies that a freshly created session finalizes for its owner.</summary>
     [Fact]
     public void TryFinalizeAdmission_OwnedActiveSession_ReturnsTrue()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -410,7 +411,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryFinalizeAdmission_UnknownSession_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
 
         Assert.False(registry.TryFinalizeAdmission(SessionId.NewId(), ConnectionId.NewId()));
     }
@@ -419,7 +420,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryFinalizeAdmission_WrongConnection_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId owner = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), owner, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -436,7 +437,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryFinalizeAdmission_SessionInvalidatedByInvalidateAll_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -450,7 +451,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryFinalizeAdmission_SessionInvalidatedByInvalidateAllForClient_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ClientId clientId = ClientId.NewId();
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
@@ -465,7 +466,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryFinalizeAdmission_SessionInvalidatedByOwner_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -484,7 +485,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task ConcurrentFinalizeAdmissionAndInvalidateAll_LeavesRegistryConsistent()
     {
-        var registry = new SessionRegistry(32);
+        var registry = new SessionRegistry(new SecurityStateGate(), 32);
         (SessionId SessionId, ConnectionId ConnectionId)[] sessions = Enumerable.Range(0, 16)
             .Select(_ =>
             {
@@ -510,7 +511,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryUpgradeToFullTrust_OwnedRestrictedSession_UpgradesInPlace()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
@@ -526,7 +527,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryUpgradeToFullTrust_AlreadyFullSession_RemainsFull()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -540,7 +541,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryUpgradeToFullTrust_WrongConnection_ReturnsFalseAndLeavesTierUnchanged()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId owner = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), owner, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
@@ -554,7 +555,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryUpgradeToFullTrust_UnknownSession_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
 
         Assert.False(registry.TryUpgradeToFullTrust(SessionId.NewId(), ConnectionId.NewId()));
     }
@@ -563,7 +564,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryUpgradeToFullTrust_InvalidatedSession_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
@@ -576,7 +577,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryUpgradeToFullTrust_SessionInvalidatedByInvalidateAllForClient_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ClientId clientId = ClientId.NewId();
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
@@ -590,7 +591,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryUpgradeToFullTrust_SessionInvalidatedByInvalidateAll_ReturnsFalse()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
@@ -603,7 +604,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryExecuteIfActive_OwnedActiveSession_InvokesActionAndReturnsResult()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -620,7 +621,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryExecuteIfActive_UnknownSession_ReturnsFalseAndNeverInvokesAction()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         int callCount = 0;
 
         bool executed = registry.TryExecuteIfActive(SessionId.NewId(), ConnectionId.NewId(), () => { callCount++; return 0; }, out int result);
@@ -634,7 +635,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryExecuteIfActive_WrongConnection_ReturnsFalseAndNeverInvokesAction()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId owner = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), owner, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -655,7 +656,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryExecuteIfActive_SessionAlreadyInvalidated_ReturnsFalseAndNeverInvokesAction()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -678,7 +679,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryExecuteIfActive_ConcurrentInvalidate_BlocksUntilActionReturns()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -697,11 +698,14 @@ public class SessionRegistryTests
         {
             invalidatingThread.Start();
             Assert.True(invalidateStarted.Wait(TimeSpan.FromSeconds(5)));
-            // The invalidating thread has started and is blocked trying to acquire the same internal
-            // lock this action is still running inside; it must not have been able to complete yet.
-            // Joining it here (rather than merely checking the event) would deadlock this very thread,
-            // since the invalidating thread cannot proceed until this critical section is released.
-            Assert.False(invalidateCompleted.Wait(TimeSpan.FromMilliseconds(200)));
+            // Deterministic, not timing-based: this thread still holds the registry's internal
+            // critical section, so the invalidating thread's own Invalidate call -- which needs that
+            // same section -- cannot have run yet no matter how the OS schedules it. Confirmed here by
+            // a reentrant IsActive call on this same thread/lock rather than by waiting out a window:
+            // if Invalidate had somehow already run, this read would already observe the session gone.
+            // Joining the invalidating thread here (rather than this reentrant read) would deadlock
+            // this very thread, since it cannot proceed until this critical section is released.
+            Assert.True(registry.IsActive(sessionId, connectionId));
             return true;
         }, out bool result);
 
@@ -720,7 +724,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryExecuteIfActive_ActionThrows_PropagatesAndReleasesTheCriticalSection()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(new SecurityStateGate());
         ConnectionId connectionId = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
             ClientId.NewId(), connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId));
@@ -731,5 +735,45 @@ public class SessionRegistryTests
         bool executedAfterward = registry.TryExecuteIfActive(sessionId, connectionId, () => true, out bool result);
         Assert.True(executedAfterward);
         Assert.True(result);
+    }
+
+    /// <summary>
+    /// Verifies the constructor actually serializes on the injected <see cref="ISecurityStateGate"/>
+    /// rather than some other, hidden lock: two registries built with separate gate instances must
+    /// never block one another, only two registries sharing the same instance would.
+    /// </summary>
+    [Fact]
+    public async Task TryExecuteIfActive_TwoRegistriesWithDifferentGates_DoNotBlockEachOther()
+    {
+        var firstRegistry = new SessionRegistry(new SecurityStateGate());
+        var secondRegistry = new SessionRegistry(new SecurityStateGate());
+        ConnectionId firstConnectionId = ConnectionId.NewId();
+        ConnectionId secondConnectionId = ConnectionId.NewId();
+        Assert.True(firstRegistry.TryCreate(
+            ClientId.NewId(), firstConnectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId firstSessionId));
+        Assert.True(secondRegistry.TryCreate(
+            ClientId.NewId(), secondConnectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId secondSessionId));
+        using var firstHeld = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
+
+        // Holds the first registry's gate open on a background thread.
+        Task<bool> firstTask = Task.Run(() => firstRegistry.TryExecuteIfActive(firstSessionId, firstConnectionId, () =>
+        {
+            firstHeld.Set();
+            Assert.True(releaseFirst.Wait(TimeSpan.FromSeconds(5)));
+            return true;
+        }, out _));
+        Assert.True(firstHeld.Wait(TimeSpan.FromSeconds(5)));
+
+        // While the first registry's gate is still held by the background thread, this call on the
+        // second, independently-gated registry must succeed immediately rather than blocking -- if the
+        // two registries shared one gate, this call (on this test's own thread, not the background
+        // thread above) would instead block until releaseFirst is set below.
+        bool secondExecuted = secondRegistry.TryExecuteIfActive(secondSessionId, secondConnectionId, () => true, out bool secondResult);
+
+        releaseFirst.Set();
+        Assert.True(await firstTask);
+        Assert.True(secondExecuted);
+        Assert.True(secondResult);
     }
 }
