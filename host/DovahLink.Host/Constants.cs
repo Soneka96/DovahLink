@@ -181,6 +181,17 @@ public static class Constants
     /// <summary>The maximum UTF-8 byte length of an <see cref="Adapter.Ipc.IpcTrustAdminResultMessage"/>'s formatted result text.</summary>
     public const int MaxIpcTrustAdminResultTextBytes = 4096;
 
+    /// <summary>
+    /// The maximum time the host waits for the adapter's acknowledgement to a pairing-display
+    /// request before treating it as unavailable, per <c>ai/context/protocol/security.md</c>'s
+    /// bounded acknowledgement/readiness requirement for initial display and manual redisplay.
+    /// Provisional: Skyrim-facing display is expected to complete near-instantly once the private
+    /// channel is healthy, so this generously bounds transient scheduling delay rather than a real
+    /// display cost; revise with the same documented approval this file's other limits require if a
+    /// real adapter display seam needs more.
+    /// </summary>
+    public static readonly TimeSpan PairingDisplayAckTimeout = TimeSpan.FromSeconds(3);
+
     // ---- Process ----
 
     /// <summary>
