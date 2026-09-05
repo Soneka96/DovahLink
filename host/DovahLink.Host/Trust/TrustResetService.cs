@@ -128,7 +128,16 @@ public sealed class TrustResetService : ITrustResetService
     /// one call ever executes it. The challenge is only cleared once the trust store has been cleared
     /// and every session and pairing operation has been invalidated. If persistence fails, the claim
     /// is released and the same challenge stays valid and unclaimed so the caller can retry the same
-    /// all-or-nothing store mutation.
+    /// all-or-nothing store mutation. Every session becomes unauthorized in the registry --
+    /// <c>onPublished</c>'s own synchronous, immediate <see cref="IClientSessionInvalidator.InvalidateAll"/>
+    /// call, run by <see cref="ITrustStore.ClearAsync"/> itself inside the same security-state-gate
+    /// critical section its own publish and generation advance happen in -- so no request can ever
+    /// observe the Clear already published while still finding itself active in the registry: no such
+    /// post-mutation window exists for it to land in at all, closing the race a separate call issued
+    /// only after this method's own <c>await</c> returned could otherwise leave open. Pairing
+    /// cancellation follows immediately after, before any best-effort notification is even attempted,
+    /// per <c>ai/context/protocol/security.md</c>'s authoritative-mutation -&gt; unauthorized -&gt;
+    /// future authentication/pairing enforcement -&gt; notification -&gt; close ordering.
     /// </remarks>
     public async Task<bool> ConfirmResetAsync(string code, CancellationToken cancellationToken = default)
     {
@@ -171,14 +180,9 @@ public sealed class TrustResetService : ITrustResetService
         bool claimResolved = false;
         try
         {
-            await trustStore.ClearAsync(cancellationToken);
-            // Every session becomes unauthorized in the registry -- InvalidateAll's own synchronous,
-            // immediate action -- as close to the authoritative Clear as possible, closing the
-            // post-mutation window a concurrent request could otherwise still find IsActive true in.
-            // Pairing cancellation follows immediately, before any best-effort notification is even
-            // attempted, per ai/context/protocol/security.md's authoritative-mutation -> unauthorized
-            // -> future authentication/pairing enforcement -> notification -> close ordering.
-            IReadOnlyList<SessionInvalidationTarget> targets = sessionInvalidator.InvalidateAll(SessionInvalidationReason.FactoryReset);
+            IReadOnlyList<SessionInvalidationTarget> targets = [];
+            await trustStore.ClearAsync(
+                cancellationToken, onPublished: () => targets = sessionInvalidator.InvalidateAll(SessionInvalidationReason.FactoryReset));
             pairingCoordinator.CancelAll();
             await sessionInvalidator.NotifyAndCloseAllAsync(targets, cancellationToken);
 

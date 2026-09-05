@@ -1,4 +1,6 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
+using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Trust;
 using DovahLink.Host.Tests.TestDoubles;
@@ -469,4 +471,140 @@ public class TrustResetServiceTests
     /// </summary>
     private static IClientSessionInvalidator Invalidator(FakeSessionRegistry sessionRegistry) =>
         new ClientSessionInvalidator(sessionRegistry, new FakeSessionTerminationNotifier());
+
+    // ---- Security-state gate linearization: Factory Reset publication vs. session authorization ----
+    //
+    // Real TrustStore, SessionRegistry, and PairingCoordinator sharing one SecurityStateGate, per
+    // TrustAdminServiceTests's own equivalent section: the property under test only exists once those
+    // two real collaborators share a real lock.
+
+    /// <summary>
+    /// Composes a real <see cref="TrustStore"/>, <see cref="SessionRegistry"/>, and
+    /// <see cref="PairingCoordinator"/> sharing one <see cref="SecurityStateGate"/>, plus a
+    /// <see cref="TrustResetService"/> wired over them, for tests proving the linearization between
+    /// Factory Reset's publication and session authorization.
+    /// </summary>
+    /// <param name="persistence">The persistence adapter the store writes through to.</param>
+    private static async Task<(TrustStore TrustStore, SessionRegistry Sessions, PairingCoordinator Pairing, TrustResetService Service)>
+        ComposeRealCollaboratorsAsync(FakeTrustStorePersistence persistence)
+    {
+        var securityStateGate = new SecurityStateGate();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), securityStateGate);
+        var sessions = new SessionRegistry(securityStateGate);
+        var pairing = new PairingCoordinator(trustStore, new FakeClock());
+        var service = new TrustResetService(trustStore, new ClientSessionInvalidator(sessions, new FakeSessionTerminationNotifier()), pairing, new FakeClock());
+        return (trustStore, sessions, pairing, service);
+    }
+
+    /// <summary>
+    /// Proves race B (Factory Reset wins first): an old session attempting <c>pairing_request</c> from
+    /// the exact instant its own deauthorization commits -- nested inside
+    /// <see cref="ITrustStore.ClearAsync"/>'s own <c>onPublished</c> callback, running on the same
+    /// thread still holding the shared <see cref="SecurityStateGate"/> that
+    /// <see cref="ISessionRegistry.TryExecuteIfActive{T}"/> also requires -- can never create a new
+    /// challenge, pending credential, or trusted record: the store stays empty. This mirrors exactly
+    /// what <see cref="TrustResetService"/>'s own <c>onPublished</c> wiring does
+    /// (<see cref="IClientSessionInvalidator.InvalidateAll"/>), proven here directly against
+    /// <see cref="ITrustStore"/> so the test controls the nested attempt.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_OldSessionAttemptsPairingAtTheInstantDeauthorizationCommits_CannotCreateNewChallenge()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, _) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+
+        bool staleAttemptRan = false;
+        await trustStore.ClearAsync(onPublished: () =>
+        {
+            sessions.InvalidateAll(SessionInvalidationReason.FactoryReset);
+            staleAttemptRan = sessions.TryExecuteIfActive(sessionId, connectionId, () => pairing.BeginPairing(clientId), out PairingStartResult _);
+        });
+
+        Assert.False(staleAttemptRan);
+        Assert.Equal(PairingStatusKind.Idle, pairing.GetStatusSnapshot(clientId).Kind);
+        Assert.Empty(trustStore.List());
+        Assert.Null(trustStore.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Proves the same race B end to end through <see cref="TrustResetService.ConfirmResetAsync"/>
+    /// itself: once it returns, the old session it just invalidated can never resume pairing, and the
+    /// store stays empty -- Factory Reset cannot finish with a newly trusted client created through a
+    /// stale session.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_ThroughTrustResetService_OldSessionCannotResumePairingAfterwardsAndStoreStaysEmpty()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, TrustResetService service) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
+
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+
+        bool started = sessions.TryExecuteIfActive(sessionId, connectionId, () => pairing.BeginPairing(clientId), out PairingStartResult _);
+        Assert.False(started);
+        Assert.Empty(trustStore.List());
+    }
+
+    /// <summary>
+    /// Proves race F for Factory Reset (the opposite of Revoke/Block's developer-token exemption):
+    /// Factory Reset's unconditional invalidation still disconnects a developer-token session through
+    /// the new atomic path, per <c>ai/context/protocol/security.md</c>'s "Factory Reset's unconditional
+    /// session invalidation" -- <c>onPublished</c> here calls <see cref="IClientSessionInvalidator.InvalidateAll"/>,
+    /// never the client-scoped <see cref="IClientSessionInvalidator.InvalidateClient"/> exemption applies to.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_DeveloperTokenSession_IsStillInvalidated()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, _, TrustResetService service) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.OneTimeLocalToken, SessionTrustTier.Full, out SessionId sessionId));
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
+
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+
+        Assert.False(sessions.IsActive(sessionId, connectionId));
+    }
+
+    /// <summary>
+    /// Proves race B against the pending-credential case specifically, not just a fresh challenge: an
+    /// in-flight <c>pairing_confirm</c> that already issued a credential -- one step short of
+    /// <c>pairing_ack</c> committing it to <see cref="KnownDeviceState.Trusted"/> -- must not survive a
+    /// concurrent Factory Reset either. <see cref="IPairingCoordinator.CancelAll"/> clears the pending
+    /// credential unconditionally (no claim was ever taken on it), so the later
+    /// <see cref="IPairingCoordinator.CommitPendingAsync"/> attempt with that exact credential finds
+    /// nothing pending rather than completing trust.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmResetAsync_PendingCredentialFromInFlightPairingConfirm_CannotLaterCommitToTrusted()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        (TrustStore trustStore, SessionRegistry sessions, PairingCoordinator pairing, TrustResetService service) = await ComposeRealCollaboratorsAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(sessions.TryCreate(clientId, connectionId, SessionAuthenticationSource.Unpaired, SessionTrustTier.Restricted, out SessionId sessionId));
+        PairingStartResult begin = pairing.BeginPairing(clientId);
+        Assert.True(pairing.CommitInitialDisplay(clientId, begin.Challenge!.Id));
+        PairingConfirmationResult confirm = pairing.ConfirmCode(clientId, begin.Challenge.Code, null);
+        Assert.Equal(PairingConfirmOutcome.CredentialIssued, confirm.Outcome);
+        FactoryResetChallenge resetChallenge = service.BeginReset().Challenge!;
+
+        Assert.True(await service.ConfirmResetAsync(resetChallenge.Code));
+
+        PairingCommitResult commit = await pairing.CommitPendingAsync(clientId, confirm.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, commit.Outcome);
+        Assert.Empty(trustStore.List());
+    }
 }
