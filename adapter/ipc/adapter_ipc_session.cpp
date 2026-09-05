@@ -39,16 +39,33 @@ AdapterIpcSession::AdapterIpcSession(
     dispatch::IAdapterNativeDispatcher &dispatcher,
     capture::IAdapterCaptureHandoffQueue &captureQueue,
     IAdapterPairingNotificationSink &pairingNotificationSink,
-    std::function<void()> onGameThreadDispatchRejected)
+    std::function<void()> onGameThreadDispatchRejected,
+    std::chrono::milliseconds trustAdminRequestTimeout)
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
       taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
       captureQueue_(captureQueue),
       pairingNotificationSink_(pairingNotificationSink),
-      onGameThreadDispatchRejected_(std::move(onGameThreadDispatchRejected)) {}
+      onGameThreadDispatchRejected_(std::move(onGameThreadDispatchRejected)),
+      trustAdminRequestTimeout_(trustAdminRequestTimeout) {}
 
 AdapterIpcSession::~AdapterIpcSession() {
-  std::lock_guard<std::mutex> lock(*callbackMutex_);
-  lifetimeToken_->store(false);
+  {
+    std::lock_guard<std::mutex> lock(*callbackMutex_);
+    lifetimeToken_->store(false);
+  }
+
+  //  Force-abandon every outstanding SendTrustAdminRequest call, the same as
+  //  CloseCurrentGenerationLocked already does on disconnect, then wait for
+  //  each one to actually observe that and return before this destructor
+  //  itself returns: notify_all alone only schedules a waiting thread to wake
+  //  up, it does not block until that thread has actually done so, so member
+  //  destruction (trustAdminMutex_ and trustAdminCondition_ themselves) could
+  //  otherwise begin while a woken thread is still using them.
+  std::unique_lock<std::mutex> trustAdminLock(trustAdminMutex_);
+  pendingTrustAdminResults_.clear();
+  trustAdminCondition_.notify_all();
+  trustAdminCondition_.wait(trustAdminLock,
+                            [this] { return activeTrustAdminWaiters_ == 0; });
 }
 
 void AdapterIpcSession::AttachConnection(IAdapterIpcConnection &connection) {
@@ -81,6 +98,69 @@ void AdapterIpcSession::HandleConnected(const AdapterIpcTarget &target) {
   if (connection_ != nullptr) {
     connection_->TrySend(PrepareHello(target));
   }
+}
+
+std::optional<std::string> AdapterIpcSession::SendTrustAdminRequest(
+    TrustAdminOperation operation, std::optional<TrustAdminListScope> listScope,
+    std::optional<std::string> shortId,
+    std::optional<std::string> confirmationCode) {
+  bool authenticated;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+  }
+  if (!authenticated || connection_ == nullptr) {
+    return std::nullopt;
+  }
+
+  std::uint64_t correlationId = NextCorrelationId();
+  {
+    std::lock_guard<std::mutex> lock(trustAdminMutex_);
+    pendingTrustAdminResults_[correlationId] = std::nullopt;
+  }
+
+  bool sent = connection_->TrySend(IpcMessage{IpcTrustAdminRequestMessage{
+      .correlationId = correlationId,
+      .operation = operation,
+      .listScope = listScope,
+      .shortId = std::move(shortId),
+      .confirmationCode = std::move(confirmationCode)}});
+  if (!sent) {
+    std::lock_guard<std::mutex> lock(trustAdminMutex_);
+    pendingTrustAdminResults_.erase(correlationId);
+    return std::nullopt;
+  }
+
+  std::unique_lock<std::mutex> lock(trustAdminMutex_);
+  ++activeTrustAdminWaiters_;
+  bool resolved = trustAdminCondition_.wait_for(
+      lock, trustAdminRequestTimeout_, [this, correlationId] {
+        auto it = pendingTrustAdminResults_.find(correlationId);
+        return it == pendingTrustAdminResults_.end() || it->second.has_value();
+      });
+  //  Reported (and, if the destructor is waiting on it, observed) before
+  //  this method's own remaining logic below, none of which the destructor's
+  //  wait cares about -- only that no thread is still blocked in the
+  //  condition-variable wait itself.
+  --activeTrustAdminWaiters_;
+  trustAdminCondition_.notify_all();
+
+  if (!resolved) {
+    //  Genuine timeout: nobody else will ever erase this entry.
+    pendingTrustAdminResults_.erase(correlationId);
+    return std::nullopt;
+  }
+
+  auto it = pendingTrustAdminResults_.find(correlationId);
+  if (it == pendingTrustAdminResults_.end()) {
+    //  The session closed while this request was outstanding;
+    //  CloseCurrentGenerationLocked already erased every pending entry.
+    return std::nullopt;
+  }
+
+  std::string result = std::move(*it->second);
+  pendingTrustAdminResults_.erase(it);
+  return result;
 }
 
 AdapterIpcMessageDisposition
@@ -174,10 +254,24 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
                                  T, IpcPairingAttemptsExhaustedMessage>) {
           HandlePairingAttemptsExhausted(value);
           return AdapterIpcMessageDisposition::kContinue;
+        } else if constexpr (std::is_same_v<T, IpcTrustAdminResultMessage>) {
+          {
+            std::lock_guard<std::mutex> lock(trustAdminMutex_);
+            auto it = pendingTrustAdminResults_.find(value.correlationId);
+            if (it != pendingTrustAdminResults_.end()) {
+              it->second = value.resultText;
+            }
+            //  An entry that is missing here (never sent, already timed out,
+            //  or already force-abandoned by a close) means no waiter cares
+            //  about this result; it is simply discarded.
+          }
+          trustAdminCondition_.notify_all();
+          return AdapterIpcMessageDisposition::kContinue;
         } else {
-          //  IpcHelloMessage, IpcResynchronizeResultMessage, and
-          //  IpcPairingDisplayAckMessage are adapter-outbound only;
-          //  receiving any of them is a protocol violation from the host.
+          //  IpcHelloMessage, IpcResynchronizeResultMessage,
+          //  IpcPairingDisplayAckMessage, and IpcTrustAdminRequestMessage are
+          //  adapter-outbound only; receiving any of them is a protocol
+          //  violation from the host.
           if (connection_ != nullptr) {
             connection_->TrySend(IpcMessage{IpcRejectMessage{
                 .correlationId = value.correlationId,
@@ -525,6 +619,16 @@ void AdapterIpcSession::CloseCurrentGenerationLocked() {
   //  this point could only misfire against an unrelated request that reuses
   //  the same correlation id on a later generation.
   cancelledCorrelationIds_.clear();
+  //  Force-abandon every outstanding SendTrustAdminRequest call rather than
+  //  leaving it to wait out its full kTrustAdminRequestTimeout after the
+  //  connection it was sent on has already ended: erasing an entry (instead
+  //  of merely notifying) is itself the "abandoned" signal each waiter's own
+  //  predicate checks for.
+  {
+    std::lock_guard<std::mutex> trustAdminLock(trustAdminMutex_);
+    pendingTrustAdminResults_.clear();
+  }
+  trustAdminCondition_.notify_all();
 }
 
 } //  namespace dovahlink::adapter::ipc

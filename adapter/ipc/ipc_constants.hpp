@@ -102,4 +102,13 @@ inline constexpr std::size_t kFactoryResetChallengeCodeDigits = 6;
 ///  `resultText`, matching the host's own bound on formatted result text.
 inline constexpr std::size_t kMaxIpcTrustAdminResultTextBytes = 4096;
 
+///  The absolute bound `AdapterIpcSession::SendTrustAdminRequest` waits for
+///  its correlated `IpcTrustAdminResultMessage`, covering the host's own
+///  trust-service dispatch and persistence write. Generous relative to
+///  `kAdapterIpcEstablishmentTimeout` because a trust-administration command
+///  is a rare, explicitly user-triggered console action, not a per-frame or
+///  per-connection-lifecycle operation, so a slower bound here has no effect
+///  on ordinary connection throughput or Skyrim's own responsiveness.
+inline constexpr std::chrono::milliseconds kTrustAdminRequestTimeout{5000};
+
 } //  namespace dovahlink::adapter::ipc

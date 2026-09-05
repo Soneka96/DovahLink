@@ -49,10 +49,14 @@ using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeResultMessage;
+using dovahlink::adapter::ipc::IpcTrustAdminRequestMessage;
+using dovahlink::adapter::ipc::IpcTrustAdminResultMessage;
 using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxPendingGameThreadDispatches;
 using dovahlink::adapter::ipc::kMaxPendingIpcCancellations;
 using dovahlink::adapter::ipc::PairingDisplayMode;
+using dovahlink::adapter::ipc::TrustAdminListScope;
+using dovahlink::adapter::ipc::TrustAdminOperation;
 using dovahlink::adapter::runtime::IAdapterTaskMarshaller;
 
 namespace {
@@ -210,8 +214,22 @@ public:
   void Start() override {}
 
   bool TrySend(const IpcMessage &message) override {
-    sent_.push_back(message);
-    return true;
+    bool accepted;
+    if (rejectNextSend_) {
+      rejectNextSend_ = false;
+      accepted = false;
+    } else {
+      sent_.push_back(message);
+      accepted = true;
+    }
+    if (accepted && sendSignal_) {
+      auto signal = std::move(sendSignal_);
+      sendSignal_.reset();
+      signal->set_value(std::visit(
+          [](const auto &sentMessage) { return sentMessage.correlationId; },
+          message));
+    }
+    return accepted;
   }
 
   void Stop() override {}
@@ -223,8 +241,30 @@ public:
   ///  setup).
   void Clear() { sent_.clear(); }
 
+  ///  Makes the next `TrySend` call report rejection (as a full outbound
+  ///  queue would) instead of recording and accepting the message. Consumed
+  ///  by the call it affects; a later `TrySend` accepts normally again.
+  void RejectNextSend() { rejectNextSend_ = true; }
+
+  ///  Arranges for the next *accepted* `TrySend` call to resolve the returned
+  ///  future with that message's correlation id. Lets a test that drives
+  ///  `AdapterIpcSession::SendTrustAdminRequest` from a background thread
+  ///  learn, without racing `Sent()` directly, both when the send actually
+  ///  happened and which correlation id it must use to resolve that exact
+  ///  request from the main thread. Consumed by the call it affects.
+  std::future<std::uint64_t> NotifyOnNextSend() {
+    auto promise = std::make_shared<std::promise<std::uint64_t>>();
+    std::future<std::uint64_t> future = promise->get_future();
+    sendSignal_ = std::move(promise);
+    return future;
+  }
+
 private:
   std::vector<IpcMessage> sent_;
+  ///  Whether the next `TrySend` call should report rejection.
+  bool rejectNextSend_ = false;
+  ///  Resolved with the next accepted `TrySend` call's correlation id, if set.
+  std::shared_ptr<std::promise<std::uint64_t>> sendSignal_;
 };
 
 ///  A representative, fixed adapter instance identity for tests that don't
@@ -1747,4 +1787,287 @@ TEST_CASE("AdapterIpcSession drops a pending pairing-display request from an "
   fixture.marshaller.RunAllPending();
 
   CHECK(fixture.pairingNotificationSink.Displayed().empty());
+}
+
+//  ---- SendTrustAdminRequest ----
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt without "
+          "sending when no authenticated connection is available") {
+  SessionFixture fixture;
+
+  CHECK_FALSE(fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp)
+                  .has_value());
+
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  //  Attached but not yet authenticated.
+  CHECK_FALSE(fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp)
+                  .has_value());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest sends exactly the "
+          "operation and argument it was given") {
+  //  A short injected timeout keeps this test fast: nothing ever resolves
+  //  this request, so it must wait out the full bound before returning.
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
+  FakeAdapterIpcConnection connection;
+  AdapterIpcSession session{SampleInstanceId(),
+                            SampleOwnerLifetimeId(),
+                            marshaller,
+                            dispatcher,
+                            captureQueue,
+                            pairingNotificationSink,
+                            [] {},
+                            std::chrono::milliseconds(30)};
+  session.AttachConnection(connection);
+  Authenticate(session, connection, target);
+
+  std::optional<std::string> result =
+      session.SendTrustAdminRequest(TrustAdminOperation::kRevoke, std::nullopt,
+                                    std::optional<std::string>("12345"));
+
+  CHECK_FALSE(result.has_value());
+  REQUIRE(connection.Sent().size() == 1);
+  auto *sentRequest =
+      std::get_if<IpcTrustAdminRequestMessage>(&connection.Sent().front());
+  REQUIRE(sentRequest != nullptr);
+  CHECK(sentRequest->correlationId != 0);
+  CHECK(sentRequest->operation == TrustAdminOperation::kRevoke);
+  CHECK(sentRequest->shortId == "12345");
+  CHECK_FALSE(sentRequest->listScope.has_value());
+  CHECK_FALSE(sentRequest->confirmationCode.has_value());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt when the "
+          "connection rejects the send") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  connection.RejectNextSend();
+
+  std::optional<std::string> result =
+      fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp);
+
+  CHECK_FALSE(result.has_value());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt when no "
+          "correlated result arrives within the bound") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
+  FakeAdapterIpcConnection connection;
+  AdapterIpcSession session{SampleInstanceId(),
+                            SampleOwnerLifetimeId(),
+                            marshaller,
+                            dispatcher,
+                            captureQueue,
+                            pairingNotificationSink,
+                            [] {},
+                            std::chrono::milliseconds(30)};
+  session.AttachConnection(connection);
+  Authenticate(session, connection, target);
+
+  std::optional<std::string> result =
+      session.SendTrustAdminRequest(TrustAdminOperation::kHelp);
+
+  CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves with the host's "
+          "correlated result once HandleMessage delivers it") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::future<std::uint64_t> sent = connection.NotifyOnNextSend();
+  std::future<std::optional<std::string>> resultFuture =
+      std::async(std::launch::async, [&fixture] {
+        return fixture.session.SendTrustAdminRequest(
+            TrustAdminOperation::kResetTrust);
+      });
+  std::uint64_t correlationId = sent.get();
+
+  fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+      .correlationId = correlationId,
+      .resultText = "Reset Trust complete (0 devices revoked)."}});
+
+  std::optional<std::string> result = resultFuture.get();
+  REQUIRE(result.has_value());
+  CHECK(*result == "Reset Trust complete (0 devices revoked).");
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves concurrent "
+          "requests independently by correlation id") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::future<std::uint64_t> firstSent = connection.NotifyOnNextSend();
+  std::future<std::optional<std::string>> firstResult =
+      std::async(std::launch::async, [&fixture] {
+        return fixture.session.SendTrustAdminRequest(
+            TrustAdminOperation::kHelp);
+      });
+  std::uint64_t firstCorrelationId = firstSent.get();
+
+  std::future<std::uint64_t> secondSent = connection.NotifyOnNextSend();
+  std::future<std::optional<std::string>> secondResult =
+      std::async(std::launch::async, [&fixture] {
+        return fixture.session.SendTrustAdminRequest(
+            TrustAdminOperation::kResetTrust);
+      });
+  std::uint64_t secondCorrelationId = secondSent.get();
+
+  REQUIRE(firstCorrelationId != secondCorrelationId);
+
+  //  Resolved in reverse order, proving neither result is misdelivered to the
+  //  other request.
+  fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+      .correlationId = secondCorrelationId, .resultText = "second"}});
+  fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+      .correlationId = firstCorrelationId, .resultText = "first"}});
+
+  std::optional<std::string> first = firstResult.get();
+  std::optional<std::string> second = secondResult.get();
+  REQUIRE(first.has_value());
+  REQUIRE(second.has_value());
+  CHECK(*first == "first");
+  CHECK(*second == "second");
+}
+
+TEST_CASE("AdapterIpcSession ignores a trust-admin result with no matching "
+          "pending request") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+            .correlationId = 999, .resultText = "unexpected"}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+}
+
+TEST_CASE("AdapterIpcSession closes the connection on a trust-admin result "
+          "received before any accepted, matching-proof HelloAck") {
+  SessionFixture fixture;
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+            .correlationId = 1, .resultText = "unexpected"}}) ==
+        AdapterIpcMessageDisposition::kClose);
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt promptly "
+          "when disconnect ends the connection while the request is "
+          "outstanding") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::future<std::uint64_t> sent = connection.NotifyOnNextSend();
+  std::future<std::optional<std::string>> resultFuture =
+      std::async(std::launch::async, [&fixture] {
+        return fixture.session.SendTrustAdminRequest(
+            TrustAdminOperation::kHelp);
+      });
+  sent.get();
+
+  fixture.session.HandleDisconnected();
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+  CHECK_FALSE(resultFuture.get().has_value());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt promptly "
+          "when logical closing ends the connection while the request is "
+          "outstanding") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::future<std::uint64_t> sent = connection.NotifyOnNextSend();
+  std::future<std::optional<std::string>> resultFuture =
+      std::async(std::launch::async, [&fixture] {
+        return fixture.session.SendTrustAdminRequest(
+            TrustAdminOperation::kHelp);
+      });
+  sent.get();
+
+  fixture.session.HandleClosing();
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+  CHECK_FALSE(resultFuture.get().has_value());
+}
+
+TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
+          "SendTrustAdminRequest call to finish before destroying shared "
+          "state") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
+  FakeAdapterIpcConnection connection;
+  std::future<std::optional<std::string>> resultFuture;
+  {
+    auto session = std::make_unique<AdapterIpcSession>(
+        SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+        captureQueue, pairingNotificationSink, [] {},
+        std::chrono::milliseconds(50));
+    session->AttachConnection(connection);
+    Authenticate(*session, connection, target);
+
+    std::future<std::uint64_t> sent = connection.NotifyOnNextSend();
+    AdapterIpcSession *sessionPtr = session.get();
+    resultFuture = std::async(std::launch::async, [sessionPtr] {
+      return sessionPtr->SendTrustAdminRequest(TrustAdminOperation::kHelp);
+    });
+    sent.get();
+
+    //  Destroying the session here, while the async call above is still
+    //  blocked inside its wait, is exactly the scenario the destructor's own
+    //  fix must make safe: without it, this would destroy
+    //  trustAdminMutex_/trustAdminCondition_ while another thread still held
+    //  or was waiting on them.
+  }
+
+  //  A defined nullopt (from the destructor's own force-abandonment) rather
+  //  than a crash or hang proves the destructor actually waited.
+  CHECK_FALSE(resultFuture.get().has_value());
 }

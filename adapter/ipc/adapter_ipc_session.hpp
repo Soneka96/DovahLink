@@ -7,18 +7,23 @@
 #include "ipc/adapter_ipc_target.hpp"
 #include "ipc/adapter_pairing_notification_sink.hpp"
 #include "ipc/ipc_constants.hpp"
+#include "ipc/ipc_enums.hpp"
 #include "ipc/ipc_message.hpp"
 #include "runtime/adapter_task_marshaller.hpp"
 
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 
 namespace dovahlink::adapter::ipc {
 
@@ -54,6 +59,29 @@ public:
   ///  Handles a successful connect: sends Hello through the attached
   ///  connection.
   virtual void HandleConnected(const AdapterIpcTarget &target) = 0;
+
+  ///  Sends one Papyrus-originated trust-administration command to the host
+  ///  and waits, bounded by `kTrustAdminRequestTimeout`, for its correlated
+  ///  result. Callable from any thread, including the thread SKSE invokes a
+  ///  registered Papyrus native function on: this method blocks only its own
+  ///  calling thread for at most that bound, never the Skyrim game thread
+  ///  itself, and never waits unboundedly.
+  ///  @param operation Which trust-administration command to send.
+  ///  @param listScope The device scope for `TrustAdminOperation::kList`;
+  ///  otherwise unset.
+  ///  @param shortId The five-digit device identity for `kRevoke`, `kBlock`,
+  ///  `kUnblock`, or `kForget`; otherwise unset.
+  ///  @param confirmationCode The six-digit Factory Reset confirmation code
+  ///  for `kConfirmReset`; otherwise unset.
+  ///  @return The host's formatted result text, or `std::nullopt` when no
+  ///  authenticated connection is available, the request could not be
+  ///  enqueued, the connection ended while the request was outstanding, or
+  ///  no correlated result arrived within the bound.
+  virtual std::optional<std::string> SendTrustAdminRequest(
+      TrustAdminOperation operation,
+      std::optional<TrustAdminListScope> listScope = std::nullopt,
+      std::optional<std::string> shortId = std::nullopt,
+      std::optional<std::string> confirmationCode = std::nullopt) = 0;
 
   ///  Handles one successfully decoded inbound message.
   ///  @return The disposition for the current transport generation. A valid
@@ -108,6 +136,10 @@ public:
   ///  `kMaxPendingGameThreadDispatches` bound instead of being marshaled onto
   ///  the game thread. Diagnostics only; must not throw, and may run on the
   ///  connection's own thread.
+  ///  @param trustAdminRequestTimeout The absolute bound
+  ///  `SendTrustAdminRequest` waits for its correlated result. Overridable
+  ///  only so a test can exercise the timeout path without a real multi-second
+  ///  wait; production composition always uses the default.
   AdapterIpcSession(
       identity::AdapterInstanceId instanceId,
       std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
@@ -115,7 +147,9 @@ public:
       dispatch::IAdapterNativeDispatcher &dispatcher,
       capture::IAdapterCaptureHandoffQueue &captureQueue,
       IAdapterPairingNotificationSink &pairingNotificationSink,
-      std::function<void()> onGameThreadDispatchRejected = [] {});
+      std::function<void()> onGameThreadDispatchRejected = [] {},
+      std::chrono::milliseconds trustAdminRequestTimeout =
+          kTrustAdminRequestTimeout);
 
   ///  Invalidates deferred game-thread tasks and waits for any task already
   ///  inside the session lifetime gate before the session is destroyed.
@@ -130,6 +164,13 @@ public:
 
   ///  @copydoc IAdapterIpcSession::HandleConnected
   void HandleConnected(const AdapterIpcTarget &target) override;
+
+  ///  @copydoc IAdapterIpcSession::SendTrustAdminRequest
+  std::optional<std::string> SendTrustAdminRequest(
+      TrustAdminOperation operation,
+      std::optional<TrustAdminListScope> listScope = std::nullopt,
+      std::optional<std::string> shortId = std::nullopt,
+      std::optional<std::string> confirmationCode = std::nullopt) override;
 
   ///  @copydoc IAdapterIpcSession::HandleMessage
   AdapterIpcMessageDisposition
@@ -211,7 +252,10 @@ private:
   ///  no-op if `authenticationState_` is already `kClosed`. Called by both
   ///  `HandleClosing` and `HandleDisconnected` so the generation counter
   ///  advances only once per logical close, regardless of which one runs
-  ///  first. Must be called while holding `availableMutex_`.
+  ///  first. Must be called while holding `availableMutex_`. Also abandons
+  ///  every outstanding `SendTrustAdminRequest` call so none of them wait out
+  ///  their full timeout after the connection they were sent on has already
+  ///  ended.
   void CloseCurrentGenerationLocked();
 
   ///  This adapter process's own instance identity.
@@ -280,6 +324,37 @@ private:
   ///  cancellation from one generation must never apply to a correlation id
   ///  reused by a later one. Guarded by `availableMutex_`.
   std::deque<std::uint64_t> cancelledCorrelationIds_;
+  ///  Guards `pendingTrustAdminResults_` and pairs with
+  ///  `trustAdminCondition_`. Deliberately separate from `availableMutex_`:
+  ///  `SendTrustAdminRequest` blocks its calling thread on this mutex alone
+  ///  for up to `kTrustAdminRequestTimeout`, and must never hold
+  ///  `availableMutex_` while doing so, since that would block every other
+  ///  message this session processes for the same duration.
+  std::mutex trustAdminMutex_;
+  ///  Wakes a thread blocked in `SendTrustAdminRequest` once its correlated
+  ///  result arrives or the session closes. Always notified while holding
+  ///  `trustAdminMutex_`.
+  std::condition_variable trustAdminCondition_;
+  ///  One entry per trust-admin request currently awaited by
+  ///  `SendTrustAdminRequest`, keyed by its correlation id. A present entry
+  ///  with no value means still awaiting a result; `HandleMessage` fills it
+  ///  in on a matching `IpcTrustAdminResultMessage`. An entry's absence, once
+  ///  a request was sent, means the waiting call has already abandoned it
+  ///  (by timeout) or `CloseCurrentGenerationLocked` force-abandoned it.
+  ///  Guarded by `trustAdminMutex_`.
+  std::map<std::uint64_t, std::optional<std::string>> pendingTrustAdminResults_;
+  ///  The number of `SendTrustAdminRequest` calls currently blocked inside
+  ///  `trustAdminCondition_.wait_for`. The destructor waits for this to reach
+  ///  zero before returning, so member destruction (in particular
+  ///  `trustAdminMutex_` and `trustAdminCondition_` themselves) can never run
+  ///  while another thread still holds or is waiting on them -- the same
+  ///  class of hazard `callbackMutex_`/`lifetimeToken_` closes for deferred
+  ///  game-thread tasks, but for a genuinely blocking wait instead of
+  ///  fire-and-forget dispatch. Guarded by `trustAdminMutex_`.
+  std::size_t activeTrustAdminWaiters_ = 0;
+  ///  The absolute bound `SendTrustAdminRequest` waits for its correlated
+  ///  result.
+  std::chrono::milliseconds trustAdminRequestTimeout_;
 };
 
 } //  namespace dovahlink::adapter::ipc
