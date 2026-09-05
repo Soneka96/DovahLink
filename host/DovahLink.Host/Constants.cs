@@ -178,6 +178,9 @@ public static class Constants
     /// </summary>
     public const int IpcHostProofMessageBytes = IpcChallengeBytes + 8 + 16 + IpcOwnerLifetimeIdBytes;
 
+    /// <summary>The maximum UTF-8 byte length of an <see cref="Adapter.Ipc.IpcTrustAdminResultMessage"/>'s formatted result text.</summary>
+    public const int MaxIpcTrustAdminResultTextBytes = 4096;
+
     // ---- Process ----
 
     /// <summary>

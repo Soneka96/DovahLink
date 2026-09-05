@@ -291,6 +291,12 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the host to present a no-code attempts-exhausted notification. See <see cref="Adapter.Ipc.IpcPairingAttemptsExhaustedMessage"/>.</summary>
     PairingAttemptsExhausted = 12,
+
+    /// <summary>Sent by the adapter to forward a trust-administration command. See <see cref="Adapter.Ipc.IpcTrustAdminRequestMessage"/>.</summary>
+    TrustAdminRequest = 13,
+
+    /// <summary>Sent by the host in response to a trust-administration command. See <see cref="Adapter.Ipc.IpcTrustAdminResultMessage"/>.</summary>
+    TrustAdminResult = 14,
 }
 
 /// <summary>Why a private IPC channel is being closed.</summary>
@@ -349,6 +355,54 @@ public enum PairingDisplayMode : byte
 
     /// <summary>A best-effort redisplay after a wrong evaluated code, shown with incorrect-attempt presentation.</summary>
     WrongCodeRedisplay = 2,
+}
+
+/// <summary>
+/// The closed set of adapter-originated trust-administration commands an
+/// <see cref="Adapter.Ipc.IpcTrustAdminRequestMessage"/> may carry, per
+/// <c>ai/context/protocol/security.md</c>'s "Trust administration surface".
+/// </summary>
+public enum TrustAdminOperation : byte
+{
+    /// <summary>Returns the canonical trust-administration command help. No argument.</summary>
+    Help = 0,
+
+    /// <summary>Lists known devices in the requested scope.</summary>
+    List = 1,
+
+    /// <summary>Revokes a trusted device by short id.</summary>
+    Revoke = 2,
+
+    /// <summary>Blocks a known device by short id.</summary>
+    Block = 3,
+
+    /// <summary>Unblocks a blocked device by short id.</summary>
+    Unblock = 4,
+
+    /// <summary>Forgets an eligible device by short id.</summary>
+    Forget = 5,
+
+    /// <summary>Resets every trusted device back to unpaired. No argument.</summary>
+    ResetTrust = 6,
+
+    /// <summary>Starts a Factory Reset confirmation challenge. No argument.</summary>
+    Reset = 7,
+
+    /// <summary>Confirms a Factory Reset challenge with its six-digit code.</summary>
+    ConfirmReset = 8,
+}
+
+/// <summary>The device scope an <see cref="Adapter.Ipc.IpcTrustAdminRequestMessage"/>'s <see cref="TrustAdminOperation.List"/> operation requests.</summary>
+public enum TrustAdminListScope : byte
+{
+    /// <summary>Every known device.</summary>
+    All = 0,
+
+    /// <summary>Only currently trusted devices.</summary>
+    Trust = 1,
+
+    /// <summary>Only currently blocked devices.</summary>
+    Block = 2,
 }
 
 // ---- Client transport ----

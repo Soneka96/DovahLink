@@ -496,6 +496,100 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that a trust-admin request round-trips for every no-argument operation.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Help)]
+    [InlineData(TrustAdminOperation.ResetTrust)]
+    [InlineData(TrustAdminOperation.Reset)]
+    public void RoundTrip_TrustAdminRequest_NoArgumentOperation(TrustAdminOperation operation)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcTrustAdminRequestMessage(10, operation);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a List request round-trips its scope for every defined scope.</summary>
+    [Theory]
+    [InlineData(TrustAdminListScope.All)]
+    [InlineData(TrustAdminListScope.Trust)]
+    [InlineData(TrustAdminListScope.Block)]
+    public void RoundTrip_TrustAdminRequest_List(TrustAdminListScope scope)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcTrustAdminRequestMessage(10, TrustAdminOperation.List, ListScope: scope);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a device-targeted request round-trips its short id for every such operation.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Revoke)]
+    [InlineData(TrustAdminOperation.Block)]
+    [InlineData(TrustAdminOperation.Unblock)]
+    [InlineData(TrustAdminOperation.Forget)]
+    public void RoundTrip_TrustAdminRequest_ShortIdOperation(TrustAdminOperation operation)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcTrustAdminRequestMessage(10, operation, ShortId: "12345");
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a ConfirmReset request round-trips its six-digit confirmation code.</summary>
+    [Fact]
+    public void RoundTrip_TrustAdminRequest_ConfirmReset()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcTrustAdminRequestMessage(10, TrustAdminOperation.ConfirmReset, ConfirmationCode: "048372");
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a trust-admin result round-trips for empty, ordinary, and maximum-length text.</summary>
+    [Fact]
+    public void RoundTrip_TrustAdminResult()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcTrustAdminResultMessage(11, "Revoked device 12345.");
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a trust-admin result round-trips an empty result text.</summary>
+    [Fact]
+    public void RoundTrip_TrustAdminResult_EmptyText()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcTrustAdminResultMessage(11, string.Empty);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a trust-admin result round-trips text at the maximum configured UTF-8 byte bound.</summary>
+    [Fact]
+    public void RoundTrip_TrustAdminResult_MaxLengthText()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcTrustAdminResultMessage(11, new string('a', Constants.MaxIpcTrustAdminResultTextBytes));
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
     // ---- Encode failures ----
 
     /// <summary>Verifies that encoding a Hello with an over-limit peer-proof token throws rather than producing a truncated frame.</summary>
@@ -573,6 +667,158 @@ public class IpcFrameCodecTests
         var codec = new IpcFrameCodec();
 
         Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingAttemptsExhaustedMessage(1)));
+    }
+
+    /// <summary>Verifies that encoding a trust-admin request with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminRequest_ZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(0, TrustAdminOperation.Help)));
+    }
+
+    /// <summary>Verifies that encoding a trust-admin request with an unrecognized operation fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminRequest_InvalidOperation_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(1, (TrustAdminOperation)250)));
+    }
+
+    /// <summary>Verifies that encoding a no-argument operation carrying an unrelated argument fails closed.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Help)]
+    [InlineData(TrustAdminOperation.ResetTrust)]
+    [InlineData(TrustAdminOperation.Reset)]
+    public void Encode_TrustAdminRequest_NoArgumentOperation_WithUnrelatedArgument_Throws(TrustAdminOperation operation)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(1, operation, ShortId: "12345")));
+    }
+
+    /// <summary>Verifies that encoding a List request with no scope fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminRequest_List_MissingScope_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List)));
+    }
+
+    /// <summary>Verifies that encoding a List request carrying an unrelated argument alongside its scope fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminRequest_List_WithUnrelatedArgument_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() =>
+            codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: TrustAdminListScope.All, ShortId: "12345")));
+    }
+
+    /// <summary>Verifies that encoding a List request with an unrecognized scope fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminRequest_List_InvalidScope_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() =>
+            codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: (TrustAdminListScope)250)));
+    }
+
+    /// <summary>Verifies that encoding a device-targeted operation with no short id fails closed.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Revoke)]
+    [InlineData(TrustAdminOperation.Block)]
+    [InlineData(TrustAdminOperation.Unblock)]
+    [InlineData(TrustAdminOperation.Forget)]
+    public void Encode_TrustAdminRequest_ShortIdOperation_MissingShortId_Throws(TrustAdminOperation operation)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(1, operation)));
+    }
+
+    /// <summary>Verifies that encoding a device-targeted operation with a short id of the wrong length fails closed, for every such operation.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Revoke, "1234")]
+    [InlineData(TrustAdminOperation.Revoke, "123456")]
+    [InlineData(TrustAdminOperation.Block, "1234")]
+    [InlineData(TrustAdminOperation.Block, "123456")]
+    [InlineData(TrustAdminOperation.Unblock, "1234")]
+    [InlineData(TrustAdminOperation.Unblock, "123456")]
+    [InlineData(TrustAdminOperation.Forget, "1234")]
+    [InlineData(TrustAdminOperation.Forget, "123456")]
+    public void Encode_TrustAdminRequest_ShortIdOperation_WrongLength_Throws(TrustAdminOperation operation, string shortId)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(1, operation, ShortId: shortId)));
+    }
+
+    /// <summary>Verifies that encoding a device-targeted operation with a non-digit short id fails closed, for every such operation.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Revoke)]
+    [InlineData(TrustAdminOperation.Block)]
+    [InlineData(TrustAdminOperation.Unblock)]
+    [InlineData(TrustAdminOperation.Forget)]
+    public void Encode_TrustAdminRequest_ShortIdOperation_NonDigit_Throws(TrustAdminOperation operation)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(1, operation, ShortId: "1a345")));
+    }
+
+    /// <summary>Verifies that encoding ConfirmReset with no confirmation code fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminRequest_ConfirmReset_MissingCode_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.ConfirmReset)));
+    }
+
+    /// <summary>Verifies that encoding ConfirmReset with a confirmation code of the wrong length fails closed.</summary>
+    [Theory]
+    [InlineData("12345")]
+    [InlineData("1234567")]
+    public void Encode_TrustAdminRequest_ConfirmReset_WrongLength_Throws(string code)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() =>
+            codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.ConfirmReset, ConfirmationCode: code)));
+    }
+
+    /// <summary>Verifies that encoding ConfirmReset with a non-digit confirmation code fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminRequest_ConfirmReset_NonDigit_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() =>
+            codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.ConfirmReset, ConfirmationCode: "04a372")));
+    }
+
+    /// <summary>Verifies that encoding a trust-admin result with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminResult_ZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcTrustAdminResultMessage(0, "text")));
+    }
+
+    /// <summary>Verifies that encoding a trust-admin result exceeding the configured length bound fails closed.</summary>
+    [Fact]
+    public void Encode_TrustAdminResult_OversizedText_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        var message = new IpcTrustAdminResultMessage(1, new string('a', Constants.MaxIpcTrustAdminResultTextBytes + 1));
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
     }
 
     // ---- TryReadFrameLength ----
@@ -1082,6 +1328,183 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a trust-admin request with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminRequest_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 0, [(byte)TrustAdminOperation.Help]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a trust-admin request with an empty payload (missing the operation byte) fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminRequest_EmptyPayload_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, Array.Empty<byte>());
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a trust-admin request with an unrecognized operation byte fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminRequest_UnknownOperation_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, [250]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a no-argument operation carrying an unexpected trailing byte fails closed.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Help)]
+    [InlineData(TrustAdminOperation.ResetTrust)]
+    [InlineData(TrustAdminOperation.Reset)]
+    public void Decode_TrustAdminRequest_NoArgumentOperation_NonEmptyArgument_FailsClosed(TrustAdminOperation operation)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, [(byte)operation, 0]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a List request's argument of the wrong length fails closed, both shorter and longer than the fixed one-byte shape.</summary>
+    [Theory]
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 0, 0 })]
+    public void Decode_TrustAdminRequest_List_WrongArgumentLength_FailsClosed(byte[] argument)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[1 + argument.Length];
+        payload[0] = (byte)TrustAdminOperation.List;
+        argument.CopyTo(payload, 1);
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a List request with an unrecognized scope byte fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminRequest_List_UnknownScope_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, [(byte)TrustAdminOperation.List, 250]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a device-targeted operation's short-id argument of the wrong length fails closed.</summary>
+    [Theory]
+    [InlineData(TrustAdminOperation.Revoke, 4)]
+    [InlineData(TrustAdminOperation.Revoke, 6)]
+    [InlineData(TrustAdminOperation.Block, 4)]
+    [InlineData(TrustAdminOperation.Unblock, 4)]
+    [InlineData(TrustAdminOperation.Forget, 4)]
+    public void Decode_TrustAdminRequest_ShortIdOperation_WrongArgumentLength_FailsClosed(TrustAdminOperation operation, int argumentLength)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[1 + argumentLength];
+        payload[0] = (byte)operation;
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a device-targeted operation's non-digit short-id argument fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminRequest_ShortIdOperation_NonDigit_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = [(byte)TrustAdminOperation.Revoke, (byte)'1', (byte)'2', (byte)'a', (byte)'4', (byte)'5'];
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that ConfirmReset's confirmation-code argument of the wrong length fails closed.</summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(7)]
+    public void Decode_TrustAdminRequest_ConfirmReset_WrongArgumentLength_FailsClosed(int argumentLength)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[1 + argumentLength];
+        payload[0] = (byte)TrustAdminOperation.ConfirmReset;
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that ConfirmReset's non-digit confirmation-code argument fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminRequest_ConfirmReset_NonDigit_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = [(byte)TrustAdminOperation.ConfirmReset, (byte)'0', (byte)'4', (byte)'a', (byte)'3', (byte)'7', (byte)'2'];
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminRequest, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a trust-admin result with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminResult_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminResult, correlationId: 0, [(byte)'O', (byte)'K']);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a trust-admin result exceeding the configured length bound fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminResult_OversizedPayload_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminResult, correlationId: 1, new byte[Constants.MaxIpcTrustAdminResultTextBytes + 1]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a trust-admin result carrying invalid UTF-8 bytes fails closed.</summary>
+    [Fact]
+    public void Decode_TrustAdminResult_InvalidUtf8_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.TrustAdminResult, correlationId: 1, [0xFF, 0xFE]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies exact no-version wire bytes for every current private IPC message kind.</summary>
     [Fact]
     public void GoldenVectors_EncodeAndDecodeWithTheSharedWireLayout()
@@ -1112,6 +1535,10 @@ public class IpcFrameCodecTests
                 "100000000A080000000000000000313233343536"),
             (new IpcPairingDisplayAckMessage(9, Accepted: true), "0A0000000B090000000000000001"),
             (new IpcPairingAttemptsExhaustedMessage(0), "090000000C0000000000000000"),
+            // 6-byte TrustAdminRequest payload: 1 operation byte (Revoke) + 5 ASCII short-id digits.
+            (new IpcTrustAdminRequestMessage(10, TrustAdminOperation.Revoke, ShortId: "12345"),
+                "0F0000000D0A00000000000000023132333435"),
+            (new IpcTrustAdminResultMessage(11, "OK"), "0B0000000E0B000000000000004F4B"),
         };
 
         foreach ((IpcMessage message, string hex) in vectors)
@@ -1155,6 +1582,13 @@ public class IpcFrameCodecTests
                     break;
                 case (IpcPairingDisplayAckMessage expectedMessage, IpcPairingDisplayAckMessage actualMessage):
                     Assert.Equal(expectedMessage.Accepted, actualMessage.Accepted);
+                    break;
+                case (IpcTrustAdminRequestMessage expectedMessage, IpcTrustAdminRequestMessage actualMessage):
+                    Assert.Equal(expectedMessage.Operation, actualMessage.Operation);
+                    Assert.Equal(expectedMessage.ShortId, actualMessage.ShortId);
+                    break;
+                case (IpcTrustAdminResultMessage expectedMessage, IpcTrustAdminResultMessage actualMessage):
+                    Assert.Equal(expectedMessage.ResultText, actualMessage.ResultText);
                     break;
                 case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
                 case (IpcCancelMessage, IpcCancelMessage):
