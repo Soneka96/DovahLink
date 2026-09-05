@@ -282,6 +282,15 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the host to ask the adapter to perform one opaque sample read token.</summary>
     ReadSample = 9,
+
+    /// <summary>Sent by the host to ask the adapter to present a pairing code. See <see cref="Adapter.Ipc.IpcPairingDisplayMessage"/>.</summary>
+    PairingDisplay = 10,
+
+    /// <summary>Sent by the adapter in response to a pairing display request. See <see cref="Adapter.Ipc.IpcPairingDisplayAckMessage"/>.</summary>
+    PairingDisplayAck = 11,
+
+    /// <summary>Sent by the host to present a no-code attempts-exhausted notification. See <see cref="Adapter.Ipc.IpcPairingAttemptsExhaustedMessage"/>.</summary>
+    PairingAttemptsExhausted = 12,
 }
 
 /// <summary>Why a private IPC channel is being closed.</summary>
@@ -327,6 +336,19 @@ public enum IpcHelloRejectReason : byte
 
     /// <summary>The Hello's owning-Skyrim-lifetime identity did not match the value this host process was launched with.</summary>
     LifetimeMismatch = 3,
+}
+
+/// <summary>Which Skyrim-facing pairing-code display intent an <see cref="Adapter.Ipc.IpcPairingDisplayMessage"/> carries.</summary>
+public enum PairingDisplayMode : byte
+{
+    /// <summary>The first display of a freshly generated code.</summary>
+    Initial = 0,
+
+    /// <summary>A client-requested manual redisplay of the still-active code.</summary>
+    ManualRedisplay = 1,
+
+    /// <summary>A best-effort redisplay after a wrong evaluated code, shown with incorrect-attempt presentation.</summary>
+    WrongCodeRedisplay = 2,
 }
 
 // ---- Client transport ----

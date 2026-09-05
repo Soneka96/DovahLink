@@ -455,6 +455,47 @@ public class IpcFrameCodecTests
         Assert.Equal(ulong.MaxValue, result.Message!.CorrelationId);
     }
 
+    /// <summary>Verifies that a pairing-display request round-trips its code for every defined display mode.</summary>
+    [Theory]
+    [InlineData(PairingDisplayMode.Initial)]
+    [InlineData(PairingDisplayMode.ManualRedisplay)]
+    [InlineData(PairingDisplayMode.WrongCodeRedisplay)]
+    public void RoundTrip_PairingDisplay(PairingDisplayMode mode)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcPairingDisplayMessage(7, "048372", mode);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a pairing-display acknowledgement round-trips for both outcomes.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RoundTrip_PairingDisplayAck(bool accepted)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcPairingDisplayAckMessage(7, accepted);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that an attempts-exhausted notification round-trips.</summary>
+    [Fact]
+    public void RoundTrip_PairingAttemptsExhausted()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcPairingAttemptsExhaustedMessage(0);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
     // ---- Encode failures ----
 
     /// <summary>Verifies that encoding a Hello with an over-limit peer-proof token throws rather than producing a truncated frame.</summary>
@@ -475,6 +516,63 @@ public class IpcFrameCodecTests
         var codec = new IpcFrameCodec();
 
         Assert.Throws<ArgumentException>(() => codec.Encode(new IpcCloseMessage(1, IpcCloseReason.Normal)));
+    }
+
+    /// <summary>Verifies that encoding a pairing-display request with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Encode_PairingDisplay_ZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingDisplayMessage(0, "123456", PairingDisplayMode.Initial)));
+    }
+
+    /// <summary>Verifies that encoding a pairing-display request with a code of the wrong length fails closed.</summary>
+    [Theory]
+    [InlineData("12345")]
+    [InlineData("1234567")]
+    [InlineData("")]
+    public void Encode_PairingDisplay_WrongCodeLength_Throws(string code)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingDisplayMessage(1, code, PairingDisplayMode.Initial)));
+    }
+
+    /// <summary>Verifies that encoding a pairing-display request with a non-digit code fails closed.</summary>
+    [Fact]
+    public void Encode_PairingDisplay_NonDigitCode_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingDisplayMessage(1, "12a456", PairingDisplayMode.Initial)));
+    }
+
+    /// <summary>Verifies that encoding a pairing-display request with an unrecognized mode fails closed.</summary>
+    [Fact]
+    public void Encode_PairingDisplay_InvalidMode_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingDisplayMessage(1, "123456", (PairingDisplayMode)250)));
+    }
+
+    /// <summary>Verifies that encoding a pairing-display acknowledgement with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Encode_PairingDisplayAck_ZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingDisplayAckMessage(0, true)));
+    }
+
+    /// <summary>Verifies that encoding an attempts-exhausted notification with a nonzero correlation id fails closed.</summary>
+    [Fact]
+    public void Encode_PairingAttemptsExhausted_NonZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingAttemptsExhaustedMessage(1)));
     }
 
     // ---- TryReadFrameLength ----
@@ -869,6 +967,121 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a pairing-display request with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Decode_PairingDisplay_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = [(byte)PairingDisplayMode.Initial, (byte)'1', (byte)'2', (byte)'3', (byte)'4', (byte)'5', (byte)'6'];
+        byte[] frame = BuildFrame(IpcMessageKind.PairingDisplay, correlationId: 0, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a pairing-display request with an unrecognized mode fails closed.</summary>
+    [Fact]
+    public void Decode_PairingDisplay_UnknownMode_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = [250, (byte)'1', (byte)'2', (byte)'3', (byte)'4', (byte)'5', (byte)'6'];
+        byte[] frame = BuildFrame(IpcMessageKind.PairingDisplay, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a pairing-display request with a non-digit code byte fails closed.</summary>
+    [Fact]
+    public void Decode_PairingDisplay_NonDigitCode_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = [(byte)PairingDisplayMode.Initial, (byte)'1', (byte)'2', (byte)'a', (byte)'4', (byte)'5', (byte)'6'];
+        byte[] frame = BuildFrame(IpcMessageKind.PairingDisplay, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a pairing-display request payload of the wrong length fails closed, both shorter and longer than the fixed 7-byte shape.</summary>
+    [Theory]
+    [InlineData(6)]
+    [InlineData(8)]
+    public void Decode_PairingDisplay_WrongPayloadLength_FailsClosed(int payloadLength)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PairingDisplay, correlationId: 1, new byte[payloadLength]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a pairing-display acknowledgement with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Decode_PairingDisplayAck_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PairingDisplayAck, correlationId: 0, [1]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a pairing-display acknowledgement with an out-of-range accepted byte fails closed.</summary>
+    [Fact]
+    public void Decode_PairingDisplayAck_InvalidAcceptedByte_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PairingDisplayAck, correlationId: 1, [2]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a pairing-display acknowledgement payload of the wrong length fails closed, both shorter and longer than the fixed 1-byte shape.</summary>
+    [Theory]
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 1, 0 })]
+    public void Decode_PairingDisplayAck_WrongPayloadLength_FailsClosed(byte[] payload)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PairingDisplayAck, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that an attempts-exhausted notification carrying a correlation id fails closed because it is unsolicited.</summary>
+    [Fact]
+    public void Decode_PairingAttemptsExhausted_NonZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PairingAttemptsExhausted, correlationId: 1, Array.Empty<byte>());
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that an attempts-exhausted notification carrying an unexpected payload fails closed.</summary>
+    [Fact]
+    public void Decode_PairingAttemptsExhausted_NonEmptyPayload_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PairingAttemptsExhausted, correlationId: 0, [0]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies exact no-version wire bytes for every current private IPC message kind.</summary>
     [Fact]
     public void GoldenVectors_EncodeAndDecodeWithTheSharedWireLayout()
@@ -894,6 +1107,11 @@ public class IpcFrameCodecTests
             (new IpcCancelMessage(7), "09000000070700000000000000"),
             (new IpcListenEventMessage(0x0102030405060708, 0x0A0B0C0D), "0D0000000808070605040302010D0C0B0A"),
             (new IpcReadSampleMessage(0x1122334455667788, 0xA1B2C3D4), "0D000000098877665544332211D4C3B2A1"),
+            // 7-byte PairingDisplay payload: 1 mode byte + 6 ASCII code digits.
+            (new IpcPairingDisplayMessage(8, "123456", PairingDisplayMode.Initial),
+                "100000000A080000000000000000313233343536"),
+            (new IpcPairingDisplayAckMessage(9, Accepted: true), "0A0000000B090000000000000001"),
+            (new IpcPairingAttemptsExhaustedMessage(0), "090000000C0000000000000000"),
         };
 
         foreach ((IpcMessage message, string hex) in vectors)
@@ -931,8 +1149,16 @@ public class IpcFrameCodecTests
                 case (IpcReadSampleMessage expectedMessage, IpcReadSampleMessage actualMessage):
                     Assert.Equal(expectedMessage.SampleToken, actualMessage.SampleToken);
                     break;
+                case (IpcPairingDisplayMessage expectedMessage, IpcPairingDisplayMessage actualMessage):
+                    Assert.Equal(expectedMessage.Code, actualMessage.Code);
+                    Assert.Equal(expectedMessage.Mode, actualMessage.Mode);
+                    break;
+                case (IpcPairingDisplayAckMessage expectedMessage, IpcPairingDisplayAckMessage actualMessage):
+                    Assert.Equal(expectedMessage.Accepted, actualMessage.Accepted);
+                    break;
                 case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
                 case (IpcCancelMessage, IpcCancelMessage):
+                case (IpcPairingAttemptsExhaustedMessage, IpcPairingAttemptsExhaustedMessage):
                     break;
                 default:
                     Assert.Fail("The decoded message shape did not match the golden vector.");

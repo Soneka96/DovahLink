@@ -51,6 +51,10 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcCancelMessage cancel => (IpcMessageKind.Cancel, EncodeCancel(cancel)),
             IpcListenEventMessage listenEvent => (IpcMessageKind.ListenEvent, EncodeListenEvent(listenEvent)),
             IpcReadSampleMessage readSample => (IpcMessageKind.ReadSample, EncodeReadSample(readSample)),
+            IpcPairingDisplayMessage pairingDisplay => (IpcMessageKind.PairingDisplay, EncodePairingDisplay(pairingDisplay)),
+            IpcPairingDisplayAckMessage pairingDisplayAck => (IpcMessageKind.PairingDisplayAck, EncodePairingDisplayAck(pairingDisplayAck)),
+            IpcPairingAttemptsExhaustedMessage pairingAttemptsExhausted =>
+                (IpcMessageKind.PairingAttemptsExhausted, EncodePairingAttemptsExhausted(pairingAttemptsExhausted)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -115,6 +119,9 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
                 : IpcDecodeResult.Success(new IpcCancelMessage(correlationId)),
             IpcMessageKind.ListenEvent => DecodeListenEvent(correlationId, payload),
             IpcMessageKind.ReadSample => DecodeReadSample(correlationId, payload),
+            IpcMessageKind.PairingDisplay => DecodePairingDisplay(correlationId, payload),
+            IpcMessageKind.PairingDisplayAck => DecodePairingDisplayAck(correlationId, payload),
+            IpcMessageKind.PairingAttemptsExhausted => DecodePairingAttemptsExhausted(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -338,5 +345,135 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         return sampleToken == 0
             ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
             : IpcDecodeResult.Success(new IpcReadSampleMessage(correlationId, sampleToken));
+    }
+
+    /// <summary>Encodes a pairing-display request: one mode byte followed by the fixed-length code digits.</summary>
+    /// <param name="pairingDisplay">The display request to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the correlation id, mode, or code is invalid.</exception>
+    private static byte[] EncodePairingDisplay(IpcPairingDisplayMessage pairingDisplay)
+    {
+        if (pairingDisplay.CorrelationId == 0)
+        {
+            throw new ArgumentException("A pairing-display request must have a nonzero correlation id.", nameof(pairingDisplay));
+        }
+
+        if (!Enum.IsDefined(pairingDisplay.Mode))
+        {
+            throw new ArgumentException("The pairing-display mode is not a recognized value.", nameof(pairingDisplay));
+        }
+
+        byte[] code = ValidatePairingCode(pairingDisplay.Code, nameof(pairingDisplay));
+        var payload = new byte[1 + code.Length];
+        payload[0] = (byte)pairingDisplay.Mode;
+        code.CopyTo(payload.AsSpan(1));
+        return payload;
+    }
+
+    /// <summary>Encodes a pairing-display acknowledgement after enforcing its required request correlation.</summary>
+    /// <param name="pairingDisplayAck">The acknowledgement to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the acknowledgement has correlation id zero.</exception>
+    private static byte[] EncodePairingDisplayAck(IpcPairingDisplayAckMessage pairingDisplayAck)
+    {
+        if (pairingDisplayAck.CorrelationId == 0)
+        {
+            throw new ArgumentException(
+                "A pairing-display acknowledgement must identify a nonzero request correlation id.", nameof(pairingDisplayAck));
+        }
+
+        return [pairingDisplayAck.Accepted ? (byte)1 : (byte)0];
+    }
+
+    /// <summary>Encodes an attempts-exhausted notification after enforcing its unsolicited-message correlation rule.</summary>
+    /// <param name="pairingAttemptsExhausted">The notification to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the notification carries a nonzero correlation id.</exception>
+    private static byte[] EncodePairingAttemptsExhausted(IpcPairingAttemptsExhaustedMessage pairingAttemptsExhausted)
+    {
+        if (pairingAttemptsExhausted.CorrelationId != 0)
+        {
+            throw new ArgumentException("An attempts-exhausted notification must have correlation id zero.", nameof(pairingAttemptsExhausted));
+        }
+
+        return Array.Empty<byte>();
+    }
+
+    /// <summary>Validates a pairing code and converts it into its fixed-length ASCII-digit wire form.</summary>
+    /// <param name="code">The code to validate.</param>
+    /// <param name="parameterName">The message parameter name used in validation errors.</param>
+    /// <exception cref="ArgumentException">Thrown when the code is not exactly the required count of ASCII decimal digits.</exception>
+    private static byte[] ValidatePairingCode(string code, string parameterName)
+    {
+        if (code.Length != Constants.PairingChallengeCodeDigits)
+        {
+            throw new ArgumentException(
+                $"A pairing code must be exactly {Constants.PairingChallengeCodeDigits} ASCII decimal digits.", parameterName);
+        }
+
+        var codeBytes = new byte[code.Length];
+        for (int i = 0; i < code.Length; i++)
+        {
+            char c = code[i];
+            if (c is < '0' or > '9')
+            {
+                throw new ArgumentException(
+                    $"A pairing code must be exactly {Constants.PairingChallengeCodeDigits} ASCII decimal digits.", parameterName);
+            }
+
+            codeBytes[i] = (byte)c;
+        }
+
+        return codeBytes;
+    }
+
+    /// <summary>Decodes a pairing-display request, validating its mode and fixed-length code digits.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The one-byte mode followed by the fixed-length code payload.</param>
+    private static IpcDecodeResult DecodePairingDisplay(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0
+            || payload.Length != 1 + Constants.PairingChallengeCodeDigits
+            || !Enum.IsDefined((PairingDisplayMode)payload[0]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        ReadOnlySpan<byte> codeBytes = payload[1..];
+        Span<char> codeChars = stackalloc char[Constants.PairingChallengeCodeDigits];
+        for (int i = 0; i < codeBytes.Length; i++)
+        {
+            if (codeBytes[i] is < (byte)'0' or > (byte)'9')
+            {
+                return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+            }
+
+            codeChars[i] = (char)codeBytes[i];
+        }
+
+        return IpcDecodeResult.Success(new IpcPairingDisplayMessage(correlationId, new string(codeChars), (PairingDisplayMode)payload[0]));
+    }
+
+    /// <summary>Decodes a pairing-display acknowledgement, validating its boolean field.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed one-byte accepted-flag payload.</param>
+    private static IpcDecodeResult DecodePairingDisplayAck(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length != 1 || payload[0] > 1)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcPairingDisplayAckMessage(correlationId, payload[0] == 1));
+    }
+
+    /// <summary>Decodes an attempts-exhausted notification, validating its unsolicited-message correlation rule.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The empty payload.</param>
+    private static IpcDecodeResult DecodePairingAttemptsExhausted(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId != 0 || !payload.IsEmpty)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcPairingAttemptsExhaustedMessage(correlationId));
     }
 }
