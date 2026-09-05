@@ -1755,6 +1755,45 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
+    /// Proves race item 6, case C: a stale session cannot ACK a pending credential belonging to a
+    /// later pairing state for the same client. An old session's issued credential becomes worthless
+    /// the instant its owning pairing operation is cancelled and a fresh one begins: this coordinator
+    /// holds at most one <c>pendingCredential</c> globally, and <see cref="PairingCoordinator.CommitPendingAsync"/>
+    /// matches by the exact credential secret (<see cref="CredentialHasher.FixedTimeEquals"/>), so the
+    /// old credential can never match the replacement's own -- this makes the stale-incarnation ACK
+    /// structurally impossible without any session-identity check, unlike <c>pairing_request</c>'s own
+    /// need for one. Documents and locks in that <see cref="IPairingCoordinator.CommitPendingAsync"/>
+    /// needed no redesign for this fix.
+    /// </summary>
+    [Fact]
+    public async Task CommitPendingAsync_StaleCredentialFromCancelledEarlierPairing_CannotCommitAgainstReplacementPairingState()
+    {
+        ClientId clientId = ClientId.NewId();
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
+        var coordinator = new PairingCoordinator(trustStore, new FakeClock());
+        PairingStartResult firstStart = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult firstIssued = coordinator.ConfirmCode(clientId, firstStart.Challenge!.Code, null);
+        Assert.Equal(PairingConfirmOutcome.CredentialIssued, firstIssued.Outcome);
+
+        // The old session gives up (disconnects, or explicitly cancels) before ever ACKing, and a
+        // fresh pairing operation for the same client begins and issues its own, different credential.
+        Assert.Equal(PairingCancelOutcome.Cancelled, coordinator.Cancel(clientId));
+        PairingStartResult secondStart = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult secondIssued = coordinator.ConfirmCode(clientId, secondStart.Challenge!.Code, null);
+        Assert.Equal(PairingConfirmOutcome.CredentialIssued, secondIssued.Outcome);
+        Assert.NotEqual(firstIssued.Credential, secondIssued.Credential);
+
+        PairingCommitResult staleAck = await coordinator.CommitPendingAsync(clientId, firstIssued.Credential!);
+        Assert.Equal(PairingCommitOutcome.PendingNotFound, staleAck.Outcome);
+        Assert.Null(trustStore.TryGet(clientId));
+
+        // The replacement's own, legitimate ACK still succeeds normally.
+        PairingCommitResult currentAck = await coordinator.CommitPendingAsync(clientId, secondIssued.Credential!);
+        Assert.Equal(PairingCommitOutcome.Trusted, currentAck.Outcome);
+    }
+
+    /// <summary>
     /// Reproduces the duplicate-ACK race against the real <see cref="TrustStore"/> rather than
     /// <see cref="FakeTrustStore"/>: with ACK A's own conditional-upsert persistence write blocked,
     /// <see cref="TrustStore.TryGet"/> must still report no record for this client -- proving
