@@ -16,6 +16,7 @@
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
+#include "papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp"
 #include "process/adapter_host_constants.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
@@ -231,6 +232,7 @@ SKSEPluginInfo(
   session->AttachConnection(*connection);
 
   dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(*session);
+  dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(*session);
 
   //  SKSE-QUIRK: see
   //  ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin

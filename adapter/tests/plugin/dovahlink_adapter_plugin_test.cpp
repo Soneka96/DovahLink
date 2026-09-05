@@ -84,6 +84,23 @@ TEST_CASE("the adapter plugin attaches the connection to the session and "
   CHECK(installPapyrus < registerListener);
 }
 
+TEST_CASE("the adapter plugin registers the Papyrus trust-admin console "
+          "surface before serving any callback",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t attachConnection =
+      source.find("session->AttachConnection(*connection);");
+  std::size_t installTrustAdmin =
+      source.find("InstallAdapterTrustAdminPapyrusAdapter(");
+  std::size_t registerListener = source.find("messaging->RegisterListener(");
+
+  REQUIRE(attachConnection != std::string::npos);
+  REQUIRE(installTrustAdmin != std::string::npos);
+  REQUIRE(registerListener != std::string::npos);
+  CHECK(installTrustAdmin < registerListener);
+}
+
 TEST_CASE("the adapter plugin fails load cleanly when SKSE's messaging "
           "interface is unavailable, and otherwise returns success",
           "[plugin][structural]") {
