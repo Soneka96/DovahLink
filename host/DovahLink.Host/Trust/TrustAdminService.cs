@@ -115,28 +115,28 @@ public sealed class TrustAdminService : ITrustAdminService
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Captures the currently trusted record's <see cref="TrustRecord.ShortId"/> synchronously, before
-    /// this method's own mutation call ever awaits anything, and carries it through as an
-    /// <c>expectedShortId</c> precondition -- never a bare current-state read taken again just before
-    /// the mutation, which would only move the same race rather than close it. This closes the stale
-    /// async request incarnation race: if this exact Known Device is forgotten and <paramref name="clientId"/>
-    /// later re-pairs under a new incarnation while this call is still queued behind another
-    /// in-flight <see cref="ITrustStore"/> mutation, the captured shortId no longer matches the
-    /// replacement record's own, and the eventual <see cref="ITrustStore.RenameIfTrustedAsync"/> call
-    /// reports <see cref="TrustMutationOutcome.NotFound"/> rather than silently renaming the
+    /// Captures the currently trusted record's <see cref="TrustRecord.Incarnation"/> synchronously,
+    /// before this method's own mutation call ever awaits anything, and carries it through as an
+    /// <c>expectedIncarnation</c> precondition -- never a bare current-state read taken again just
+    /// before the mutation, which would only move the same race rather than close it. This closes the
+    /// stale async request ABA race: if this exact Known Device is forgotten and <paramref name="clientId"/>
+    /// later re-pairs -- even under the exact same reused shortId -- while this call is still queued
+    /// behind another in-flight <see cref="ITrustStore"/> mutation, the captured incarnation no longer
+    /// matches the replacement record's own, and the eventual <see cref="ITrustStore.RenameIfTrustedAsync"/>
+    /// call reports <see cref="TrustMutationOutcome.NotFound"/> rather than silently renaming the
     /// replacement.
     /// </remarks>
     public async Task RenameAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(displayName);
         ValidateDisplayName(displayName);
-        string? expectedShortId = trustStore.TryGet(clientId)?.ShortId;
-        if (expectedShortId is null)
+        KnownDeviceIncarnationId? expectedIncarnation = trustStore.TryGet(clientId)?.Incarnation;
+        if (expectedIncarnation is null)
         {
             throw new KeyNotFoundException($"No known device for client '{clientId}'.");
         }
 
-        TrustMutationOutcome outcome = await trustStore.RenameIfTrustedAsync(clientId, displayName, cancellationToken, expectedShortId);
+        TrustMutationOutcome outcome = await trustStore.RenameIfTrustedAsync(clientId, displayName, cancellationToken, expectedIncarnation);
         if (outcome == TrustMutationOutcome.NotFound)
         {
             throw new KeyNotFoundException($"No known device for client '{clientId}'.");
@@ -150,14 +150,14 @@ public sealed class TrustAdminService : ITrustAdminService
     /// <inheritdoc/>
     public async Task RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default)
     {
-        TrustMutationOutcome outcome = await RevokeCoreAsync(clientId, expectedShortId: null, cancellationToken);
+        TrustMutationOutcome outcome = await RevokeCoreAsync(clientId, expectedIncarnation: null, cancellationToken);
         EnsureChangedOrAlreadyHandled(outcome, clientId, "revoke");
     }
 
     /// <inheritdoc/>
     public async Task BlockAsync(ClientId clientId, CancellationToken cancellationToken = default)
     {
-        TrustMutationOutcome outcome = await BlockCoreAsync(clientId, expectedShortId: null, cancellationToken);
+        TrustMutationOutcome outcome = await BlockCoreAsync(clientId, expectedIncarnation: null, cancellationToken);
         EnsureChangedOrAlreadyHandled(outcome, clientId, "block");
     }
 
@@ -228,7 +228,7 @@ public sealed class TrustAdminService : ITrustAdminService
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> UnblockByShortIdAsync(string shortId, CancellationToken cancellationToken = default) =>
-        MutateByShortIdAsync(shortId, (clientId, expectedShortId, ct) => trustStore.UnblockAsync(clientId, ct, expectedShortId), cancellationToken);
+        MutateByShortIdAsync(shortId, (clientId, expectedIncarnation, ct) => trustStore.UnblockAsync(clientId, ct, expectedIncarnation), cancellationToken);
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> ForgetByShortIdAsync(string shortId, CancellationToken cancellationToken = default) =>
@@ -248,13 +248,13 @@ public sealed class TrustAdminService : ITrustAdminService
     /// future authentication/pairing enforcement -&gt; notification -&gt; close ordering.
     /// </summary>
     /// <param name="clientId">The client to revoke.</param>
-    /// <param name="expectedShortId">The shortId precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
+    /// <param name="expectedIncarnation">The incarnation precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    private async Task<TrustMutationOutcome> RevokeCoreAsync(ClientId clientId, string? expectedShortId, CancellationToken cancellationToken)
+    private async Task<TrustMutationOutcome> RevokeCoreAsync(ClientId clientId, KnownDeviceIncarnationId? expectedIncarnation, CancellationToken cancellationToken)
     {
         IReadOnlyList<SessionInvalidationTarget> targets = [];
         TrustMutationOutcome outcome = await trustStore.RevokeAsync(
-            clientId, cancellationToken, expectedShortId,
+            clientId, cancellationToken, expectedIncarnation,
             onPublished: () => targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Revoked));
         if (outcome == TrustMutationOutcome.Changed)
         {
@@ -267,13 +267,13 @@ public sealed class TrustAdminService : ITrustAdminService
 
     /// <summary>Blocks a client and performs successful-mutation side effects. See <see cref="RevokeCoreAsync"/>'s own remarks for this ordering.</summary>
     /// <param name="clientId">The client to block.</param>
-    /// <param name="expectedShortId">The shortId precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
+    /// <param name="expectedIncarnation">The incarnation precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    private async Task<TrustMutationOutcome> BlockCoreAsync(ClientId clientId, string? expectedShortId, CancellationToken cancellationToken)
+    private async Task<TrustMutationOutcome> BlockCoreAsync(ClientId clientId, KnownDeviceIncarnationId? expectedIncarnation, CancellationToken cancellationToken)
     {
         IReadOnlyList<SessionInvalidationTarget> targets = [];
         TrustMutationOutcome outcome = await trustStore.BlockAsync(
-            clientId, cancellationToken, expectedShortId,
+            clientId, cancellationToken, expectedIncarnation,
             onPublished: () => targets = sessionInvalidator.InvalidateClient(clientId, SessionInvalidationReason.Blocked));
         if (outcome == TrustMutationOutcome.Changed)
         {
@@ -286,11 +286,11 @@ public sealed class TrustAdminService : ITrustAdminService
 
     /// <summary>Forgets a client and cancels any pairing state it owns.</summary>
     /// <param name="clientId">The client to forget.</param>
-    /// <param name="expectedShortId">The shortId precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
+    /// <param name="expectedIncarnation">The incarnation precondition to enforce, or <see langword="null"/> when this client was resolved directly rather than by shortId.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    private async Task<TrustMutationOutcome> ForgetCoreAsync(ClientId clientId, string? expectedShortId, CancellationToken cancellationToken)
+    private async Task<TrustMutationOutcome> ForgetCoreAsync(ClientId clientId, KnownDeviceIncarnationId? expectedIncarnation, CancellationToken cancellationToken)
     {
-        TrustMutationOutcome outcome = await trustStore.ForgetAsync(clientId, cancellationToken, expectedShortId);
+        TrustMutationOutcome outcome = await trustStore.ForgetAsync(clientId, cancellationToken, expectedIncarnation);
         if (outcome == TrustMutationOutcome.Changed)
         {
             pairingCoordinator.Cancel(clientId);
@@ -300,23 +300,24 @@ public sealed class TrustAdminService : ITrustAdminService
     }
 
     /// <summary>
-    /// Resolves a short ID and applies one client-ID mutation, passing the exact resolved
-    /// <paramref name="shortId"/> back to <paramref name="mutation"/> as its own shortId precondition
-    /// so the mutation is applied only if the target's current record still carries it -- see
-    /// <see cref="ITrustStore.RevokeAsync"/>'s remarks for the incarnation race this closes. Never
-    /// captures a resolved <see cref="ClientId"/> and shortId separately for use across an await
-    /// without carrying the shortId along as an atomic precondition for the mutation itself.
+    /// Resolves a short ID and applies one client-ID mutation, passing the resolved record's own
+    /// <see cref="TrustRecord.Incarnation"/> back to <paramref name="mutation"/> as its precondition so
+    /// the mutation is applied only if the target's current record still carries it -- see
+    /// <see cref="ITrustStore.RevokeAsync"/>'s remarks for the ABA race this closes. Never captures a
+    /// resolved <see cref="ClientId"/> and incarnation separately for use across an await without
+    /// carrying the incarnation along as an atomic precondition for the mutation itself. <paramref name="shortId"/>
+    /// itself remains only the human-facing selector used to resolve the record in the first place.
     /// </summary>
     private async Task<TrustMutationOutcome> MutateByShortIdAsync(
         string shortId,
-        Func<ClientId, string?, CancellationToken, Task<TrustMutationOutcome>> mutation,
+        Func<ClientId, KnownDeviceIncarnationId?, CancellationToken, Task<TrustMutationOutcome>> mutation,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(shortId);
         TrustRecord? record = trustStore.TryGetByShortId(shortId);
         return record is null
             ? TrustMutationOutcome.NotFound
-            : await mutation(record.ClientId, shortId, cancellationToken);
+            : await mutation(record.ClientId, record.Incarnation, cancellationToken);
     }
 
     /// <summary>Rejects a mutation result that cannot be represented by the legacy throwing API.</summary>

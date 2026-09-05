@@ -2550,19 +2550,19 @@ public class PublicHelloAdmissionTests
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> RevokeAsync(
-            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null) =>
             throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> BlockAsync(
-            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null) =>
             throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<IReadOnlyList<ClientId>> ResetTrustAsync(
@@ -2571,7 +2571,7 @@ public class PublicHelloAdmissionTests
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> RenameIfTrustedAsync(
-            ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+            ClientId clientId, string displayName, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) =>
             throw new NotSupportedException();
     }
 
@@ -2710,19 +2710,19 @@ public class PublicHelloAdmissionTests
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> RevokeAsync(
-            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null) =>
             throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> BlockAsync(
-            ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+            ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null) =>
             throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
-        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) => throw new NotSupportedException();
+        public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) => throw new NotSupportedException();
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<IReadOnlyList<ClientId>> ResetTrustAsync(
@@ -2731,7 +2731,7 @@ public class PublicHelloAdmissionTests
 
         /// <summary>Not called by the handler under test.</summary>
         public Task<TrustMutationOutcome> RenameIfTrustedAsync(
-            ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+            ClientId clientId, string displayName, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) =>
             throw new NotSupportedException();
     }
 }

@@ -43,10 +43,14 @@ public interface ITrustStore
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     /// <param name="onPublished">
     /// Invoked synchronously, once persistence has succeeded and the empty set has just become the
-    /// published state, before any other caller can observe that state or a session's authorization
-    /// against it -- the single ordering point at which a caller may deauthorize every affected
-    /// session as part of the same indivisible event. Must be synchronous and bounded: it must never
-    /// call back into pairing state, notification, transport, or persistence.
+    /// published state, before any other session-authorized operation sharing this store's
+    /// <see cref="ISecurityStateGate"/> can linearize between this publish and this callback's own
+    /// deauthorization of every affected session -- the single ordering point at which a caller may
+    /// deauthorize every affected session as part of the same indivisible event. This does not mean no
+    /// caller can observe the new state first: an ordinary read (<see cref="TryGet"/>,
+    /// <see cref="List"/>, and similar) never acquires the gate and may see the cleared state while
+    /// this callback is still running. Must be synchronous and bounded: it must never call back into
+    /// pairing state, notification, transport, or persistence.
     /// </param>
     Task ClearAsync(CancellationToken cancellationToken = default, Action? onPublished = null);
 
@@ -85,28 +89,33 @@ public interface ITrustStore
     /// </summary>
     /// <param name="clientId">The device to revoke.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    /// <param name="expectedShortId">
+    /// <param name="expectedIncarnation">
     /// When supplied, the mutation is applied only if <paramref name="clientId"/>'s current record
-    /// still carries this exact <see cref="TrustRecord.ShortId"/> at the instant this store's
+    /// still carries this exact <see cref="TrustRecord.Incarnation"/> at the instant this store's
     /// serialized mutation actually resolves it -- never a value the caller resolved earlier and
-    /// captured separately. Closes the incarnation race where a shortId-resolved administrative
-    /// operation, queued behind another mutation, would otherwise land on an unrelated later
-    /// incarnation of the same <paramref name="clientId"/> (for example forgotten and re-paired under
-    /// a new shortId) rather than the exact Known Device the caller originally selected. A mismatch
-    /// reports <see cref="TrustMutationOutcome.NotFound"/>, the same as an unrecognized identity,
-    /// without mutation. Omit (or pass <see langword="null"/>) when the caller already resolved and
-    /// authorized <paramref name="clientId"/> directly and has no shortId precondition to enforce.
+    /// captured separately. Closes the ABA race a human shortId-resolved administrative operation,
+    /// queued behind another mutation, would otherwise fall into: <see cref="TrustRecord.ShortId"/> is
+    /// reusable once its record is removed, so a stale operation's captured shortId can coincidentally
+    /// match a later, unrelated incarnation of the same <paramref name="clientId"/> that happens to
+    /// reuse it (for example forgotten and re-paired, with the freed shortId reassigned) -- never the
+    /// exact Known Device the caller originally selected. A mismatch reports
+    /// <see cref="TrustMutationOutcome.NotFound"/>, the same as an unrecognized identity, without
+    /// mutation. Omit (or pass <see langword="null"/>) when the caller already resolved and authorized
+    /// <paramref name="clientId"/> directly and has no incarnation precondition to enforce.
     /// </param>
     /// <param name="onPublished">
     /// Invoked synchronously, only when this call actually changes the record, once persistence has
-    /// succeeded and the change has just become the published state, before any other caller can
-    /// observe it or a session's authorization against it -- the single ordering point at which a
-    /// caller may deauthorize <paramref name="clientId"/>'s affected sessions as part of the same
-    /// indivisible event. Must be synchronous and bounded: it must never call back into pairing
-    /// state, notification, transport, or persistence.
+    /// succeeded and the change has just become the published state, before any other session-authorized
+    /// operation sharing this store's <see cref="ISecurityStateGate"/> can linearize between this
+    /// publish and this callback's own deauthorization of <paramref name="clientId"/>'s affected
+    /// sessions -- the single ordering point at which a caller may deauthorize those sessions as part of
+    /// the same indivisible event. This does not mean no caller can observe the new state first: an
+    /// ordinary read (<see cref="TryGet"/>, <see cref="List"/>, and similar) never acquires the gate and
+    /// may see the change while this callback is still running. Must be synchronous and bounded: it must
+    /// never call back into pairing state, notification, transport, or persistence.
     /// </param>
     Task<TrustMutationOutcome> RevokeAsync(
-        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null);
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null);
 
     /// <summary>
     /// Blocks a currently <see cref="KnownDeviceState.Trusted"/> or <see cref="KnownDeviceState.Revoked"/>
@@ -117,10 +126,10 @@ public interface ITrustStore
     /// </summary>
     /// <param name="clientId">The device to block.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
+    /// <param name="expectedIncarnation">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
     /// <param name="onPublished">See <see cref="RevokeAsync"/>'s own remarks for this callback's contract.</param>
     Task<TrustMutationOutcome> BlockAsync(
-        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null);
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null);
 
     /// <summary>
     /// Unblocks a blocked device and returns it to the unpaired state. Has no <c>onPublished</c>
@@ -130,8 +139,8 @@ public interface ITrustStore
     /// </summary>
     /// <param name="clientId">The device to unblock.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
-    Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null);
+    /// <param name="expectedIncarnation">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
+    Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null);
 
     /// <summary>
     /// Forgets an eligible revoked or unpaired device completely. Has no <c>onPublished</c> parameter
@@ -141,19 +150,22 @@ public interface ITrustStore
     /// </summary>
     /// <param name="clientId">The device to forget.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
-    Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null);
+    /// <param name="expectedIncarnation">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
+    Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null);
 
     /// <summary>Applies Reset Trust to every trusted device and returns affected identities.</summary>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     /// <param name="onPublished">
     /// Invoked synchronously, once persistence (if any was needed) has succeeded and the change has
-    /// just become the published state, before any other caller can observe it or a session's
-    /// authorization against it -- the single ordering point at which a caller may deauthorize the
-    /// affected sessions as part of the same indivisible event. Invoked with the exact affected
-    /// client list this call returns, including an empty list when no record was currently trusted.
-    /// Must be synchronous and bounded: it must never call back into pairing state, notification,
-    /// transport, or persistence.
+    /// just become the published state, before any other session-authorized operation sharing this
+    /// store's <see cref="ISecurityStateGate"/> can linearize between this publish and this callback's
+    /// own deauthorization of the affected sessions -- the single ordering point at which a caller may
+    /// deauthorize those sessions as part of the same indivisible event. This does not mean no caller
+    /// can observe the new state first: an ordinary read (<see cref="TryGet"/>, <see cref="List"/>, and
+    /// similar) never acquires the gate and may see the change while this callback is still running.
+    /// Invoked with the exact affected client list this call returns, including an empty list when no
+    /// record was currently trusted. Must be synchronous and bounded: it must never call back into
+    /// pairing state, notification, transport, or persistence.
     /// </param>
     Task<IReadOnlyList<ClientId>> ResetTrustAsync(
         CancellationToken cancellationToken = default, Action<IReadOnlyList<ClientId>>? onPublished = null);
@@ -168,7 +180,7 @@ public interface ITrustStore
     /// <param name="clientId">The device to rename.</param>
     /// <param name="displayName">The new display name, or an empty value to clear it.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    /// <param name="expectedShortId">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
+    /// <param name="expectedIncarnation">See <see cref="RevokeAsync"/>'s own remarks for this precondition's contract.</param>
     /// <returns>
     /// <see cref="TrustMutationOutcome.Changed"/> once persisted; <see cref="TrustMutationOutcome.NotFound"/>
     /// for an unrecognized <paramref name="clientId"/>; <see cref="TrustMutationOutcome.NotEligible"/>
@@ -176,7 +188,7 @@ public interface ITrustStore
     /// either rejection case.
     /// </returns>
     Task<TrustMutationOutcome> RenameIfTrustedAsync(
-        ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null);
+        ClientId clientId, string displayName, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null);
 }
 
 /// <summary>
@@ -418,18 +430,18 @@ public sealed class TrustStore : ITrustStore
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> RevokeAsync(
-        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null) =>
         MutateAsync(clientId, record => record.State == KnownDeviceState.Trusted
             ? record with { State = KnownDeviceState.Revoked, CredentialVerifier = string.Empty, BlockedAtUtc = null }
             : null,
             TrustMutationOutcome.NotEligible,
             cancellationToken,
-            expectedShortId: expectedShortId,
+            expectedIncarnation: expectedIncarnation,
             onPublished: onPublished);
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> BlockAsync(
-        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null) =>
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null) =>
         MutateAsync(clientId, record => record.State switch
         {
             KnownDeviceState.Blocked => record,
@@ -444,27 +456,27 @@ public sealed class TrustStore : ITrustStore
             TrustMutationOutcome.AlreadyInState,
             cancellationToken,
             notEligibleOutcome: TrustMutationOutcome.NotEligible,
-            expectedShortId: expectedShortId,
+            expectedIncarnation: expectedIncarnation,
             onPublished: onPublished);
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) =>
         MutateAsync(clientId, record => record.State == KnownDeviceState.Blocked
             ? record with { State = KnownDeviceState.Unpaired, BlockedAtUtc = null }
             : null,
             TrustMutationOutcome.AlreadyInState,
             cancellationToken,
-            expectedShortId: expectedShortId);
+            expectedIncarnation: expectedIncarnation);
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) =>
         MutateAsync(clientId, record => record.State is KnownDeviceState.Revoked or KnownDeviceState.Unpaired
             ? null
             : record,
             TrustMutationOutcome.NotEligible,
             cancellationToken,
             removeWhenNull: true,
-            expectedShortId: expectedShortId);
+            expectedIncarnation: expectedIncarnation);
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<ClientId>> ResetTrustAsync(
@@ -533,13 +545,13 @@ public sealed class TrustStore : ITrustStore
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> RenameIfTrustedAsync(
-        ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null) =>
+        ClientId clientId, string displayName, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null) =>
         MutateAsync(clientId, record => record.State == KnownDeviceState.Trusted
             ? record with { DisplayName = displayName }
             : null,
             TrustMutationOutcome.NotEligible,
             cancellationToken,
-            expectedShortId: expectedShortId);
+            expectedIncarnation: expectedIncarnation);
 
     /// <summary>
     /// Applies one persisted trust mutation, publishing it only once persistence succeeds.
@@ -565,10 +577,10 @@ public sealed class TrustStore : ITrustStore
     /// already in the target state (reported via <paramref name="ineligibleOutcome"/>) as well as
     /// genuinely ineligible for it altogether (reported via this parameter instead).
     /// </param>
-    /// <param name="expectedShortId">
+    /// <param name="expectedIncarnation">
     /// When supplied, resolved against <paramref name="clientId"/>'s current record inside this exact
-    /// serialized mutation -- see the public shortId-precondition parameters' own remarks (for example
-    /// <see cref="ITrustStore.RevokeAsync"/>'s) for the incarnation race this closes. A mismatch
+    /// serialized mutation -- see the public incarnation-precondition parameters' own remarks (for
+    /// example <see cref="ITrustStore.RevokeAsync"/>'s) for the ABA race this closes. A mismatch
     /// reports <see cref="TrustMutationOutcome.NotFound"/> without mutation.
     /// </param>
     /// <param name="onPublished">See <see cref="ITrustStore.RevokeAsync"/>'s own remarks for this callback's contract.</param>
@@ -579,7 +591,7 @@ public sealed class TrustStore : ITrustStore
         CancellationToken cancellationToken,
         bool removeWhenNull = false,
         TrustMutationOutcome? notEligibleOutcome = null,
-        string? expectedShortId = null,
+        KnownDeviceIncarnationId? expectedIncarnation = null,
         Action? onPublished = null)
     {
         await mutationSemaphore.WaitAsync(cancellationToken);
@@ -594,13 +606,13 @@ public sealed class TrustStore : ITrustStore
                     return TrustMutationOutcome.NotFound;
                 }
 
-                if (expectedShortId is not null && previousRecord.ShortId != expectedShortId)
+                if (expectedIncarnation is not null && previousRecord.Incarnation != expectedIncarnation)
                 {
-                    // The current record for this clientId is a different Known Device incarnation
-                    // than the one shortId-based administration originally resolved (for example the
-                    // prior incarnation was forgotten and this clientId later re-paired under a new
-                    // shortId): treat it the same as not found rather than silently mutating the
-                    // replacement incarnation the caller never selected.
+                    // The current record for this clientId is a different Known Device incarnation than
+                    // the one the caller originally resolved and captured (for example the prior
+                    // incarnation was forgotten and this clientId later re-paired, even under the exact
+                    // same reused shortId): treat it the same as not found rather than silently mutating
+                    // the replacement incarnation the caller never selected.
                     return TrustMutationOutcome.NotFound;
                 }
 

@@ -496,24 +496,26 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Proves the shortId-incarnation-race fix end-to-end through <see cref="TrustAdminService"/>'s own
-    /// wiring, not only the underlying <see cref="ITrustStore"/> guard: an administrative operation that
-    /// resolved shortId <c>11111</c> to a device must not fall through to mutating a different, later
-    /// incarnation of the exact same <see cref="ClientId"/> that appears in the gap between that
-    /// resolution and the mutation actually applying -- for example the original Known Device forgotten
-    /// by a Factory Reset and the same client re-paired under a new shortId before this call resumes.
-    /// <see cref="FakeTrustStore.AfterTryGetByShortId"/> deterministically injects that exact
-    /// replacement into the gap <see cref="TrustAdminService"/>'s own private shortId-resolution helper
-    /// has between resolving the shortId and invoking the mutation, without depending on real thread
-    /// scheduling.
+    /// Proves the incarnation ABA fix end-to-end through <see cref="TrustAdminService"/>'s own wiring,
+    /// not only the underlying <see cref="ITrustStore"/> guard, deliberately reusing the exact same
+    /// shortId <c>11111</c> for both incarnations: an administrative operation that resolved shortId
+    /// <c>11111</c> to a device must not fall through to mutating a different, later incarnation of the
+    /// exact same <see cref="ClientId"/> that appears in the gap between that resolution and the
+    /// mutation actually applying -- for example the original Known Device forgotten by a Factory Reset
+    /// and the same client re-paired, with the freed shortId reassigned to the replacement, before this
+    /// call resumes. A replacement that received a different shortId would not prove this closed, since
+    /// shortId itself would then also have blocked the stale mutation. <see cref="FakeTrustStore.AfterTryGetByShortId"/>
+    /// deterministically injects that exact replacement into the gap <see cref="TrustAdminService"/>'s
+    /// own private shortId-resolution helper has between resolving the shortId and invoking the
+    /// mutation, without depending on real thread scheduling.
     /// </summary>
     [Fact]
     public async Task RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
     {
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
-        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
-        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
@@ -566,17 +568,18 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Verifies the same end-to-end incarnation-race guarantee as
+    /// Verifies the same end-to-end same-shortId incarnation ABA guarantee as
     /// <see cref="RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement"/>
-    /// for <see cref="TrustAdminService.BlockByShortIdAsync"/>.
+    /// for <see cref="TrustAdminService.BlockByShortIdAsync"/>, proving the shared shortId-resolution
+    /// helper closes the race for this mutation too rather than it being specific to Revoke.
     /// </summary>
     [Fact]
     public async Task BlockByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
     {
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
-        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
-        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
@@ -587,17 +590,18 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Verifies the same end-to-end incarnation-race guarantee as
+    /// Verifies the same end-to-end same-shortId incarnation ABA guarantee as
     /// <see cref="RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement"/>
-    /// for <see cref="TrustAdminService.UnblockByShortIdAsync"/>.
+    /// for <see cref="TrustAdminService.UnblockByShortIdAsync"/>, proving the shared shortId-resolution
+    /// helper closes the race for this mutation too.
     /// </summary>
     [Fact]
     public async Task UnblockByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
     {
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
-        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
@@ -608,17 +612,18 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Verifies the same end-to-end incarnation-race guarantee as
+    /// Verifies the same end-to-end same-shortId incarnation ABA guarantee as
     /// <see cref="RevokeByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement"/>
-    /// for <see cref="TrustAdminService.ForgetByShortIdAsync"/>.
+    /// for <see cref="TrustAdminService.ForgetByShortIdAsync"/>, proving the shared shortId-resolution
+    /// helper closes the race for this mutation too.
     /// </summary>
     [Fact]
     public async Task ForgetByShortIdAsync_ClientReplacedByNewIncarnationBetweenResolutionAndMutation_ReturnsNotFoundWithoutMutatingReplacement()
     {
         var trustStore = new FakeTrustStore();
         ClientId clientId = ClientId.NewId();
-        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
-        var replacement = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow);
+        trustStore.Seed(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         trustStore.AfterTryGetByShortId = () => trustStore.Seed(replacement);
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
@@ -1028,16 +1033,18 @@ public class TrustAdminServiceTests
 
     /// <summary>
     /// Proves race G (rename replacement-incarnation race): an old Full session's
-    /// <see cref="TrustAdminService.RenameAsync"/> call captures the shortId of the Known Device
-    /// incarnation visible at that instant, then gets queued behind another mutation's own persistence
-    /// write -- exactly as <see cref="TrustStore"/>'s <c>mutationSemaphore</c> serializes every
-    /// mutation. By the time the queued rename's own check finally runs, the other mutation has
-    /// already replaced the client's Known Device with a brand new incarnation (a
-    /// forget-and-re-pair collapsed into one replacing <see cref="ITrustStore.UpsertAsync"/> for this
-    /// test's purposes) -- a structurally different Known Device sharing only the same durable
-    /// <see cref="ClientId"/>. The stale captured shortId no longer matches it, so the rename must be
-    /// rejected as <see cref="TrustMutationOutcome.NotFound"/> rather than silently renaming the
-    /// replacement.
+    /// <see cref="TrustAdminService.RenameAsync"/> call captures the <see cref="TrustRecord.Incarnation"/>
+    /// of the Known Device visible at that instant, then gets queued behind another mutation's own
+    /// persistence write -- exactly as <see cref="TrustStore"/>'s <c>mutationSemaphore</c> serializes
+    /// every mutation. By the time the queued rename's own check finally runs, the other mutation has
+    /// already replaced the client's Known Device with a brand new incarnation (a forget-and-re-pair
+    /// collapsed into one replacing <see cref="ITrustStore.UpsertAsync"/> for this test's purposes,
+    /// deliberately reassigned the exact same shortId <c>11111</c> the original held) -- a structurally
+    /// different Known Device sharing only the same durable <see cref="ClientId"/> and shortId. The
+    /// stale captured incarnation no longer matches it, so the rename must be rejected as
+    /// <see cref="TrustMutationOutcome.NotFound"/> rather than silently renaming the replacement. A
+    /// replacement under a different shortId would not prove this closed, since shortId itself would
+    /// then also have blocked the stale mutation.
     /// </summary>
     [Fact]
     public async Task RenameAsync_QueuedBehindConcurrentIncarnationSwap_DoesNotRenameTheReplacement()
@@ -1045,7 +1052,7 @@ public class TrustAdminServiceTests
         var persistence = new FakeTrustStorePersistence();
         (TrustStore trustStore, _, _, TrustAdminService admin, _) = await ComposeRealCollaboratorsAsync(persistence);
         ClientId clientId = ClientId.NewId();
-        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        await trustStore.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         persistence.BeforeSave = async () =>
@@ -1053,15 +1060,15 @@ public class TrustAdminServiceTests
             enteredSave.SetResult();
             await releaseSave.Task;
         };
-        var newIncarnation = new TrustRecord(clientId, "58321", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        var newIncarnation = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
 
         // The incarnation swap is already in flight and holds the store's mutation serialization,
-        // blocked in its own gated persistence write below -- the original record (shortId 11111) is
-        // still the only one visible to any reader at this point.
+        // blocked in its own gated persistence write below -- the original record (incarnation A,
+        // shortId 11111) is still the only one visible to any reader at this point.
         Task swapTask = trustStore.UpsertAsync(newIncarnation);
         await enteredSave.Task;
 
-        // The old Full session's rename starts now: it captures the still-current shortId 11111
+        // The old Full session's rename starts now: it captures the still-current incarnation A
         // synchronously, then queues behind the swap's still-held mutation serialization.
         Task renameTask = admin.RenameAsync(clientId, "Renamed By Stale Session");
 

@@ -153,7 +153,7 @@ public sealed class FakeTrustStore : ITrustStore
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> RevokeAsync(
-        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null)
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -163,7 +163,7 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
-        if (expectedShortId is not null && record.ShortId != expectedShortId)
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -186,7 +186,7 @@ public sealed class FakeTrustStore : ITrustStore
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> BlockAsync(
-        ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null, Action? onPublished = null)
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -196,7 +196,7 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
-        if (expectedShortId is not null && record.ShortId != expectedShortId)
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -222,7 +222,7 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
+    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -232,7 +232,7 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
-        if (expectedShortId is not null && record.ShortId != expectedShortId)
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -252,7 +252,7 @@ public sealed class FakeTrustStore : ITrustStore
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, string? expectedShortId = null)
+    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -262,7 +262,7 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
-        if (expectedShortId is not null && record.ShortId != expectedShortId)
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -309,7 +309,7 @@ public sealed class FakeTrustStore : ITrustStore
 
     /// <inheritdoc/>
     public Task<TrustMutationOutcome> RenameIfTrustedAsync(
-        ClientId clientId, string displayName, CancellationToken cancellationToken = default, string? expectedShortId = null)
+        ClientId clientId, string displayName, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -319,7 +319,7 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
-        if (expectedShortId is not null && record.ShortId != expectedShortId)
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
