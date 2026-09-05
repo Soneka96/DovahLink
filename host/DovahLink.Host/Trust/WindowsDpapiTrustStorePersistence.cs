@@ -185,6 +185,7 @@ public sealed class WindowsDpapiTrustStorePersistence : ITrustStorePersistence
         foreach (TrustRecord record in records)
         {
             if (record.ClientId.Value == Guid.Empty ||
+                record.Incarnation.Value == Guid.Empty ||
                 record.ShortId is null ||
                 record.CredentialVerifier is null ||
                 record.ShortId.Length != Constants.PairingShortIdDigits ||

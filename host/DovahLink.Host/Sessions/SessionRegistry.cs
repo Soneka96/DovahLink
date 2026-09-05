@@ -1,4 +1,5 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 
 namespace DovahLink.Host.Sessions;
 
@@ -34,9 +35,31 @@ public interface ISessionRegistry
     /// a developer-token session is never a Known Device and must not be disconnected merely because
     /// its self-declared <see cref="ClientId"/> matches a client-scoped administrative mutation's
     /// target. Use <see cref="InvalidateAll"/> for Factory Reset's unconditional invalidation instead.
+    /// The returned snapshot is captured while this registry's internal lock is held and handed back
+    /// only after it is released, so a caller can safely use it to attempt transport work afterward
+    /// without ever running that work under this registry's lock.
     /// </summary>
     /// <param name="clientId">The client whose sessions should be invalidated.</param>
-    void InvalidateAllForClient(ClientId clientId);
+    /// <param name="reason">The authoritative reason these sessions are being invalidated.</param>
+    /// <returns>An immutable snapshot of every session this call actually invalidated.</returns>
+    IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason);
+
+    /// <summary>
+    /// Invalidates every currently active session belonging to any of several clients in one atomic
+    /// pass under this registry's own internal lock, applying the same developer-token exemption as
+    /// <see cref="InvalidateAllForClient"/>. Exists so a multi-client administrative mutation (for
+    /// example Reset Trust revoking several devices at once) can remove every affected client's
+    /// authorization before any target's best-effort notification/close is attempted, rather than
+    /// authorizing client B to keep operating while client A's teardown is still in flight -- a
+    /// sequential per-client call to <see cref="InvalidateAllForClient"/> cannot give that guarantee.
+    /// The returned snapshot is captured while this registry's internal lock is held and handed back
+    /// only after it is released, so a caller can safely use it to attempt transport work afterward
+    /// without ever running that work under this registry's lock.
+    /// </summary>
+    /// <param name="clientIds">The clients whose sessions should be invalidated.</param>
+    /// <param name="reason">The authoritative reason these sessions are being invalidated.</param>
+    /// <returns>An immutable snapshot of every session this call actually invalidated, across every client.</returns>
+    IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason);
 
     /// <summary>
     /// Reports whether a session is active on its owning connection. For the one-time admission
@@ -48,8 +71,15 @@ public interface ISessionRegistry
     /// <returns><see langword="true"/> if the session belongs to the connection and remains active.</returns>
     bool IsActive(SessionId sessionId, ConnectionId connectionId);
 
-    /// <summary>Unconditionally invalidates every currently active session.</summary>
-    void InvalidateAll();
+    /// <summary>
+    /// Unconditionally invalidates every currently active session. The returned snapshot is captured
+    /// while this registry's internal lock is held and handed back only after it is released, so a
+    /// caller can safely use it to attempt transport work afterward without ever running that work
+    /// under this registry's lock.
+    /// </summary>
+    /// <param name="reason">The authoritative reason every session is being invalidated.</param>
+    /// <returns>An immutable snapshot of every session this call invalidated.</returns>
+    IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason);
 
     /// <summary>
     /// Atomically confirms that a session <see cref="TryCreate"/> admitted is still active on its
@@ -72,13 +102,67 @@ public interface ISessionRegistry
     /// <param name="connectionId">The connection claiming ownership of the session.</param>
     /// <returns><see langword="true"/> if the session still belongs to the connection and remains active.</returns>
     bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId);
+
+    /// <summary>
+    /// Upgrades an active session's <see cref="ActiveSessionRecord.TrustTier"/> to
+    /// <see cref="SessionTrustTier.Full"/> in place, without minting a new <see cref="SessionId"/> or
+    /// otherwise disturbing the session record. Used by a successful <c>pairing_ack</c> to upgrade the
+    /// same connection's own session exactly once, per <c>ai/context/protocol/security.md</c>'s
+    /// "Trust-tier upgrade happens exactly once, on the pairing state machine's own success."
+    /// </summary>
+    /// <param name="sessionId">The session to upgrade.</param>
+    /// <param name="connectionId">The connection claiming ownership of the session.</param>
+    /// <returns><see langword="true"/> if the session belonged to the connection and remained active.</returns>
+    bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId);
+
+    /// <summary>
+    /// Establishes this exact session incarnation's authorization linearization point: verifies that
+    /// <paramref name="sessionId"/> is still active on <paramref name="connectionId"/> and, only if so,
+    /// invokes <paramref name="action"/> -- both inside the one internal critical section every
+    /// invalidation method (<see cref="Invalidate"/>, <see cref="InvalidateAllForClient"/>,
+    /// <see cref="InvalidateAllForClients"/>, <see cref="InvalidateAll"/>) also serializes on. This
+    /// closes the check-then-act gap a separate <see cref="IsActive"/> call followed by an unguarded
+    /// mutation would leave open: whichever of this call or a concurrent invalidation reaches that
+    /// shared critical section first deterministically decides the outcome for the other, with no third
+    /// possibility where authorization succeeds, an invalidation lands, and this call's own mutation
+    /// still proceeds afterward against already-superseded state.
+    /// </summary>
+    /// <typeparam name="T">The type <paramref name="action"/> returns.</typeparam>
+    /// <param name="sessionId">The session whose exact incarnation must still be active.</param>
+    /// <param name="connectionId">The connection claiming ownership of the session.</param>
+    /// <param name="action">
+    /// The narrow, synchronous, bounded state mutation to run while this exact session incarnation is
+    /// confirmed active. Must never await, perform persistence, adapter, or transport I/O, or call back
+    /// into this registry from another thread -- doing so would hold this registry's internal lock
+    /// across work an invalidation elsewhere could otherwise complete instantly, turning a bounded
+    /// critical section into an unbounded one.
+    /// </param>
+    /// <param name="result">
+    /// <paramref name="action"/>'s return value when this call returns <see langword="true"/>; the
+    /// default value of <typeparamref name="T"/> otherwise.
+    /// </param>
+    /// <returns>
+    /// <see langword="true"/> once <paramref name="action"/> has run because the session was still
+    /// active; <see langword="false"/> without invoking <paramref name="action"/> at all if the session
+    /// was already invalidated, unknown, or owned by a different connection.
+    /// </returns>
+    bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result);
 }
 
 /// <inheritdoc cref="ISessionRegistry"/>
 public sealed class SessionRegistry : ISessionRegistry
 {
-    /// <summary>Guards <see cref="sessionsById"/> against concurrent access.</summary>
-    private readonly object gate = new();
+    /// <summary>
+    /// The linearization point every method here shares with <see cref="Trust.TrustStore"/>'s own
+    /// administrative-mutation publish, so a client's trust record changing and the sessions that
+    /// change affects becoming unauthorized are always one indivisible event to every other caller of
+    /// either type -- see <see cref="Trust.ITrustStore.RevokeAsync"/>'s own <c>onPublished</c> remarks.
+    /// Also this registry's own internal mutual exclusion, replacing what used to be a private
+    /// <c>object</c> field: every method here still serializes on this exact same gate the way it
+    /// always serialized on that field, so <see cref="TryExecuteIfActive{T}"/>'s own documented
+    /// guarantee against a concurrent invalidation is entirely unchanged.
+    /// </summary>
+    private readonly ISecurityStateGate securityStateGate;
 
     /// <summary>The maximum number of active sessions admitted at once.</summary>
     private readonly int maxActiveSessions;
@@ -87,14 +171,16 @@ public sealed class SessionRegistry : ISessionRegistry
     private readonly Dictionary<SessionId, ActiveSessionRecord> sessionsById = new();
 
     /// <summary>Creates a registry with an explicit active-session admission bound.</summary>
+    /// <param name="securityStateGate">The linearization point shared with <see cref="Trust.TrustStore"/>.</param>
     /// <param name="maxActiveSessions">The maximum number of simultaneous active sessions.</param>
-    public SessionRegistry(int maxActiveSessions = Constants.MaxActiveSessions)
+    public SessionRegistry(ISecurityStateGate securityStateGate, int maxActiveSessions = Constants.MaxActiveSessions)
     {
         if (maxActiveSessions <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maxActiveSessions));
         }
 
+        this.securityStateGate = securityStateGate;
         this.maxActiveSessions = maxActiveSessions;
     }
 
@@ -103,15 +189,36 @@ public sealed class SessionRegistry : ISessionRegistry
     {
         get
         {
-            lock (gate)
+            securityStateGate.Enter();
+            try
             {
                 return sessionsById.Count;
+            }
+            finally
+            {
+                securityStateGate.Exit();
             }
         }
     }
 
     /// <summary>The maximum number of simultaneous active sessions.</summary>
     public int MaxActiveSessions => maxActiveSessions;
+
+    /// <summary>Returns the current trust tier of an active session, for diagnostics and tests.</summary>
+    /// <param name="sessionId">The session to look up.</param>
+    /// <exception cref="KeyNotFoundException"><paramref name="sessionId"/> is not currently active.</exception>
+    public SessionTrustTier TrustTierFor(SessionId sessionId)
+    {
+        securityStateGate.Enter();
+        try
+        {
+            return sessionsById[sessionId].TrustTier;
+        }
+        finally
+        {
+            securityStateGate.Exit();
+        }
+    }
 
     /// <inheritdoc/>
     public bool TryCreate(
@@ -121,7 +228,8 @@ public sealed class SessionRegistry : ISessionRegistry
         SessionTrustTier trustTier,
         out SessionId sessionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             if (sessionsById.Count >= maxActiveSessions)
             {
@@ -139,64 +247,173 @@ public sealed class SessionRegistry : ISessionRegistry
                 sessionId, clientId, connectionId, SessionState.Active, authenticationSource, trustTier);
             return true;
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
     public void Invalidate(SessionId sessionId, ConnectionId connectionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             if (sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) && record.ConnectionId == connectionId)
             {
                 sessionsById.Remove(sessionId);
             }
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
-    public void InvalidateAllForClient(ClientId clientId)
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
+            var targets = new List<SessionInvalidationTarget>();
             foreach (SessionId sessionId in sessionsById
                 .Where(pair => pair.Value.ClientId.Equals(clientId) &&
                     pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())
             {
+                ActiveSessionRecord record = sessionsById[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
                 sessionsById.Remove(sessionId);
             }
+
+            return targets;
+        }
+        finally
+        {
+            securityStateGate.Exit();
+        }
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason)
+    {
+        var clientIdSet = new HashSet<ClientId>(clientIds);
+        securityStateGate.Enter();
+        try
+        {
+            var targets = new List<SessionInvalidationTarget>();
+            foreach (SessionId sessionId in sessionsById
+                .Where(pair => clientIdSet.Contains(pair.Value.ClientId) &&
+                    pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
+                .Select(pair => pair.Key)
+                .ToList())
+            {
+                ActiveSessionRecord record = sessionsById[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
+                sessionsById.Remove(sessionId);
+            }
+
+            return targets;
+        }
+        finally
+        {
+            securityStateGate.Exit();
         }
     }
 
     /// <inheritdoc/>
     public bool IsActive(SessionId sessionId, ConnectionId connectionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) &&
                 record.ConnectionId == connectionId &&
                 record.State == SessionState.Active;
         }
+        finally
+        {
+            securityStateGate.Exit();
+        }
     }
 
     /// <inheritdoc/>
-    public void InvalidateAll()
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
+            List<SessionInvalidationTarget> targets = sessionsById.Values
+                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource))
+                .ToList();
             sessionsById.Clear();
+            return targets;
+        }
+        finally
+        {
+            securityStateGate.Exit();
         }
     }
 
     /// <inheritdoc/>
     public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
     {
-        lock (gate)
+        securityStateGate.Enter();
+        try
         {
             return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) &&
                 record.ConnectionId == connectionId &&
                 record.State == SessionState.Active;
+        }
+        finally
+        {
+            securityStateGate.Exit();
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId)
+    {
+        securityStateGate.Enter();
+        try
+        {
+            if (!sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) ||
+                record.ConnectionId != connectionId ||
+                record.State != SessionState.Active)
+            {
+                return false;
+            }
+
+            sessionsById[sessionId] = record with { TrustTier = SessionTrustTier.Full };
+            return true;
+        }
+        finally
+        {
+            securityStateGate.Exit();
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result)
+    {
+        securityStateGate.Enter();
+        try
+        {
+            if (!sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) ||
+                record.ConnectionId != connectionId || record.State != SessionState.Active)
+            {
+                result = default!;
+                return false;
+            }
+
+            result = action();
+            return true;
+        }
+        finally
+        {
+            securityStateGate.Exit();
         }
     }
 }

@@ -226,6 +226,287 @@ public class PublicEnvelopeCodecTests
         Assert.Throws<ArgumentException>(() => Codec.Encode(PublicMessageType.Ping, "msg-1", null, null, null, null, new[] { 1, 2, 3 }));
     }
 
+    /// <summary>Verifies that the empty payload shared by ping, pairing_request, pairing_renotify, and pairing_cancel round-trips.</summary>
+    [Fact]
+    public void EncodeThenDecode_EmptyPayload_RoundTrips()
+    {
+        byte[] encoded = Codec.Encode(PublicMessageType.Ping, "msg-1", "session-1", null, null, null, new EmptyPayload());
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out EmptyPayload? decoded));
+        Assert.Equal(new EmptyPayload(), decoded);
+    }
+
+    /// <summary>Verifies that a pairing_confirm payload with a display name round-trips.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingConfirmPayload_RoundTrips()
+    {
+        var payload = new PairingConfirmPayload { Code = "123456", DisplayName = "Living Room PC" };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingConfirm, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingConfirmPayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>Verifies that a pairing_confirm payload without a display name round-trips with a null value.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingConfirmPayloadWithoutDisplayName_RoundTripsAsNull()
+    {
+        var payload = new PairingConfirmPayload { Code = "123456" };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingConfirm, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingConfirmPayload? decoded));
+        Assert.Null(decoded!.DisplayName);
+    }
+
+    /// <summary>
+    /// Verifies that a present empty display name round-trips distinctly from an absent one: per
+    /// <c>protocol/schema/README.md</c>, an empty string clears the name, while an absent/null value
+    /// preserves an existing one.
+    /// </summary>
+    [Fact]
+    public void EncodeThenDecode_PairingConfirmPayloadWithEmptyDisplayName_RoundTripsAsEmptyNotNull()
+    {
+        var payload = new PairingConfirmPayload { Code = "123456", DisplayName = string.Empty };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingConfirm, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingConfirmPayload? decoded));
+        Assert.Equal(string.Empty, decoded!.DisplayName);
+    }
+
+    /// <summary>Verifies that a pairing_ack payload round-trips.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingAckPayload_RoundTrips()
+    {
+        var payload = new PairingAckPayload { Credential = "deadbeef" };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingAck, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingAckPayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>Verifies that a rename_request payload round-trips, including an empty display name that clears the name.</summary>
+    [Fact]
+    public void EncodeThenDecode_RenameRequestPayloadWithEmptyDisplayName_RoundTrips()
+    {
+        var payload = new RenameRequestPayload { DisplayName = string.Empty };
+        byte[] encoded = Codec.Encode(PublicMessageType.RenameRequest, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out RenameRequestPayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>Verifies that a pairing_status payload round-trips, including a numeric expiresInSeconds.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingStatusPayload_RoundTrips()
+    {
+        var payload = new PairingStatusPayload { State = PairingStatusWireState.Available, ExpiresInSeconds = 287 };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingStatus, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingStatusPayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>
+    /// Verifies that an unavailable pairing_status writes expiresInSeconds as an explicit JSON null
+    /// key, not merely a C#-round-trippable null: <c>protocol/schema/README.md</c> requires the key
+    /// present for every state except other_device_pairing.
+    /// </summary>
+    [Fact]
+    public void Encode_PairingStatusPayloadUnavailable_WritesExplicitNullExpiresInSeconds()
+    {
+        var payload = new PairingStatusPayload { State = PairingStatusWireState.Unavailable, ExpiresInSeconds = null };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingStatus, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        using JsonDocument document = JsonDocument.Parse(encoded);
+        JsonElement payloadElement = document.RootElement.GetProperty("payload");
+        Assert.True(payloadElement.TryGetProperty("expiresInSeconds", out JsonElement expiresInSeconds));
+        Assert.Equal(JsonValueKind.Null, expiresInSeconds.ValueKind);
+    }
+
+    /// <summary>
+    /// Verifies that other_device_pairing omits expiresInSeconds entirely, distinct from every other
+    /// state's explicit null.
+    /// </summary>
+    [Fact]
+    public void Encode_PairingStatusOtherDevicePayload_OmitsExpiresInSecondsKey()
+    {
+        var payload = new PairingStatusOtherDevicePayload { State = PairingStatusWireState.OtherDevicePairing };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingStatus, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        using JsonDocument document = JsonDocument.Parse(encoded);
+        JsonElement payloadElement = document.RootElement.GetProperty("payload");
+        Assert.False(payloadElement.TryGetProperty("expiresInSeconds", out _));
+    }
+
+    /// <summary>Verifies that an other_device_pairing pairing_status payload round-trips through decode as well as encode.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingStatusOtherDevicePayload_RoundTrips()
+    {
+        var payload = new PairingStatusOtherDevicePayload { State = PairingStatusWireState.OtherDevicePairing };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingStatus, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingStatusOtherDevicePayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>Verifies that an in-progress pairing_status payload round-trips with its own client's remaining code seconds.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingStatusPayloadInProgress_RoundTrips()
+    {
+        var payload = new PairingStatusPayload { State = PairingStatusWireState.InProgress, ExpiresInSeconds = 42 };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingStatus, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingStatusPayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>Verifies that a fully populated pairing_outcome payload round-trips.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingOutcomePayload_RoundTrips()
+    {
+        var payload = new PairingOutcomePayload
+        {
+            Outcome = PairingOutcomeWireValue.Trusted,
+            Credential = "deadbeef",
+            ShortId = "12345",
+            DisplayName = "Living Room PC",
+        };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingOutcome, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingOutcomePayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>Verifies that a minimal pairing_outcome payload round-trips with every optional field null.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingOutcomePayloadMinimal_RoundTripsWithNullOptionalFields()
+    {
+        var payload = new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.Invalid };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingOutcome, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingOutcomePayload? decoded));
+        Assert.Null(decoded!.Credential);
+        Assert.Null(decoded.ShortId);
+        Assert.Null(decoded.DisplayName);
+        Assert.Null(decoded.RetryAfterSeconds);
+    }
+
+    /// <summary>Verifies that a pacing_limited pairing_outcome payload round-trips its retryAfterSeconds value.</summary>
+    [Fact]
+    public void EncodeThenDecode_PairingOutcomePayloadPacingLimited_RoundTripsRetryAfterSeconds()
+    {
+        var payload = new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.PacingLimited, RetryAfterSeconds = 1 };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingOutcome, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingOutcomePayload? decoded));
+        Assert.Equal(1, decoded!.RetryAfterSeconds);
+    }
+
+    /// <summary>
+    /// Verifies every canonical <see cref="PairingOutcomeWireValue"/> round-trips through its
+    /// snake_case wire form -- guarding against a typo in this hand-written 13-member enum.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllPairingOutcomeWireValues))]
+    public void EncodeThenDecode_EveryPairingOutcomeWireValue_RoundTrips(PairingOutcomeWireValue outcome)
+    {
+        var payload = new PairingOutcomePayload { Outcome = outcome };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingOutcome, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingOutcomePayload? decoded));
+        Assert.Equal(outcome, decoded!.Outcome);
+    }
+
+    /// <summary>Every canonical <see cref="PairingOutcomeWireValue"/> value, for the exhaustive round-trip theory above.</summary>
+    public static IEnumerable<object[]> AllPairingOutcomeWireValues() =>
+        Enum.GetValues<PairingOutcomeWireValue>().Select(value => new object[] { value });
+
+    /// <summary>
+    /// Verifies every canonical <see cref="PairingStatusWireState"/> other than
+    /// <see cref="PairingStatusWireState.OtherDevicePairing"/> round-trips through its snake_case wire
+    /// form via <see cref="PairingStatusPayload"/>. <see cref="PairingStatusWireState.OtherDevicePairing"/>
+    /// is excluded because it never actually travels through this DTO on the wire -- it uses the
+    /// field-omitting <see cref="PairingStatusOtherDevicePayload"/> instead, already covered by
+    /// <see cref="Encode_PairingStatusOtherDevicePayload_OmitsExpiresInSecondsKey"/> and
+    /// <see cref="EncodeThenDecode_PairingStatusOtherDevicePayload_RoundTrips"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllPairingStatusWireStates))]
+    public void EncodeThenDecode_EveryPairingStatusWireState_RoundTrips(PairingStatusWireState state)
+    {
+        var payload = new PairingStatusPayload { State = state, ExpiresInSeconds = null };
+        byte[] encoded = Codec.Encode(PublicMessageType.PairingStatus, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out PairingStatusPayload? decoded));
+        Assert.Equal(state, decoded!.State);
+    }
+
+    /// <summary>
+    /// Every canonical <see cref="PairingStatusWireState"/> value except
+    /// <see cref="PairingStatusWireState.OtherDevicePairing"/>, for the exhaustive round-trip theory
+    /// above -- that one state is excluded because it never travels through <see cref="PairingStatusPayload"/>
+    /// on the wire; see the theory's own remarks for its dedicated coverage instead.
+    /// </summary>
+    public static IEnumerable<object[]> AllPairingStatusWireStates() =>
+        Enum.GetValues<PairingStatusWireState>()
+            .Where(value => value != PairingStatusWireState.OtherDevicePairing)
+            .Select(value => new object[] { value });
+
+    /// <summary>Verifies every canonical <see cref="RenameOutcomeWireValue"/> round-trips through its snake_case wire form.</summary>
+    [Theory]
+    [MemberData(nameof(AllRenameOutcomeWireValues))]
+    public void EncodeThenDecode_EveryRenameOutcomeWireValue_RoundTrips(RenameOutcomeWireValue outcome)
+    {
+        var payload = new RenameOutcomePayload { Outcome = outcome };
+        byte[] encoded = Codec.Encode(PublicMessageType.RenameOutcome, "msg-1", "session-1", null, null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out RenameOutcomePayload? decoded));
+        Assert.Equal(outcome, decoded!.Outcome);
+    }
+
+    /// <summary>Every canonical <see cref="RenameOutcomeWireValue"/> value, for the exhaustive round-trip theory above.</summary>
+    public static IEnumerable<object[]> AllRenameOutcomeWireValues() =>
+        Enum.GetValues<RenameOutcomeWireValue>().Select(value => new object[] { value });
+
+    /// <summary>Verifies that a renamed rename_outcome payload round-trips with its display name.</summary>
+    [Fact]
+    public void EncodeThenDecode_RenameOutcomePayload_RoundTrips()
+    {
+        var payload = new RenameOutcomePayload { Outcome = RenameOutcomeWireValue.Renamed, DisplayName = "New Name" };
+        byte[] encoded = Codec.Encode(PublicMessageType.RenameOutcome, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out RenameOutcomePayload? decoded));
+        Assert.Equal(payload, decoded);
+    }
+
+    /// <summary>Verifies that a non-renamed rename_outcome payload round-trips with a null display name.</summary>
+    [Fact]
+    public void EncodeThenDecode_RenameOutcomePayloadWithoutDisplayName_RoundTripsAsNull()
+    {
+        var payload = new RenameOutcomePayload { Outcome = RenameOutcomeWireValue.InvalidDisplayName };
+        byte[] encoded = Codec.Encode(PublicMessageType.RenameOutcome, "msg-1", "session-1", "msg-0", null, null, payload);
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out RenameOutcomePayload? decoded));
+        Assert.Null(decoded!.DisplayName);
+    }
+
     // ---- Envelope field validation ----
 
     /// <summary>Verifies that a missing required envelope field (messageId) is rejected.</summary>
@@ -423,6 +704,9 @@ public class PublicEnvelopeCodecTests
     [InlineData("snapshot_request", """{"stateArea":"area_one","unexpectedField":true}""")]
     [InlineData("capabilities", """{"capabilities":[],"unexpectedField":true}""")]
     [InlineData("capabilities", """{"capabilities":[{"id":"x","version":"1","unexpectedField":true}]}""")]
+    [InlineData("ping", """{"unexpectedField":true}""")]
+    [InlineData("pairing_confirm", """{"code":"123456","unexpectedField":true}""")]
+    [InlineData("rename_request", """{"displayName":"n","unexpectedField":true}""")]
     public void TryDecodePayload_UnknownNestedField_ReturnsFalse(string messageType, string payloadJson)
     {
         string json = BuildEnvelopeJson(messageType, payloadJson);
@@ -434,6 +718,9 @@ public class PublicEnvelopeCodecTests
             "subscribe" => Codec.TryDecodePayload(envelope!, out SubscribePayload? _),
             "snapshot_request" => Codec.TryDecodePayload(envelope!, out SnapshotRequestPayload? _),
             "capabilities" => Codec.TryDecodePayload(envelope!, out CapabilitiesPayload? _),
+            "ping" => Codec.TryDecodePayload(envelope!, out EmptyPayload? _),
+            "pairing_confirm" => Codec.TryDecodePayload(envelope!, out PairingConfirmPayload? _),
+            "rename_request" => Codec.TryDecodePayload(envelope!, out RenameRequestPayload? _),
             _ => throw new InvalidOperationException($"Unhandled messageType '{messageType}' in test data."),
         };
         Assert.False(decoded);
@@ -454,6 +741,100 @@ public class PublicEnvelopeCodecTests
             """;
 
         Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
+    /// <summary>Verifies that a pairing_confirm payload missing its required code fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_PairingConfirmMissingCode_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("pairing_confirm", """{"displayName":"n"}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out PairingConfirmPayload? _));
+    }
+
+    /// <summary>Verifies that a pairing_ack payload missing its required credential fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_PairingAckMissingCredential_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("pairing_ack", "{}");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out PairingAckPayload? _));
+    }
+
+    /// <summary>Verifies that a rename_request payload missing its required display name fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_RenameRequestMissingDisplayName_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("rename_request", "{}");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out RenameRequestPayload? _));
+    }
+
+    /// <summary>
+    /// Verifies that a rename_request payload whose required display name is explicitly JSON
+    /// <c>null</c> fails payload decoding, distinct from a present empty string, which is valid and
+    /// clears the name.
+    /// </summary>
+    [Fact]
+    public void TryDecodePayload_RenameRequestDisplayNameExplicitNull_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("rename_request", """{"displayName":null}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out RenameRequestPayload? _));
+    }
+
+    /// <summary>Verifies that a pairing_status payload missing its required state fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_PairingStatusMissingState_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("pairing_status", """{"expiresInSeconds":null}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out PairingStatusPayload? _));
+    }
+
+    /// <summary>Verifies that a pairing_status payload missing its required expiresInSeconds key fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_PairingStatusMissingExpiresInSeconds_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("pairing_status", """{"state":"available"}""");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out PairingStatusPayload? _));
+    }
+
+    /// <summary>Verifies that a pairing_status other-device payload missing its required state fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_PairingStatusOtherDeviceMissingState_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("pairing_status", "{}");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out PairingStatusOtherDevicePayload? _));
+    }
+
+    /// <summary>Verifies that a pairing_outcome payload missing its required outcome fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_PairingOutcomeMissingOutcome_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("pairing_outcome", "{}");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out PairingOutcomePayload? _));
+    }
+
+    /// <summary>Verifies that a rename_outcome payload missing its required outcome fails payload decoding.</summary>
+    [Fact]
+    public void TryDecodePayload_RenameOutcomeMissingOutcome_ReturnsFalse()
+    {
+        string json = BuildEnvelopeJson("rename_outcome", "{}");
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out RenameOutcomePayload? _));
     }
 
     // ---- Bounds: nesting depth ----

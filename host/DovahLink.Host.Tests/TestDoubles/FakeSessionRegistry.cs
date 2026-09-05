@@ -27,8 +27,8 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         this.maxActiveSessions = maxActiveSessions;
     }
 
-    /// <summary>Every client id passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
-    private readonly List<ClientId> invalidateAllForClientCalls = [];
+    /// <summary>Every client id and reason passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
+    private readonly List<(ClientId ClientId, SessionInvalidationReason Reason)> invalidateAllForClientCalls = [];
 
     /// <summary>
     /// When set, invoked synchronously by <see cref="TryCreate"/> after the new session record is
@@ -37,8 +37,16 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     /// </summary>
     public Action? AfterCreate { get; set; }
 
-    /// <summary>A synchronized snapshot of client-wide invalidation calls.</summary>
-    public IReadOnlyList<ClientId> InvalidateAllForClientCalls
+    /// <summary>
+    /// Optional hook invoked with a short label immediately after <see cref="InvalidateAllForClient"/>
+    /// or <see cref="InvalidateAll"/> applies (<c>"InvalidateAllForClient"</c> or <c>"InvalidateAll"</c>),
+    /// letting a test build a cross-collaborator call-order timeline together with
+    /// <see cref="FakeTrustStore.OnMutationApplied"/> and <see cref="FakePairingCoordinator.OnMutationApplied"/>.
+    /// </summary>
+    public Action<string>? OnMutationApplied { get; set; }
+
+    /// <summary>A synchronized snapshot of client-wide invalidation calls and their exact reasons.</summary>
+    public IReadOnlyList<(ClientId ClientId, SessionInvalidationReason Reason)> InvalidateAllForClientCalls
     {
         get
         {
@@ -109,20 +117,51 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     }
 
     /// <inheritdoc/>
-    public void InvalidateAllForClient(ClientId clientId)
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClient(ClientId clientId, SessionInvalidationReason reason)
     {
+        List<SessionInvalidationTarget> targets;
         lock (gate)
         {
-            invalidateAllForClientCalls.Add(clientId);
+            invalidateAllForClientCalls.Add((clientId, reason));
+            targets = [];
             foreach (SessionId sessionId in activeSessions
                 .Where(pair => pair.Value.ClientId.Equals(clientId) &&
                     pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
                 .Select(pair => pair.Key)
                 .ToList())
             {
+                ActiveSessionRecord record = activeSessions[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
                 activeSessions.Remove(sessionId);
             }
         }
+
+        OnMutationApplied?.Invoke("InvalidateAllForClient");
+        return targets;
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAllForClients(IReadOnlyList<ClientId> clientIds, SessionInvalidationReason reason)
+    {
+        var clientIdSet = new HashSet<ClientId>(clientIds);
+        List<SessionInvalidationTarget> targets;
+        lock (gate)
+        {
+            targets = [];
+            foreach (SessionId sessionId in activeSessions
+                .Where(pair => clientIdSet.Contains(pair.Value.ClientId) &&
+                    pair.Value.AuthenticationSource != SessionAuthenticationSource.OneTimeLocalToken)
+                .Select(pair => pair.Key)
+                .ToList())
+            {
+                ActiveSessionRecord record = activeSessions[sessionId];
+                targets.Add(new SessionInvalidationTarget(sessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource));
+                activeSessions.Remove(sessionId);
+            }
+        }
+
+        OnMutationApplied?.Invoke("InvalidateAllForClients");
+        return targets;
     }
 
     /// <inheritdoc/>
@@ -158,13 +197,20 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     private int invalidateAllCallCount;
 
     /// <inheritdoc/>
-    public void InvalidateAll()
+    public IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason)
     {
+        List<SessionInvalidationTarget> targets;
         lock (gate)
         {
             invalidateAllCallCount++;
+            targets = activeSessions.Values
+                .Select(record => new SessionInvalidationTarget(record.SessionId, record.ConnectionId, record.ClientId, reason, record.AuthenticationSource))
+                .ToList();
             activeSessions.Clear();
         }
+
+        OnMutationApplied?.Invoke("InvalidateAll");
+        return targets;
     }
 
     /// <summary>Creates a fake session with an explicit connection identity, authentication source, and trust tier.</summary>
@@ -200,6 +246,46 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         lock (gate)
         {
             return activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) && record.ConnectionId == connectionId;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryUpgradeToFullTrust(SessionId sessionId, ConnectionId connectionId)
+    {
+        lock (gate)
+        {
+            if (!activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) || record.ConnectionId != connectionId)
+            {
+                return false;
+            }
+
+            activeSessions[sessionId] = record with { TrustTier = SessionTrustTier.Full };
+            return true;
+        }
+    }
+
+    /// <summary>Returns the current trust tier for a session created by this test double.</summary>
+    public SessionTrustTier TrustTierFor(SessionId sessionId)
+    {
+        lock (gate)
+        {
+            return activeSessions[sessionId].TrustTier;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result)
+    {
+        lock (gate)
+        {
+            if (!activeSessions.TryGetValue(sessionId, out ActiveSessionRecord? record) || record.ConnectionId != connectionId)
+            {
+                result = default!;
+                return false;
+            }
+
+            result = action();
+            return true;
         }
     }
 }

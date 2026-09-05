@@ -20,4 +20,16 @@ public sealed record TrustRecord(
     KnownDeviceState State,
     string CredentialVerifier,
     DateTimeOffset PairedAtUtc,
-    DateTimeOffset? BlockedAtUtc = null);
+    DateTimeOffset? BlockedAtUtc = null)
+{
+    /// <summary>
+    /// This specific Known Device incarnation's identity. Preserved unchanged across every ordinary
+    /// state transition of the same Known Device (Trusted &#8594; Revoked, Trusted/Revoked &#8594;
+    /// Blocked, Blocked &#8594; Unpaired, a rename, and a revoked or unpaired device re-pairing back to
+    /// Trusted); replaced only when this exact record is destroyed (Forget, Factory Reset) and a later
+    /// pairing for the same <see cref="ClientId"/> creates a new record. See
+    /// <see cref="KnownDeviceIncarnationId"/>'s own remarks for why this must never be derived from
+    /// <see cref="ShortId"/>.
+    /// </summary>
+    public KnownDeviceIncarnationId Incarnation { get; init; }
+}

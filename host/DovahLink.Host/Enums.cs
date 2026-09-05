@@ -34,6 +34,19 @@ public enum TrustMutationOutcome
     AlreadyInState,
 }
 
+/// <summary>The outcome of requesting a new Factory Reset confirmation challenge.</summary>
+public enum FactoryResetBeginOutcome
+{
+    /// <summary>The returned challenge became the active, confirmable one.</summary>
+    Started,
+
+    /// <summary>
+    /// An in-flight <see cref="Trust.ITrustResetService.ConfirmResetAsync"/> invocation already holds
+    /// an exclusive claim on the currently active challenge, so no fresh challenge could become active.
+    /// </summary>
+    AlreadyInProgress,
+}
+
 // ---- Sessions ----
 
 /// <summary>The lifecycle state of one client connection's session.</summary>
@@ -67,6 +80,26 @@ public enum SessionTrustTier
 
     /// <summary>Full access to every non-restricted public message.</summary>
     Full,
+}
+
+/// <summary>
+/// The authoritative reason an administrative trust mutation invalidates one or more sessions.
+/// Carried through to the terminal <c>session_invalidated</c> notification a later concept sends
+/// before forcing the affected connection closed.
+/// </summary>
+public enum SessionInvalidationReason
+{
+    /// <summary>A trusted device's credential was explicitly revoked.</summary>
+    Revoked,
+
+    /// <summary>A known device was blocked from pairing or reconnecting.</summary>
+    Blocked,
+
+    /// <summary>Reset Trust reset every trusted device back to unpaired.</summary>
+    TrustReset,
+
+    /// <summary>Factory Reset unconditionally cleared every known device.</summary>
+    FactoryReset,
 }
 
 // ---- Pairing ----
@@ -131,6 +164,12 @@ public enum PairingConfirmOutcome
 
     /// <summary>Secure credential generation failed.</summary>
     GeneratorFailed,
+
+    /// <summary>
+    /// A genuinely correct code was presented, but an administrative trust mutation committed after
+    /// this exact challenge was created, so it is no longer authoritative and issued no credential.
+    /// </summary>
+    PairingInvalidated,
 }
 
 /// <summary>The result of finalizing a pending pairing credential.</summary>
@@ -164,7 +203,7 @@ public enum PairingRenotifyOutcome
     /// <summary>The manual redisplay cooldown is still active.</summary>
     Cooldown,
 
-    /// <summary>The requesting client owns no active challenge.</summary>
+    /// <summary>The requesting client owns no active challenge, or one whose initial display has not yet committed.</summary>
     AlreadyIdle,
 }
 
@@ -176,6 +215,28 @@ public enum PairingCancelOutcome
 
     /// <summary>The client owned no pairing operation.</summary>
     AlreadyIdle,
+}
+
+/// <summary>
+/// The structurally distinct pairing states <see cref="Pairing.PairingStatusSnapshot"/> distinguishes
+/// for one client, replacing any inference from a nullable challenge alone.
+/// </summary>
+public enum PairingStatusKind
+{
+    /// <summary>The client owns neither an active challenge nor a pending credential.</summary>
+    Idle,
+
+    /// <summary>The client owns a challenge reservation whose initial display has not yet committed.</summary>
+    UncommittedDisplayReservation,
+
+    /// <summary>The client owns an active challenge whose initial display has committed.</summary>
+    DisplayedChallenge,
+
+    /// <summary>The client owns a pending credential awaiting final confirmation.</summary>
+    PendingCredential,
+
+    /// <summary>A different client currently owns the active challenge or pending credential.</summary>
+    OtherDeviceActive,
 }
 
 // ---- Adapter ----
@@ -314,6 +375,32 @@ public enum PublicWebSocketConnectionEndReason
 
     /// <summary>The handshake request carried a <c>Sec-WebSocket-Version</c> value this transport does not support.</summary>
     UnsupportedWebSocketVersion,
+}
+
+/// <summary>
+/// A narrow, transport-independent classification of why an established public WebSocket connection
+/// ended, reported to <see cref="Client.Transport.IPublicWebSocketMessageHandler.HandleConnectionEnded"/>
+/// so a consumer (for example the pairing reconnect-grace decision) can distinguish ordinary
+/// connectivity loss from a deliberate security/protocol-driven termination without ever seeing a raw
+/// <see cref="PublicWebSocketConnectionEndReason"/>, a WebSocket close status, or any other transport
+/// implementation detail.
+/// </summary>
+public enum PublicConnectionTerminationKind
+{
+    /// <summary>
+    /// Ordinary connectivity loss or an orderly/expected close -- a normal peer close, network loss,
+    /// idle/keep-alive timeout, or a send failure indicating the peer is simply gone. Pairing reconnect
+    /// grace remains available.
+    /// </summary>
+    ConnectivityLoss,
+
+    /// <summary>
+    /// A deliberate security or protocol enforcement action -- invalid framing, an unsupported binary
+    /// message, an oversized message, an inbound rate-limit or outbound-capacity violation, fragment
+    /// assembly abuse, or an equivalent application-level protocol-violation or message-bound close.
+    /// Pairing must end outright rather than preserve reconnect grace.
+    /// </summary>
+    SecurityEnforcement,
 }
 
 /// <summary>
@@ -469,4 +556,85 @@ public enum PublicProtocolErrorCode
 
     /// <summary>An unexpected internal failure occurred; no further detail is disclosed.</summary>
     InternalError,
+}
+
+/// <summary>
+/// The wire values of <c>pairing_status.state</c>, per <c>protocol/schema/README.md</c>'s
+/// "<c>pairing_status</c>" section.
+/// </summary>
+public enum PairingStatusWireState
+{
+    /// <summary>No displayable challenge exists for the requesting client.</summary>
+    Unavailable,
+
+    /// <summary>A fresh code was just generated and its adapter display was accepted.</summary>
+    Available,
+
+    /// <summary>The requesting client already owns an active challenge or pending credential.</summary>
+    InProgress,
+
+    /// <summary>A different client currently owns the active challenge or pending credential.</summary>
+    OtherDevicePairing,
+}
+
+/// <summary>
+/// The wire values of <c>pairing_outcome.outcome</c>, per <c>protocol/schema/README.md</c>'s
+/// "<c>pairing_outcome</c>" section.
+/// </summary>
+public enum PairingOutcomeWireValue
+{
+    /// <summary>Reply to <c>pairing_confirm</c>: the credential was issued and awaits final confirmation.</summary>
+    CredentialIssued,
+
+    /// <summary>Reply to <c>pairing_ack</c>: the credential became trusted.</summary>
+    Trusted,
+
+    /// <summary>Reply to <c>pairing_ack</c>: a previously completed pairing was safely retried.</summary>
+    AlreadyTrusted,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the active challenge expired before evaluation.</summary>
+    Expired,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the submitted code did not match.</summary>
+    Invalid,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the attempt arrived before the pacing interval elapsed.</summary>
+    PacingLimited,
+
+    /// <summary>Reply to <c>pairing_confirm</c>: the wrong-attempt hard limit cancelled the challenge.</summary>
+    HardLimitReached,
+
+    /// <summary>Reply to <c>pairing_ack</c>: no matching in-memory pending credential remained.</summary>
+    PendingNotFound,
+
+    /// <summary>Reply to <c>pairing_ack</c>: an administrative trust mutation invalidated the pending credential.</summary>
+    PairingInvalidated,
+
+    /// <summary>Reply to <c>pairing_renotify</c>: the code was redisplayed.</summary>
+    Renotified,
+
+    /// <summary>Reply to <c>pairing_renotify</c>: the manual redisplay cooldown is still active.</summary>
+    RenotifyCooldown,
+
+    /// <summary>Reply to <c>pairing_cancel</c>: an owned challenge or pending credential was cancelled.</summary>
+    Cancelled,
+
+    /// <summary>Reply to <c>pairing_renotify</c> or <c>pairing_cancel</c>: the requesting client owned no active pairing operation.</summary>
+    AlreadyIdle,
+}
+
+/// <summary>
+/// The wire values of <c>rename_outcome.outcome</c>, per <c>protocol/schema/README.md</c>'s
+/// "<c>rename_outcome</c>" section.
+/// </summary>
+public enum RenameOutcomeWireValue
+{
+    /// <summary>The device's display name was updated.</summary>
+    Renamed,
+
+    /// <summary>The presented display name failed the trust store's length or control-character bound.</summary>
+    InvalidDisplayName,
+
+    /// <summary>The requesting identity is unrecognized or not currently trusted.</summary>
+    NotTrusted,
 }

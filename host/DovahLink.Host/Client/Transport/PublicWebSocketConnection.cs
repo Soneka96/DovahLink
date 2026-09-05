@@ -180,13 +180,20 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private int outboundOutstandingMessages;
 
     /// <summary>
-    /// Guards <see cref="ReportAbnormalEnd"/> so at most one root-cause reason ever reaches
-    /// <see cref="diagnostics"/> for this connection, even when concurrent paths (for example a
-    /// <see cref="TrySend"/> rejection on one thread cascading into the read or writer loop's own
-    /// cancellation reaction) could otherwise each attempt to attribute a different reason to the
-    /// same underlying failure.
+    /// The <see cref="PublicWebSocketConnectionEndReason"/> reported through
+    /// <see cref="ReportAbnormalEnd"/>, encoded as its underlying value plus one so zero can mean "no
+    /// abnormal end ever reported" (an ordinary peer close, cancellation, or orderly close) without a
+    /// nullable-enum <see cref="Volatile"/> access. This encoded value is itself the single
+    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/>-guarded gate: the decision that one
+    /// root-cause reason won and the exact value of that winning reason become observable together, as
+    /// one atomic state transition, so a concurrent reader (for example <see cref="ClassifyTerminationKind"/>
+    /// running from this connection's own teardown while a racing <see cref="TrySend"/> rejection is still
+    /// inside <see cref="ReportAbnormalEnd"/> on another thread) can never observe a reason that has won
+    /// but is not yet visible. Written exactly once -- every later writer's <see cref="Interlocked.CompareExchange(ref int, int, int)"/>
+    /// attempt loses and is a silent no-op -- and read by <see cref="ClassifyTerminationKind"/> to
+    /// classify this connection's end for <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>.
     /// </summary>
-    private int diagnosticReported;
+    private int reportedAbnormalEndReasonPlusOne;
 
     /// <summary>
     /// Whether this connection's teardown has already begun, written by <see cref="RunAsync"/> before
@@ -232,15 +239,45 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// reason, but only the first time this is called for this connection instance -- every later
     /// call is a silent no-op, so a race between multiple paths independently deciding the connection
     /// must end abnormally can never produce more than one diagnostic report, and whichever call wins
-    /// is treated as the true root cause.
+    /// is treated as the true root cause. The win itself is decided by one atomic
+    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/> on <see cref="reportedAbnormalEndReasonPlusOne"/>
+    /// using the encoded reason as the exchanged value, so there is no intermediate state in which a
+    /// reason has won but <see cref="ClassifyTerminationKind"/> cannot yet see which one.
     /// </summary>
     /// <param name="reason">The structured, non-sensitive reason enforcement occurred.</param>
     private void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
     {
-        if (Interlocked.CompareExchange(ref diagnosticReported, 1, 0) == 0)
+        int encodedReason = (int)reason + 1;
+        if (Interlocked.CompareExchange(ref reportedAbnormalEndReasonPlusOne, encodedReason, 0) == 0)
         {
             diagnostics.ReportAbnormalEnd(reason);
         }
+    }
+
+    /// <summary>
+    /// Classifies this connection's termination for
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>: no abnormal end ever
+    /// reported (an ordinary peer close, cancellation, or orderly close), a send failure, or a missed
+    /// keep-alive pong -- all indicating the peer is simply gone rather than any deliberate
+    /// protocol/security enforcement -- classify as <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/>;
+    /// every other reported <see cref="PublicWebSocketConnectionEndReason"/> is a deliberate
+    /// protocol/security enforcement action and classifies as
+    /// <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/>.
+    /// </summary>
+    private PublicConnectionTerminationKind ClassifyTerminationKind()
+    {
+        int reasonPlusOne = Volatile.Read(ref reportedAbnormalEndReasonPlusOne);
+        if (reasonPlusOne == 0)
+        {
+            return PublicConnectionTerminationKind.ConnectivityLoss;
+        }
+
+        return (PublicWebSocketConnectionEndReason)(reasonPlusOne - 1) switch
+        {
+            PublicWebSocketConnectionEndReason.WriteFailure => PublicConnectionTerminationKind.ConnectivityLoss,
+            PublicWebSocketConnectionEndReason.KeepAliveTimeout => PublicConnectionTerminationKind.ConnectivityLoss,
+            _ => PublicConnectionTerminationKind.SecurityEnforcement,
+        };
     }
 
     /// <inheritdoc/>
@@ -359,7 +396,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     {
         try
         {
-            messageHandler.HandleConnectionEnded();
+            messageHandler.HandleConnectionEnded(ClassifyTerminationKind());
         }
         catch (Exception)
         {
@@ -870,4 +907,14 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             // failure here must still not prevent this connection's read loop from starting.
         }
     }
+
+    /// <summary>
+    /// Test-only, non-mutating check of whether <see cref="TrySend"/> currently has room to admit one
+    /// more message under <see cref="PublicWebSocketTransportOptions.OutboundQueueMaxMessages"/>,
+    /// without <see cref="TrySend"/>'s own side effect of requesting a forced close on a failed
+    /// reservation. Lets a test poll for the outbound slot actually becoming free again without every
+    /// failing poll attempt itself tearing down the connection under observation.
+    /// </summary>
+    internal bool HasSpareOutboundMessageCapacity =>
+        Volatile.Read(ref outboundOutstandingMessages) < options.OutboundQueueMaxMessages;
 }

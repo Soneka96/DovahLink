@@ -130,3 +130,38 @@ build session and fix the confirmed Concept 02 issues"), explicitly including "U
 planning/traceability docs so the startup-order/fail-closed persistence proof is explicitly owned by
 Concept 04 if that is the actual architecture" -- following a `/think` review the same day that found
 `Program.cs` composes none of the public admission stack yet.
+
+## D5 — Concept 03 may add canonical protocol DTOs under `Client/Protocol/`
+
+Original requirement: `03-pairing-and-client-dispatch.md`'s "Allowed files/modules" section states
+"New files only under `host/DovahLink.Host/Client/Dispatch/`" for Concept 03.
+
+Observed conflict: Implementing `ClientMessageDispatcher`'s canonical pairing, rename, and error
+responses requires wire DTOs and enums -- `PairingStatusPayload`, `PairingOutcomePayload`,
+`RenameOutcomePayload`, their wire-value enums, and related types -- that were added under
+`host/DovahLink.Host/Client/Protocol/` alongside the Concept 01 envelope/codec types already there,
+not under `Client/Dispatch/`. `Client/Protocol/` is the architecturally correct home: it is already
+the sole location for canonical wire-shape types (`PublicEnvelope`, `PublicEnvelopeCodec`,
+`HelloPayload`, and siblings), and moving Concept 03's DTOs into `Dispatch/` merely to satisfy the
+written file-scope line would split one wire-format concern across two directories for no
+architectural benefit, while `Client/Protocol/` never gains a dispatch/business-logic type in
+exchange. The written scope line and the actual, better architecture disagree, and no prior
+divergence covers this exception.
+
+Decision: Do not move the DTOs. Concept 03 may add narrowly scoped canonical protocol DTOs and wire
+enums under `host/DovahLink.Host/Client/Protocol/` when required to implement its dispatcher
+responses, in addition to `host/DovahLink.Host/Client/Dispatch/`. This exception is scoped to the
+wire-shape types the dispatcher's own canonical responses need; it does not authorize unrelated
+protocol work, and it does not relax `Client/Dispatch/` as Concept 03's primary file-scope.
+
+Impact: `Client/Protocol/` remains the one place every canonical wire DTO lives, matching Concept
+01's own precedent, rather than fragmenting wire-format ownership across two directories to satisfy
+a plan line that predates Concept 01's actual `Client/Protocol/` layout. Concept 03's traceability
+now matches its actual, already-merged file set.
+
+Status: approved
+
+Decision source: Direct maintainer instruction in the current task on 2026-09-03 to work through the
+full PR #50 Concept 03 review findings (Issue 7: "Concept 03 file-scope rules and the implementation
+disagree"), which found the existing `Client/Protocol/` placement architecturally correct and
+recommended recording an approved divergence rather than moving the DTOs.

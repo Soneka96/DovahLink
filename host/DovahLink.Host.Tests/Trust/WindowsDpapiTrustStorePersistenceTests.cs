@@ -26,7 +26,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     public async Task SaveAsync_ThenLoadAsync_RoundTripsRecords()
     {
         var persistence = new WindowsDpapiTrustStorePersistence(filePath);
-        var record = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
+        var record = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
 
         await persistence.SaveAsync([record]);
         IReadOnlyList<TrustRecord> loaded = await persistence.LoadAsync();
@@ -86,7 +86,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     [Fact]
     public async Task LoadAsync_DuplicateShortIds_ThrowsInvalidDataException()
     {
-        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
+        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         var second = new TrustRecord(ClientId.NewId(), "12345", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
         byte[] encrypted = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(new[] { first, second }), optionalEntropy: null, DataProtectionScope.CurrentUser);
         await File.WriteAllBytesAsync(filePath, encrypted);
@@ -118,7 +118,10 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
             KnownDeviceState.Blocked,
             string.Empty,
             DateTimeOffset.UtcNow,
-            new DateTimeOffset(DateTime.SpecifyKind(DateTime.UtcNow.AddMinutes(-1), DateTimeKind.Unspecified), TimeSpan.FromHours(2)));
+            new DateTimeOffset(DateTime.SpecifyKind(DateTime.UtcNow.AddMinutes(-1), DateTimeKind.Unspecified), TimeSpan.FromHours(2)))
+        {
+            Incarnation = KnownDeviceIncarnationId.NewId(),
+        };
         byte[] encrypted = ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(new[] { record }), optionalEntropy: null, DataProtectionScope.CurrentUser);
         await File.WriteAllBytesAsync(filePath, encrypted);
         var persistence = new WindowsDpapiTrustStorePersistence(filePath);
@@ -126,13 +129,34 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => persistence.LoadAsync());
     }
 
-    /// <summary>Verifies that an invalid enum value and empty client identity fail closed.</summary>
+    /// <summary>Verifies that an empty client identity fails closed, with every other field otherwise valid.</summary>
     [Fact]
-    public async Task LoadAsync_InvalidIdentityOrState_ThrowsInvalidDataException()
+    public async Task LoadAsync_InvalidClientId_ThrowsInvalidDataException()
+    {
+        byte[] invalidClientIdJson = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            ClientId = Guid.Empty,
+            Incarnation = new { Value = Guid.NewGuid() },
+            ShortId = "12345",
+            DisplayName = (string?)null,
+            State = KnownDeviceState.Revoked,
+            CredentialVerifier = string.Empty,
+            PairedAtUtc = DateTimeOffset.UtcNow,
+            BlockedAtUtc = (DateTimeOffset?)null,
+        });
+        await File.WriteAllBytesAsync(filePath, ProtectedData.Protect(invalidClientIdJson, optionalEntropy: null, DataProtectionScope.CurrentUser));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
+    }
+
+    /// <summary>Verifies that an out-of-range enum state fails closed, with every other field otherwise valid.</summary>
+    [Fact]
+    public async Task LoadAsync_InvalidState_ThrowsInvalidDataException()
     {
         byte[] invalidStateJson = JsonSerializer.SerializeToUtf8Bytes(new
         {
-            ClientId = Guid.Empty,
+            ClientId = Guid.NewGuid(),
+            Incarnation = new { Value = Guid.NewGuid() },
             ShortId = "12345",
             DisplayName = (string?)null,
             State = 99,
@@ -145,11 +169,37 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
     }
 
+    /// <summary>
+    /// Verifies that a record with no persisted incarnation -- either an explicit empty value, or (as
+    /// pre-release development data predating <see cref="TrustRecord.Incarnation"/> would produce) the
+    /// field simply absent from the JSON -- fails closed rather than silently being treated as a valid
+    /// Known Device with an all-zero incarnation. Per this project's pre-release compatibility policy
+    /// there is no migration path for such data; it must be rejected the same way any other malformed
+    /// persisted record already is.
+    /// </summary>
+    [Fact]
+    public async Task LoadAsync_MissingIncarnation_ThrowsInvalidDataException()
+    {
+        byte[] missingIncarnationJson = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            ClientId = Guid.NewGuid(),
+            ShortId = "12345",
+            DisplayName = (string?)null,
+            State = KnownDeviceState.Revoked,
+            CredentialVerifier = string.Empty,
+            PairedAtUtc = DateTimeOffset.UtcNow,
+            BlockedAtUtc = (DateTimeOffset?)null,
+        });
+        await File.WriteAllBytesAsync(filePath, ProtectedData.Protect(missingIncarnationJson, optionalEntropy: null, DataProtectionScope.CurrentUser));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
+    }
+
     /// <summary>Verifies that trust states cannot carry inconsistent credential verifier data.</summary>
     [Fact]
     public async Task LoadAsync_InvalidVerifierStateCombination_ThrowsInvalidDataException()
     {
-        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, new string('a', 64), DateTimeOffset.UtcNow);
+        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await WriteEncryptedRecordsAsync([invalidRecord]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
@@ -159,7 +209,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     [Fact]
     public async Task LoadAsync_InvalidShortId_ThrowsInvalidDataException()
     {
-        var invalidRecord = new TrustRecord(ClientId.NewId(), "ABCDE", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        var invalidRecord = new TrustRecord(ClientId.NewId(), "ABCDE", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await WriteEncryptedRecordsAsync([invalidRecord]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
@@ -169,7 +219,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     [Fact]
     public async Task LoadAsync_InvalidTrustedVerifier_ThrowsInvalidDataException()
     {
-        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Trusted, "not-a-verifier", DateTimeOffset.UtcNow);
+        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Trusted, "not-a-verifier", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await WriteEncryptedRecordsAsync([invalidRecord]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
@@ -179,7 +229,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     [Fact]
     public async Task LoadAsync_BlockedWithoutTimestamp_ThrowsInvalidDataException()
     {
-        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow);
+        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await WriteEncryptedRecordsAsync([invalidRecord]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
@@ -189,7 +239,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     [Fact]
     public async Task LoadAsync_DefaultPairedTimestamp_ThrowsInvalidDataException()
     {
-        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, default);
+        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, default) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await WriteEncryptedRecordsAsync([invalidRecord]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
@@ -200,7 +250,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     public async Task LoadAsync_NonUtcPairedTimestamp_ThrowsInvalidDataException()
     {
         DateTime unspecified = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
-        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, new DateTimeOffset(unspecified, TimeSpan.FromHours(2)));
+        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, new DateTimeOffset(unspecified, TimeSpan.FromHours(2))) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await WriteEncryptedRecordsAsync([invalidRecord]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
@@ -210,7 +260,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     [Fact]
     public async Task LoadAsync_DefaultBlockedTimestamp_ThrowsInvalidDataException()
     {
-        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.MinValue);
+        var invalidRecord = new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.MinValue) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await WriteEncryptedRecordsAsync([invalidRecord]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => new WindowsDpapiTrustStorePersistence(filePath).LoadAsync());
@@ -222,10 +272,10 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     {
         var invalidRecords = new[]
         {
-            new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Trusted, string.Empty, DateTimeOffset.UtcNow),
-            new TrustRecord(ClientId.NewId(), "54321", null, KnownDeviceState.Revoked, new string('a', 64), DateTimeOffset.UtcNow),
-            new TrustRecord(ClientId.NewId(), "67890", null, KnownDeviceState.Unpaired, new string('a', 64), DateTimeOffset.UtcNow),
-            new TrustRecord(ClientId.NewId(), "09876", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            new TrustRecord(ClientId.NewId(), "12345", null, KnownDeviceState.Trusted, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() },
+            new TrustRecord(ClientId.NewId(), "54321", null, KnownDeviceState.Revoked, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() },
+            new TrustRecord(ClientId.NewId(), "67890", null, KnownDeviceState.Unpaired, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() },
+            new TrustRecord(ClientId.NewId(), "09876", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(-1)) { Incarnation = KnownDeviceIncarnationId.NewId() },
         };
 
         foreach (TrustRecord invalidRecord in invalidRecords)
@@ -253,8 +303,8 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     public async Task SaveAsync_MultipleRecords_RoundTripsAll()
     {
         var persistence = new WindowsDpapiTrustStorePersistence(filePath);
-        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
-        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
 
         await persistence.SaveAsync([first, second]);
         IReadOnlyList<TrustRecord> loaded = await persistence.LoadAsync();
@@ -267,8 +317,8 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     public async Task SaveAsync_CalledAgain_ReplacesPreviousContents()
     {
         var persistence = new WindowsDpapiTrustStorePersistence(filePath);
-        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
-        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
 
         await persistence.SaveAsync([first]);
         await persistence.SaveAsync([second]);
@@ -284,8 +334,8 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     {
         var firstPersistence = new WindowsDpapiTrustStorePersistence(filePath);
         var secondPersistence = new WindowsDpapiTrustStorePersistence(filePath);
-        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
-        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
 
         await Task.WhenAll(firstPersistence.SaveAsync([first]), secondPersistence.SaveAsync([second]));
 
@@ -301,7 +351,7 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     {
         string nestedPath = Path.Combine(Path.GetTempPath(), $"dovahlink-trust-store-test-dir-{Guid.NewGuid():N}", "trust-store.dat");
         var persistence = new WindowsDpapiTrustStorePersistence(nestedPath);
-        var record = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
+        var record = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
 
         try
         {
@@ -360,8 +410,8 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     public async Task SaveAsync_LockedTarget_PreservesPreviousContents()
     {
         var persistence = new WindowsDpapiTrustStorePersistence(filePath);
-        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
-        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         await persistence.SaveAsync([first]);
 
         using (var targetLock = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None))
@@ -377,8 +427,8 @@ public class WindowsDpapiTrustStorePersistenceTests : IDisposable
     [Fact]
     public async Task SaveAsync_CanceledReplacement_PreservesPreviousContents()
     {
-        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow);
-        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        var first = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        var second = new TrustRecord(ClientId.NewId(), "54321", "Bedroom Tablet", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
         using var cancellation = new CancellationTokenSource();
         bool cancelBeforeReplacement = false;
         var persistence = new WindowsDpapiTrustStorePersistence(filePath, () =>

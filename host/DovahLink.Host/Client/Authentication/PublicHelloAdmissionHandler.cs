@@ -1,7 +1,9 @@
 using DovahLink.Host.Authentication;
+using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Time;
@@ -14,11 +16,17 @@ namespace DovahLink.Host.Client.Authentication;
 /// validates the required initial <c>hello</c>, authenticates it through the three approved methods,
 /// admits a fresh session with the correct trust tier, enforces the pre-authentication admission
 /// deadline, replay protection, and the protocol-violation close policy. Enforces the per-tier
-/// inbound message allowlist and directly answers the mechanical post-admission exchanges that need
-/// no other service -- <c>capabilities</c>, <c>subscribe</c>, and <c>snapshot_request</c>, all
-/// currently answered uniformly since no capability or state area is registered. Mapping pairing,
-/// liveness, and rename messages to their owning services belongs to a later concept; an allowed
-/// message of one of those types is authorized here but produces no response yet.
+/// inbound message allowlist, directly answers the mechanical post-admission exchanges that need no
+/// other service -- <c>capabilities</c>, <c>subscribe</c>, and <c>snapshot_request</c>, all currently
+/// answered uniformly since no capability or state area is registered -- and routes every other
+/// authorized message (<c>ping</c>, every pairing_* message, and <c>rename_request</c>) to the
+/// injected <see cref="IClientMessageDispatcher"/>. A dispatch that reports
+/// <see cref="ClientDispatchResult.UpgradeToFullTrust"/> upgrades this connection's own session to
+/// full trust in place, exactly once, with no reconnect required; one that reports
+/// <see cref="ClientDispatchResult.IsProtocolViolation"/> counts toward this connection's own
+/// protocol-violation close policy without this handler sending a second error for the same message.
+/// Records this connection's disconnect and reconnect with the pairing coordinator for its own
+/// reconnect-grace tracking.
 /// </summary>
 /// <remarks>
 /// One instance is constructed per accepted connection and holds this connection's own admission
@@ -65,6 +73,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>The time source used for the protocol-violation window.</summary>
     private readonly IClock clock;
 
+    /// <summary>Routes every authorized <c>ping</c>, pairing_*, and <c>rename_request</c> message to its owning service.</summary>
+    private readonly IClientMessageDispatcher dispatcher;
+
+    /// <summary>Records this connection's disconnect and reconnect for pairing reconnect-grace tracking.</summary>
+    private readonly IPairingCoordinator pairingCoordinator;
+
     /// <summary>How long this connection may remain unadmitted before it is closed.</summary>
     private readonly TimeSpan admissionDeadline;
 
@@ -108,6 +122,18 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>This connection's admitted client identity, valid only once <see cref="admitted"/> is <see langword="true"/>.</summary>
     private ClientId admittedClientId;
 
+    /// <summary>
+    /// Whether this connection's own protocol-violation close policy (<see cref="RecordViolation"/>) or
+    /// its session message-bound close (<see cref="HandleMessageAsync"/>'s <c>reachedBound</c> branch)
+    /// has requested this connection's close. Distinguishes a deliberate application-level
+    /// protocol/security-driven termination from an ordinary disconnect (peer close, network loss, or
+    /// connection timeout): per the pairing reconnect-grace contract, only the latter preserves an
+    /// owned pairing challenge for reconnection -- a security-driven close must end it outright.
+    /// Combined with <see cref="HandleConnectionEnded"/>'s own <c>terminationKind</c> parameter, which
+    /// separately covers transport-level enforcement this handler never otherwise observes.
+    /// </summary>
+    private bool securityCloseRequested;
+
     /// <summary>Creates a hello-admission handler for one accepted connection.</summary>
     /// <param name="codec">Decodes and encodes every message this handler sends or receives.</param>
     /// <param name="sessionRegistry">Admits and invalidates this connection's session.</param>
@@ -116,6 +142,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <param name="credentialThrottle">Throttles failed <c>trusted_device_credential</c> attempts.</param>
     /// <param name="playContextTracker">Supplies the <c>playContextId</c> stamped onto every host-originated envelope.</param>
     /// <param name="clock">The time source used for the protocol-violation window.</param>
+    /// <param name="dispatcher">Routes every authorized <c>ping</c>, pairing_*, and <c>rename_request</c> message to its owning service.</param>
+    /// <param name="pairingCoordinator">Records this connection's disconnect and reconnect for pairing reconnect-grace tracking.</param>
     /// <param name="admissionDeadline">How long this connection may remain unadmitted before it is closed. Defaults to <see cref="Constants.PublicHelloAdmissionDeadline"/>.</param>
     public PublicHelloAdmissionHandler(
         IPublicEnvelopeCodec codec,
@@ -125,6 +153,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         ITrustedCredentialFailureThrottle credentialThrottle,
         IPlayContextTracker playContextTracker,
         IClock clock,
+        IClientMessageDispatcher dispatcher,
+        IPairingCoordinator pairingCoordinator,
         TimeSpan? admissionDeadline = null)
     {
         this.codec = codec;
@@ -134,6 +164,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         this.credentialThrottle = credentialThrottle;
         this.playContextTracker = playContextTracker;
         this.clock = clock;
+        this.dispatcher = dispatcher;
+        this.pairingCoordinator = pairingCoordinator;
         this.admissionDeadline = admissionDeadline ?? Constants.PublicHelloAdmissionDeadline;
     }
 
@@ -172,12 +204,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     }
 
     /// <inheritdoc/>
-    public Task HandleMessageAsync(IPublicConnectionContext connectionContext, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    public async Task HandleMessageAsync(IPublicConnectionContext connectionContext, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         if (!codec.TryDecode(payload, out PublicEnvelope? envelope))
         {
             RecordViolationAndReject(connectionContext, correlationId: null, PublicProtocolErrorCode.MalformedMessage, "The message could not be decoded.");
-            return Task.CompletedTask;
+            return;
         }
 
         if (!TryRecordMessageId(envelope.MessageId, out bool boundAlreadyExceeded, out bool reachedBound))
@@ -191,7 +223,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             // dropped rather than answered: the connection is already closing, per the security
             // contract's "do not retry invalid input indefinitely," and this message was never
             // recorded or dispatched.
-            return Task.CompletedTask;
+            return;
         }
 
         try
@@ -209,17 +241,17 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 if (envelope.MessageType != PublicMessageType.Hello)
                 {
                     RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "Only hello is accepted before a session is admitted.");
-                    return Task.CompletedTask;
+                    return;
                 }
 
                 if (!IsValidPreAuthEnvelopeIdentity(envelope))
                 {
                     RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The hello envelope carries an identity or context field that is not yet established.");
-                    return Task.CompletedTask;
+                    return;
                 }
 
                 HandleHello(connectionContext, envelope);
-                return Task.CompletedTask;
+                return;
             }
 
             ClientId currentClientId;
@@ -237,21 +269,21 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 // by a concurrent Factory Reset after this connection's own admission completed. Local
                 // admitted state alone must never be treated as authorization forever.
                 RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.StaleSession, "This sessionId is not valid on this connection.");
-                return Task.CompletedTask;
+                return;
             }
 
             if (envelope.BridgeInstanceId is not null || envelope.PlayContextId is not null ||
                 !Guid.TryParse(envelope.ClientId, out Guid presentedClientId) || presentedClientId != currentClientId.Value)
             {
-                // Per `PLAN.md`'s "After admission, client messages carry the socket-bound sessionId and
-                // their declared clientId", clientId is required (not merely permitted) once a session
-                // exists. Comparing the parsed Guid value rather than envelope.ClientId's raw wire string
+                // A post-admission client message must carry the socket-bound sessionId and its declared
+                // clientId: clientId is required (not merely permitted) once a session exists. Comparing
+                // the parsed Guid value rather than envelope.ClientId's raw wire string
                 // against currentClientId.ToString() avoids reintroducing a textual-representation-aliasing
                 // gap: Guid.TryParse accepts several equivalent textual forms (braces, hyphenless, etc.)
                 // for the same identity, and a client is not required to reuse hello's exact wire form on
                 // every later message.
                 RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message carries an invalid envelope identity or context field.");
-                return Task.CompletedTask;
+                return;
             }
 
             if (!IsAllowedForTier(envelope.MessageType, currentTier))
@@ -263,7 +295,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                     ? "This session is not authorized to send this message."
                     : "This message type is not allowed on this session.";
                 RecordViolationAndReject(connectionContext, envelope.MessageId, code, message);
-                return Task.CompletedTask;
+                return;
             }
 
             switch (envelope.MessageType)
@@ -278,12 +310,35 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                     HandleSnapshotRequest(connectionContext, envelope);
                     break;
                 default:
-                    // ping, pairing_*, and rename_request are authorized by the allowlist above, but
-                    // mapping them to their owning services is a later concept's scope.
+                    // ping, every pairing_* message, and rename_request are authorized by the allowlist
+                    // above; every other message this dispatcher is responsible for is mapped to its
+                    // owning service.
+                    ClientDispatchResult dispatchResult = await dispatcher.DispatchAsync(
+                        currentClientId, currentSessionId, connectionId, connectionContext, envelope, cancellationToken).ConfigureAwait(false);
+                    if (dispatchResult.IsProtocolViolation)
+                    {
+                        RecordViolation(connectionContext);
+                    }
+
+                    if (dispatchResult.UpgradeToFullTrust)
+                    {
+                        // The pairing coordinator already committed this credential to durable trust
+                        // before reporting this signal; this upgrades the same session's own
+                        // authorization tier in place, exactly once, with no reconnect required. A losing
+                        // race against a concurrent invalidation is caught the same way every other
+                        // post-admission message already is -- the next message's own IsActive recheck --
+                        // so an unconditional local update here can never grant authorization the
+                        // authoritative registry does not also (still) recognize.
+                        lock (gate)
+                        {
+                            trustTier = SessionTrustTier.Full;
+                        }
+
+                        sessionRegistry.TryUpgradeToFullTrust(currentSessionId, connectionId);
+                    }
+
                     break;
             }
-
-            return Task.CompletedTask;
         }
         finally
         {
@@ -294,6 +349,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             // had its chance to enqueue onto the outbound queue before the orderly close begins here.
             if (reachedBound)
             {
+                // A deliberate application-level close, the same as the protocol-violation threshold
+                // in RecordViolation: it must end any owned pairing challenge outright rather than
+                // preserve it for ordinary reconnect grace.
+                lock (gate)
+                {
+                    securityCloseRequested = true;
+                }
+
                 connectionContext.RequestClose();
             }
         }
@@ -479,7 +542,19 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         IPublicConnectionContext connectionContext, string? correlationId, PublicProtocolErrorCode code, string message, bool retryable = false)
     {
         SendError(connectionContext, correlationId, code, message, retryable);
+        RecordViolation(connectionContext);
+    }
 
+    /// <summary>
+    /// Records one protocol violation and closes the connection once
+    /// <see cref="Constants.PublicProtocolMaxViolationsPerWindow"/> is reached within
+    /// <see cref="Constants.PublicProtocolViolationWindow"/>, without itself sending an error --
+    /// for a violation the dispatcher already reported and sent its own error for, per
+    /// <see cref="ClientDispatchResult.IsProtocolViolation"/>. A close requested here is a deliberate
+    /// protocol/security-driven termination, per <see cref="securityCloseRequested"/>.
+    /// </summary>
+    private void RecordViolation(IPublicConnectionContext connectionContext)
+    {
         bool exceeded;
         lock (gate)
         {
@@ -492,6 +567,10 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
             violationTimestamps.Enqueue(now);
             exceeded = violationTimestamps.Count >= Constants.PublicProtocolMaxViolationsPerWindow;
+            if (exceeded)
+            {
+                securityCloseRequested = true;
+            }
         }
 
         if (exceeded)
@@ -784,6 +863,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         }
 
         deadlineCts?.Cancel();
+        pairingCoordinator.NotifyReconnected(admittedClientId);
 
         ClientIdentityKind identityKind = source == SessionAuthenticationSource.TrustedDeviceCredential
             ? ClientIdentityKind.Paired
@@ -818,16 +898,20 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     }
 
     /// <inheritdoc/>
-    public void HandleConnectionEnded()
+    public void HandleConnectionEnded(PublicConnectionTerminationKind terminationKind)
     {
         bool wasAdmitted;
         SessionId currentSessionId;
+        ClientId currentClientId;
         CancellationTokenSource? deadlineCts;
+        bool wasSecurityClose;
         lock (gate)
         {
             wasAdmitted = admitted;
             currentSessionId = sessionId;
+            currentClientId = admittedClientId;
             deadlineCts = admissionDeadlineCts;
+            wasSecurityClose = securityCloseRequested;
         }
 
         deadlineCts?.Cancel();
@@ -835,6 +919,21 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         if (wasAdmitted)
         {
             sessionRegistry.Invalidate(currentSessionId, connectionId);
+            if (wasSecurityClose || terminationKind == PublicConnectionTerminationKind.SecurityEnforcement)
+            {
+                // A deliberate protocol/security-driven termination ends any owned pairing challenge
+                // outright rather than preserving it for the ordinary reconnect grace, which applies
+                // only to connectivity loss (normal close, network loss, or connection timeout). This
+                // handler's own securityCloseRequested tracks its own application-level protocol-
+                // violation threshold and message-bound closes; terminationKind separately covers
+                // transport-level enforcement (oversized/binary/framing/rate-limit) this handler never
+                // otherwise observes -- either one alone is sufficient to end pairing outright.
+                pairingCoordinator.Cancel(currentClientId);
+            }
+            else
+            {
+                pairingCoordinator.NotifyDisconnected(currentClientId);
+            }
         }
     }
 

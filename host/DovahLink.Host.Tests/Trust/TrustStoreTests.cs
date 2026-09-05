@@ -1,4 +1,5 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Security;
 using DovahLink.Host.Trust;
 using DovahLink.Host.Tests.TestDoubles;
 
@@ -61,7 +62,7 @@ public class TrustStoreTests
             persistence.SavedRecords.OrderBy(saved => saved.ClientId.Value));
     }
 
-    /// <summary>Verifies that a matching mutation generation permits a conditional upsert.</summary>
+    /// <summary>Verifies that a matching security fence generation permits a conditional upsert.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_MatchingGeneration_PersistsRecord()
     {
@@ -69,19 +70,19 @@ public class TrustStoreTests
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
 
-        bool committed = await store.TryUpsertIfGenerationAsync(record, store.MutationGeneration);
+        bool committed = await store.TryUpsertIfGenerationAsync(record, store.SecurityFenceGeneration);
 
         Assert.True(committed);
         Assert.Equal(record, store.TryGet(record.ClientId));
     }
 
-    /// <summary>Verifies that a stale mutation generation cannot recreate trust after another mutation.</summary>
+    /// <summary>Verifies that a stale security fence generation cannot recreate trust after another mutation.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_StaleGeneration_DoesNotMutateStore()
     {
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence);
-        long initialGeneration = store.MutationGeneration;
+        long initialGeneration = store.SecurityFenceGeneration;
         TrustRecord existing = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         TrustRecord attempted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
         await store.UpsertAsync(existing);
@@ -93,23 +94,23 @@ public class TrustStoreTests
         Assert.Null(store.TryGet(attempted.ClientId));
     }
 
-    /// <summary>Verifies that a conditional upsert rolls back on persistence failure without changing its generation.</summary>
+    /// <summary>Verifies that a conditional upsert never publishes its record or advances the generation when persistence fails.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_PersistenceFails_RestoresRecordAndGeneration()
     {
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.TryUpsertIfGenerationAsync(record, generation));
 
         Assert.Null(store.TryGet(record.ClientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
-    /// <summary>Verifies that a failed conditional replacement restores the prior record and generation.</summary>
+    /// <summary>Verifies that a failed conditional replacement leaves the prior record and generation untouched.</summary>
     [Fact]
     public async Task TryUpsertIfGenerationAsync_ExistingRecordSaveFails_RestoresPriorRecord()
     {
@@ -119,13 +120,110 @@ public class TrustStoreTests
         TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Revoked, "oldhash", DateTimeOffset.UtcNow);
         TrustRecord replacement = original with { State = KnownDeviceState.Trusted, CredentialVerifier = "newhash" };
         await store.UpsertAsync(original);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.TryUpsertIfGenerationAsync(replacement, generation));
 
         Assert.Equal(original, store.TryGet(clientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies that a matching security fence generation advances
+    /// <see cref="TrustStore.SecurityFenceGeneration"/> by exactly one once persistence succeeds.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_MatchingGeneration_AdvancesSecurityFenceGenerationExactlyOnce()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        long initialGeneration = store.SecurityFenceGeneration;
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+
+        bool committed = await store.TryUpsertIfGenerationAsync(record, initialGeneration);
+
+        Assert.True(committed);
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies that a record a conditional upsert is establishing never becomes visible through
+    /// <see cref="TrustStore.TryGet"/>, <see cref="TrustStore.List"/>, or
+    /// <see cref="TrustStore.TryGetByShortId"/> while its persistence write is still in flight, and
+    /// becomes visible through all three at once as soon as that write succeeds -- the transient-trust
+    /// window a concurrent reader could otherwise observe before durability was actually established.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_WhilePersistenceBlocked_DoesNotExposeProposedRecordUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        long initialGeneration = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<bool> upsert = store.TryUpsertIfGenerationAsync(record, initialGeneration);
+        await enteredSave.Task;
+
+        Assert.Null(store.TryGet(record.ClientId));
+        Assert.DoesNotContain(record, store.List());
+        Assert.Null(store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.True(await upsert);
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(record, store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee as
+    /// <see cref="TryUpsertIfGenerationAsync_WhilePersistenceBlocked_DoesNotExposeProposedRecordUntilPersistenceSucceeds"/>
+    /// when the conditional upsert replaces an already-known record rather than inserting a new one:
+    /// while persistence is blocked, readers must keep seeing the prior record, not the proposed
+    /// replacement -- and if persistence then fails, the prior record must still be exactly what they
+    /// see afterward, since the replacement was never published.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_ExistingRecordWhilePersistenceBlocked_KeepsExposingPriorRecordUntilResolved()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Revoked, "oldhash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        TrustRecord replacement = original with { State = KnownDeviceState.Trusted, CredentialVerifier = "newhash" };
+        long generationBeforeReplacement = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<bool> upsert = store.TryUpsertIfGenerationAsync(replacement, generationBeforeReplacement);
+        await enteredSave.Task;
+
+        Assert.Equal(original, store.TryGet(clientId));
+        Assert.Contains(original, store.List());
+        Assert.Equal(generationBeforeReplacement, store.SecurityFenceGeneration);
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => upsert);
+
+        Assert.Equal(original, store.TryGet(clientId));
+        Assert.Equal(generationBeforeReplacement, store.SecurityFenceGeneration);
     }
 
     /// <summary>Verifies that administration lookup returns the record matching its stable short ID.</summary>
@@ -146,7 +244,10 @@ public class TrustStoreTests
     {
         TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
         DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
-        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt)
+        {
+            Incarnation = KnownDeviceIncarnationId.NewId(),
+        };
         await store.UpsertAsync(original);
 
         TrustMutationOutcome outcome = await store.RevokeAsync(original.ClientId);
@@ -158,27 +259,57 @@ public class TrustStoreTests
         Assert.Equal(original.ShortId, revoked.ShortId);
         Assert.Equal(original.DisplayName, revoked.DisplayName);
         Assert.Equal(original.PairedAtUtc, revoked.PairedAtUtc);
+        Assert.Equal(original.Incarnation, revoked.Incarnation);
     }
 
-    /// <summary>Verifies that blocking is allowed for an unpaired known device and is idempotent.</summary>
+    /// <summary>
+    /// Verifies that a Known Device's incarnation survives every ordinary state transition of the same
+    /// record -- Trusted &#8594; Revoked &#8594; Blocked &#8594; Unpaired -- since only destroying the
+    /// record entirely (Forget, Factory Reset) may ever end an incarnation.
+    /// </summary>
     [Fact]
-    public async Task BlockAsync_UnpairedRecord_BlocksThenReportsAlreadyInState()
+    public async Task Revoke_Block_Unblock_Chain_PreservesIncarnationThroughout()
+    {
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow)
+        {
+            Incarnation = incarnation,
+        };
+        await store.UpsertAsync(original);
+
+        await store.RevokeAsync(original.ClientId);
+        Assert.Equal(incarnation, store.TryGet(original.ClientId)!.Incarnation);
+
+        await store.BlockAsync(original.ClientId);
+        Assert.Equal(incarnation, store.TryGet(original.ClientId)!.Incarnation);
+
+        await store.UnblockAsync(original.ClientId);
+        TrustRecord unblocked = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Unpaired, unblocked.State);
+        Assert.Equal(incarnation, unblocked.Incarnation);
+    }
+
+    /// <summary>
+    /// Verifies that an unpaired known device is never eligible for Block, per the canonical Stage 3.2
+    /// contract in <c>ai/context/protocol/security.md</c>: Block applies only to a Trusted or Revoked
+    /// device.
+    /// </summary>
+    [Fact]
+    public async Task BlockAsync_UnpairedRecord_ReturnsNotEligibleWithoutMutation()
     {
         var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence, clock);
         TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, clock.UtcNow.AddDays(-1));
         await store.UpsertAsync(original);
+        long generationBeforeBlock = store.SecurityFenceGeneration;
 
-        Assert.Equal(TrustMutationOutcome.Changed, await store.BlockAsync(original.ClientId));
-        TrustRecord blocked = store.TryGet(original.ClientId)!;
-        Assert.Equal(clock.UtcNow, blocked.BlockedAtUtc);
-        Assert.Equal(blocked, Assert.Single(persistence.SavedRecords));
+        Assert.Equal(TrustMutationOutcome.NotEligible, await store.BlockAsync(original.ClientId));
 
-        clock.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal(TrustMutationOutcome.AlreadyInState, await store.BlockAsync(original.ClientId));
-        Assert.Equal(KnownDeviceState.Blocked, store.TryGet(original.ClientId)!.State);
-        Assert.Equal(new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero), store.TryGet(original.ClientId)!.BlockedAtUtc);
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeBlock, store.SecurityFenceGeneration);
+        Assert.Equal(1, persistence.SaveCallCount);
     }
 
     /// <summary>Verifies that trusted and revoked records receive the injected block timestamp.</summary>
@@ -201,6 +332,25 @@ public class TrustStoreTests
         Assert.Equal(blocked, Assert.Single(persistence.SavedRecords));
     }
 
+    /// <summary>Verifies that blocking an already-blocked device is a truthful, unmutated no-op.</summary>
+    [Fact]
+    public async Task BlockAsync_AlreadyBlockedRecord_ReturnsAlreadyInStateWithoutMutation()
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Blocked, string.Empty, clock.UtcNow.AddDays(-1), clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(original);
+        long generationBeforeBlock = store.SecurityFenceGeneration;
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(TrustMutationOutcome.AlreadyInState, await store.BlockAsync(original.ClientId));
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeBlock, store.SecurityFenceGeneration);
+        Assert.Equal(1, persistence.SaveCallCount);
+    }
+
     /// <summary>Verifies that blocking an unknown client does not mutate persistence.</summary>
     [Fact]
     public async Task BlockAsync_UnknownClient_ReturnsNotFound()
@@ -219,7 +369,7 @@ public class TrustStoreTests
         var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence, clock);
-        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, clock.UtcNow.AddDays(-1));
+        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Trusted, "deadbeef", clock.UtcNow.AddDays(-1));
         await store.UpsertAsync(original);
         persistence.ThrowOnSave = new IOException("disk full");
 
@@ -248,7 +398,10 @@ public class TrustStoreTests
     public async Task ResetTrustAsync_RevokesTrustedOnly()
     {
         TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
-        TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow)
+        {
+            Incarnation = KnownDeviceIncarnationId.NewId(),
+        };
         TrustRecord revoked = new(ClientId.NewId(), "12346", "Revoked", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
         TrustRecord blocked = new(ClientId.NewId(), "12347", "Blocked", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         await store.UpsertAsync(trusted);
@@ -260,8 +413,30 @@ public class TrustStoreTests
         Assert.Equal([trusted.ClientId], affected);
         Assert.Equal(KnownDeviceState.Revoked, store.TryGet(trusted.ClientId)!.State);
         Assert.Empty(store.TryGet(trusted.ClientId)!.CredentialVerifier);
+        Assert.Equal(trusted.Incarnation, store.TryGet(trusted.ClientId)!.Incarnation);
         Assert.Equal(revoked, store.TryGet(revoked.ClientId));
         Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+    }
+
+    /// <summary>
+    /// Verifies that Reset Trust with no currently trusted records still advances the security fence:
+    /// without this, an in-flight pending pairing credential whose captured fence generation still
+    /// matches could be persisted after a concurrent Reset Trust believed it had invalidated
+    /// everything, since nothing else would have moved the fence. Also verifies this fence-only
+    /// advance never writes to persistence, since nothing in the record set actually changed.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_NoTrustedRecords_StillAdvancesSecurityFenceGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        long initialGeneration = store.SecurityFenceGeneration;
+
+        IReadOnlyList<ClientId> affected = await store.ResetTrustAsync();
+
+        Assert.Empty(affected);
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+        Assert.Equal(0, persistence.SaveCallCount);
     }
 
     /// <summary>Verifies that a failed Reset Trust persistence write restores the prior state.</summary>
@@ -272,16 +447,16 @@ public class TrustStoreTests
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         await store.UpsertAsync(record);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.ResetTrustAsync());
 
         Assert.Equal(record, store.TryGet(record.ClientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
-    /// <summary>Verifies that a failed forget restores the removed record and mutation generation.</summary>
+    /// <summary>Verifies that a failed forget restores the removed record and security fence generation.</summary>
     [Fact]
     public async Task ForgetAsync_PersistenceFails_RestoresRecord()
     {
@@ -289,26 +464,98 @@ public class TrustStoreTests
         TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
         await store.UpsertAsync(record);
-        long generation = store.MutationGeneration;
+        long generation = store.SecurityFenceGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
 
         await Assert.ThrowsAsync<IOException>(() => store.ForgetAsync(record.ClientId));
 
         Assert.Equal(record, store.TryGet(record.ClientId));
-        Assert.Equal(generation, store.MutationGeneration);
+        Assert.Equal(generation, store.SecurityFenceGeneration);
     }
 
-    /// <summary>Verifies that a successful clear advances the mutation generation.</summary>
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee every other mutation already proves, for
+    /// <see cref="TrustStore.ForgetAsync"/>'s distinct persist-before-delete branch: while its
+    /// persistence write is in flight, the record being forgotten must remain observably present to
+    /// every reader, rather than transiently appearing gone before durability is established.
+    /// </summary>
     [Fact]
-    public async Task ClearAsync_Success_AdvancesMutationGeneration()
+    public async Task ForgetAsync_WhilePersistenceBlocked_KeepsExposingRecordUntilPersistenceSucceeds()
     {
         var persistence = new FakeTrustStorePersistence();
         TrustStore store = await CreateStoreAsync(persistence);
-        long initialGeneration = store.MutationGeneration;
+        TrustRecord record = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+        long generationBeforeForget = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> forget = store.ForgetAsync(record.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(record, store.TryGetByShortId(record.ShortId));
+        Assert.Equal(generationBeforeForget, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await forget);
+
+        Assert.Null(store.TryGet(record.ClientId));
+        Assert.Equal(generationBeforeForget + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the transient-visibility guarantee: if persistence then fails, the
+    /// record must still be present -- never having been exposed as gone in the meantime -- and the
+    /// security fence must not have moved.
+    /// </summary>
+    [Fact]
+    public async Task ForgetAsync_WhilePersistenceBlocked_PersistenceFails_RecordSurvives()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+        long generationBeforeForget = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> forget = store.ForgetAsync(record.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => forget);
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(generationBeforeForget, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that a successful clear advances the security fence generation.</summary>
+    [Fact]
+    public async Task ClearAsync_Success_AdvancesSecurityFenceGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        long initialGeneration = store.SecurityFenceGeneration;
 
         await store.ClearAsync();
 
-        Assert.Equal(initialGeneration + 1, store.MutationGeneration);
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
     }
 
     /// <summary>Verifies that a store constructed over an empty persistence starts with no records.</summary>
@@ -468,9 +715,1056 @@ public class TrustStoreTests
         }
     }
 
+    /// <summary>
+    /// Verifies that a brand-new record an upsert is establishing never becomes visible through
+    /// <see cref="TrustStore.TryGet"/> while its persistence write is still in flight, closing the
+    /// same transient-visibility window <see cref="TrustStore.TryUpsertIfGenerationAsync"/>'s own
+    /// gated tests prove, but for the unconditional <see cref="TrustStore.UpsertAsync"/> path.
+    /// </summary>
+    [Fact]
+    public async Task UpsertAsync_WhilePersistenceBlocked_DoesNotExposeNewRecordUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        long initialGeneration = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task upsert = store.UpsertAsync(record);
+        await enteredSave.Task;
+
+        Assert.Null(store.TryGet(record.ClientId));
+        Assert.DoesNotContain(record, store.List());
+        Assert.Null(store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        await upsert;
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Contains(record, store.List());
+        Assert.Equal(record, store.TryGetByShortId(record.ShortId));
+        Assert.Equal(initialGeneration + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the confirmed Unblock fail-open race is closed: while <see cref="TrustStore.UnblockAsync"/>'s
+    /// persistence write is in flight, a Blocked client must remain observably Blocked to every reader
+    /// -- <see cref="TrustStore.TryGet"/>, <see cref="TrustStore.List"/>, and
+    /// <see cref="TrustStore.TryGetByShortId"/> alike -- rather than transiently reporting Unpaired
+    /// before durability is established. Only once persistence actually succeeds does the client become
+    /// Unpaired and the security fence advance.
+    /// </summary>
+    [Fact]
+    public async Task UnblockAsync_WhilePersistenceBlocked_KeepsExposingBlockedAcrossAllReadersUntilPersistenceSucceeds()
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord blocked = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Blocked, string.Empty, clock.UtcNow.AddDays(-1), clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(blocked);
+        long generationBeforeUnblock = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> unblock = store.UnblockAsync(blocked.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeUnblock, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await unblock);
+
+        Assert.Equal(KnownDeviceState.Unpaired, store.TryGet(blocked.ClientId)!.State);
+        Assert.Equal(generationBeforeUnblock + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the Unblock fail-open race: if persistence then fails, the client
+    /// must remain Blocked -- never having been exposed as Unpaired in the meantime -- and the security
+    /// fence must not have moved, since a moved fence together with a transiently-exposed Unpaired
+    /// state is exactly what would let a pending pairing credential created during the transient window
+    /// later ACK past a Block that was supposed to have prevented it.
+    /// </summary>
+    [Fact]
+    public async Task UnblockAsync_WhilePersistenceBlocked_PersistenceFails_RemainsBlocked()
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord blocked = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Blocked, string.Empty, clock.UtcNow.AddDays(-1), clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(blocked);
+        long generationBeforeUnblock = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> unblock = store.UnblockAsync(blocked.ClientId);
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => unblock);
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeUnblock, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the confirmed Factory Reset/Clear race is closed: while <see cref="TrustStore.ClearAsync"/>'s
+    /// persistence write is in flight, every previously known record -- Blocked included -- must remain
+    /// observably present to every reader, rather than transiently appearing unknown before durability
+    /// is established. Only once persistence actually succeeds does the store become empty and the
+    /// security fence advance.
+    /// </summary>
+    [Fact]
+    public async Task ClearAsync_WhilePersistenceBlocked_KeepsExposingRecordsUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord blocked = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        TrustRecord trusted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        await store.UpsertAsync(trusted);
+        long generationBeforeClear = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = store.ClearAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(trusted, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeClear, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        await clear;
+
+        Assert.Empty(store.List());
+        Assert.Equal(generationBeforeClear + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the Factory Reset/Clear race: if persistence then fails, every
+    /// previously known record must still be present -- never having been exposed as gone in the
+    /// meantime -- and the security fence must not have moved, since a transiently-empty store is
+    /// exactly the window a client could otherwise use to begin pairing as though never known.
+    /// </summary>
+    [Fact]
+    public async Task ClearAsync_WhilePersistenceBlocked_PersistenceFails_RecordsSurvive()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord blocked = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generationBeforeClear = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = store.ClearAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => clear);
+
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+        Assert.Contains(blocked, store.List());
+        Assert.Equal(blocked, store.TryGetByShortId(blocked.ShortId));
+        Assert.Equal(generationBeforeClear, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee for <see cref="TrustStore.ResetTrustAsync"/>'s
+    /// affected-record path: while its persistence write is in flight, a currently Trusted record must
+    /// remain observably Trusted rather than transiently appearing Revoked before durability is
+    /// established.
+    /// </summary>
+    [Fact]
+    public async Task ResetTrustAsync_WhilePersistenceBlocked_KeepsExposingTrustedUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(trusted);
+        long generationBeforeReset = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<IReadOnlyList<ClientId>> reset = store.ResetTrustAsync();
+        await enteredSave.Task;
+
+        Assert.Equal(trusted, store.TryGet(trusted.ClientId));
+        Assert.Contains(trusted, store.List());
+        Assert.Equal(trusted, store.TryGetByShortId(trusted.ShortId));
+        Assert.Equal(generationBeforeReset, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        IReadOnlyList<ClientId> affected = await reset;
+
+        Assert.Equal([trusted.ClientId], affected);
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(trusted.ClientId)!.State);
+        Assert.Equal(generationBeforeReset + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that renaming a trusted device updates only the display name, persists it, and advances the security fence.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_TrustedRecord_UpdatesDisplayNamePreservingIdentity()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt)
+        {
+            Incarnation = KnownDeviceIncarnationId.NewId(),
+        };
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+
+        TrustMutationOutcome outcome = await store.RenameIfTrustedAsync(original.ClientId, "Bedroom PC");
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        TrustRecord renamed = store.TryGet(original.ClientId)!;
+        Assert.Equal("Bedroom PC", renamed.DisplayName);
+        Assert.Equal(original.ShortId, renamed.ShortId);
+        Assert.Equal(original.CredentialVerifier, renamed.CredentialVerifier);
+        Assert.Equal(original.PairedAtUtc, renamed.PairedAtUtc);
+        Assert.Equal(original.State, renamed.State);
+        Assert.Equal(original.Incarnation, renamed.Incarnation);
+        Assert.Equal(generationBeforeRename + 1, store.SecurityFenceGeneration);
+        Assert.Equal(renamed, Assert.Single(persistence.SavedRecords));
+    }
+
+    /// <summary>
+    /// Verifies the same transient-visibility guarantee every other mutation already proves for
+    /// <see cref="TrustStore.RenameIfTrustedAsync"/>: while its persistence write is in flight, every
+    /// reader must keep seeing the prior display name, not the proposed replacement.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_WhilePersistenceBlocked_KeepsExposingOriginalNameUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "Bedroom PC");
+        await enteredSave.Task;
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Contains(original, store.List());
+        Assert.Equal(original, store.TryGetByShortId(original.ShortId));
+        Assert.Equal(generationBeforeRename, store.SecurityFenceGeneration);
+
+        releaseSave.SetResult();
+        Assert.Equal(TrustMutationOutcome.Changed, await rename);
+
+        Assert.Equal("Bedroom PC", store.TryGet(original.ClientId)!.DisplayName);
+        Assert.Equal(generationBeforeRename + 1, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the other half of the transient-visibility guarantee: if persistence then fails, the
+    /// device must keep its original display name -- never having been exposed with the proposed name
+    /// in the meantime -- and the security fence must not have moved.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_WhilePersistenceBlocked_PersistenceFails_KeepsOriginalName()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "Bedroom PC");
+        await enteredSave.Task;
+
+        releaseSave.SetException(new IOException("disk full"));
+        await Assert.ThrowsAsync<IOException>(() => rename);
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeRename, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that renaming an unknown client reports not found without mutating persistence.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_UnknownClient_ReturnsNotFound()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, await store.RenameIfTrustedAsync(ClientId.NewId(), "New Name"));
+        Assert.Empty(persistence.SavedRecords);
+    }
+
+    /// <summary>Verifies that a non-trusted device cannot be renamed and is left untouched.</summary>
+    [Theory]
+    [InlineData(KnownDeviceState.Revoked)]
+    [InlineData(KnownDeviceState.Blocked)]
+    [InlineData(KnownDeviceState.Unpaired)]
+    public async Task RenameIfTrustedAsync_NonTrustedRecord_ReturnsNotEligibleWithoutMutation(KnownDeviceState state)
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", state, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        long generationBeforeRename = store.SecurityFenceGeneration;
+
+        Assert.Equal(TrustMutationOutcome.NotEligible, await store.RenameIfTrustedAsync(original.ClientId, "New Name"));
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+        Assert.Equal(generationBeforeRename, store.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that a failed rename persistence write restores the original display name.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_PersistenceFails_RestoresOriginalRecord()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.RenameIfTrustedAsync(original.ClientId, "New Name"));
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
+    }
+
+    /// <summary>
+    /// Proves the confirmed Rename-resurrection defect is closed for Revoke: a rename that reaches
+    /// this store's serialized mutation only after a concurrent Revoke has already committed must
+    /// observe the now-Revoked record, not the Trusted snapshot it would have read had it captured
+    /// state before acquiring the store's own mutation serialization -- so it reports
+    /// <see cref="TrustMutationOutcome.NotEligible"/> and never resurrects Trusted state or the
+    /// destroyed credential verifier.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> revoke = store.RevokeAsync(original.ClientId);
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        TrustMutationOutcome[] outcomes = await Task.WhenAll(revoke, rename);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcomes[0]);
+        Assert.Equal(TrustMutationOutcome.NotEligible, outcomes[1]);
+        TrustRecord final = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Revoked, final.State);
+        Assert.Empty(final.CredentialVerifier);
+        Assert.Equal(original.DisplayName, final.DisplayName);
+    }
+
+    /// <summary>Proves the same Rename-resurrection defect is closed for Block, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentBlock_DoesNotResurrectTrust()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<TrustMutationOutcome> block = store.BlockAsync(original.ClientId);
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        TrustMutationOutcome[] outcomes = await Task.WhenAll(block, rename);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcomes[0]);
+        Assert.Equal(TrustMutationOutcome.NotEligible, outcomes[1]);
+        TrustRecord final = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Blocked, final.State);
+        Assert.Empty(final.CredentialVerifier);
+        Assert.Equal(original.DisplayName, final.DisplayName);
+    }
+
+    /// <summary>Proves the same Rename-resurrection defect is closed for Reset Trust, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentResetTrust_DoesNotResurrectTrust()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task<IReadOnlyList<ClientId>> resetTrust = store.ResetTrustAsync();
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        await resetTrust;
+        TrustMutationOutcome renameOutcome = await rename;
+
+        Assert.Equal(TrustMutationOutcome.NotEligible, renameOutcome);
+        TrustRecord final = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Revoked, final.State);
+        Assert.Empty(final.CredentialVerifier);
+        Assert.Equal(original.DisplayName, final.DisplayName);
+    }
+
+    /// <summary>
+    /// Proves the same Rename-resurrection defect is closed for Factory Reset: a rename queued behind
+    /// a concurrent <see cref="TrustStore.ClearAsync"/> finds no record left to rename at all -- the
+    /// deleted record must never be resurrected by a stale replacement either.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_QueuedBehindConcurrentClear_ReturnsNotFound()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+
+        Task clear = store.ClearAsync();
+        await enteredSave.Task;
+        Task<TrustMutationOutcome> rename = store.RenameIfTrustedAsync(original.ClientId, "New Name");
+
+        releaseSave.SetResult();
+        await clear;
+        TrustMutationOutcome renameOutcome = await rename;
+
+        Assert.Equal(TrustMutationOutcome.NotFound, renameOutcome);
+        Assert.Null(store.TryGet(original.ClientId));
+    }
+
+    /// <summary>
+    /// Verifies the incarnation ABA guard directly, deliberately reusing the exact same shortId for
+    /// both incarnations: a mutation whose caller resolved a clientId under one incarnation must not
+    /// apply against a current record that is now a different incarnation, even when that replacement
+    /// coincidentally carries the identical shortId the caller originally resolved -- a
+    /// same-shortId-only test would not distinguish this from the (legal) shortId reuse itself, so this
+    /// reproduces the exact interleaving a stale incarnation-resolved administrative operation could
+    /// otherwise land in (the target's prior incarnation forgotten and its clientId re-paired, with the
+    /// freed shortId reassigned to the replacement, before the queued mutation resumes) by constructing
+    /// that sequence directly rather than depending on real thread-scheduling or mutation-semaphore
+    /// ordering to reproduce it.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_CurrentRecordIsADifferentIncarnationThanExpectedEvenWithTheSameShortId_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnationA = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = incarnationA });
+
+        // The exact ABA race: the original Known Device (incarnation A, shortId 11111) is forgotten by
+        // a Factory Reset, and the same clientId re-pairs afterward as a structurally different Known
+        // Device (incarnation B) that happens to be reassigned the exact same freed shortId 11111 --
+        // reuse of the shortId itself is legal (see PairingCoordinatorTests's
+        // CommitPending_AfterForget_MintsNewIncarnationEvenWithSameShortId), it must simply never let a
+        // stale caller mistake B for A.
+        await store.ClearAsync();
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        await store.UpsertAsync(replacement);
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, expectedIncarnation: incarnationA);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a matching incarnation precondition still permits the mutation, the complementary case to the mismatch above.</summary>
+    [Fact]
+    public async Task RevokeAsync_CurrentRecordCarriesTheExpectedIncarnation_Commits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = incarnation });
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, expectedIncarnation: incarnation);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies the same same-shortId incarnation ABA guard as Revoke's own for
+    /// <see cref="TrustStore.BlockAsync"/>, proving the shared <c>MutateAsync</c> helper closes the race
+    /// for this mutation too rather than it being specific to Revoke.
+    /// </summary>
+    [Fact]
+    public async Task BlockAsync_CurrentRecordIsADifferentIncarnationThanExpectedEvenWithTheSameShortId_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnationA = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = incarnationA });
+        await store.ClearAsync();
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        await store.UpsertAsync(replacement);
+
+        TrustMutationOutcome outcome = await store.BlockAsync(clientId, expectedIncarnation: incarnationA);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a matching incarnation precondition still permits Block, the complementary case to the mismatch above.</summary>
+    [Fact]
+    public async Task BlockAsync_CurrentRecordCarriesTheExpectedIncarnation_Commits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = incarnation });
+
+        TrustMutationOutcome outcome = await store.BlockAsync(clientId, expectedIncarnation: incarnation);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(KnownDeviceState.Blocked, store.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies the same same-shortId incarnation ABA guard as Revoke's own for
+    /// <see cref="TrustStore.UnblockAsync"/>, proving the shared <c>MutateAsync</c> helper closes the
+    /// race for this mutation too.
+    /// </summary>
+    [Fact]
+    public async Task UnblockAsync_CurrentRecordIsADifferentIncarnationThanExpectedEvenWithTheSameShortId_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnationA = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { Incarnation = incarnationA });
+        await store.ClearAsync();
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        await store.UpsertAsync(replacement);
+
+        TrustMutationOutcome outcome = await store.UnblockAsync(clientId, expectedIncarnation: incarnationA);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a matching incarnation precondition still permits Unblock, the complementary case to the mismatch above.</summary>
+    [Fact]
+    public async Task UnblockAsync_CurrentRecordCarriesTheExpectedIncarnation_Commits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { Incarnation = incarnation });
+
+        TrustMutationOutcome outcome = await store.UnblockAsync(clientId, expectedIncarnation: incarnation);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(KnownDeviceState.Unpaired, store.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies the same same-shortId incarnation ABA guard as Revoke's own for
+    /// <see cref="TrustStore.ForgetAsync"/>, proving the shared <c>MutateAsync</c> helper closes the
+    /// race for this mutation too.
+    /// </summary>
+    [Fact]
+    public async Task ForgetAsync_CurrentRecordIsADifferentIncarnationThanExpectedEvenWithTheSameShortId_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnationA = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow) { Incarnation = incarnationA });
+        await store.ClearAsync();
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        await store.UpsertAsync(replacement);
+
+        TrustMutationOutcome outcome = await store.ForgetAsync(clientId, expectedIncarnation: incarnationA);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a matching incarnation precondition still permits Forget, the complementary case to the mismatch above.</summary>
+    [Fact]
+    public async Task ForgetAsync_CurrentRecordCarriesTheExpectedIncarnation_Commits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow) { Incarnation = incarnation });
+
+        TrustMutationOutcome outcome = await store.ForgetAsync(clientId, expectedIncarnation: incarnation);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Null(store.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies that omitting the incarnation precondition entirely permits the mutation regardless of
+    /// the record's actual incarnation -- the caller-resolved-directly path <see cref="ITrustStore.RevokeAsync"/>'s
+    /// own remarks describe, as opposed to a shortId-resolved administrative caller that always supplies
+    /// one. Uses a record with an explicit, non-default incarnation so this cannot pass merely because
+    /// both sides defaulted to the same zero value.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_NoIncarnationPreconditionSupplied_CommitsRegardlessOfActualIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() });
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(clientId)!.State);
+    }
+
+    /// <summary>Verifies that a security snapshot for a known client returns its record together with the current generation.</summary>
+    [Fact]
+    public async Task GetSecuritySnapshot_KnownClient_ReturnsRecordAndCurrentGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+
+        TrustSecuritySnapshot snapshot = store.GetSecuritySnapshot(record.ClientId);
+
+        Assert.Equal(record, snapshot.Record);
+        Assert.Equal(store.SecurityFenceGeneration, snapshot.SecurityFenceGeneration);
+    }
+
+    /// <summary>Verifies that a security snapshot for an unknown client reports a null record alongside the current generation.</summary>
+    [Fact]
+    public async Task GetSecuritySnapshot_UnknownClient_ReturnsNullRecordAndCurrentGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        await store.UpsertAsync(new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+
+        TrustSecuritySnapshot snapshot = store.GetSecuritySnapshot(ClientId.NewId());
+
+        Assert.Null(snapshot.Record);
+        Assert.Equal(store.SecurityFenceGeneration, snapshot.SecurityFenceGeneration);
+    }
+
+    /// <summary>
+    /// Verifies the defense-in-depth check in <see cref="TrustStore.TryUpsertIfGenerationAsync"/>: a
+    /// currently-<see cref="KnownDeviceState.Blocked"/> record can never be replaced by a conditional
+    /// upsert merely because its caller's generation happens to still match, independent of whichever
+    /// caller's own policy is supposed to prevent that upsert from ever being attempted at all.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_CurrentRecordBlocked_RejectsEvenWithMatchingGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        TrustRecord blocked = new(clientId, "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generation = store.SecurityFenceGeneration;
+        TrustRecord attemptedTrusted = blocked with { State = KnownDeviceState.Trusted, CredentialVerifier = "deadbeef", BlockedAtUtc = null };
+
+        bool committed = await store.TryUpsertIfGenerationAsync(attemptedTrusted, generation);
+
+        Assert.False(committed);
+        Assert.Equal(blocked, store.TryGet(clientId));
+    }
+
+    /// <summary>
+    /// Verifies the Blocked defense-in-depth check is scoped to the exact <see cref="ClientId"/> being
+    /// upserted: a different client's Blocked record must never reject an otherwise-eligible upsert
+    /// for an unrelated client at a matching generation.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_DifferentClientBlocked_StillCommits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        TrustRecord blocked = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generation = store.SecurityFenceGeneration;
+        TrustRecord newTrusted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+
+        bool committed = await store.TryUpsertIfGenerationAsync(newTrusted, generation);
+
+        Assert.True(committed);
+        Assert.Equal(newTrusted, store.TryGet(newTrusted.ClientId));
+    }
+
+    /// <summary>
+    /// Verifies the Blocked defense-in-depth check also rejects a same-state re-upsert: even a
+    /// Blocked-to-Blocked write (for example updating an unrelated field) for a currently-Blocked
+    /// client is refused, since this conditional-upsert path exists only for the Trusted-issuing
+    /// pairing flow and no legitimate caller needs to reuse it for an already-blocked record.
+    /// </summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_CurrentRecordBlocked_RejectsEvenWhenAttemptedStateAlsoBlocked()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        TrustRecord blocked = new(clientId, "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+        long generation = store.SecurityFenceGeneration;
+        TrustRecord attemptedBlocked = blocked with { DisplayName = "Renamed While Blocked" };
+
+        bool committed = await store.TryUpsertIfGenerationAsync(attemptedBlocked, generation);
+
+        Assert.False(committed);
+        Assert.Equal(blocked, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a successful Revoke invokes <c>onPublished</c> exactly once, after the mutation is already visible.</summary>
+    [Fact]
+    public async Task RevokeAsync_Changed_InvokesOnPublishedExactlyOnceAfterPublish()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        int callCount = 0;
+        KnownDeviceState? stateInsideCallback = null;
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, onPublished: () =>
+        {
+            callCount++;
+            // The published state must already be visible to a reentrant read from inside this exact
+            // callback -- the whole point of onPublished running inside the same critical section as
+            // the publish it follows.
+            stateInsideCallback = store.TryGet(clientId)!.State;
+        });
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(1, callCount);
+        Assert.Equal(KnownDeviceState.Revoked, stateInsideCallback);
+    }
+
+    /// <summary>Verifies that a Revoke which changes nothing never invokes <c>onPublished</c>, the symmetric negative to the case above.</summary>
+    [Fact]
+    public async Task RevokeAsync_NotEligible_DoesNotInvokeOnPublished()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        bool invoked = false;
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(clientId, onPublished: () => invoked = true);
+
+        Assert.Equal(TrustMutationOutcome.NotEligible, outcome);
+        Assert.False(invoked);
+    }
+
+    /// <summary>
+    /// Verifies persist-before-publish still holds with <c>onPublished</c> wired in: the callback must
+    /// not run while persistence is still in flight, only once the write has actually succeeded.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_WhilePersistenceBlocked_DoesNotInvokeOnPublishedUntilPersistenceSucceeds()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        persistence.BeforeSave = async () =>
+        {
+            enteredSave.SetResult();
+            await releaseSave.Task;
+        };
+        bool invoked = false;
+
+        Task<TrustMutationOutcome> revoke = store.RevokeAsync(clientId, onPublished: () => invoked = true);
+        await enteredSave.Task;
+
+        Assert.False(invoked);
+        Assert.Equal(KnownDeviceState.Trusted, store.TryGet(clientId)!.State);
+
+        releaseSave.SetResult();
+        await revoke;
+
+        Assert.True(invoked);
+    }
+
+    /// <summary>Verifies that a failed persistence write never invokes <c>onPublished</c>, since nothing was ever published.</summary>
+    [Fact]
+    public async Task RevokeAsync_PersistenceFails_DoesNotInvokeOnPublished()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        persistence.ThrowOnSave = new IOException("disk full");
+        bool invoked = false;
+
+        await Assert.ThrowsAsync<IOException>(() => store.RevokeAsync(clientId, onPublished: () => invoked = true));
+
+        Assert.False(invoked);
+        Assert.Equal(KnownDeviceState.Trusted, store.TryGet(clientId)!.State);
+    }
+
+    /// <summary>
+    /// Verifies that an <c>onPublished</c> callback which throws still releases the gate rather than
+    /// leaving it permanently held: the exception propagates to the caller, but a later mutation for a
+    /// different client is not blocked forever behind the faulted call.
+    /// </summary>
+    [Fact]
+    public async Task RevokeAsync_OnPublishedThrows_PropagatesAndStillReleasesTheGate()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.RevokeAsync(clientId, onPublished: () => throw new InvalidOperationException("boom")));
+
+        // The mutation itself already published before the callback threw.
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(clientId)!.State);
+
+        ClientId otherClientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(otherClientId, "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow));
+        TrustMutationOutcome outcome = await store.RevokeAsync(otherClientId);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+    }
+
+    /// <summary>Verifies that a successful Block invokes <c>onPublished</c> exactly once.</summary>
+    [Fact]
+    public async Task BlockAsync_Changed_InvokesOnPublishedExactlyOnce()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        int callCount = 0;
+
+        TrustMutationOutcome outcome = await store.BlockAsync(clientId, onPublished: () => callCount++);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(1, callCount);
+    }
+
+    /// <summary>Verifies that an already-blocked Block never invokes <c>onPublished</c>, the symmetric negative.</summary>
+    [Fact]
+    public async Task BlockAsync_AlreadyInState_DoesNotInvokeOnPublished()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        bool invoked = false;
+
+        TrustMutationOutcome outcome = await store.BlockAsync(clientId, onPublished: () => invoked = true);
+
+        Assert.Equal(TrustMutationOutcome.AlreadyInState, outcome);
+        Assert.False(invoked);
+    }
+
+    /// <summary>Verifies that Reset Trust invokes <c>onPublished</c> with the exact affected client list, once, after publish.</summary>
+    [Fact]
+    public async Task ResetTrustAsync_AffectedRecords_InvokesOnPublishedWithAffectedClientList()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId trustedClientId = ClientId.NewId();
+        ClientId unpairedClientId = ClientId.NewId();
+        await store.UpsertAsync(new TrustRecord(trustedClientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        await store.UpsertAsync(new TrustRecord(unpairedClientId, "CD34", "Bedroom Tablet", KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow));
+        int callCount = 0;
+        IReadOnlyList<ClientId>? affectedInsideCallback = null;
+
+        IReadOnlyList<ClientId> affected = await store.ResetTrustAsync(onPublished: list =>
+        {
+            callCount++;
+            affectedInsideCallback = list;
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.Equal([trustedClientId], affected);
+        Assert.Equal([trustedClientId], affectedInsideCallback);
+    }
+
+    /// <summary>Verifies that Reset Trust with nothing currently trusted still invokes <c>onPublished</c>, with an empty list.</summary>
+    [Fact]
+    public async Task ResetTrustAsync_NoAffectedRecords_InvokesOnPublishedWithEmptyList()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        int callCount = 0;
+        IReadOnlyList<ClientId>? affectedInsideCallback = null;
+
+        IReadOnlyList<ClientId> affected = await store.ResetTrustAsync(onPublished: list =>
+        {
+            callCount++;
+            affectedInsideCallback = list;
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.Empty(affected);
+        Assert.Empty(affectedInsideCallback!);
+    }
+
+    /// <summary>Verifies that Clear invokes <c>onPublished</c> exactly once, after the empty store is already visible.</summary>
+    [Fact]
+    public async Task ClearAsync_InvokesOnPublishedExactlyOnceAfterPublish()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        await store.UpsertAsync(new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        int callCount = 0;
+        int recordCountInsideCallback = -1;
+
+        await store.ClearAsync(onPublished: () =>
+        {
+            callCount++;
+            recordCountInsideCallback = store.List().Count;
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.Equal(0, recordCountInsideCallback);
+    }
+
+    /// <summary>
+    /// Verifies the same same-shortId incarnation ABA guard as Revoke's own for
+    /// <see cref="TrustStore.RenameIfTrustedAsync"/>. This is the ABA scenario the rename
+    /// authorization-boundary fix defends against: see
+    /// <see cref="DovahLink.Host.Client.Dispatch.ClientMessageDispatcher"/>'s own rename handling and its
+    /// tests for the end-to-end proof through the dispatcher and a real
+    /// <see cref="DovahLink.Host.Sessions.ISessionRegistry"/>.
+    /// </summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_CurrentRecordIsADifferentIncarnationThanExpectedEvenWithTheSameShortId_ReturnsNotFoundWithoutMutatingTheNewIncarnation()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnationA = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = incarnationA });
+        await store.ClearAsync();
+        var replacement = new TrustRecord(clientId, "11111", "Living Room PC (re-paired)", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+        await store.UpsertAsync(replacement);
+
+        TrustMutationOutcome outcome = await store.RenameIfTrustedAsync(clientId, "Renamed", expectedIncarnation: incarnationA);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, outcome);
+        Assert.Equal(replacement, store.TryGet(clientId));
+    }
+
+    /// <summary>Verifies that a matching incarnation precondition still permits the rename, the complementary case to the mismatch above.</summary>
+    [Fact]
+    public async Task RenameIfTrustedAsync_CurrentRecordCarriesTheExpectedIncarnation_Commits()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        KnownDeviceIncarnationId incarnation = KnownDeviceIncarnationId.NewId();
+        await store.UpsertAsync(new TrustRecord(clientId, "11111", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow) { Incarnation = incarnation });
+
+        TrustMutationOutcome outcome = await store.RenameIfTrustedAsync(clientId, "Renamed", expectedIncarnation: incarnation);
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal("Renamed", store.TryGet(clientId)!.DisplayName);
+    }
+
     /// <summary>Creates a trust store with a controllable clock for tests.</summary>
     private static Task<TrustStore> CreateStoreAsync(
         FakeTrustStorePersistence persistence,
         FakeClock? clock = null) =>
-        TrustStore.CreateAsync(persistence, clock ?? new FakeClock());
+        TrustStore.CreateAsync(persistence, clock ?? new FakeClock(), new SecurityStateGate());
 }

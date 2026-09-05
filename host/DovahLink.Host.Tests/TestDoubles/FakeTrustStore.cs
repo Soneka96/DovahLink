@@ -15,14 +15,17 @@ public sealed class FakeTrustStore : ITrustStore
     /// <summary>When set, <see cref="UpsertAsync"/> throws this instead of storing the record.</summary>
     public Exception? ThrowOnUpsert { get; set; }
 
+    /// <summary>When set, <see cref="TryGet"/> throws this instead of looking up the record.</summary>
+    public Exception? ThrowOnTryGet { get; set; }
+
     /// <summary>The number of times <see cref="ClearAsync"/> has succeeded.</summary>
     public int ClearCallCount { get; private set; }
 
     /// <summary>When set, <see cref="ClearAsync"/> throws this instead of clearing the records.</summary>
     public Exception? ThrowOnClear { get; set; }
 
-    /// <summary>The successful mutation count exposed to pending-pairing tests.</summary>
-    public long MutationGeneration { get; private set; }
+    /// <summary>The security fence generation exposed to pending-pairing tests. See <see cref="ITrustStore.SecurityFenceGeneration"/>.</summary>
+    public long SecurityFenceGeneration { get; private set; }
 
     /// <summary>Optional asynchronous work used to hold a clear in flight during concurrency tests.</summary>
     public Func<Task>? BeforeClear { get; set; }
@@ -30,12 +33,35 @@ public sealed class FakeTrustStore : ITrustStore
     /// <summary>Optional asynchronous work used to hold a conditional upsert in flight during concurrency tests.</summary>
     public Func<Task>? BeforeConditionalUpsert { get; set; }
 
+    /// <summary>
+    /// Optional synchronous hook invoked immediately after <see cref="TryGetByShortId"/> resolves a
+    /// record, before returning it to the caller. Lets a shortId-incarnation-race test deterministically
+    /// simulate another mutation (for example a Factory Reset followed by re-pairing under a new
+    /// shortId) landing in the exact gap between a caller's shortId resolution and its subsequent
+    /// mutation attempt, without depending on real thread scheduling or mutation-semaphore ordering.
+    /// </summary>
+    public Action? AfterTryGetByShortId { get; set; }
+
+    /// <summary>
+    /// Optional hook invoked with a short label immediately after a mutation successfully applies
+    /// (<c>"Revoke"</c>, <c>"Block"</c>, <c>"Unblock"</c>, <c>"Forget"</c>, <c>"ResetTrust"</c>,
+    /// <c>"Rename"</c>, or <c>"Clear"</c>), letting a test build a cross-collaborator call-order timeline together with
+    /// <see cref="FakePairingCoordinator.OnMutationApplied"/> and
+    /// <see cref="FakeSessionRegistry.OnMutationApplied"/>.
+    /// </summary>
+    public Action<string>? OnMutationApplied { get; set; }
+
     /// <summary>Seeds the fake with a record as if it had already been upserted.</summary>
     /// <param name="record">The record to seed.</param>
     public void Seed(TrustRecord record) => recordsByClientId[record.ClientId] = record;
 
     /// <inheritdoc/>
-    public TrustRecord? TryGet(ClientId clientId) => recordsByClientId.GetValueOrDefault(clientId);
+    public TrustRecord? TryGet(ClientId clientId) =>
+        ThrowOnTryGet is { } exception ? throw exception : recordsByClientId.GetValueOrDefault(clientId);
+
+    /// <inheritdoc/>
+    public TrustSecuritySnapshot GetSecuritySnapshot(ClientId clientId) =>
+        new(recordsByClientId.GetValueOrDefault(clientId), SecurityFenceGeneration);
 
     /// <inheritdoc/>
     public IReadOnlyList<TrustRecord> List() => recordsByClientId.Values.ToList();
@@ -50,12 +76,12 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
-    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAsync(CancellationToken cancellationToken = default, Action? onPublished = null)
     {
         if (ThrowOnClear is { } exception)
         {
@@ -69,7 +95,9 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId.Clear();
         ClearCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("Clear");
+        onPublished?.Invoke();
     }
 
     /// <inheritdoc/>
@@ -78,7 +106,12 @@ public sealed class FakeTrustStore : ITrustStore
         long expectedGeneration,
         CancellationToken cancellationToken = default)
     {
-        if (MutationGeneration != expectedGeneration)
+        if (SecurityFenceGeneration != expectedGeneration)
+        {
+            return Task.FromResult(false);
+        }
+
+        if (recordsByClientId.GetValueOrDefault(record.ClientId)?.State == KnownDeviceState.Blocked)
         {
             return Task.FromResult(false);
         }
@@ -95,7 +128,7 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         return Task.FromResult(true);
     }
 
@@ -106,22 +139,31 @@ public sealed class FakeTrustStore : ITrustStore
         await beforeConditionalUpsert();
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
-        MutationGeneration++;
+        SecurityFenceGeneration++;
         return true;
     }
 
     /// <inheritdoc/>
-    public TrustRecord? TryGetByShortId(string shortId) =>
-        recordsByClientId.Values.FirstOrDefault(record => record.ShortId == shortId);
+    public TrustRecord? TryGetByShortId(string shortId)
+    {
+        TrustRecord? resolved = recordsByClientId.Values.FirstOrDefault(record => record.ShortId == shortId);
+        AfterTryGetByShortId?.Invoke();
+        return resolved;
+    }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> RevokeAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
             return Task.FromException<TrustMutationOutcome>(exception);
         }
         if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -136,12 +178,15 @@ public sealed class FakeTrustStore : ITrustStore
             CredentialVerifier = string.Empty,
             BlockedAtUtc = null,
         };
-        MutationGeneration++;
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("Revoke");
+        onPublished?.Invoke();
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> BlockAsync(
+        ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null, Action? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -151,9 +196,17 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
         if (record.State == KnownDeviceState.Blocked)
         {
             return Task.FromResult(TrustMutationOutcome.AlreadyInState);
+        }
+        if (record.State is not (KnownDeviceState.Trusted or KnownDeviceState.Revoked))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotEligible);
         }
 
         recordsByClientId[clientId] = record with
@@ -162,18 +215,24 @@ public sealed class FakeTrustStore : ITrustStore
             CredentialVerifier = string.Empty,
             BlockedAtUtc = DateTimeOffset.UtcNow,
         };
-        MutationGeneration++;
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("Block");
+        onPublished?.Invoke();
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
             return Task.FromException<TrustMutationOutcome>(exception);
         }
         if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
@@ -187,12 +246,13 @@ public sealed class FakeTrustStore : ITrustStore
             State = KnownDeviceState.Unpaired,
             BlockedAtUtc = null,
         };
-        MutationGeneration++;
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("Unblock");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
     /// <inheritdoc/>
-    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -202,18 +262,24 @@ public sealed class FakeTrustStore : ITrustStore
         {
             return Task.FromResult(TrustMutationOutcome.NotFound);
         }
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
         if (record.State is not (KnownDeviceState.Revoked or KnownDeviceState.Unpaired))
         {
             return Task.FromResult(TrustMutationOutcome.NotEligible);
         }
 
         recordsByClientId.Remove(clientId);
-        MutationGeneration++;
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("Forget");
         return Task.FromResult(TrustMutationOutcome.Changed);
     }
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ClientId>> ResetTrustAsync(
+        CancellationToken cancellationToken = default, Action<IReadOnlyList<ClientId>>? onPublished = null)
     {
         if (ThrowOnUpsert is { } exception)
         {
@@ -233,10 +299,38 @@ public sealed class FakeTrustStore : ITrustStore
                 BlockedAtUtc = null,
             };
         }
-        if (affected.Count > 0)
-        {
-            MutationGeneration++;
-        }
+        // Mirrors the real store: the fence advances even when nothing was affected, so a Reset
+        // Trust with zero currently trusted records still invalidates an in-flight pending pairing.
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("ResetTrust");
+        onPublished?.Invoke(affected);
         return Task.FromResult<IReadOnlyList<ClientId>>(affected);
+    }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> RenameIfTrustedAsync(
+        ClientId clientId, string displayName, CancellationToken cancellationToken = default, KnownDeviceIncarnationId? expectedIncarnation = null)
+    {
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<TrustMutationOutcome>(exception);
+        }
+        if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (expectedIncarnation is not null && record.Incarnation != expectedIncarnation)
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (record.State != KnownDeviceState.Trusted)
+        {
+            return Task.FromResult(TrustMutationOutcome.NotEligible);
+        }
+
+        recordsByClientId[clientId] = record with { DisplayName = displayName };
+        SecurityFenceGeneration++;
+        OnMutationApplied?.Invoke("Rename");
+        return Task.FromResult(TrustMutationOutcome.Changed);
     }
 }

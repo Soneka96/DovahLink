@@ -41,8 +41,9 @@ abstract interface class IPairingService {
   /// `ai/context/protocol/security.md`'s "client durably persists its issued credential and its
   /// `CONFIRMING` recovery state before sending final confirmation."
   /// @return The issued credential, already persisted.
-  /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, or
-  ///     hit the hard wrong-attempt limit.
+  /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, hit
+  ///     the hard wrong-attempt limit, or an administrative mutation invalidated the challenge
+  ///     after it began but before this call was evaluated.
   Future<String> confirmPairingCode({
     required String code,
     String? displayName,
@@ -208,7 +209,8 @@ class PairingService implements IPairingService {
       PairingOutcome.expired ||
       PairingOutcome.invalid ||
       PairingOutcome.pacingLimited ||
-      PairingOutcome.hardLimitReached => true,
+      PairingOutcome.hardLimitReached ||
+      PairingOutcome.pairingInvalidated => true,
       _ => false,
     };
     if (!isConfirmOutcome) {

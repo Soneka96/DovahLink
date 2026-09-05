@@ -555,6 +555,9 @@ public class PublicWebSocketConnectionTests
             $"Expected the pong timeout to add wait time beyond the {keepAliveInterval} interval alone, took {stopwatch.Elapsed}.");
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Silent-peer detection must not hang.");
         Assert.Equal([PublicWebSocketConnectionEndReason.KeepAliveTimeout], diagnostics.Reports);
+        // An unresponsive peer is connectivity loss, not protocol/security enforcement -- reconnect
+        // grace must remain available.
+        Assert.Equal([PublicConnectionTerminationKind.ConnectivityLoss], handler.ReceivedTerminationKinds);
 
         listener.Stop();
     }
@@ -618,6 +621,9 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.MessageTooLarge], diagnostics.Reports);
+        // A transport-level protocol enforcement action must classify as SecurityEnforcement so pairing
+        // is cancelled outright rather than granted ordinary reconnect grace.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -646,6 +652,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.FragmentAssemblyTimeout], diagnostics.Reports);
+        // Fragment-assembly abuse is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -796,6 +804,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal("frag"u8.ToArray(), Assert.Single(handler.ReceivedMessages));
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.InboundRateLimitExceeded], diagnostics.Reports);
+        // An inbound rate-limit violation is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -896,6 +906,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.InvalidFraming], diagnostics.Reports);
+        // Invalid framing is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         client.Dispose();
     }
 
@@ -923,6 +935,8 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.UnsupportedBinaryMessage], diagnostics.Reports);
+        // An unsupported binary message is deliberate protocol enforcement, not connectivity loss.
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -985,6 +999,9 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal(["ConnectionEstablished", "ConnectionEnded", "Disconnected"], handler.CallOrder);
+        // An ordinary peer-initiated close is never a security/protocol enforcement action, so ordinary
+        // pairing reconnect grace must remain available for it.
+        Assert.Equal([PublicConnectionTerminationKind.ConnectivityLoss], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -1441,8 +1458,8 @@ public class PublicWebSocketConnectionTests
     /// <summary>
     /// Verifies that the one allowed message slot releases only once the writer has actually finished
     /// sending the in-flight frame -- not merely once it was dequeued from the channel -- by blocking
-    /// the first send, releasing it, waiting for the peer to receive it, and proving a second send now
-    /// succeeds where it would otherwise still be occupying the single-message bound.
+    /// the first send, releasing it, waiting for the peer to receive it, and polling for a second send
+    /// to succeed where it would otherwise still be occupying the single-message bound.
     /// </summary>
     [Fact]
     public async Task TrySend_MessageSlotReleasedOnlyAfterWriterFinishesSend_AllowsLaterAdmission()
@@ -1473,9 +1490,16 @@ public class PublicWebSocketConnectionTests
         WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("first", Encoding.UTF8.GetString(buffer, 0, result.Count));
 
-        // The peer only receives bytes the server has already finished sending, so the writer's own
-        // release of the one message slot -- which happens synchronously right after that send
-        // completes -- is guaranteed to have already run by this point.
+        // The peer receiving "first" only proves the server had already sent it -- it does not prove
+        // the writer's own message-slot release has run yet. That release happens in a `finally`
+        // block on the writer loop's own continuation after its send completes, which races the
+        // peer's independent receive-completion continuation on the shared thread pool with no
+        // ordering guarantee between the two. Poll the actual condition under test -- the slot
+        // becoming available again -- through the non-mutating HasSpareOutboundMessageCapacity check
+        // rather than TrySend itself: TrySend's own failure path requests this connection's forced
+        // close, so using it as the poll predicate would let the first failing poll tear down the very
+        // connection the test is waiting on.
+        await WaitUntilAsync(() => connection.HasSpareOutboundMessageCapacity, runTask);
         Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second")));
 
         listener.Stop();
@@ -1643,6 +1667,9 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal(1, handler.DisconnectedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.WriteFailure], diagnostics.Reports);
+        // A write failure indicates the peer is simply gone, not a deliberate protocol violation --
+        // reconnect grace must remain available.
+        Assert.Equal([PublicConnectionTerminationKind.ConnectivityLoss], handler.ReceivedTerminationKinds);
         listener.Stop();
     }
 
@@ -2350,7 +2377,7 @@ public class PublicWebSocketConnectionTests
         string token = tokenAuthenticator.IssueToken();
         var handler = new PublicHelloAdmissionHandler(
             codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -2440,7 +2467,7 @@ public class PublicWebSocketConnectionTests
         string token = tokenAuthenticator.IssueToken();
         var handler = new PublicHelloAdmissionHandler(
             codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock);
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -2479,6 +2506,123 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(10));
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Deterministically proves -- by construction, not by racing a scheduler and hoping for a
+    /// particular interleaving -- that an outbound-queue overflow's own
+    /// <see cref="PublicWebSocketConnectionEndReason.OutboundCapacityExceeded"/> publication and
+    /// self-requested close happen strictly before <see cref="PublicWebSocketConnection.RunAsync"/>'s
+    /// teardown ever reaches its termination classification, and that classification is
+    /// <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/>. <see cref="PublicWebSocketConnection.TrySend"/>'s
+    /// overflow path is itself fully synchronous -- it reports the reason and requests the close before
+    /// ever returning -- so calling it once, sequentially, on this test's own thread already establishes
+    /// the exact ordering the previous, superseded version of this test tried to force via a
+    /// <see cref="Barrier"/> race against an independent external cancellation. That race permitted a
+    /// legitimate scheduler ordering where the independent teardown won first and no
+    /// <see cref="PublicWebSocketConnectionEndReason.OutboundCapacityExceeded"/> was ever published at
+    /// all -- a real, valid outcome under the production contract, not the bug this test exists to
+    /// prove absent. Also closes the coverage gap for that reason reaching
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/> end-to-end through a real
+    /// <see cref="PublicWebSocketConnection.RunAsync"/> run, not merely <see cref="PublicWebSocketConnection.TrySend"/> in isolation.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_OutboundCapacityExceeded_PublishesBeforeTeardownAndClassifiesSecurityEnforcement()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream(), ignoreCancellation: true);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options, diagnostics);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this send is the second and blocks until
+        // released below, holding the single allowed message slot forever so the next TrySend
+        // deterministically overflows rather than racing a real drain.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Synchronous and sequential: by the time this call returns, OutboundCapacityExceeded has
+        // already been published and the connection's own self-requested close already triggered --
+        // strictly before anything below can reach termination classification.
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+
+        blockingStream.Release();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
+        Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Deterministically proves the atomic first-reason publication invariant
+    /// <see cref="PublicWebSocketConnection"/>'s abnormal-end reporting exists for, under a genuine
+    /// cross-thread race (a <see cref="Barrier"/> release, never <see cref="Task.Delay(TimeSpan)"/>):
+    /// several threads simultaneously calling the documented any-thread
+    /// <see cref="PublicWebSocketConnection.TrySend"/> against an already-exhausted outbound queue race
+    /// to publish <see cref="PublicWebSocketConnectionEndReason.OutboundCapacityExceeded"/>, and exactly
+    /// one of them may ever win. Unlike the superseded version of this test file's previous racing
+    /// test, every racing writer here maps to the identical
+    /// <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/> classification, so the outcome
+    /// is deterministic under every one of the interleavings the race can actually produce -- this does
+    /// not rely on repeating the race and hoping to observe the interleaving that would expose a bug,
+    /// the way a flaky probabilistic stress test would.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_ConcurrentOverflowAttempts_PublishesExactlyOneReasonAndClassifiesSecurityEnforcement()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream(), ignoreCancellation: true);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options, diagnostics);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        const int overflowingSenderCount = 8;
+        var barrier = new Barrier(overflowingSenderCount);
+        Thread[] overflowingSenders = Enumerable.Range(0, overflowingSenderCount)
+            .Select(index => new Thread(() =>
+            {
+                barrier.SignalAndWait();
+                connection.TrySend(Encoding.UTF8.GetBytes($"overflow-{index}"));
+            }))
+            .ToArray();
+        foreach (Thread sender in overflowingSenders)
+        {
+            sender.Start();
+        }
+        foreach (Thread sender in overflowingSenders)
+        {
+            sender.Join(TimeSpan.FromSeconds(5));
+        }
+
+        blockingStream.Release();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        Assert.Equal([PublicConnectionTerminationKind.SecurityEnforcement], handler.ReceivedTerminationKinds);
+        // Exactly one reason ever reaches diagnostics, no matter which of the racing threads won.
+        Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
         listener.Stop();
     }
 

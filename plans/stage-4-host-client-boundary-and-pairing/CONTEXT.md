@@ -477,6 +477,14 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `HandleDisconnectedAsync()` is an immediate `Task.CompletedTask`; best-effort secondary cleanup
   beyond mandatory invalidation is not yet needed since Concept 02 introduces no other per-connection
   resource to release.
+- The "Still open" routing gap the Concept 02, Step 2 entry above records is narrower than it first
+  reads: Concept 03 (`03-pairing-and-client-dispatch.md`) wires `TrustAdminService`'s Revoke/Block/
+  Reset Trust mutations to `IClientSessionInvalidator` and the narrow `ISessionTerminationNotifier`
+  seam it depends on -- that wiring is done, not deferred to Concept 04. What remains for Concept 04
+  is only `ISessionTerminationNotifier`'s concrete implementation over the real public WebSocket
+  transport, routing a `clientId`/`sessionId` to its exact live connection; Concept 03's own tests use
+  a fake in its place. This entry is left as the historical decision record per this document's own
+  append-only convention rather than editing the entry it clarifies.
 
 ## Changed files
 

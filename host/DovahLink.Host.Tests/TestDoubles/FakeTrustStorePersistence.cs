@@ -24,6 +24,13 @@ public sealed class FakeTrustStorePersistence : ITrustStorePersistence
     /// <summary>When set, <see cref="SaveAsync"/> throws this instead of saving.</summary>
     public Exception? ThrowOnSave { get; set; }
 
+    /// <summary>
+    /// Optional asynchronous work awaited before <see cref="SaveAsync"/> stores its records, letting a
+    /// test hold one mutation's persistence in flight while a concurrent caller races it against the
+    /// owning <see cref="TrustStore"/>'s own mutation lock.
+    /// </summary>
+    public Func<Task>? BeforeSave { get; set; }
+
     /// <inheritdoc/>
     public Task<IReadOnlyList<TrustRecord>> LoadAsync(CancellationToken cancellationToken = default)
     {
@@ -36,15 +43,19 @@ public sealed class FakeTrustStorePersistence : ITrustStorePersistence
     }
 
     /// <inheritdoc/>
-    public Task SaveAsync(IReadOnlyList<TrustRecord> records, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(IReadOnlyList<TrustRecord> records, CancellationToken cancellationToken = default)
     {
         if (ThrowOnSave is { } exception)
         {
             throw exception;
         }
 
+        if (BeforeSave is { } beforeSave)
+        {
+            await beforeSave();
+        }
+
         savedRecords = records;
         SaveCallCount++;
-        return Task.CompletedTask;
     }
 }
