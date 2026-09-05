@@ -609,7 +609,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
 
             TrustRecord? existing = trustStore.TryGet(clientId);
             if (existing is not null && existing.State == KnownDeviceState.Trusted &&
-                CredentialHasher.FixedTimeEquals(existing.CredentialVerifier, CredentialHasher.Hash(credential)))
+                CredentialHasher.FixedTimeEquals(existing.CredentialVerifier, credentialVerifierHasher(credential)))
             {
                 return new PairingCommitResult(
                     PairingCommitOutcome.AlreadyTrusted,

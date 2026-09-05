@@ -719,6 +719,53 @@ public class PairingCoordinatorTests
         Assert.Single(trustStore.List());
     }
 
+    /// <summary>
+    /// Verifies that repeating a successful finalization is idempotent even with a non-default
+    /// <c>credentialVerifierHasher</c> injected: the already-Trusted replay check must hash the
+    /// repeated credential through the same injected delegate used to persist it, not through the
+    /// hardcoded <see cref="CredentialHasher.Hash"/>, or a genuinely valid replay is misclassified as
+    /// <see cref="PairingCommitOutcome.PendingNotFound"/> instead of <see cref="PairingCommitOutcome.AlreadyTrusted"/>.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_RepeatedCredentialWithCustomVerifierHasher_IsIdempotentlyTrusted()
+    {
+        var trustStore = new FakeTrustStore();
+        var coordinator = new PairingCoordinator(
+            trustStore,
+            new FakeClock(),
+            credentialVerifierHasher: credential => new string(credential.Reverse().ToArray()));
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = BeginAndDisplayPairing(coordinator, clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        PairingCommitResult first = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+        PairingCommitResult second = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.Trusted, first.Outcome);
+        Assert.Equal(PairingCommitOutcome.AlreadyTrusted, second.Outcome);
+        Assert.Single(trustStore.List());
+    }
+
+    /// <summary>
+    /// Verifies that an unexpected fault from <c>credentialVerifierHasher</c> on the already-Trusted
+    /// replay-check path -- reached with no matching pending credential to protect -- propagates to
+    /// the caller instead of being swallowed, since this path holds no commit claim that needs
+    /// releasing first.
+    /// </summary>
+    [Fact]
+    public async Task CommitPending_NoPendingCredentialAndVerifierHasherThrows_PropagatesException()
+    {
+        var trustStore = new FakeTrustStore();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(
+            trustStore,
+            new FakeClock(),
+            credentialVerifierHasher: _ => throw new InvalidOperationException("Simulated verifier-hashing fault."));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.CommitPendingAsync(clientId, "some-credential"));
+    }
+
     /// <summary>Verifies that exhausting short-id candidates fails closed without consuming pending pairing.</summary>
     [Fact]
     public async Task CommitPending_ShortIdCollisions_ReachBoundedGeneratorFailure()
