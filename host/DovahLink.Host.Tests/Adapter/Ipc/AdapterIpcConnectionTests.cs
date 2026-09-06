@@ -1141,6 +1141,67 @@ public class AdapterIpcConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    // ---- Trust-admin requests ----
+
+    /// <summary>Verifies that a received trust-admin request is forwarded to the session and its formatted result is sent back correlated.</summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequest_ForwardsToSessionAndSendsResultBackCorrelated()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { TrustAdminRequestResult = "Revoked client 12345 (My PC)." };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        var request = new IpcTrustAdminRequestMessage(9, TrustAdminOperation.Revoke, ShortId: "12345");
+        await client.WriteAsync(codec.Encode(request));
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+
+        Assert.Equal(9UL, result.CorrelationId);
+        Assert.Equal("Revoked client 12345 (My PC).", result.ResultText);
+        Assert.Single(fakeSession.HandledTrustAdminRequests);
+        Assert.Equal(request, fakeSession.HandledTrustAdminRequests[0]);
+        Assert.Empty(fakeSession.HandledFrames);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that the read loop keeps serving further frames after handling a trust-admin request.</summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequestThenAnotherMessage_BothAreProcessed()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            TrustAdminRequestResult = "ok",
+            FrameOutcome = AdapterIpcOutcome.None,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await ReadOneFrameAsync(client, codec); // the trust-admin result
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(5)));
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+
+        Assert.Single(fakeSession.HandledTrustAdminRequests);
+        Assert.Single(fakeSession.HandledFrames);
+        Assert.IsType<IpcCancelMessage>(fakeSession.HandledFrames[0]);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>
     /// <param name="runTask">The connection task under test.</param>
     /// <param name="blockingStream">The stream expected to be force-disposed.</param>

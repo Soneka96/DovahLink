@@ -165,3 +165,49 @@ Decision source: Direct maintainer instruction in the current task on 2026-09-03
 full PR #50 Concept 03 review findings (Issue 7: "Concept 03 file-scope rules and the implementation
 disagree"), which found the existing `Client/Protocol/` placement architecturally correct and
 recommended recording an approved divergence rather than moving the DTOs.
+
+## D6 — Concept 04's real `ISessionTerminationNotifier` needs a narrow `PublicHelloAdmissionHandler` hook and two new `Sessions`/`Client/Protocol` files
+
+Original requirement: `04-adapter-notification-and-composition.md`'s "Allowed files/modules" section
+lists only `host/DovahLink.Host/Adapter/Ipc/`, `Program.cs` and composition files, and matching test
+folders for this concept's host-side work.
+
+Observed conflict: `CONTEXT.md`'s own "Deferred debt" entry (recorded at Concept 02/03's close)
+explicitly assigns the real `ISessionTerminationNotifier` implementation over the public WebSocket
+transport to this concept: "routing a clientId/sessionId to its exact live connection... belongs to
+Concept 04." Implementing it correctly -- matching a session to its exact live connection, never a
+newer connection that reused the single admission slot after the target's own connection already
+ended -- requires a registration hook at the exact two points where a connection's live identity is
+known: `PublicHelloAdmissionHandler.Admit()` (Concept 02's file, in `Client/Authentication/`) and its
+`HandleConnectionEnded()`. No file in the concept's literal allowlist can observe either event: the
+transport layer (`Client/Transport/`, Concept 01) is deliberately identity-agnostic, and
+`SessionRegistry` (`Sessions/`, Concept 02/03) deliberately holds no WebSocket implementation type,
+per `IClientSessionInvalidator`'s own documented boundary. The concept's own Contracts section already
+anticipates composing "the public listener... session registry, dispatcher" here, and its Proof
+obligations require the exact session-to-connection scoping this hook exists to provide.
+
+Decision: Add a narrow `Register`/`Unregister` hook to `PublicHelloAdmissionHandler` (new constructor
+parameter `IPublicSessionConnectionRegistry connectionRegistry`, called once in `Admit()` and once in
+`HandleConnectionEnded()`), and three new files this narrow addition requires: the registry itself
+(`Sessions/PublicSessionConnectionRegistry.cs`), the real notifier
+(`Sessions/PublicSessionTerminationNotifier.cs`), and the `session_invalidated` wire payload
+(`Client/Protocol/SessionInvalidatedPayload.cs`, reusing the existing `SessionInvalidationReason` enum
+directly since its JSON snake-case conversion already produces the exact required wire strings). This
+exception is scoped to exactly this registration/lookup seam; it does not authorize unrelated changes
+to `PublicHelloAdmissionHandler`'s own admission logic, and it does not relax Concept 04's file scope
+for anything else.
+
+Impact: The real `ISessionTerminationNotifier` this concept owns can be implemented without either
+(a) inventing a fake/no-op stand-in that a later pass would have to replace, or (b) silently expanding
+scope without a record. `ai/context/protocol/security.md`'s "Administrative session invalidation"
+best-effort-notify-then-force-close contract is now backed by a real transport-level implementation,
+matching this codebase's own generation/incarnation-scoping discipline elsewhere (no target can ever
+reach a different, newer connection that reused the same admission slot).
+
+Status: approved
+
+Decision source: Flagged explicitly in the Concept 04 step plan before implementation began ("I'd like
+your explicit read on before I touch either," alongside the Step 3 Papyrus-threading design point);
+the maintainer replied "continue" with no objection at that point and again after the Step 3 handoff
+message repeated the same explicit flag, and raised no objection when this step's own handoff message
+reported the divergence as taken. No maintainer pushback followed either mention.

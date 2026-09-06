@@ -126,4 +126,24 @@ public static class Fixtures
             codec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
         return (dispatcher, sessionId, connectionId);
     }
+
+    // ---- Sessions ----
+
+    /// <summary>
+    /// Builds a <see cref="SessionInvalidationTarget"/> with representative defaults; a test that
+    /// wants the default calls this with no arguments, and a test that needs one field different
+    /// overrides only that parameter.
+    /// </summary>
+    public static SessionInvalidationTarget BuildSessionInvalidationTarget(
+        SessionId? sessionId = null,
+        ConnectionId? connectionId = null,
+        ClientId? clientId = null,
+        SessionInvalidationReason reason = SessionInvalidationReason.Revoked,
+        SessionAuthenticationSource authenticationSource = SessionAuthenticationSource.TrustedDeviceCredential) =>
+        new(
+            sessionId ?? SessionId.NewId(),
+            connectionId ?? ConnectionId.NewId(),
+            clientId ?? ClientId.NewId(),
+            reason,
+            authenticationSource);
 }

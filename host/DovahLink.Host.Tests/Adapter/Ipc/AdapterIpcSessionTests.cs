@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Security.Cryptography;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
@@ -19,7 +19,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         var hello = new IpcHelloMessage(7, instanceId, verifier.ExpectedToken);
 
@@ -45,7 +45,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
 
         session.Handshake(new IpcHelloMessage(7, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
@@ -67,7 +67,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), ownerLifetimeId);
         byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
@@ -91,7 +91,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), ownerLifetimeId);
         byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
@@ -108,7 +108,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -126,7 +126,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new OwnerLifetimeId(1, 2));
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new OwnerLifetimeId(1, 2));
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: new OwnerLifetimeId(3, 4).ToBytes());
 
@@ -147,7 +147,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), ownerLifetimeId);
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3], ownerLifetimeId: ownerLifetimeId.ToBytes());
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -176,7 +176,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -194,7 +194,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         var hello = new IpcHelloMessage(7, new AdapterInstanceId(Guid.Empty), verifier.ExpectedToken);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -214,7 +214,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         byte[] token = validProof ? verifier.ExpectedToken : [9, 9, 9];
         var hello = new IpcHelloMessage(42, AdapterInstanceId.NewId(), token);
 
@@ -350,7 +350,7 @@ public class AdapterIpcSessionTests
     public void HandleFrame_ResynchronizeResult_BeforeHandshake_IsIgnoredSafely()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(1, Accepted: true));
 
@@ -462,7 +462,7 @@ public class AdapterIpcSessionTests
     public void PrepareListenEvent_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         Assert.Null(session.PrepareListenEvent(1));
     }
@@ -474,7 +474,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
 
         Assert.Null(session.PrepareListenEvent(1));
@@ -501,7 +501,7 @@ public class AdapterIpcSessionTests
     public void PrepareReadSample_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         Assert.Null(session.PrepareReadSample(1));
     }
@@ -536,7 +536,7 @@ public class AdapterIpcSessionTests
     public void PrepareCancel_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         Assert.Null(session.PrepareCancel(1));
     }
@@ -593,7 +593,7 @@ public class AdapterIpcSessionTests
     {
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         session.HandleDisconnected();
 
@@ -608,13 +608,13 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier);
+        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
         IpcResynchronizeRequestMessage request = firstSession.PrepareResynchronizeRequest();
         firstSession.HandleDisconnected();
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier);
+        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -630,7 +630,7 @@ public class AdapterIpcSessionTests
     public void PreparePairingDisplay_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         Assert.Null(session.PreparePairingDisplay("123456", PairingDisplayMode.Initial));
     }
@@ -666,7 +666,7 @@ public class AdapterIpcSessionTests
     public void PreparePairingAttemptsExhausted_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         Assert.Null(session.PreparePairingAttemptsExhausted());
     }
@@ -691,11 +691,11 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier);
+        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier);
+        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -747,7 +747,7 @@ public class AdapterIpcSessionTests
     public void HandlePairingDisplayAck_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
 
         Assert.Null(session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(1, true)));
     }
@@ -764,12 +764,12 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier);
+        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
         IpcPairingDisplayMessage request = firstSession.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier);
+        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -804,13 +804,66 @@ public class AdapterIpcSessionTests
         session.CancelPendingPairingDisplay(999);
     }
 
+    // ---- Trust-admin requests ----
+
+    /// <summary>Verifies that a trust-admin request is forwarded to the injected handler and its result is returned.</summary>
+    [Fact]
+    public async Task HandleTrustAdminRequestAsync_ForwardsRequestAndReturnsHandlerResult()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var handler = new FakeAdapterTrustAdminRequestHandler { Result = "Revoked client 12345 (My PC)." };
+        var session = new AdapterIpcSession(lifecycle, verifier, handler);
+        var request = new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Revoke, ShortId: "12345");
+
+        string result = await session.HandleTrustAdminRequestAsync(request);
+
+        Assert.Equal("Revoked client 12345 (My PC).", result);
+        Assert.Single(handler.HandledRequests);
+        Assert.Equal(request, handler.HandledRequests[0]);
+    }
+
+    /// <summary>Verifies that the caller's cancellation token is forwarded to the handler unchanged.</summary>
+    [Fact]
+    public async Task HandleTrustAdminRequestAsync_ForwardsCancellationToken()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var handler = new FakeAdapterTrustAdminRequestHandler();
+        var session = new AdapterIpcSession(lifecycle, verifier, handler);
+        using var cancellation = new CancellationTokenSource();
+
+        await session.HandleTrustAdminRequestAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help), cancellation.Token);
+
+        Assert.Single(handler.HandledCancellationTokens);
+        Assert.Equal(cancellation.Token, handler.HandledCancellationTokens[0]);
+    }
+
+    /// <summary>Verifies that a trust-admin request does not require a completed handshake, unlike host-directed capture intents.</summary>
+    [Fact]
+    public async Task HandleTrustAdminRequestAsync_BeforeHandshake_StillForwardsToHandler()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var handler = new FakeAdapterTrustAdminRequestHandler { Result = "host not ready" };
+        var session = new AdapterIpcSession(lifecycle, verifier, handler);
+
+        string result = await session.HandleTrustAdminRequestAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help));
+
+        Assert.Equal("host not ready", result);
+        Assert.Single(handler.HandledRequests);
+    }
+
     /// <summary>Creates a session that has already completed and committed a successful handshake against a fresh tracker and lifecycle.</summary>
     private static (AdapterIpcSession Session, FakeAdapterAvailabilityTracker Tracker, AdapterConnectionLifecycle Lifecycle) HandshakenSession()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
         return (session, tracker, lifecycle);

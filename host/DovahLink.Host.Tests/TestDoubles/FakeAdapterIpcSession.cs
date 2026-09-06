@@ -66,6 +66,12 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The correlation ids passed to <see cref="CancelPendingPairingDisplay"/>, in call order.</summary>
     public List<ulong> CancelledPendingPairingDisplayCorrelationIds { get; } = [];
 
+    /// <summary>The requests passed to <see cref="HandleTrustAdminRequestAsync"/>, in call order.</summary>
+    public List<IpcTrustAdminRequestMessage> HandledTrustAdminRequests { get; } = [];
+
+    /// <summary>The result <see cref="HandleTrustAdminRequestAsync"/> returns.</summary>
+    public string TrustAdminRequestResult { get; set; } = string.Empty;
+
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
     {
@@ -133,4 +139,11 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
 
     /// <inheritdoc/>
     public void CancelPendingPairingDisplay(ulong correlationId) => CancelledPendingPairingDisplayCorrelationIds.Add(correlationId);
+
+    /// <inheritdoc/>
+    public Task<string> HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken = default)
+    {
+        HandledTrustAdminRequests.Add(request);
+        return Task.FromResult(TrustAdminRequestResult);
+    }
 }

@@ -1,8 +1,14 @@
 using DovahLink.Host;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
+using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Pairing;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
+using DovahLink.Host.Security;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.Time;
+using DovahLink.Host.Trust;
 
 /// <summary>Composes and runs the headless DovahLink host process.</summary>
 internal static class Program
@@ -59,9 +65,28 @@ internal static class Program
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
         var clock = new SystemClock();
+
+        // Trust-services composition: shared by adapter-originated trust-admin requests here and by
+        // the public client boundary a later concept composes on top of this same instance graph.
+        // Trust persistence is loaded (and, per its own contract, fails closed on malformed or
+        // undecryptable data) before anything below can act on it.
+        var securityStateGate = new SecurityStateGate();
+        ITrustStorePersistence trustStorePersistence = new WindowsDpapiTrustStorePersistence();
+        ITrustStore trustStore = await TrustStore.CreateAsync(trustStorePersistence, clock, securityStateGate);
+        var sessionRegistry = new SessionRegistry(securityStateGate);
+        var pairingCoordinator = new PairingCoordinator(trustStore, clock);
+        var playContextTracker = new PlayContextTracker();
+        var envelopeCodec = new PublicEnvelopeCodec();
+        var connectionRegistry = new PublicSessionConnectionRegistry();
+        ISessionTerminationNotifier terminationNotifier = new PublicSessionTerminationNotifier(connectionRegistry, envelopeCodec, playContextTracker);
+        IClientSessionInvalidator sessionInvalidator = new ClientSessionInvalidator(sessionRegistry, terminationNotifier);
+        ITrustAdminService trustAdminService = new TrustAdminService(trustStore, sessionInvalidator, pairingCoordinator);
+        ITrustResetService trustResetService = new TrustResetService(trustStore, sessionInvalidator, pairingCoordinator, clock);
+        IAdapterTrustAdminRequestHandler trustAdminRequestHandler = new AdapterTrustAdminRequestHandler(trustAdminService, trustResetService, clock);
+
         using IAdapterIpcListener listener = new AdapterIpcListener(
             listenerPort,
-            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId), clock));
+            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, ownerLifetimeId), clock));
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);

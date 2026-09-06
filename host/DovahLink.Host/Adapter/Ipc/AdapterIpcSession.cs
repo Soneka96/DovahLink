@@ -93,6 +93,14 @@ public interface IAdapterIpcSession
     /// </summary>
     /// <param name="correlationId">The correlation id of the request to withdraw.</param>
     void CancelPendingPairingDisplay(ulong correlationId);
+
+    /// <summary>
+    /// Handles one adapter-originated trust-administration request by forwarding it to the
+    /// injected <see cref="IAdapterTrustAdminRequestHandler"/> and returning its formatted result.
+    /// </summary>
+    /// <param name="request">The received request.</param>
+    /// <param name="cancellationToken">The token used to cancel the underlying persistence writes.</param>
+    Task<string> HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken = default);
 }
 
 /// <inheritdoc cref="IAdapterIpcSession"/>
@@ -107,6 +115,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
 
     /// <summary>The verifier this session checks a connecting adapter's peer-ownership proof against.</summary>
     private readonly IAdapterPeerProofVerifier peerProofVerifier;
+
+    /// <summary>The reusable authority this session forwards adapter-originated trust-administration requests to.</summary>
+    private readonly IAdapterTrustAdminRequestHandler trustAdminRequestHandler;
 
     /// <summary>
     /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
@@ -150,6 +161,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>Creates a session for one connection attempt.</summary>
     /// <param name="lifecycle">The sole gateway for this session's connection-lifecycle mutations.</param>
     /// <param name="peerProofVerifier">The verifier this session checks a connecting adapter's peer-ownership proof against.</param>
+    /// <param name="trustAdminRequestHandler">The reusable authority this session forwards adapter-originated trust-administration requests to.</param>
     /// <param name="expectedOwnerLifetimeId">
     /// The owning Skyrim process's lifetime identity this host process was launched with, or
     /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
@@ -158,10 +170,12 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     public AdapterIpcSession(
         IAdapterConnectionLifecycle lifecycle,
         IAdapterPeerProofVerifier peerProofVerifier,
+        IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
         OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
         this.lifecycle = lifecycle;
         this.peerProofVerifier = peerProofVerifier;
+        this.trustAdminRequestHandler = trustAdminRequestHandler;
         this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
@@ -365,4 +379,8 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             pendingPairingDisplayCorrelationIds.Remove(correlationId);
         }
     }
+
+    /// <inheritdoc/>
+    public Task<string> HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken = default) =>
+        trustAdminRequestHandler.HandleAsync(request, cancellationToken);
 }

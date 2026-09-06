@@ -374,6 +374,12 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 continue;
             }
 
+            if (decodeResult.Message is IpcTrustAdminRequestMessage trustAdminRequest)
+            {
+                await HandleTrustAdminRequestAsync(trustAdminRequest, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             AdapterIpcOutcome outcome = session.HandleFrame(decodeResult.Message!);
             EnqueueOutcome(outcome);
             if (outcome.ShouldClose)
@@ -381,6 +387,22 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Handles one received trust-admin request by forwarding it to the session and enqueuing the
+    /// formatted <see cref="IpcTrustAdminResultMessage"/> reply. Runs on this connection's own read
+    /// loop, so a slow persistence write behind it delays this connection's next inbound read --
+    /// an accepted tradeoff for an infrequent, explicitly user-triggered console command against
+    /// the added complexity of a fully concurrent request pipeline this connection does not
+    /// otherwise need.
+    /// </summary>
+    /// <param name="request">The received request.</param>
+    /// <param name="cancellationToken">The token used to cancel the underlying persistence writes.</param>
+    private async Task HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken)
+    {
+        string resultText = await session.HandleTrustAdminRequestAsync(request, cancellationToken).ConfigureAwait(false);
+        outbound.Writer.TryWrite(codec.Encode(new IpcTrustAdminResultMessage(request.CorrelationId, resultText)));
     }
 
     /// <summary>Resolves the pending acknowledgement wait matching a received pairing-display acknowledgement, if any.</summary>
