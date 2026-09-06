@@ -210,7 +210,7 @@ than an explicit join, per `ai/context/adapter/architecture.md`'s "Restart
 behavior".
 
 ## Stage 4: Host Client Boundary and Pairing
-- [ ] Complete
+- [x] Complete
 
 **Scope:**
 Implement the host-facing client connection boundary. The C# host accepts

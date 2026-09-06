@@ -1,6 +1,6 @@
 # 04 — Adapter-facing notification and host composition
 
-Status: pending
+Status: complete
 
 Covers: R1, R2, R3, R4, R5, R6
 
