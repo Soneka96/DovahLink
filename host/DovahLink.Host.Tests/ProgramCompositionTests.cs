@@ -1,6 +1,11 @@
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
+using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Process;
+using DovahLink.Host.Tests.TestDoubles;
+using DovahLink.Host.Trust;
 
 namespace DovahLink.Host.Tests;
 
@@ -136,6 +141,132 @@ public class ProgramCompositionTests
 
         await Assert.ThrowsAsync<SocketException>(() => global::Program.ComposeAndRunAsync(
             UniqueOwnerLifetimeId(), occupiedPort, new StringWriter(), new HostProcessLifetime(), shutdown));
+    }
+
+    /// <summary>
+    /// Verifies that a public listener bind failure propagates out of composition rather than being
+    /// swallowed, the same as the private adapter-IPC listener's own bind-failure guarantee above.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_PublicListenerPortAlreadyBound_Throws()
+    {
+        using var occupyingSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        occupyingSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        occupyingSocket.Listen(1);
+        int occupiedPort = ((IPEndPoint)occupyingSocket.LocalEndPoint!).Port;
+        using var shutdown = new CancellationTokenSource();
+
+        await Assert.ThrowsAsync<SocketException>(() => global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, new StringWriter(), new HostProcessLifetime(), shutdown,
+            publicListenerPort: occupiedPort));
+    }
+
+    /// <summary>Verifies that omitting the public listener port -- the production <c>Main</c> entry point's own default -- never activates the public listener.</summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_NoPublicListenerPort_NeverReportsPublicPort()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var output = new StringWriter();
+
+        Task<int> runTask = global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown);
+        await WaitUntilAsync(() => output.ToString().Contains("PORT "), runTask);
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.DoesNotContain("PUBLICPORT", output.ToString());
+    }
+
+    /// <summary>
+    /// Verifies that supplying a public listener port composes and runs a real public WebSocket
+    /// listener that accepts a loopback client and completes an unpaired <c>hello</c>/<c>hello_ack</c>
+    /// exchange -- the composed public boundary actually works, not merely that it compiles.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_PublicListenerPortSupplied_AcceptsClientAndCompletesHelloAck()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var output = new StringWriter();
+
+        Task<int> runTask = global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+        await WaitUntilAsync(() => output.ToString().Contains("PUBLICPORT "), runTask);
+        int publicPort = int.Parse(output.ToString().Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
+
+        var codec = new PublicEnvelopeCodec();
+        using var clientWebSocket = new ClientWebSocket();
+        await clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{publicPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        byte[] hello = codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+        await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var buffer = new byte[4096];
+        WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.HelloAck, envelope!.MessageType);
+        Assert.Equal("hello-1", envelope.CorrelationId);
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that malformed or undecryptable trust persistence fails the entire composition
+    /// closed -- neither listener is ever constructed or reported, rather than silently starting
+    /// with a reset or partially loaded trust store.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_MalformedTrustPersistence_FailsClosedWithoutStartingEitherListener()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var output = new StringWriter();
+        var persistence = new FakeTrustStorePersistence { ThrowOnLoad = new InvalidDataException("corrupt") };
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
+            publicListenerPort: 0, trustStorePersistence: persistence));
+
+        Assert.DoesNotContain("PORT", output.ToString());
+    }
+
+    /// <summary>
+    /// Verifies that neither listener is ever constructed while trust persistence is still loading,
+    /// so a slow or malformed load can never race a client's connection attempt against a
+    /// not-yet-fully-loaded trust store -- the ordering proof handed off to this concept by
+    /// <c>DIVERGENCES.md</c>'s D4.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_TrustPersistenceLoadInProgress_NeitherListenerIsReportedUntilItCompletes()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var output = new StringWriter();
+        var enteredLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var persistence = new FakeTrustStorePersistence
+        {
+            BeforeLoad = async () =>
+            {
+                enteredLoad.SetResult();
+                await releaseLoad.Task;
+            },
+        };
+
+        Task<int> runTask = global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
+            publicListenerPort: 0, trustStorePersistence: persistence);
+        await enteredLoad.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(string.Empty, output.ToString());
+
+        releaseLoad.SetResult();
+        await WaitUntilAsync(() => output.ToString().Contains("PUBLICPORT "), runTask);
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>Builds a unique owner-lifetime-id per test, so parallel and repeated test runs never collide over the same rendezvous file or named event.</summary>

@@ -25,6 +25,13 @@ public sealed class FakeTrustStorePersistence : ITrustStorePersistence
     public Exception? ThrowOnSave { get; set; }
 
     /// <summary>
+    /// Optional asynchronous work awaited before <see cref="LoadAsync"/> returns (or throws), letting
+    /// a test hold a startup load open to prove a composition root does not admit any client before
+    /// it completes.
+    /// </summary>
+    public Func<Task>? BeforeLoad { get; set; }
+
+    /// <summary>
     /// Optional asynchronous work awaited before <see cref="SaveAsync"/> stores its records, letting a
     /// test hold one mutation's persistence in flight while a concurrent caller races it against the
     /// owning <see cref="TrustStore"/>'s own mutation lock.
@@ -32,14 +39,19 @@ public sealed class FakeTrustStorePersistence : ITrustStorePersistence
     public Func<Task>? BeforeSave { get; set; }
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<TrustRecord>> LoadAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<TrustRecord>> LoadAsync(CancellationToken cancellationToken = default)
     {
+        if (BeforeLoad is { } beforeLoad)
+        {
+            await beforeLoad();
+        }
+
         if (ThrowOnLoad is { } exception)
         {
             throw exception;
         }
 
-        return Task.FromResult(savedRecords);
+        return savedRecords;
     }
 
     /// <inheritdoc/>

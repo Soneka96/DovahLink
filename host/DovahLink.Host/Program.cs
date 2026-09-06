@@ -1,7 +1,11 @@
 using DovahLink.Host;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
+using DovahLink.Host.Authentication;
+using DovahLink.Host.Client.Authentication;
+using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
@@ -36,29 +40,50 @@ internal static class Program
     }
 
     /// <summary>
-    /// Composes the real adapter-IPC stack for one Skyrim lifetime, publishes its rendezvous
-    /// endpoint, reports it over <paramref name="rendezvousOutput"/> for a launching adapter to
-    /// read, and runs until <paramref name="shutdown"/> is cancelled -- either by the process
-    /// exiting or by the adapter's own named shutdown-request signal.
+    /// Composes the real adapter-IPC stack and the shared trust-services graph for one Skyrim
+    /// lifetime, publishes the adapter-IPC rendezvous endpoint, reports it over
+    /// <paramref name="rendezvousOutput"/> for a launching adapter to read, and runs until
+    /// <paramref name="shutdown"/> is cancelled -- either by the process exiting or by the adapter's
+    /// own named shutdown-request signal. Trust persistence is loaded -- and, per its own contract,
+    /// fails this entire call closed on malformed or undecryptable data -- before either listener is
+    /// constructed, so neither can ever admit a client under a partially loaded or silently reset
+    /// trust store.
     /// </summary>
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
-    /// <param name="listenerPort">The loopback port to bind, or zero to let the operating system assign one.</param>
+    /// <param name="listenerPort">The private adapter-IPC loopback port to bind, or zero to let the operating system assign one.</param>
     /// <param name="rendezvousOutput">
-    /// Where to report the bound port, peer-proof token, and HostProof HMAC key, once bound.
+    /// Where to report the bound adapter-IPC port and, once bound, the public listener's own bound
+    /// port (as a <c>PUBLICPORT</c> line), peer-proof token, and HostProof HMAC key.
     /// </param>
     /// <param name="lifetime">The host lifetime to run once composition completes.</param>
     /// <param name="shutdown">
     /// The shared shutdown source; cancelled by the caller on process exit, and internally by this
-    /// method's own named shutdown-signal watcher.
+    /// method's own named shutdown-signal watcher. Both the adapter-IPC and (when composed) public
+    /// listeners stop admitting new connections and tear down through this one shared token.
+    /// </param>
+    /// <param name="publicListenerPort">
+    /// The public loopback port to bind, or zero to let the operating system assign one. The public
+    /// listener is composed and run only when this is supplied -- <see langword="null"/> (the
+    /// production <see cref="Main"/> entry point's default) never activates it, per
+    /// <c>04-adapter-notification-and-composition.md</c>'s "isolated development/test execution
+    /// only while <c>bridge/</c> remains production."
+    /// </param>
+    /// <param name="trustStorePersistence">
+    /// The trust-store persistence adapter to load from and write through to. Defaults to the real
+    /// per-Windows-user DPAPI-protected file; overridable only so a test can exercise startup
+    /// ordering and fail-closed behavior without touching a real encrypted file.
     /// </param>
     /// <returns>A successful process exit code once <paramref name="shutdown"/> is cancelled and teardown completes.</returns>
-    /// <exception cref="System.Net.Sockets.SocketException">The private-IPC listener could not bind <paramref name="listenerPort"/>.</exception>
+    /// <exception cref="System.Net.Sockets.SocketException">A listener could not bind its configured port.</exception>
+    /// <exception cref="InvalidDataException">The persisted trust store exists but could not be decrypted or parsed.</exception>
     internal static async Task<int> ComposeAndRunAsync(
         OwnerLifetimeId ownerLifetimeId,
         int listenerPort,
         TextWriter rendezvousOutput,
         IHostProcessLifetime lifetime,
-        CancellationTokenSource shutdown)
+        CancellationTokenSource shutdown,
+        int? publicListenerPort = null,
+        ITrustStorePersistence? trustStorePersistence = null)
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -66,13 +91,11 @@ internal static class Program
         var codec = new IpcFrameCodec();
         var clock = new SystemClock();
 
-        // Trust-services composition: shared by adapter-originated trust-admin requests here and by
-        // the public client boundary a later concept composes on top of this same instance graph.
-        // Trust persistence is loaded (and, per its own contract, fails closed on malformed or
-        // undecryptable data) before anything below can act on it.
+        // Trust-services composition: shared by adapter-originated trust-admin requests and by the
+        // public client boundary composed below, over this same instance graph.
         var securityStateGate = new SecurityStateGate();
-        ITrustStorePersistence trustStorePersistence = new WindowsDpapiTrustStorePersistence();
-        ITrustStore trustStore = await TrustStore.CreateAsync(trustStorePersistence, clock, securityStateGate);
+        ITrustStore trustStore = await TrustStore.CreateAsync(
+            trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), clock, securityStateGate);
         var sessionRegistry = new SessionRegistry(securityStateGate);
         var pairingCoordinator = new PairingCoordinator(trustStore, clock);
         var playContextTracker = new PlayContextTracker();
@@ -84,27 +107,50 @@ internal static class Program
         ITrustResetService trustResetService = new TrustResetService(trustStore, sessionInvalidator, pairingCoordinator, clock);
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler = new AdapterTrustAdminRequestHandler(trustAdminService, trustResetService, clock);
 
-        using IAdapterIpcListener listener = new AdapterIpcListener(
+        using IAdapterIpcListener adapterListener = new AdapterIpcListener(
             listenerPort,
             stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, ownerLifetimeId), clock));
+        IPairingAdapterNotifier adapterNotifier = new AdapterPairingNotifier(adapterListener);
+        ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(clock);
+        ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(clock);
+        IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
+            envelopeCodec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
+
+        using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
+            ? new PublicWebSocketListener(boundPublicPort, stream => new PublicWebSocketConnection(
+                stream,
+                new PublicHelloAdmissionHandler(
+                    envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
+                    playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry),
+                clock,
+                new PublicWebSocketTransportOptions(),
+                NullPublicWebSocketTransportDiagnostics.Instance))
+            : null;
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
 
         var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
-        rendezvousPublisher.Publish(listener.BoundPort, verifier.ExpectedToken, verifier.HostProofKey);
+        rendezvousPublisher.Publish(adapterListener.BoundPort, verifier.ExpectedToken, verifier.HostProofKey);
 
-        await rendezvousOutput.WriteLineAsync($"PORT {listener.BoundPort}");
+        await rendezvousOutput.WriteLineAsync($"PORT {adapterListener.BoundPort}");
+        if (publicListener is not null)
+        {
+            await rendezvousOutput.WriteLineAsync($"PUBLICPORT {publicListener.BoundPort}");
+        }
+
         await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(verifier.ExpectedToken)}");
         await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(verifier.HostProofKey)}");
         await rendezvousOutput.FlushAsync();
 
-        Task listenerTask = listener.RunAsync(shutdown.Token);
+        Task adapterListenerTask = adapterListener.RunAsync(shutdown.Token);
+        Task publicListenerTask = publicListener?.RunAsync(shutdown.Token) ?? Task.CompletedTask;
 
         int exitCode = await RunAsync(lifetime, shutdown.Token);
 
         shutdown.Cancel();
-        await listenerTask;
+        await adapterListenerTask;
+        await publicListenerTask;
         await shutdownWatchTask;
         return exitCode;
     }
@@ -136,5 +182,31 @@ internal static class Program
     {
         await signal.WaitAsync(shutdown.Token);
         shutdown.Cancel();
+    }
+
+    /// <summary>
+    /// A minimal composition-time placeholder for <see cref="IPublicWebSocketTransportDiagnostics"/>:
+    /// reports to the process's own standard error stream. <see cref="IPublicWebSocketTransportDiagnostics"/>'s
+    /// own documentation defers the real logging/telemetry sink to a later concept; this exists only
+    /// so today's composition root has some observable signal rather than silently discarding every
+    /// report.
+    /// </summary>
+    private sealed class NullPublicWebSocketTransportDiagnostics : IPublicWebSocketTransportDiagnostics
+    {
+        /// <summary>The shared, stateless instance every connection reports through.</summary>
+        public static readonly NullPublicWebSocketTransportDiagnostics Instance = new();
+
+        /// <inheritdoc/>
+        public void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
+        {
+            try
+            {
+                Console.Error.WriteLine($"[public-websocket] abnormal end: {reason}");
+            }
+            catch
+            {
+                // Must never throw or block; see the interface's own documented contract.
+            }
+        }
     }
 }
