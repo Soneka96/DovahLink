@@ -208,12 +208,22 @@ void AdapterIpcSession::SendTrustAdminRequest(
     return;
   }
 
-  bool sent = connection_->TrySend(IpcMessage{IpcTrustAdminRequestMessage{
-      .correlationId = correlationId,
-      .operation = operation,
-      .listScope = listScope,
-      .shortId = std::move(shortId),
-      .confirmationCode = std::move(confirmationCode)}});
+  //  TrySend is not noexcept: its variable-sized ring-buffer write may
+  //  allocate, so an exception such as std::bad_alloc is treated exactly
+  //  like a controlled sent == false result below, rather than escaping onto
+  //  this Papyrus-invoking caller and leaving this request's pending entry
+  //  and activeTrustAdminWaiters_ slot orphaned.
+  bool sent;
+  try {
+    sent = connection_->TrySend(IpcMessage{IpcTrustAdminRequestMessage{
+        .correlationId = correlationId,
+        .operation = operation,
+        .listScope = listScope,
+        .shortId = std::move(shortId),
+        .confirmationCode = std::move(confirmationCode)}});
+  } catch (...) {
+    sent = false;
+  }
   availableLock.unlock();
   if (!sent) {
     TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,

@@ -222,6 +222,14 @@ public:
       blockedSendEntered_.set_value();
       blockedSendRelease_.get_future().wait();
     }
+    if (throwOnNextSend_) {
+      throwOnNextSend_ = false;
+      throw std::runtime_error("TrySend failed");
+    }
+    if (throwNonStandardOnNextSend_) {
+      throwNonStandardOnNextSend_ = false;
+      throw 42;
+    }
     bool accepted;
     if (rejectNextSend_) {
       rejectNextSend_ = false;
@@ -264,12 +272,30 @@ public:
   ///  Releases a `TrySend` call blocked by `BlockNextSend`.
   void ReleaseBlockedSend() { blockedSendRelease_.set_value(); }
 
+  ///  Makes the next `TrySend` call throw `std::runtime_error` instead of
+  ///  recording and accepting the message, as a real transport's
+  ///  variable-sized ring-buffer write could on `std::bad_alloc`. Consumed by
+  ///  the call it affects; a later `TrySend` accepts normally again.
+  void ThrowOnNextSend() { throwOnNextSend_ = true; }
+
+  ///  Makes the next `TrySend` call throw a non-`std::exception` value (a
+  ///  plain `int`) instead of recording and accepting the message, proving a
+  ///  caller that catches only `(...)` -- not `const std::exception&` --
+  ///  still contains it. Consumed by the call it affects; a later `TrySend`
+  ///  accepts normally again.
+  void ThrowNonStandardOnNextSend() { throwNonStandardOnNextSend_ = true; }
+
 private:
   std::vector<IpcMessage> sent_;
   ///  Whether the next `TrySend` call should report rejection.
   bool rejectNextSend_ = false;
   ///  Whether the next `TrySend` call should block until released.
   bool blockNextSend_ = false;
+  ///  Whether the next `TrySend` call should throw instead of sending.
+  bool throwOnNextSend_ = false;
+  ///  Whether the next `TrySend` call should throw a non-`std::exception`
+  ///  value instead of sending.
+  bool throwNonStandardOnNextSend_ = false;
   ///  Resolved the instant a blocked `TrySend` call actually enters.
   std::promise<void> blockedSendEntered_;
   ///  Resolved by `ReleaseBlockedSend` to let a blocked `TrySend` call proceed.
@@ -1893,6 +1919,59 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt when "
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
+          "TrySend itself throws, resolving the request with nullopt "
+          "exactly once, sending nothing, and releasing its slot") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  connection.ThrowOnNextSend();
+
+  auto invocationCount = std::make_shared<std::atomic<int>>(0);
+  REQUIRE_NOTHROW(fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [invocationCount](std::optional<std::string> result) {
+        CHECK_FALSE(result.has_value());
+        invocationCount->fetch_add(1);
+      }));
+
+  CHECK(invocationCount->load() == 1);
+  CHECK(connection.Sent().empty());
+
+  //  No pending entry survives a thrown TrySend: a correlated result for it
+  //  now finds nothing to resolve.
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+            .correlationId = 1, .resultText = "late"}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+
+  //  No timeout worker was spawned for the thrown send: fixture.session's
+  //  destructor, reached when this scope ends, would otherwise hang waiting
+  //  for activeTrustAdminWaiters_ to reach zero rather than completing
+  //  immediately.
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains a non-"
+          "std::exception TrySend throws, resolving the request with "
+          "nullopt exactly once") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  connection.ThrowNonStandardOnNextSend();
+
+  auto invocationCount = std::make_shared<std::atomic<int>>(0);
+  REQUIRE_NOTHROW(fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [invocationCount](std::optional<std::string> result) {
+        CHECK_FALSE(result.has_value());
+        invocationCount->fetch_add(1);
+      }));
+
+  CHECK(invocationCount->load() == 1);
   CHECK(connection.Sent().empty());
 }
 
