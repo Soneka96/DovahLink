@@ -1040,6 +1040,124 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
+    /// Verifies the admission/invalidation registration-ordering fix directly, for a trust-backed
+    /// hello: at the exact moment <see cref="ISessionRegistry.TryFinalizeAdmission"/> runs -- the
+    /// sole linearization point a concurrent Factory Reset's own termination notifier races against
+    /// -- this connection is already registered in the connection registry. Before this fix,
+    /// registration happened only afterward, inside <c>Admit</c>, leaving a window where such a
+    /// notifier's own lookup would find nothing and silently skip the force-close.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_TrustBackedHello_ConnectionAlreadyRegisteredWhenFinalizeAdmissionRuns()
+    {
+        var connectionRegistry = new PublicSessionConnectionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(new FakeSessionRegistry(), connectionRegistry);
+        var trustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        Assert.True(sessionRegistry.ConnectionWasRegisteredAtFinalizeTime);
+    }
+
+    /// <summary>
+    /// Verifies the same admission/invalidation registration-ordering fix for a
+    /// <c>one_time_local_token</c> hello, which finalizes admission through a separate code path.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_OneTimeLocalTokenHello_ConnectionAlreadyRegisteredWhenFinalizeAdmissionRuns()
+    {
+        var connectionRegistry = new PublicSessionConnectionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(new FakeSessionRegistry(), connectionRegistry);
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = tokenAuthenticator.IssueToken();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        Assert.True(sessionRegistry.ConnectionWasRegisteredAtFinalizeTime);
+    }
+
+    /// <summary>
+    /// Verifies that a <see cref="ISessionRegistry.TryFinalizeAdmission"/> failure -- the connection
+    /// loses the Factory Reset race -- rolls back the registration this fix now performs earlier, so
+    /// no stale registration for a never-admitted session is left behind for a later, unrelated
+    /// invalidation to stumble over.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_TrustBackedHello_FactoryResetBetweenReservationAndRecheck_UnregistersConnection()
+    {
+        var connectionRegistry = new PublicSessionConnectionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(new FakeSessionRegistry(), connectionRegistry);
+        var trustStore = new FakeTrustStore();
+        string clientId = Guid.NewGuid().ToString();
+        trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        // Registered when TryFinalizeAdmission ran, per the fix under test, but must not remain
+        // registered once that call reports the session already invalidated: the rollback in the
+        // TryFinalizeAdmission failure branch must remove it, or a later, unrelated invalidation could
+        // stumble over a stale registration for a connection that was never actually admitted.
+        Assert.True(sessionRegistry.ConnectionWasRegisteredAtFinalizeTime);
+        Assert.False(sessionRegistry.IsCapturedConnectionCurrentlyRegistered());
+    }
+
+    /// <summary>
+    /// Verifies the same rollback as above for a <c>one_time_local_token</c> hello, which finalizes
+    /// admission through a separate code path with its own <c>TryFinalizeAdmission</c> failure branch.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_OneTimeLocalTokenHello_FactoryResetBetweenReservationAndRecheck_UnregistersConnection()
+    {
+        var connectionRegistry = new PublicSessionConnectionRegistry();
+        var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(new FakeSessionRegistry(), connectionRegistry);
+        var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
+        string token = tokenAuthenticator.IssueToken();
+        var codec = new PublicEnvelopeCodec();
+        var clock = new FakeClock();
+        var handler = new PublicHelloAdmissionHandler(
+            codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        var connection = new PublicConnectionContext(fakeConnection);
+        byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
+
+        handler.HandleMessageAsync(connection, hello, CancellationToken.None);
+
+        Assert.True(sessionRegistry.ConnectionWasRegisteredAtFinalizeTime);
+        Assert.False(sessionRegistry.IsCapturedConnectionCurrentlyRegistered());
+        // The rolled-back token reservation must remain usable, the same as the pre-existing Factory
+        // Reset race test for this hello type: this fix's earlier registration point must not disturb
+        // that already-proven rollback ordering.
+        Assert.True(tokenAuthenticator.TryValidate(token, out _));
+    }
+
+    /// <summary>
     /// Verifies the exact Factory Reset gap the null/Trusted/verifier recheck exists to close: a
     /// trust record deleted between the initial credential check and the post-reservation recheck (for
     /// example by Factory Reset clearing the trust store) must not admit, since a deleted record is
@@ -2581,22 +2699,53 @@ public class PublicHelloAdmissionTests
     /// exactly the handler's own admission-commit linearization point -- first invalidates every
     /// session on the wrapped registry, as if an administrative Factory Reset landed in that exact
     /// window, then answers with the wrapped registry's now-accurate result. Every other member
-    /// delegates directly.
+    /// delegates directly. When a <see cref="IPublicSessionConnectionRegistry"/> is also supplied,
+    /// this same call records whether the connection was already registered there at that exact
+    /// moment, via <see cref="ConnectionWasRegisteredAtFinalizeTime"/> -- the same linearization
+    /// point a concurrent invalidation's own termination notifier would race against.
     /// </summary>
     private sealed class SessionRegistryThatInvalidatesAllOnFirstFinalizeCall : ISessionRegistry
     {
         /// <summary>The real registry every member delegates to.</summary>
         private readonly ISessionRegistry inner;
 
+        /// <summary>The connection registry checked at the first <see cref="TryFinalizeAdmission"/> call, if supplied.</summary>
+        private readonly IPublicSessionConnectionRegistry? connectionRegistry;
+
         /// <summary>Whether the simulated Factory Reset has already been triggered.</summary>
         private bool triggered;
 
         /// <summary>Creates a decorator that triggers a full invalidation on its first <see cref="TryFinalizeAdmission"/> call.</summary>
         /// <param name="inner">The real registry every member delegates to.</param>
-        public SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(ISessionRegistry inner)
+        /// <param name="connectionRegistry">
+        /// The connection registry to check at that same call, recording the result in
+        /// <see cref="ConnectionWasRegisteredAtFinalizeTime"/>; omit when a test does not need it.
+        /// </param>
+        public SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(ISessionRegistry inner, IPublicSessionConnectionRegistry? connectionRegistry = null)
         {
             this.inner = inner;
+            this.connectionRegistry = connectionRegistry;
         }
+
+        /// <summary>
+        /// Whether the connection was already registered in the supplied connection registry at the
+        /// exact moment <see cref="TryFinalizeAdmission"/> was first called. <see langword="null"/> when
+        /// no connection registry was supplied to the constructor, or <see cref="TryFinalizeAdmission"/>
+        /// was never called.
+        /// </summary>
+        public bool? ConnectionWasRegisteredAtFinalizeTime { get; private set; }
+
+        /// <summary>The session and connection identity captured from the first <see cref="TryFinalizeAdmission"/> call, if any.</summary>
+        private (SessionId SessionId, ConnectionId ConnectionId)? capturedFinalizeIdentity;
+
+        /// <summary>
+        /// Whether the identity captured from the first <see cref="TryFinalizeAdmission"/> call is
+        /// registered in the supplied connection registry right now -- evaluated on demand, so a test
+        /// can call this after the handler's full admission attempt (success or rollback) has run.
+        /// </summary>
+        public bool IsCapturedConnectionCurrentlyRegistered() =>
+            connectionRegistry is not null && capturedFinalizeIdentity is (SessionId sessionId, ConnectionId connectionId) &&
+            connectionRegistry.TryGet(sessionId, connectionId) is not null;
 
         /// <inheritdoc/>
         public bool TryCreate(
@@ -2626,6 +2775,12 @@ public class PublicHelloAdmissionTests
             if (!triggered)
             {
                 triggered = true;
+                capturedFinalizeIdentity = (sessionId, connectionId);
+                if (connectionRegistry is not null)
+                {
+                    ConnectionWasRegisteredAtFinalizeTime = connectionRegistry.TryGet(sessionId, connectionId) is not null;
+                }
+
                 inner.InvalidateAll(SessionInvalidationReason.FactoryReset);
             }
 

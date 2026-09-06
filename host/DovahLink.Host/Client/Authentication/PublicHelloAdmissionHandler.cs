@@ -691,6 +691,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
+        // Registered before TryFinalizeAdmission, not after: TryFinalizeAdmission is the sole
+        // linearization point against a concurrent unconditional invalidation (Factory Reset), so a
+        // registration that only happened afterward left a window where that invalidation's own
+        // termination notifier could find no connection to force-close. Registering first guarantees
+        // any invalidation reaching the registry after this point always finds this connection
+        // already registered.
+        connectionRegistry.Register(newSessionId, connectionId, connectionContext);
         if (!sessionRegistry.TryFinalizeAdmission(newSessionId, connectionId))
         {
             // TryFinalizeAdmission is the sole linearization point between this admission and a
@@ -701,6 +708,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             // concurrently racing deadline task can never mistake this for still-pending admission),
             // so this connection can never complete admission again; close it explicitly rather than
             // leaving it open with no path to ever being torn down.
+            connectionRegistry.Unregister(connectionId);
             tokenAuthenticator.RollbackReservation(reservation);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
             connectionContext.RequestClose();
@@ -820,6 +828,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
+        // Registered before TryFinalizeAdmission, not after: TryFinalizeAdmission is the sole
+        // linearization point against a concurrent unconditional invalidation (Factory Reset), so a
+        // registration that only happened afterward left a window where that invalidation's own
+        // termination notifier could find no connection to force-close. Registering first guarantees
+        // any invalidation reaching the registry after this point always finds this connection
+        // already registered.
+        connectionRegistry.Register(newSessionId, connectionId, connectionContext);
         if (!sessionRegistry.TryFinalizeAdmission(newSessionId, connectionId))
         {
             // TryFinalizeAdmission is the sole linearization point between this admission and a
@@ -830,6 +845,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             // concurrently racing deadline task can never mistake this for still-pending admission),
             // so this connection can never complete admission again; close it explicitly rather than
             // leaving it open with no path to ever being torn down.
+            connectionRegistry.Unregister(connectionId);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
             connectionContext.RequestClose();
             return;
@@ -873,7 +889,6 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         }
 
         deadlineCts?.Cancel();
-        connectionRegistry.Register(newSessionId, connectionId, connectionContext);
         pairingCoordinator.NotifyReconnected(admittedClientId);
 
         ClientIdentityKind identityKind = source == SessionAuthenticationSource.TrustedDeviceCredential
