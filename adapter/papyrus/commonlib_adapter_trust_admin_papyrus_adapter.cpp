@@ -29,10 +29,31 @@ ipc::IAdapterIpcSession *g_session = nullptr;
 constexpr const char *kUnavailableMessage =
     "DovahLink trust admin is unavailable.";
 
-///  Result returned when `IAdapterIpcSession::SendTrustAdminRequest` reports
-///  no result: no authenticated host connection, the request could not be
-///  sent, or no correlated result arrived within its bound.
-constexpr const char *kHostNotReadyMessage = "host not ready";
+///  Result returned when `SendTrustAdminRequest` reports
+///  `ipc::TrustAdminRequestOutcome::kUnavailable`: no authenticated host
+///  connection was available, the outstanding-request bound was already
+///  reached, or the request could not be sent. The host's own state is
+///  provably unaffected.
+constexpr const char *kHostUnavailableMessage = "host not ready";
+
+///  Result returned when `SendTrustAdminRequest` reports
+///  `ipc::TrustAdminRequestOutcome::kTimedOut` for a read-only command
+///  (`Help`, `List`, or `Reset`, which only starts a confirmation challenge
+///  and mutates no persisted trust state): no correlated result arrived
+///  within the bound, but nothing about that is ambiguous since the command
+///  itself could not have changed persisted state.
+constexpr const char *kRequestTimedOutMessage =
+    "The host did not respond in time.";
+
+///  Result returned when `SendTrustAdminRequest` reports
+///  `ipc::TrustAdminRequestOutcome::kTimedOut` for a command that durably
+///  mutates trust state (`Revoke`, `Block`, `Unblock`, `Forget`,
+///  `ResetTrust`, or `ConfirmReset`): the host's own mutation may have
+///  already committed even though no correlated result arrived in time, so
+///  this must never be reported as a plain, unambiguous failure.
+constexpr const char *kMutatingRequestTimedOutMessage =
+    "The host did not respond in time. The operation may have completed; "
+    "check the current trust state before retrying.";
 
 ///  Result returned when a native function throws.
 ///  `ai/context/skse/cpp-style.md`: "never allow an exception to escape a
@@ -76,11 +97,50 @@ std::optional<ipc::TrustAdminListScope> ParseListScope(std::string_view scope) {
   return std::nullopt;
 }
 
-///  Formats a `SendTrustAdminRequest` result, or the controlled host-not-ready
-///  message when it reports none.
-RE::BSFixedString FormatResult(std::optional<std::string> result) {
-  return RE::BSFixedString(result.has_value() ? result->c_str()
-                                              : kHostNotReadyMessage);
+///  Whether `operation` durably mutates persisted trust state, so a timeout
+///  after it was submitted must be reported with
+///  `kMutatingRequestTimedOutMessage` rather than the plain
+///  `kRequestTimedOutMessage`: the host's own mutation may have already
+///  committed even though no correlated result arrived in time. `kReset` only
+///  starts a Factory Reset confirmation challenge -- the destructive wipe
+///  happens only through a separate `kConfirmReset` call -- so it is not
+///  mutating for this purpose.
+bool IsMutatingTrustAdminOperation(ipc::TrustAdminOperation operation) {
+  switch (operation) {
+  case ipc::TrustAdminOperation::kRevoke:
+  case ipc::TrustAdminOperation::kBlock:
+  case ipc::TrustAdminOperation::kUnblock:
+  case ipc::TrustAdminOperation::kForget:
+  case ipc::TrustAdminOperation::kResetTrust:
+  case ipc::TrustAdminOperation::kConfirmReset:
+    return true;
+  case ipc::TrustAdminOperation::kHelp:
+  case ipc::TrustAdminOperation::kList:
+  case ipc::TrustAdminOperation::kReset:
+    return false;
+  }
+  return false;
+}
+
+///  Formats a `SendTrustAdminRequest` result for `operation`: the host's
+///  result text on `kCompleted`, the controlled unavailable message on
+///  `kUnavailable`, or a timeout message on `kTimedOut` -- worded plainly for
+///  a read-only `operation` and worded to disclose the ambiguous final state
+///  for one that durably mutates trust state, per
+///  `IsMutatingTrustAdminOperation`.
+RE::BSFixedString FormatResult(ipc::TrustAdminRequestResult result,
+                               ipc::TrustAdminOperation operation) {
+  switch (result.outcome) {
+  case ipc::TrustAdminRequestOutcome::kCompleted:
+    return RE::BSFixedString(result.resultText->c_str());
+  case ipc::TrustAdminRequestOutcome::kUnavailable:
+    return RE::BSFixedString(kHostUnavailableMessage);
+  case ipc::TrustAdminRequestOutcome::kTimedOut:
+    return RE::BSFixedString(IsMutatingTrustAdminOperation(operation)
+                                 ? kMutatingRequestTimedOutMessage
+                                 : kRequestTimedOutMessage);
+  }
+  return RE::BSFixedString(kInternalErrorMessage);
 }
 
 ///  Resumes the Papyrus stack `a_stackID` suspended on with `message`. The
@@ -112,8 +172,9 @@ SendNoArgument(RE::BSScript::Internal::VirtualMachine *a_vm,
   try {
     g_session->SendTrustAdminRequest(
         operation, std::nullopt, std::nullopt, std::nullopt,
-        [a_vm, a_stackID](std::optional<std::string> result) {
-          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        [a_vm, a_stackID, operation](ipc::TrustAdminRequestResult result) {
+          RespondLatent(a_vm, a_stackID,
+                        FormatResult(std::move(result), operation));
         });
   } catch (...) {
     RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));
@@ -141,8 +202,9 @@ SendWithShortId(RE::BSScript::Internal::VirtualMachine *a_vm,
   try {
     g_session->SendTrustAdminRequest(
         operation, std::nullopt, std::string(shortId), std::nullopt,
-        [a_vm, a_stackID](std::optional<std::string> result) {
-          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        [a_vm, a_stackID, operation](ipc::TrustAdminRequestResult result) {
+          RespondLatent(a_vm, a_stackID,
+                        FormatResult(std::move(result), operation));
         });
   } catch (...) {
     RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));
@@ -171,8 +233,10 @@ RE::BSScript::LatentStatus List(RE::BSScript::Internal::VirtualMachine *a_vm,
   try {
     g_session->SendTrustAdminRequest(
         ipc::TrustAdminOperation::kList, *scope, std::nullopt, std::nullopt,
-        [a_vm, a_stackID](std::optional<std::string> result) {
-          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        [a_vm, a_stackID](ipc::TrustAdminRequestResult result) {
+          RespondLatent(
+              a_vm, a_stackID,
+              FormatResult(std::move(result), ipc::TrustAdminOperation::kList));
         });
   } catch (...) {
     RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));
@@ -268,8 +332,10 @@ ConfirmReset(RE::BSScript::Internal::VirtualMachine *a_vm,
     g_session->SendTrustAdminRequest(
         ipc::TrustAdminOperation::kConfirmReset, std::nullopt, std::nullopt,
         std::string(confirmationCode),
-        [a_vm, a_stackID](std::optional<std::string> result) {
-          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        [a_vm, a_stackID](ipc::TrustAdminRequestResult result) {
+          RespondLatent(a_vm, a_stackID,
+                        FormatResult(std::move(result),
+                                     ipc::TrustAdminOperation::kConfirmReset));
         });
   } catch (...) {
     RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));

@@ -9,6 +9,7 @@
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_enums.hpp"
 #include "ipc/ipc_message.hpp"
+#include "ipc/trust_admin_request_result.hpp"
 #include "runtime/adapter_task_marshaller.hpp"
 
 #include <array>
@@ -62,10 +63,19 @@ public:
   virtual void HandleConnected(const AdapterIpcTarget &target) = 0;
 
   ///  Sends one Papyrus-originated trust-administration command to the host
-  ///  and invokes `onResult` with its correlated result once one arrives,
-  ///  once `kTrustAdminRequestTimeout` elapses without one, or immediately
-  ///  if no authenticated connection is available or the request could not
-  ///  be enqueued. Never blocks its calling thread for any bounded or
+  ///  and invokes `onResult` with a `TrustAdminRequestResult` describing
+  ///  exactly one of three outcomes: the host's correlated result arrived
+  ///  (`kCompleted`); the request was never successfully handed to the host,
+  ///  because no authenticated connection was available, the
+  ///  outstanding-request bound was already reached, or the send itself
+  ///  failed (`kUnavailable`); or the request was submitted (or its
+  ///  submission could not be ruled out -- for example this session closed
+  ///  or the connection ended while it was still outstanding) but no
+  ///  correlated result arrived within `kTrustAdminRequestTimeout`
+  ///  (`kTimedOut`). `kTimedOut` deliberately cannot promise the host's own
+  ///  mutation, if any, did not happen: a request that already crossed the
+  ///  host's durable commit point stays committed regardless of this call's
+  ///  own bound. Never blocks its calling thread for any bounded or
   ///  unbounded duration -- including the thread SKSE invokes a registered
   ///  Papyrus native function on -- so it is safe to call directly from a
   ///  latent Papyrus function's initial callback. `onResult` may run
@@ -94,17 +104,14 @@ public:
   ///  `kUnblock`, or `kForget`; otherwise unset.
   ///  @param confirmationCode The six-digit Factory Reset confirmation code
   ///  for `kConfirmReset`; otherwise unset.
-  ///  @param onResult Invoked exactly once with the host's formatted result
-  ///  text, or `std::nullopt` when no authenticated connection is available,
-  ///  the request could not be enqueued, the connection ended while the
-  ///  request was outstanding, the outstanding-request bound was already
-  ///  reached, or no correlated result arrived within the bound.
+  ///  @param onResult Invoked exactly once with this call's outcome; see
+  ///  above.
   virtual void SendTrustAdminRequest(
       TrustAdminOperation operation,
       std::optional<TrustAdminListScope> listScope,
       std::optional<std::string> shortId,
       std::optional<std::string> confirmationCode,
-      std::function<void(std::optional<std::string>)> onResult) = 0;
+      std::function<void(TrustAdminRequestResult)> onResult) = 0;
 
   ///  Handles one successfully decoded inbound message.
   ///  @return The disposition for the current transport generation. A valid
@@ -194,7 +201,7 @@ public:
       std::optional<TrustAdminListScope> listScope,
       std::optional<std::string> shortId,
       std::optional<std::string> confirmationCode,
-      std::function<void(std::optional<std::string>)> onResult) override;
+      std::function<void(TrustAdminRequestResult)> onResult) override;
 
   ///  @copydoc IAdapterIpcSession::HandleMessage
   AdapterIpcMessageDisposition
@@ -285,9 +292,12 @@ private:
   ///  lifecycle lock this call was reached under is released, so external
   ///  callback code never runs while this session's own lifecycle mutex is
   ///  held.
-  ///  @return Every abandoned request's callback, to invoke with `std::nullopt`
-  ///  once those locks are released.
-  [[nodiscard]] std::vector<std::function<void(std::optional<std::string>)>>
+  ///  @return Every abandoned request's callback, to invoke with
+  ///  `TrustAdminRequestOutcome::kTimedOut` once those locks are released:
+  ///  an abandoned request was already registered (and, in every case but a
+  ///  vanishingly narrow admission race, already sent), so its submission to
+  ///  the host cannot be ruled out.
+  [[nodiscard]] std::vector<std::function<void(TrustAdminRequestResult)>>
   CloseCurrentGenerationLocked();
 
   ///  Erases every entry in `pendingTrustAdminResults_` and notifies
@@ -296,17 +306,18 @@ private:
   ///  callbacks rather than invoking them. Must be called while holding
   ///  `availableMutex_`; safe to call with `pendingTrustAdminResults_` empty.
   ///  @return Every detached callback, in no particular order.
-  [[nodiscard]] std::vector<std::function<void(std::optional<std::string>)>>
+  [[nodiscard]] std::vector<std::function<void(TrustAdminRequestResult)>>
   DetachPendingTrustAdminCallbacksLocked();
 
-  ///  Invokes every callback in `callbacks` with `std::nullopt`, containing
-  ///  any exception each one throws, per
+  ///  Invokes every callback in `callbacks` with
+  ///  `TrustAdminRequestOutcome::kTimedOut` (see `CloseCurrentGenerationLocked`
+  ///  for why), containing any exception each one throws, per
   ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule.
   ///  Must be called with neither `availableMutex_` nor `trustAdminMutex_`
   ///  held, since a callback may run arbitrary external (including
   ///  Papyrus-invoking) code.
   void InvokeAbandonedTrustAdminCallbacks(
-      std::vector<std::function<void(std::optional<std::string>)>> callbacks);
+      std::vector<std::function<void(TrustAdminRequestResult)>> callbacks);
 
   ///  Resolves one trust-administration request: if `correlationId` still
   ///  has a pending entry, erases it and invokes its callback with `result`;
@@ -322,7 +333,7 @@ private:
   ///  exception `result`'s callback throws, per
   ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule.
   void ResolveTrustAdminRequest(std::uint64_t correlationId,
-                                std::optional<std::string> result);
+                                TrustAdminRequestResult result);
 
   ///  This adapter process's own instance identity.
   identity::AdapterInstanceId instanceId_;
@@ -419,7 +430,7 @@ private:
   ///  means the request was never sent, or has already been resolved by
   ///  `HandleMessage`, its own timeout worker, or
   ///  `CloseCurrentGenerationLocked`. Guarded by `trustAdminMutex_`.
-  std::map<std::uint64_t, std::function<void(std::optional<std::string>)>>
+  std::map<std::uint64_t, std::function<void(TrustAdminRequestResult)>>
       pendingTrustAdminResults_;
   ///  The number of trust-admin requests whose registering
   ///  `SendTrustAdminRequest` call has not yet finished touching
@@ -439,7 +450,8 @@ private:
   ///  Guarded by `trustAdminMutex_`.
   std::size_t activeTrustAdminWaiters_ = 0;
   ///  The absolute bound a trust-admin request's timeout worker waits for
-  ///  its correlated result before resolving it with `std::nullopt`.
+  ///  its correlated result before resolving it with
+  ///  `TrustAdminRequestOutcome::kTimedOut`.
   std::chrono::milliseconds trustAdminRequestTimeout_;
 };
 

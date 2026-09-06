@@ -60,6 +60,8 @@ using dovahlink::adapter::ipc::kMaxPendingTrustAdminRequests;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::TrustAdminListScope;
 using dovahlink::adapter::ipc::TrustAdminOperation;
+using dovahlink::adapter::ipc::TrustAdminRequestOutcome;
+using dovahlink::adapter::ipc::TrustAdminRequestResult;
 using dovahlink::adapter::runtime::IAdapterTaskMarshaller;
 
 namespace {
@@ -1832,12 +1834,12 @@ namespace {
 ///  whatever `SendTrustAdminRequest` eventually delivers, so a test can
 ///  observe when (and whether) it is invoked without its own thread ever
 ///  blocking on it directly.
-std::pair<std::function<void(std::optional<std::string>)>,
-          std::future<std::optional<std::string>>>
+std::pair<std::function<void(TrustAdminRequestResult)>,
+          std::future<TrustAdminRequestResult>>
 CaptureTrustAdminResult() {
-  auto promise = std::make_shared<std::promise<std::optional<std::string>>>();
-  std::future<std::optional<std::string>> future = promise->get_future();
-  return {[promise](std::optional<std::string> result) {
+  auto promise = std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> future = promise->get_future();
+  return {[promise](TrustAdminRequestResult result) {
             promise->set_value(std::move(result));
           },
           std::move(future)};
@@ -1846,7 +1848,7 @@ CaptureTrustAdminResult() {
 } //  namespace
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest invokes its callback "
-          "synchronously with nullopt, without sending, when no "
+          "synchronously with kUnavailable, without sending, when no "
           "authenticated connection is available") {
   SessionFixture fixture;
 
@@ -1856,7 +1858,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest invokes its callback "
                                         std::nullopt, onResult);
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kUnavailable);
 
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -1868,7 +1870,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest invokes its callback "
                                         std::nullopt, onResultUnauthenticated);
   REQUIRE(resultFutureUnauthenticated.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFutureUnauthenticated.get().has_value());
+  CHECK(resultFutureUnauthenticated.get().outcome ==
+        TrustAdminRequestOutcome::kUnavailable);
   CHECK(connection.Sent().empty());
 }
 
@@ -1901,10 +1904,14 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest sends exactly the "
       .correlationId = sentRequest->correlationId, .resultText = "ok"}});
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  CHECK(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  CHECK(*result.resultText == "ok");
 }
 
-TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt when "
-          "the connection rejects the send") {
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns kUnavailable "
+          "when the connection rejects the send") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -1918,7 +1925,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns nullopt when "
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kUnavailable);
   CHECK(connection.Sent().empty());
 }
 
@@ -1934,8 +1941,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
   auto invocationCount = std::make_shared<std::atomic<int>>(0);
   REQUIRE_NOTHROW(fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [invocationCount](std::optional<std::string> result) {
-        CHECK_FALSE(result.has_value());
+      [invocationCount](TrustAdminRequestResult result) {
+        CHECK(result.outcome == TrustAdminRequestOutcome::kUnavailable);
         invocationCount->fetch_add(1);
       }));
 
@@ -1956,7 +1963,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains a non-"
           "std::exception TrySend throws, resolving the request with "
-          "nullopt exactly once") {
+          "kUnavailable exactly once") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -1966,8 +1973,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains a non-"
   auto invocationCount = std::make_shared<std::atomic<int>>(0);
   REQUIRE_NOTHROW(fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [invocationCount](std::optional<std::string> result) {
-        CHECK_FALSE(result.has_value());
+      [invocationCount](TrustAdminRequestResult result) {
+        CHECK(result.outcome == TrustAdminRequestOutcome::kUnavailable);
         invocationCount->fetch_add(1);
       }));
 
@@ -1976,7 +1983,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains a non-"
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
-          "its callback fires with nullopt only once the bound elapses, "
+          "its callback fires with kTimedOut only once the bound elapses, "
           "never blocking the calling thread") {
   //  A short injected timeout keeps this test fast: nothing ever resolves
   //  this request, so its callback only fires once the bound elapses.
@@ -2018,7 +2025,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves with the "
@@ -2044,9 +2051,10 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves with the "
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  std::optional<std::string> result = resultFuture.get();
-  REQUIRE(result.has_value());
-  CHECK(*result == "Reset Trust complete (0 devices revoked).");
+  TrustAdminRequestResult result = resultFuture.get();
+  CHECK(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  CHECK(*result.resultText == "Reset Trust complete (0 devices revoked).");
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves concurrent "
@@ -2085,12 +2093,14 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves concurrent "
           std::future_status::ready);
   REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  std::optional<std::string> first = firstResultFuture.get();
-  std::optional<std::string> second = secondResultFuture.get();
-  REQUIRE(first.has_value());
-  REQUIRE(second.has_value());
-  CHECK(*first == "first");
-  CHECK(*second == "second");
+  TrustAdminRequestResult first = firstResultFuture.get();
+  TrustAdminRequestResult second = secondResultFuture.get();
+  CHECK(first.outcome == TrustAdminRequestOutcome::kCompleted);
+  CHECK(second.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(first.resultText.has_value());
+  REQUIRE(second.resultText.has_value());
+  CHECK(*first.resultText == "first");
+  CHECK(*second.resultText == "second");
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's onResult callback is "
@@ -2124,11 +2134,11 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's onResult callback is "
     session->AttachConnection(connection);
     Authenticate(*session, connection, target);
 
-    session->SendTrustAdminRequest(
-        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-        [invocationCount](std::optional<std::string>) {
-          invocationCount->fetch_add(1);
-        });
+    session->SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                   std::nullopt, std::nullopt,
+                                   [invocationCount](TrustAdminRequestResult) {
+                                     invocationCount->fetch_add(1);
+                                   });
     std::uint64_t correlationId =
         std::get<IpcTrustAdminRequestMessage>(connection.Sent().front())
             .correlationId;
@@ -2156,7 +2166,7 @@ TEST_CASE("AdapterIpcSession contains an exception a trust-admin onResult "
 
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [](std::optional<std::string>) {
+      [](TrustAdminRequestResult) {
         throw std::runtime_error("onResult failed");
       });
   std::uint64_t correlationId =
@@ -2177,7 +2187,7 @@ TEST_CASE("AdapterIpcSession contains an exception a trust-admin onResult "
   //  directly on a Papyrus-invoking thread.
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [](std::optional<std::string>) {
+      [](TrustAdminRequestResult) {
         throw std::runtime_error("onResult failed");
       });
 }
@@ -2204,7 +2214,7 @@ TEST_CASE("AdapterIpcSession closes the connection on a trust-admin result "
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
-          "synchronously with nullopt when disconnect ends the connection "
+          "synchronously with kTimedOut when disconnect ends the connection "
           "while the request is outstanding") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
@@ -2221,11 +2231,13 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  //  Already sent when the connection ended, so its submission to the host
+  //  cannot be ruled out: kTimedOut, not kUnavailable.
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
-          "synchronously with nullopt when logical closing ends the "
+          "synchronously with kTimedOut when logical closing ends the "
           "connection while the request is outstanding") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
@@ -2242,7 +2254,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
@@ -2256,7 +2268,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
   auto invocationCount = std::make_shared<std::atomic<int>>(0);
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [&fixture, invocationCount](std::optional<std::string>) {
+      [&fixture, invocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
         //  Reentrant call requiring availableMutex_: if HandleClosing (via
         //  CloseCurrentGenerationLocked) still held that mutex while
@@ -2282,7 +2294,7 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
   auto invocationCount = std::make_shared<std::atomic<int>>(0);
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [&fixture, invocationCount](std::optional<std::string>) {
+      [&fixture, invocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
         //  Reentrant call requiring availableMutex_: if HandleDisconnected
         //  (via CloseCurrentGenerationLocked) still held that mutex while
@@ -2310,17 +2322,17 @@ TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
       [&fixture, invocationCount,
-       reentrantInvocationCount](std::optional<std::string>) {
+       reentrantInvocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
         //  Reentrant call requiring availableMutex_ for its own admission
         //  check: if HandleClosing still held that mutex here, this call
         //  would deadlock instead of observing the generation already
-        //  closed and resolving synchronously with nullopt.
+        //  closed and resolving synchronously with kUnavailable.
         fixture.session.SendTrustAdminRequest(
             TrustAdminOperation::kHelp, std::nullopt, std::nullopt,
             std::nullopt,
-            [reentrantInvocationCount](std::optional<std::string> result) {
-              CHECK_FALSE(result.has_value());
+            [reentrantInvocationCount](TrustAdminRequestResult result) {
+              CHECK(result.outcome == TrustAdminRequestOutcome::kUnavailable);
               reentrantInvocationCount->fetch_add(1);
             });
       });
@@ -2348,17 +2360,17 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
       [&fixture, invocationCount,
-       reentrantInvocationCount](std::optional<std::string>) {
+       reentrantInvocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
         //  Reentrant call requiring availableMutex_ for its own admission
         //  check: if HandleDisconnected still held that mutex here, this
         //  call would deadlock instead of observing the generation already
-        //  closed and resolving synchronously with nullopt.
+        //  closed and resolving synchronously with kUnavailable.
         fixture.session.SendTrustAdminRequest(
             TrustAdminOperation::kHelp, std::nullopt, std::nullopt,
             std::nullopt,
-            [reentrantInvocationCount](std::optional<std::string> result) {
-              CHECK_FALSE(result.has_value());
+            [reentrantInvocationCount](TrustAdminRequestResult result) {
+              CHECK(result.outcome == TrustAdminRequestOutcome::kUnavailable);
               reentrantInvocationCount->fetch_add(1);
             });
       });
@@ -2375,7 +2387,7 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
 
 TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
           "trust-admin request's timeout worker to finish, resolving it "
-          "with nullopt") {
+          "with kTimedOut") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
       {std::byte{9}, std::byte{8}, std::byte{7}}};
   AdapterIpcTarget target{
@@ -2389,7 +2401,7 @@ TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
   FakeAdapterCaptureHandoffQueue captureQueue;
   FakeAdapterPairingNotificationSink pairingNotificationSink;
   FakeAdapterIpcConnection connection;
-  std::future<std::optional<std::string>> resultFuture;
+  std::future<TrustAdminRequestResult> resultFuture;
   {
     auto session = std::make_unique<AdapterIpcSession>(
         SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
@@ -2410,11 +2422,11 @@ TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
     //  not merely notify it.
   }
 
-  //  A defined nullopt (from the destructor's own force-abandonment) rather
-  //  than a crash or hang proves the destructor actually waited.
+  //  A defined kTimedOut (from the destructor's own force-abandonment)
+  //  rather than a crash or hang proves the destructor actually waited.
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession's destructor safely waits for a "
@@ -2471,7 +2483,7 @@ TEST_CASE("AdapterIpcSession's destructor safely waits for a "
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's admission is atomic "
@@ -2507,16 +2519,16 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's admission is atomic "
   closer.join();
 
   //  A short wait, well inside SessionFixture's default 5-second
-  //  kTrustAdminRequestTimeout, proves this nullopt came from HandleClosing's
+  //  kTrustAdminRequestTimeout, proves this kTimedOut came from HandleClosing's
   //  own force-abandonment rather than the timeout coincidentally landing
   //  first.
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves synchronously "
-          "with nullopt and sends nothing when HandleClosing has already "
+          "with kUnavailable and sends nothing when HandleClosing has already "
           "closed the generation") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
@@ -2532,7 +2544,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves synchronously "
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kUnavailable);
   CHECK(connection.Sent().empty());
 }
 
@@ -2583,8 +2595,9 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's requests admitted "
           std::future_status::ready);
   REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
-  CHECK_FALSE(firstResultFuture.get().has_value());
-  CHECK_FALSE(secondResultFuture.get().has_value());
+  CHECK(firstResultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
+  CHECK(secondResultFuture.get().outcome ==
+        TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback is never "
@@ -2598,7 +2611,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback is never "
   auto invocationCount = std::make_shared<std::atomic<int>>(0);
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [invocationCount](std::optional<std::string>) {
+      [invocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
       });
   std::uint64_t correlationId =
@@ -2650,12 +2663,14 @@ TEST_CASE("AdapterIpcSession::HandleClosing abandons only the trust-admin "
   //  re-abandoned or re-delivered.
   fixture.session.HandleClosing();
 
-  std::optional<std::string> firstResult = firstResultFuture.get();
-  REQUIRE(firstResult.has_value());
-  CHECK(*firstResult == "resolved-before-close");
+  TrustAdminRequestResult firstResult = firstResultFuture.get();
+  CHECK(firstResult.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(firstResult.resultText.has_value());
+  CHECK(*firstResult.resultText == "resolved-before-close");
   REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
-  CHECK_FALSE(secondResultFuture.get().has_value());
+  CHECK(secondResultFuture.get().outcome ==
+        TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits exactly "
@@ -2666,7 +2681,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits exactly "
   fixture.session.AttachConnection(connection);
   Authenticate(fixture.session, connection, fixture.target);
 
-  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  std::vector<std::future<TrustAdminRequestResult>> resultFutures;
   for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
     auto [onResult, resultFuture] = CaptureTrustAdminResult();
     fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
@@ -2684,7 +2699,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits exactly "
   //  Rejected synchronously, at the bound, without sending a frame.
   REQUIRE(rejectedResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(rejectedResultFuture.get().has_value());
+  CHECK(rejectedResultFuture.get().outcome ==
+        TrustAdminRequestOutcome::kUnavailable);
   CHECK(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
   //  None of the already-admitted requests were evicted or disturbed by the
@@ -2736,7 +2752,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
   for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
     session.SendTrustAdminRequest(
         TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-        [&allEntered, released](std::optional<std::string>) {
+        [&allEntered, released](TrustAdminRequestResult) {
           allEntered.count_down();
           released.wait();
         });
@@ -2753,7 +2769,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
                                 std::nullopt, std::nullopt, rejectedOnResult);
   REQUIRE(rejectedResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  CHECK_FALSE(rejectedResultFuture.get().has_value());
+  CHECK(rejectedResultFuture.get().outcome ==
+        TrustAdminRequestOutcome::kUnavailable);
   CHECK(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
   releaseGate.set_value();
@@ -2802,7 +2819,7 @@ TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "
   session->AttachConnection(connection);
   Authenticate(*session, connection, target);
 
-  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  std::vector<std::future<TrustAdminRequestResult>> resultFutures;
   for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
     auto [onResult, resultFuture] = CaptureTrustAdminResult();
     session->SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
@@ -2816,7 +2833,7 @@ TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "
   for (auto &future : resultFutures) {
     REQUIRE(future.wait_for(std::chrono::seconds(1)) ==
             std::future_status::ready);
-    CHECK_FALSE(future.get().has_value());
+    CHECK(future.get().outcome == TrustAdminRequestOutcome::kTimedOut);
   }
 }
 
@@ -2831,13 +2848,13 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
   for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
     fixture.session.SendTrustAdminRequest(
         TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-        [](std::optional<std::string>) {});
+        [](TrustAdminRequestResult) {});
   }
   REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
   REQUIRE_NOTHROW(fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-      [](std::optional<std::string>) {
+      [](TrustAdminRequestResult) {
         throw std::runtime_error("onResult failure");
       }));
 }
@@ -2850,7 +2867,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing resolves every outstanding "
   fixture.session.AttachConnection(connection);
   Authenticate(fixture.session, connection, fixture.target);
 
-  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  std::vector<std::future<TrustAdminRequestResult>> resultFutures;
   for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
     auto [onResult, resultFuture] = CaptureTrustAdminResult();
     fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
@@ -2865,6 +2882,6 @@ TEST_CASE("AdapterIpcSession::HandleClosing resolves every outstanding "
   for (auto &future : resultFutures) {
     REQUIRE(future.wait_for(std::chrono::seconds(1)) ==
             std::future_status::ready);
-    CHECK_FALSE(future.get().has_value());
+    CHECK(future.get().outcome == TrustAdminRequestOutcome::kTimedOut);
   }
 }

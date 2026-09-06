@@ -249,9 +249,10 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's shared helpers "
       source.find("!IsFixedAsciiDigits(shortId,", sendWithShortIdStart);
   std::size_t sendCall = source.find(
       "operation, std::nullopt, std::string(shortId)", sendWithShortIdStart);
-  std::size_t returnLatentResult = source.find(
-      "RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));",
-      sendWithShortIdStart);
+  std::size_t returnLatentResult =
+      source.find("RespondLatent(a_vm, a_stackID, "
+                  "FormatResult(std::move(result), operation));",
+                  sendWithShortIdStart);
 
   REQUIRE(digitsCheck != std::string::npos);
   REQUIRE(sendCall != std::string::npos);
@@ -282,6 +283,80 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter reports explicit "
   CHECK(source.find("catch (...)") != std::string::npos);
   CHECK(source.find("\"DovahLink trust admin failed unexpectedly.\"") !=
         std::string::npos);
+}
+
+TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's FormatResult "
+          "distinguishes completed, unavailable, and timed-out outcomes, "
+          "wording a timed-out mutating operation differently from a "
+          "timed-out read-only one",
+          "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
+          "[structural]") {
+  //  The behavioral half of this proof -- which outcome AdapterIpcSession
+  //  actually delivers for each scenario -- lives in AdapterIpcSession's own
+  //  tests, since this test target cannot construct a real session; this
+  //  proves FormatResult's own dispatch and wording are wired correctly.
+  std::string source = Source();
+
+  std::size_t formatResultStart =
+      source.find("FormatResult(ipc::TrustAdminRequestResult result,");
+  REQUIRE(formatResultStart != std::string::npos);
+  std::size_t kCompletedCase = source.find(
+      "case ipc::TrustAdminRequestOutcome::kCompleted:", formatResultStart);
+  std::size_t kUnavailableCase = source.find(
+      "case ipc::TrustAdminRequestOutcome::kUnavailable:", formatResultStart);
+  std::size_t kTimedOutCase = source.find(
+      "case ipc::TrustAdminRequestOutcome::kTimedOut:", formatResultStart);
+  REQUIRE(kCompletedCase != std::string::npos);
+  REQUIRE(kUnavailableCase != std::string::npos);
+  REQUIRE(kTimedOutCase != std::string::npos);
+  CHECK(kCompletedCase < kUnavailableCase);
+  CHECK(kUnavailableCase < kTimedOutCase);
+  CHECK(source.find("IsMutatingTrustAdminOperation(operation)",
+                    kTimedOutCase) != std::string::npos);
+  CHECK(source.find("\"The host did not respond in time.\"") !=
+        std::string::npos);
+  CHECK(source.find("may have completed; ") != std::string::npos);
+}
+
+TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's "
+          "IsMutatingTrustAdminOperation classifies every operation exactly "
+          "once, treating Reset as non-mutating since it only starts a "
+          "confirmation challenge",
+          "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
+          "[structural]") {
+  std::string source = Source();
+
+  std::size_t functionStart =
+      source.find("bool IsMutatingTrustAdminOperation(");
+  REQUIRE(functionStart != std::string::npos);
+  //  The mutating case group falls through to the switch's first "return
+  //  true;"; the non-mutating group follows it and falls through to its own
+  //  "return false;". Bounding each search by this marker, rather than only
+  //  checking a case label appears somewhere in the function, proves which
+  //  group each operation actually falls into.
+  std::size_t returnTrue = source.find("return true;", functionStart);
+  REQUIRE(returnTrue != std::string::npos);
+
+  for (const char *mutatingCase :
+       {"case ipc::TrustAdminOperation::kRevoke:",
+        "case ipc::TrustAdminOperation::kBlock:",
+        "case ipc::TrustAdminOperation::kUnblock:",
+        "case ipc::TrustAdminOperation::kForget:",
+        "case ipc::TrustAdminOperation::kResetTrust:",
+        "case ipc::TrustAdminOperation::kConfirmReset:"}) {
+    INFO("checking mutating case " << mutatingCase);
+    std::size_t caseStart = source.find(mutatingCase, functionStart);
+    REQUIRE(caseStart != std::string::npos);
+    CHECK(caseStart < returnTrue);
+  }
+
+  for (const char *nonMutatingCase :
+       {"case ipc::TrustAdminOperation::kHelp:",
+        "case ipc::TrustAdminOperation::kList:",
+        "case ipc::TrustAdminOperation::kReset:"}) {
+    INFO("checking non-mutating case " << nonMutatingCase);
+    CHECK(source.find(nonMutatingCase, returnTrue) != std::string::npos);
+  }
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter rejects a malformed "

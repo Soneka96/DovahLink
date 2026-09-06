@@ -105,7 +105,11 @@ AdapterIpcSession::~AdapterIpcSession() {
     }
   }
   for (std::uint64_t correlationId : outstandingCorrelationIds) {
-    ResolveTrustAdminRequest(correlationId, std::nullopt);
+    //  Already registered (and, barring a vanishingly narrow admission race,
+    //  already sent), so its submission to the host cannot be ruled out.
+    ResolveTrustAdminRequest(
+        correlationId, TrustAdminRequestResult{
+                           TrustAdminRequestOutcome::kTimedOut, std::nullopt});
   }
 
   std::unique_lock<std::mutex> trustAdminLock(trustAdminMutex_);
@@ -149,7 +153,7 @@ void AdapterIpcSession::SendTrustAdminRequest(
     TrustAdminOperation operation, std::optional<TrustAdminListScope> listScope,
     std::optional<std::string> shortId,
     std::optional<std::string> confirmationCode,
-    std::function<void(std::optional<std::string>)> onResult) {
+    std::function<void(TrustAdminRequestResult)> onResult) {
   //  Held for the entire admission critical section below (authentication
   //  check, pending-entry registration, and TrySend), not just the
   //  authentication check: CloseCurrentGenerationLocked also runs under this
@@ -164,7 +168,8 @@ void AdapterIpcSession::SendTrustAdminRequest(
       connection_ == nullptr) {
     availableLock.unlock();
     try {
-      onResult(std::nullopt);
+      onResult(TrustAdminRequestResult{TrustAdminRequestOutcome::kUnavailable,
+                                       std::nullopt});
     } catch (...) {
       //  Contained: onResult may run directly on a Papyrus-invoking thread
       //  here, per ai/context/skse/cpp-style.md's callback boundary rule.
@@ -201,7 +206,8 @@ void AdapterIpcSession::SendTrustAdminRequest(
   if (atCapacity) {
     availableLock.unlock();
     try {
-      onResult(std::nullopt);
+      onResult(TrustAdminRequestResult{TrustAdminRequestOutcome::kUnavailable,
+                                       std::nullopt});
     } catch (...) {
       //  Contained: see the unauthenticated-connection case above.
     }
@@ -228,7 +234,10 @@ void AdapterIpcSession::SendTrustAdminRequest(
   if (!sent) {
     TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,
                                       activeTrustAdminWaiters_);
-    ResolveTrustAdminRequest(correlationId, std::nullopt);
+    ResolveTrustAdminRequest(
+        correlationId,
+        TrustAdminRequestResult{TrustAdminRequestOutcome::kUnavailable,
+                                std::nullopt});
     return;
   }
 
@@ -257,8 +266,12 @@ void AdapterIpcSession::SendTrustAdminRequest(
         }
         //  Already resolved by HandleMessage or a close: a safe no-op.
         //  Still pending past the deadline: this worker is the one that
-        //  times it out.
-        ResolveTrustAdminRequest(correlationId, std::nullopt);
+        //  times it out. The request was already sent by this point, so its
+        //  outcome is kTimedOut, not kUnavailable.
+        ResolveTrustAdminRequest(
+            correlationId,
+            TrustAdminRequestResult{TrustAdminRequestOutcome::kTimedOut,
+                                    std::nullopt});
       } catch (...) {
         //  Contained: this runs on a detached worker thread, which must
         //  never let an exception escape, per
@@ -275,13 +288,17 @@ void AdapterIpcSession::SendTrustAdminRequest(
     //  wait for a worker that will never exist.
     TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,
                                       activeTrustAdminWaiters_);
-    ResolveTrustAdminRequest(correlationId, std::nullopt);
+    //  The request was already sent before the timeout worker failed to
+    //  start, so its outcome is kTimedOut (unknown, not provably unaffected).
+    ResolveTrustAdminRequest(
+        correlationId, TrustAdminRequestResult{
+                           TrustAdminRequestOutcome::kTimedOut, std::nullopt});
   }
 }
 
 void AdapterIpcSession::ResolveTrustAdminRequest(
-    std::uint64_t correlationId, std::optional<std::string> result) {
-  std::function<void(std::optional<std::string>)> onResult;
+    std::uint64_t correlationId, TrustAdminRequestResult result) {
+  std::function<void(TrustAdminRequestResult)> onResult;
   {
     std::lock_guard<std::mutex> lock(trustAdminMutex_);
     auto it = pendingTrustAdminResults_.find(correlationId);
@@ -398,7 +415,10 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
           //  never sent, already timed out, or was already force-abandoned
           //  by a close: no pending callback cares about this result, so it
           //  is simply discarded.
-          ResolveTrustAdminRequest(value.correlationId, value.resultText);
+          ResolveTrustAdminRequest(
+              value.correlationId,
+              TrustAdminRequestResult{TrustAdminRequestOutcome::kCompleted,
+                                      value.resultText});
           return AdapterIpcMessageDisposition::kContinue;
         } else {
           //  IpcHelloMessage, IpcResynchronizeResultMessage,
@@ -424,8 +444,7 @@ void AdapterIpcSession::HandleDecodeFailure() {
 }
 
 void AdapterIpcSession::HandleDisconnected() {
-  std::vector<std::function<void(std::optional<std::string>)>>
-      abandonedCallbacks;
+  std::vector<std::function<void(TrustAdminRequestResult)>> abandonedCallbacks;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     abandonedCallbacks = CloseCurrentGenerationLocked();
@@ -439,8 +458,7 @@ bool AdapterIpcSession::IsHostAvailable() const {
 }
 
 void AdapterIpcSession::HandleClosing() {
-  std::vector<std::function<void(std::optional<std::string>)>>
-      abandonedCallbacks;
+  std::vector<std::function<void(TrustAdminRequestResult)>> abandonedCallbacks;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     abandonedCallbacks = CloseCurrentGenerationLocked();
@@ -749,7 +767,7 @@ std::uint64_t AdapterIpcSession::NextCorrelationId() {
   return nextCorrelationId_.fetch_add(1) + 1;
 }
 
-std::vector<std::function<void(std::optional<std::string>)>>
+std::vector<std::function<void(TrustAdminRequestResult)>>
 AdapterIpcSession::CloseCurrentGenerationLocked() {
   if (authenticationState_ == AuthenticationState::kClosed) {
     return {};
@@ -773,9 +791,9 @@ AdapterIpcSession::CloseCurrentGenerationLocked() {
   return DetachPendingTrustAdminCallbacksLocked();
 }
 
-std::vector<std::function<void(std::optional<std::string>)>>
+std::vector<std::function<void(TrustAdminRequestResult)>>
 AdapterIpcSession::DetachPendingTrustAdminCallbacksLocked() {
-  std::vector<std::function<void(std::optional<std::string>)>> callbacks;
+  std::vector<std::function<void(TrustAdminRequestResult)>> callbacks;
   {
     std::lock_guard<std::mutex> trustAdminLock(trustAdminMutex_);
     callbacks.reserve(pendingTrustAdminResults_.size());
@@ -789,10 +807,13 @@ AdapterIpcSession::DetachPendingTrustAdminCallbacksLocked() {
 }
 
 void AdapterIpcSession::InvokeAbandonedTrustAdminCallbacks(
-    std::vector<std::function<void(std::optional<std::string>)>> callbacks) {
+    std::vector<std::function<void(TrustAdminRequestResult)>> callbacks) {
   for (auto &onResult : callbacks) {
     try {
-      onResult(std::nullopt);
+      //  Already registered (and, barring a vanishingly narrow admission
+      //  race, already sent), so submission to the host cannot be ruled out.
+      onResult(TrustAdminRequestResult{TrustAdminRequestOutcome::kTimedOut,
+                                       std::nullopt});
     } catch (...) {
       //  Contained: see ResolveTrustAdminRequest's identical rule for why.
     }
