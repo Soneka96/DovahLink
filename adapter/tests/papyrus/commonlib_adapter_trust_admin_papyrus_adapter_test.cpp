@@ -107,32 +107,45 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter declares all nine "
           "[structural]") {
   std::string source = Source();
 
-  //  Every native function returns RE::BSScript::LatentStatus, not
-  //  RE::BSFixedString directly: the actual result only ever reaches the
-  //  calling script through ReturnLatentResult.
-  CHECK(CountOccurrences(source, "RE::BSScript::LatentStatus\n") >= 9);
   CHECK(source.find("RE::BSFixedString List(") == std::string::npos);
 
-  CHECK(source.find("List(RE::BSScript::Internal::VirtualMachine *a_vm, "
-                    "RE::VMStackID a_stackID,") != std::string::npos);
-  CHECK(source.find("RE::StaticFunctionTag *, RE::BSFixedString akScope) {") !=
+  //  Each function is checked with two bounded find() calls rather than one
+  //  literal spanning "RE::BSScript::LatentStatus", "*a_vm,", and
+  //  "RE::VMStackID a_stackID,": clang-format sometimes wraps the return
+  //  type onto its own line (when the name is long, e.g. ResetTrust) and
+  //  always wraps a long parameter list, so a single literal assuming a
+  //  fixed line layout breaks the instant the signature is reformatted, even
+  //  though the signature itself is unchanged. Checking both the
+  //  space-joined and newline-joined return-type forms is what proves every
+  //  native function returns RE::BSScript::LatentStatus, not
+  //  RE::BSFixedString directly -- the actual result only ever reaches the
+  //  calling script through ReturnLatentResult.
+  for (const char *functionName :
+       {"List", "Help", "Revoke", "Block", "Unblock", "Forget", "Reset",
+        "ResetTrust", "ConfirmReset"}) {
+    INFO("checking latent signature of " << functionName);
+    std::string signatureStartMarker =
+        std::string(functionName) +
+        "(RE::BSScript::Internal::VirtualMachine *a_vm,";
+    bool hasReturnType =
+        source.find("RE::BSScript::LatentStatus " + signatureStartMarker) !=
+            std::string::npos ||
+        source.find("RE::BSScript::LatentStatus\n" + signatureStartMarker) !=
+            std::string::npos;
+    CHECK(hasReturnType);
+    std::size_t signatureStart = source.find(signatureStartMarker);
+    REQUIRE(signatureStart != std::string::npos);
+    CHECK(source.find("RE::VMStackID a_stackID,", signatureStart) !=
+          std::string::npos);
+  }
+
+  //  List's own extra akScope parameter, following the same
+  //  bounded-two-part pattern for the same line-wrap reason.
+  std::size_t staticFunctionTagStart =
+      source.find("RE::StaticFunctionTag *,\n");
+  REQUIRE(staticFunctionTagStart != std::string::npos);
+  CHECK(source.find("RE::BSFixedString akScope) {", staticFunctionTagStart) !=
         std::string::npos);
-  CHECK(source.find("Help(RE::BSScript::Internal::VirtualMachine *a_vm, "
-                    "RE::VMStackID a_stackID,") != std::string::npos);
-  CHECK(source.find("Revoke(RE::BSScript::Internal::VirtualMachine *a_vm, "
-                    "RE::VMStackID a_stackID,") != std::string::npos);
-  CHECK(source.find("Block(RE::BSScript::Internal::VirtualMachine *a_vm, "
-                    "RE::VMStackID a_stackID,") != std::string::npos);
-  CHECK(source.find("Unblock(RE::BSScript::Internal::VirtualMachine *a_vm, "
-                    "RE::VMStackID a_stackID,") != std::string::npos);
-  CHECK(source.find("Forget(RE::BSScript::Internal::VirtualMachine *a_vm, "
-                    "RE::VMStackID a_stackID,") != std::string::npos);
-  CHECK(source.find("ResetTrust(RE::BSScript::Internal::VirtualMachine "
-                    "*a_vm,") != std::string::npos);
-  CHECK(source.find("Reset(RE::BSScript::Internal::VirtualMachine *a_vm, "
-                    "RE::VMStackID a_stackID,") != std::string::npos);
-  CHECK(source.find("ConfirmReset(RE::BSScript::Internal::VirtualMachine "
-                    "*a_vm,") != std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's short-id-targeted "
@@ -180,10 +193,15 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's List validates its "
           "[structural]") {
   std::string source = Source();
 
-  std::size_t listStart = source.find(
-      "List(RE::BSScript::Internal::VirtualMachine *a_vm, RE::VMStackID "
-      "a_stackID,");
+  //  See the identical wrapped-signature rationale in the "declares all nine
+  //  native Papyrus function signatures as latent" test above: List's
+  //  parameter list is wrapped onto its own line by clang-format, so this is
+  //  a bounded find() rather than one literal spanning the line break.
+  std::size_t listStart =
+      source.find("List(RE::BSScript::Internal::VirtualMachine *a_vm,");
   REQUIRE(listStart != std::string::npos);
+  REQUIRE(source.find("RE::VMStackID a_stackID,", listStart) !=
+          std::string::npos);
   std::size_t scopeCheck = source.find("!scope.has_value()", listStart);
   std::size_t sendCall =
       source.find("ipc::TrustAdminOperation::kList, *scope", listStart);
