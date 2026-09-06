@@ -256,6 +256,7 @@ void AdapterIpcSession::SendTrustAdminRequest(
       TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,
                                         activeTrustAdminWaiters_);
       try {
+        bool stillPending;
         {
           std::unique_lock<std::mutex> lock(trustAdminMutex_);
           trustAdminCondition_.wait_for(
@@ -263,11 +264,32 @@ void AdapterIpcSession::SendTrustAdminRequest(
                 return pendingTrustAdminResults_.find(correlationId) ==
                        pendingTrustAdminResults_.end();
               });
+          //  Read while still holding trustAdminMutex_, in the same critical
+          //  section wait_for released and reacquired: whether HandleMessage
+          //  or a close already removed this entry is exactly what decides
+          //  whether the cancellation below is needed, and only this lock
+          //  makes that read atomic with wait_for's own wakeup.
+          stillPending = pendingTrustAdminResults_.find(correlationId) !=
+                         pendingTrustAdminResults_.end();
         }
-        //  Already resolved by HandleMessage or a close: a safe no-op.
-        //  Still pending past the deadline: this worker is the one that
-        //  times it out. The request was already sent by this point, so its
-        //  outcome is kTimedOut, not kUnavailable.
+        //  Already resolved by HandleMessage or a close: send no cancellation
+        //  for a request that already has its terminal outcome, or was
+        //  already force-abandoned, and let the no-op ResolveTrustAdminRequest
+        //  call below run harmlessly. Still pending past the deadline: this
+        //  worker is the one that times it out. The request was already sent
+        //  by this point, so its outcome is kTimedOut, not kUnavailable.
+        //  Best-effort tells the host to stop processing this exact
+        //  correlation id, in its own exception-contained block so a failed
+        //  or refused send can never prevent the local resolution below from
+        //  still running.
+        if (stillPending && connection_ != nullptr) {
+          try {
+            connection_->TrySend(
+                IpcMessage{IpcCancelMessage{.correlationId = correlationId}});
+          } catch (...) {
+            //  Contained: see this worker's own boundary rule below.
+          }
+        }
         ResolveTrustAdminRequest(
             correlationId,
             TrustAdminRequestResult{TrustAdminRequestOutcome::kTimedOut,

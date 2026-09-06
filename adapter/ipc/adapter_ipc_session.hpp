@@ -75,7 +75,13 @@ public:
   ///  (`kTimedOut`). `kTimedOut` deliberately cannot promise the host's own
   ///  mutation, if any, did not happen: a request that already crossed the
   ///  host's durable commit point stays committed regardless of this call's
-  ///  own bound. Never blocks its calling thread for any bounded or
+  ///  own bound. A request that reaches `kTimedOut` by actually waiting out
+  ///  the bound (as opposed to this session closing or the connection ending
+  ///  first) also best-effort sends the host a cancellation for its exact
+  ///  correlation id, so a host that has not yet started the mutation can
+  ///  still stop before it does; a failed or refused send never changes the
+  ///  already-decided `kTimedOut` outcome. Never blocks its calling thread for
+  ///  any bounded or
   ///  unbounded duration -- including the thread SKSE invokes a registered
   ///  Papyrus native function on -- so it is safe to call directly from a
   ///  latent Papyrus function's initial callback. `onResult` may run

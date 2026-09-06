@@ -249,14 +249,19 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's shared helpers "
       source.find("!IsFixedAsciiDigits(shortId,", sendWithShortIdStart);
   std::size_t sendCall = source.find(
       "operation, std::nullopt, std::string(shortId)", sendWithShortIdStart);
-  std::size_t returnLatentResult =
-      source.find("RespondLatent(a_vm, a_stackID, "
-                  "FormatResult(std::move(result), operation));",
-                  sendWithShortIdStart);
-
   REQUIRE(digitsCheck != std::string::npos);
   REQUIRE(sendCall != std::string::npos);
+  //  Bounded two-part find, starting only after sendCall: clang-format may
+  //  wrap RespondLatent's argument list onto its own line, so a single
+  //  literal spanning that break would fail the instant it reformats even
+  //  though the call itself is unchanged, and starting from sendCall (rather
+  //  than sendWithShortIdStart) skips the earlier, unrelated RespondLatent
+  //  call on the invalid-short-id rejection path above it.
+  std::size_t returnLatentResult =
+      source.find("RespondLatent(a_vm, a_stackID,", sendCall);
   REQUIRE(returnLatentResult != std::string::npos);
+  CHECK(source.find("FormatResult(std::move(result), operation));",
+                    returnLatentResult) != std::string::npos);
   CHECK(digitsCheck < sendCall);
   CHECK(sendCall < returnLatentResult);
 

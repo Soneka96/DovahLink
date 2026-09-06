@@ -224,6 +224,13 @@ public:
       blockedSendEntered_.set_value();
       blockedSendRelease_.get_future().wait();
     }
+    //  Guards sent_ and the one-shot flags below: SendTrustAdminRequest's
+    //  timeout worker can call TrySend (for its own best-effort cancellation)
+    //  concurrently with other requests' own timeout workers, so this fake
+    //  must tolerate genuinely concurrent callers, not just concurrent
+    //  callers serialized by the session's own locking as every prior use of
+    //  this fake was.
+    std::lock_guard<std::mutex> lock(mutex_);
     if (throwOnNextSend_) {
       throwOnNextSend_ = false;
       throw std::runtime_error("TrySend failed");
@@ -245,17 +252,26 @@ public:
 
   void Stop() override {}
 
-  const std::vector<IpcMessage> &Sent() const { return sent_; }
+  const std::vector<IpcMessage> &Sent() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return sent_;
+  }
 
   ///  Discards every recorded message, so a test can assert on only what it
   ///  sends after this call (for example, after using `Authenticate` as
   ///  setup).
-  void Clear() { sent_.clear(); }
+  void Clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sent_.clear();
+  }
 
   ///  Makes the next `TrySend` call report rejection (as a full outbound
   ///  queue would) instead of recording and accepting the message. Consumed
   ///  by the call it affects; a later `TrySend` accepts normally again.
-  void RejectNextSend() { rejectNextSend_ = true; }
+  void RejectNextSend() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    rejectNextSend_ = true;
+  }
 
   ///  Makes the next `TrySend` call block, after signaling entry, until the
   ///  test calls `ReleaseBlockedSend`. Lets a test deterministically
@@ -278,14 +294,20 @@ public:
   ///  recording and accepting the message, as a real transport's
   ///  variable-sized ring-buffer write could on `std::bad_alloc`. Consumed by
   ///  the call it affects; a later `TrySend` accepts normally again.
-  void ThrowOnNextSend() { throwOnNextSend_ = true; }
+  void ThrowOnNextSend() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    throwOnNextSend_ = true;
+  }
 
   ///  Makes the next `TrySend` call throw a non-`std::exception` value (a
   ///  plain `int`) instead of recording and accepting the message, proving a
   ///  caller that catches only `(...)` -- not `const std::exception&` --
   ///  still contains it. Consumed by the call it affects; a later `TrySend`
   ///  accepts normally again.
-  void ThrowNonStandardOnNextSend() { throwNonStandardOnNextSend_ = true; }
+  void ThrowNonStandardOnNextSend() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    throwNonStandardOnNextSend_ = true;
+  }
 
 private:
   std::vector<IpcMessage> sent_;
@@ -302,6 +324,9 @@ private:
   std::promise<void> blockedSendEntered_;
   ///  Resolved by `ReleaseBlockedSend` to let a blocked `TrySend` call proceed.
   std::promise<void> blockedSendRelease_;
+  ///  Guards sent_ and the one-shot flags above against concurrent `TrySend`
+  ///  callers.
+  mutable std::mutex mutex_;
 };
 
 ///  A representative, fixed adapter instance identity for tests that don't
@@ -1984,7 +2009,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains a non-"
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
           "its callback fires with kTimedOut only once the bound elapses, "
-          "never blocking the calling thread") {
+          "sending a matching IpcCancelMessage and never blocking the "
+          "calling thread") {
   //  A short injected timeout keeps this test fast: nothing ever resolves
   //  this request, so its callback only fires once the bound elapses.
   FixedAdapterIpcPeerProofProvider peerProofProvider{
@@ -2022,6 +2048,110 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
   CHECK(elapsed < std::chrono::milliseconds(50));
   CHECK(resultFuture.wait_for(std::chrono::seconds(0)) ==
         std::future_status::timeout);
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+  CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
+
+  REQUIRE(connection.Sent().size() == 2);
+  std::uint64_t requestCorrelationId =
+      std::get<IpcTrustAdminRequestMessage>(connection.Sent().front())
+          .correlationId;
+  auto *cancel = std::get_if<IpcCancelMessage>(&connection.Sent().back());
+  REQUIRE(cancel != nullptr);
+  CHECK(cancel->correlationId == requestCorrelationId);
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker sends "
+          "no cancellation for a request HandleMessage already resolved "
+          "before the worker woke") {
+  //  Reuses the deterministic destructor-wait signal from "onResult callback
+  //  is invoked exactly once even when HandleMessage resolves the request
+  //  before its timeout worker wakes" above: by the time this scope exits,
+  //  the worker has already woken and found the entry gone, so if it were
+  //  ever going to send a spurious cancellation for an already-completed
+  //  request, it would have already done so here -- deterministically, not
+  //  by outrunning a clock.
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
+  FakeAdapterIpcConnection connection;
+  {
+    auto session = std::make_unique<AdapterIpcSession>(
+        SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+        captureQueue, pairingNotificationSink, [] {},
+        std::chrono::milliseconds(30));
+    session->AttachConnection(connection);
+    Authenticate(*session, connection, target);
+
+    auto [onResult, resultFuture] = CaptureTrustAdminResult();
+    session->SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                   std::nullopt, std::nullopt, onResult);
+    std::uint64_t correlationId =
+        std::get<IpcTrustAdminRequestMessage>(connection.Sent().front())
+            .correlationId;
+
+    session->HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+        .correlationId = correlationId, .resultText = "ok"}});
+    REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
+            std::future_status::ready);
+    CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kCompleted);
+
+    //  session's destructor blocks until this request's timeout worker has
+    //  actually finished (see the destructor tests above).
+  }
+
+  //  Only the original request was ever sent; the timeout worker's own
+  //  no-op did not send a stray cancellation for an already-completed
+  //  request.
+  REQUIRE(connection.Sent().size() == 1);
+  CHECK(std::holds_alternative<IpcTrustAdminRequestMessage>(
+      connection.Sent().front()));
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker "
+          "contains an exception sending its cancellation throws, still "
+          "resolving the request with kTimedOut") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
+  FakeAdapterIpcConnection connection;
+  AdapterIpcSession session{SampleInstanceId(),
+                            SampleOwnerLifetimeId(),
+                            marshaller,
+                            dispatcher,
+                            captureQueue,
+                            pairingNotificationSink,
+                            [] {},
+                            std::chrono::milliseconds(100)};
+  session.AttachConnection(connection);
+  Authenticate(session, connection, target);
+
+  auto [onResult, resultFuture] = CaptureTrustAdminResult();
+  session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                std::nullopt, std::nullopt, onResult);
+  REQUIRE(connection.Sent().size() == 1);
+  //  Consumed by the timeout worker's own later cancellation attempt, not by
+  //  the request already sent above.
+  connection.ThrowOnNextSend();
 
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
@@ -2771,7 +2901,11 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
           std::future_status::ready);
   CHECK(rejectedResultFuture.get().outcome ==
         TrustAdminRequestOutcome::kUnavailable);
-  CHECK(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+  //  Each of the kMaxPendingTrustAdminRequests timed-out requests above also
+  //  sent its own best-effort cancellation by the time allEntered.wait()
+  //  returned, so the baseline is double the admitted count, not merely it.
+  std::size_t baselineSentCount = 2 * kMaxPendingTrustAdminRequests;
+  CHECK(connection.Sent().size() == baselineSentCount);
 
   releaseGate.set_value();
 
@@ -2785,7 +2919,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
     auto [onResult, resultFuture] = CaptureTrustAdminResult();
     session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
                                   std::nullopt, std::nullopt, onResult);
-    if (connection.Sent().size() > kMaxPendingTrustAdminRequests) {
+    if (connection.Sent().size() > baselineSentCount) {
       admitted = true;
       break;
     }
