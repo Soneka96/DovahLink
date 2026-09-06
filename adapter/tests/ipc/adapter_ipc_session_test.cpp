@@ -2019,9 +2019,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's onResult callback is "
   //  past it, the destructor's own wait for every timeout worker to finish
   //  (proven separately) is reused here as the deterministic signal that
   //  this request's worker has actually woken, found the entry already
-  //  resolved by HandleMessage below, and observed it as a no-op --
-  //  ai/context/skse/testing.md's "do not rely on timing sleeps to prove
-  //  concurrency."
+  //  resolved by HandleMessage below, and observed it as a no-op, without
+  //  this test relying on a timing sleep to prove that.
   FixedAdapterIpcPeerProofProvider peerProofProvider{
       {std::byte{9}, std::byte{8}, std::byte{7}}};
   AdapterIpcTarget target{
@@ -2264,4 +2263,188 @@ TEST_CASE("AdapterIpcSession's destructor safely waits for a "
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
   CHECK_FALSE(resultFuture.get().has_value());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's admission is atomic "
+          "with HandleClosing: a request already inside TrySend is admitted "
+          "and abandoned by the close, never left pending outside its "
+          "generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::future<void> sendEntered = connection.BlockNextSend();
+  auto [onResult, resultFuture] = CaptureTrustAdminResult();
+  AdapterIpcSession *sessionPtr = &fixture.session;
+  std::future<void> sendCall = std::async(std::launch::async, [sessionPtr,
+                                                               onResult] {
+    sessionPtr->SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                      std::nullopt, std::nullopt, onResult);
+  });
+  REQUIRE(sendEntered.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+
+  //  SendTrustAdminRequest is blocked inside TrySend while still holding
+  //  availableMutex_ (registration and the activeTrustAdminWaiters_
+  //  increment both already happened under that same lock). HandleClosing
+  //  needs that same lock for CloseCurrentGenerationLocked, so this
+  //  concurrent call cannot observe or act on the session until the blocked
+  //  call above releases it -- proving the two can never interleave.
+  std::thread closer([&fixture] { fixture.session.HandleClosing(); });
+  connection.ReleaseBlockedSend();
+
+  sendCall.get();
+  closer.join();
+
+  //  A short wait, well inside SessionFixture's default 5-second
+  //  kTrustAdminRequestTimeout, proves this nullopt came from HandleClosing's
+  //  own force-abandonment rather than the timeout coincidentally landing
+  //  first.
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+  CHECK_FALSE(resultFuture.get().has_value());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves synchronously "
+          "with nullopt and sends nothing when HandleClosing has already "
+          "closed the generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  fixture.session.HandleClosing();
+
+  auto [onResult, resultFuture] = CaptureTrustAdminResult();
+  fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                        std::nullopt, std::nullopt,
+                                        std::nullopt, onResult);
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
+          std::future_status::ready);
+  CHECK_FALSE(resultFuture.get().has_value());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's requests admitted "
+          "before a close are each abandoned by their own exact correlation "
+          "id, not merely 'some' pending request, and not by waiting out "
+          "the timeout") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
+  FakeAdapterIpcConnection connection;
+  //  Deliberately much longer than this test's own short assertion wait
+  //  below: if abandonment were ever delivered by the timeout worker instead
+  //  of HandleClosing's own sweep, this test would time out rather than
+  //  pass, rather than this test relying on a timing sleep to prove which
+  //  path actually resolved it.
+  AdapterIpcSession session(
+      SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+      captureQueue, pairingNotificationSink, [] {}, std::chrono::minutes(10));
+  session.AttachConnection(connection);
+  Authenticate(session, connection, target);
+
+  auto [firstOnResult, firstResultFuture] = CaptureTrustAdminResult();
+  session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                std::nullopt, std::nullopt, firstOnResult);
+  auto [secondOnResult, secondResultFuture] = CaptureTrustAdminResult();
+  session.SendTrustAdminRequest(TrustAdminOperation::kResetTrust, std::nullopt,
+                                std::nullopt, std::nullopt, secondOnResult);
+  REQUIRE(connection.Sent().size() == 2);
+
+  session.HandleClosing();
+
+  //  Each request's own captured future is tied to its own correlation id by
+  //  construction (a distinct pending-map entry and callback per call): if
+  //  the close path ever cross-delivered or dropped one, the corresponding
+  //  future below would never become ready rather than merely carrying the
+  //  wrong value.
+  REQUIRE(firstResultFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+  REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+  CHECK_FALSE(firstResultFuture.get().has_value());
+  CHECK_FALSE(secondResultFuture.get().has_value());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback is never "
+          "invoked a second time by a stale result delivered after "
+          "HandleClosing already abandoned the request") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  auto invocationCount = std::make_shared<std::atomic<int>>(0);
+  fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [invocationCount](std::optional<std::string>) {
+        invocationCount->fetch_add(1);
+      });
+  std::uint64_t correlationId =
+      std::get<IpcTrustAdminRequestMessage>(connection.Sent().front())
+          .correlationId;
+
+  fixture.session.HandleClosing();
+  CHECK(invocationCount->load() == 1);
+
+  //  HandleDisconnected is a no-op for an already-closed generation (see
+  //  "HandleClosing and HandleDisconnected cooperate safely" above), and a
+  //  stale result for the same, already-abandoned correlation id must not
+  //  resolve anything a second time.
+  fixture.session.HandleDisconnected();
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+            .correlationId = correlationId, .resultText = "late"}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  CHECK(invocationCount->load() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::HandleClosing abandons only the trust-admin "
+          "requests still pending, leaving one already resolved by "
+          "HandleMessage untouched") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  auto [firstOnResult, firstResultFuture] = CaptureTrustAdminResult();
+  fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                        std::nullopt, std::nullopt,
+                                        std::nullopt, firstOnResult);
+  std::uint64_t firstCorrelationId =
+      std::get<IpcTrustAdminRequestMessage>(connection.Sent().back())
+          .correlationId;
+  fixture.session.HandleMessage(IpcMessage{
+      IpcTrustAdminResultMessage{.correlationId = firstCorrelationId,
+                                 .resultText = "resolved-before-close"}});
+  REQUIRE(firstResultFuture.wait_for(std::chrono::seconds(0)) ==
+          std::future_status::ready);
+
+  auto [secondOnResult, secondResultFuture] = CaptureTrustAdminResult();
+  fixture.session.SendTrustAdminRequest(TrustAdminOperation::kResetTrust,
+                                        std::nullopt, std::nullopt,
+                                        std::nullopt, secondOnResult);
+
+  //  Only the second request is still pending when the close sweep runs; the
+  //  first must be left exactly as HandleMessage already resolved it, not
+  //  re-abandoned or re-delivered.
+  fixture.session.HandleClosing();
+
+  std::optional<std::string> firstResult = firstResultFuture.get();
+  REQUIRE(firstResult.has_value());
+  CHECK(*firstResult == "resolved-before-close");
+  REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
+  CHECK_FALSE(secondResultFuture.get().has_value());
 }

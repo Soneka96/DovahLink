@@ -150,12 +150,19 @@ void AdapterIpcSession::SendTrustAdminRequest(
     std::optional<std::string> shortId,
     std::optional<std::string> confirmationCode,
     std::function<void(std::optional<std::string>)> onResult) {
-  bool authenticated;
-  {
-    std::lock_guard<std::mutex> lock(availableMutex_);
-    authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
-  }
-  if (!authenticated || connection_ == nullptr) {
+  //  Held for the entire admission critical section below (authentication
+  //  check, pending-entry registration, and TrySend), not just the
+  //  authentication check: CloseCurrentGenerationLocked also runs under this
+  //  same lock, so whichever of the two acquires it first linearizes before
+  //  the other, and no request can observe generation N authenticated only
+  //  to be registered or sent after HandleClosing has already closed N.
+  //  TrySend is a bounded, non-blocking try-enqueue (try_to_lock on its own
+  //  outbound queue, no callback invoked), so calling it while this lock is
+  //  held cannot block the calling thread or invert lock order.
+  std::unique_lock<std::mutex> availableLock(availableMutex_);
+  if (authenticationState_ != AuthenticationState::kAuthenticated ||
+      connection_ == nullptr) {
+    availableLock.unlock();
     try {
       onResult(std::nullopt);
     } catch (...) {
@@ -182,6 +189,7 @@ void AdapterIpcSession::SendTrustAdminRequest(
       .listScope = listScope,
       .shortId = std::move(shortId),
       .confirmationCode = std::move(confirmationCode)}});
+  availableLock.unlock();
   if (!sent) {
     TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,
                                       activeTrustAdminWaiters_);

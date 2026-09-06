@@ -71,7 +71,14 @@ public:
   ///  latent Papyrus function's initial callback. `onResult` may run
   ///  synchronously on the calling thread (the immediate-failure cases), on
   ///  this session's own timeout worker, or on the connection's
-  ///  inbound-message thread; it must not block or throw.
+  ///  inbound-message thread; it must not block or throw. Admission is
+  ///  atomic with `HandleClosing`'s own generation close: a call either
+  ///  observes the current generation already closed and sends nothing, or
+  ///  is admitted and sent while that generation is still open, in which
+  ///  case a `HandleClosing` that closes it afterward still force-abandons
+  ///  the now-pending request. There is no outcome where this call observes
+  ///  an authenticated generation and is then admitted or sent after that
+  ///  same generation has already closed.
   ///  @param operation Which trust-administration command to send.
   ///  @param listScope The device scope for `TrustAdminOperation::kList`;
   ///  otherwise unset.
@@ -326,7 +333,14 @@ private:
   ///  Lets deferred tasks reject themselves after session destruction begins.
   std::shared_ptr<std::atomic_bool> lifetimeToken_ =
       std::make_shared<std::atomic_bool>(true);
-  ///  Guards `authenticationState_`.
+  ///  Guards `authenticationState_`. Also held for the full duration of a
+  ///  `SendTrustAdminRequest` call's admission (authentication check,
+  ///  `pendingTrustAdminResults_` registration, and `TrySend`), so that
+  ///  admission and `CloseCurrentGenerationLocked`'s own generation close can
+  ///  never interleave: whichever of the two acquires this mutex first
+  ///  linearizes before the other. Acquired before `trustAdminMutex_`
+  ///  whenever both are held together, the same order
+  ///  `CloseCurrentGenerationLocked` already uses.
   mutable std::mutex availableMutex_;
   ///  The current transport's authentication lifecycle phase.
   AuthenticationState authenticationState_ = AuthenticationState::kClosed;
@@ -354,6 +368,10 @@ private:
   ///  alone for up to `kTrustAdminRequestTimeout`, and must never hold
   ///  `availableMutex_` while doing so, since that would block every other
   ///  message this session processes for the same duration.
+  ///  `SendTrustAdminRequest` briefly nests this mutex inside an already-held
+  ///  `availableMutex_` at admission time only -- registering the pending
+  ///  entry, never waiting on `trustAdminCondition_` -- so this bounded nesting
+  ///  does not reintroduce that same blocking risk.
   std::mutex trustAdminMutex_;
   ///  Wakes a request's timeout worker early once its correlated result
   ///  arrives or the session closes, and wakes the destructor once
