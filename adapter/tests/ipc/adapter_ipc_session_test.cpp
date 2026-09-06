@@ -1942,11 +1942,11 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
   CHECK(invocationCount->load() == 1);
   CHECK(connection.Sent().empty());
 
-  //  No pending entry survives a thrown TrySend: a correlated result for it
-  //  now finds nothing to resolve.
-  CHECK(fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
-            .correlationId = 1, .resultText = "late"}}) ==
-        AdapterIpcMessageDisposition::kContinue);
+  //  No pending entry survives a thrown TrySend: if it had leaked, this
+  //  force-abandonment sweep would find it and invoke its callback a second
+  //  time, taking invocationCount to 2.
+  fixture.session.HandleClosing();
+  CHECK(invocationCount->load() == 1);
 
   //  No timeout worker was spawned for the thrown send: fixture.session's
   //  destructor, reached when this scope ends, would otherwise hang waiting
