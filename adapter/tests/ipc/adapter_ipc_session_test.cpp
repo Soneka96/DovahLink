@@ -2166,6 +2166,134 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
   CHECK_FALSE(resultFuture.get().has_value());
 }
 
+TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
+          "abandoned request's onResult callback reenters IsHostAvailable, "
+          "and the callback fires exactly once") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  auto invocationCount = std::make_shared<std::atomic<int>>(0);
+  fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [&fixture, invocationCount](std::optional<std::string>) {
+        invocationCount->fetch_add(1);
+        //  Reentrant call requiring availableMutex_: if HandleClosing (via
+        //  CloseCurrentGenerationLocked) still held that mutex while
+        //  invoking this callback, this call would deadlock against itself
+        //  rather than returning.
+        (void)fixture.session.IsHostAvailable();
+      });
+  REQUIRE(connection.Sent().size() == 1);
+
+  fixture.session.HandleClosing();
+
+  CHECK(invocationCount->load() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
+          "abandoned request's onResult callback reenters IsHostAvailable, "
+          "and the callback fires exactly once") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  auto invocationCount = std::make_shared<std::atomic<int>>(0);
+  fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [&fixture, invocationCount](std::optional<std::string>) {
+        invocationCount->fetch_add(1);
+        //  Reentrant call requiring availableMutex_: if HandleDisconnected
+        //  (via CloseCurrentGenerationLocked) still held that mutex while
+        //  invoking this callback, this call would deadlock against itself
+        //  rather than returning.
+        (void)fixture.session.IsHostAvailable();
+      });
+  REQUIRE(connection.Sent().size() == 1);
+
+  fixture.session.HandleDisconnected();
+
+  CHECK(invocationCount->load() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
+          "abandoned request's onResult callback reenters "
+          "SendTrustAdminRequest, and each callback fires exactly once") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  auto invocationCount = std::make_shared<std::atomic<int>>(0);
+  auto reentrantInvocationCount = std::make_shared<std::atomic<int>>(0);
+  fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [&fixture, invocationCount,
+       reentrantInvocationCount](std::optional<std::string>) {
+        invocationCount->fetch_add(1);
+        //  Reentrant call requiring availableMutex_ for its own admission
+        //  check: if HandleClosing still held that mutex here, this call
+        //  would deadlock instead of observing the generation already
+        //  closed and resolving synchronously with nullopt.
+        fixture.session.SendTrustAdminRequest(
+            TrustAdminOperation::kHelp, std::nullopt, std::nullopt,
+            std::nullopt,
+            [reentrantInvocationCount](std::optional<std::string> result) {
+              CHECK_FALSE(result.has_value());
+              reentrantInvocationCount->fetch_add(1);
+            });
+      });
+  REQUIRE(connection.Sent().size() == 1);
+
+  fixture.session.HandleClosing();
+
+  CHECK(invocationCount->load() == 1);
+  CHECK(reentrantInvocationCount->load() == 1);
+  //  The reentrant call observed the generation already closed, so it never
+  //  sent a new request.
+  CHECK(connection.Sent().size() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
+          "abandoned request's onResult callback reenters "
+          "SendTrustAdminRequest, and each callback fires exactly once") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  auto invocationCount = std::make_shared<std::atomic<int>>(0);
+  auto reentrantInvocationCount = std::make_shared<std::atomic<int>>(0);
+  fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [&fixture, invocationCount,
+       reentrantInvocationCount](std::optional<std::string>) {
+        invocationCount->fetch_add(1);
+        //  Reentrant call requiring availableMutex_ for its own admission
+        //  check: if HandleDisconnected still held that mutex here, this
+        //  call would deadlock instead of observing the generation already
+        //  closed and resolving synchronously with nullopt.
+        fixture.session.SendTrustAdminRequest(
+            TrustAdminOperation::kHelp, std::nullopt, std::nullopt,
+            std::nullopt,
+            [reentrantInvocationCount](std::optional<std::string> result) {
+              CHECK_FALSE(result.has_value());
+              reentrantInvocationCount->fetch_add(1);
+            });
+      });
+  REQUIRE(connection.Sent().size() == 1);
+
+  fixture.session.HandleDisconnected();
+
+  CHECK(invocationCount->load() == 1);
+  CHECK(reentrantInvocationCount->load() == 1);
+  //  The reentrant call observed the generation already closed, so it never
+  //  sent a new request.
+  CHECK(connection.Sent().size() == 1);
+}
+
 TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
           "trust-admin request's timeout worker to finish, resolving it "
           "with nullopt") {

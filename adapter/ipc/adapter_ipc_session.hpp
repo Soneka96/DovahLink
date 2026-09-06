@@ -273,27 +273,54 @@ private:
   std::uint64_t NextCorrelationId();
 
   ///  Invalidates the current generation for deferred work exactly once: a
-  ///  no-op if `authenticationState_` is already `kClosed`. Called by both
-  ///  `HandleClosing` and `HandleDisconnected` so the generation counter
-  ///  advances only once per logical close, regardless of which one runs
-  ///  first. Must be called while holding `availableMutex_`. Also resolves
-  ///  every outstanding `SendTrustAdminRequest` call with `std::nullopt` via
-  ///  `ResolveTrustAdminRequest`, so none of them wait out their full timeout
-  ///  after the connection they were sent on has already ended.
-  void CloseCurrentGenerationLocked();
+  ///  no-op (returning an empty vector) if `authenticationState_` is already
+  ///  `kClosed`, so the generation counter advances only once per logical
+  ///  close no matter how many times this is reached for the same generation.
+  ///  Must be called while holding `availableMutex_`. Also detaches every
+  ///  outstanding `SendTrustAdminRequest` call's callback via
+  ///  `DetachPendingTrustAdminCallbacksLocked`, so none of them wait out
+  ///  their full timeout after the connection they were sent on has already
+  ///  ended -- but, unlike `ResolveTrustAdminRequest`, never invokes one
+  ///  itself: the returned callbacks must be invoked only once every
+  ///  lifecycle lock this call was reached under is released, so external
+  ///  callback code never runs while this session's own lifecycle mutex is
+  ///  held.
+  ///  @return Every abandoned request's callback, to invoke with `std::nullopt`
+  ///  once those locks are released.
+  [[nodiscard]] std::vector<std::function<void(std::optional<std::string>)>>
+  CloseCurrentGenerationLocked();
+
+  ///  Erases every entry in `pendingTrustAdminResults_` and notifies
+  ///  `trustAdminCondition_` so each request's own timeout worker can wake
+  ///  and observe its slot already resolved, but returns the erased
+  ///  callbacks rather than invoking them. Must be called while holding
+  ///  `availableMutex_`; safe to call with `pendingTrustAdminResults_` empty.
+  ///  @return Every detached callback, in no particular order.
+  [[nodiscard]] std::vector<std::function<void(std::optional<std::string>)>>
+  DetachPendingTrustAdminCallbacksLocked();
+
+  ///  Invokes every callback in `callbacks` with `std::nullopt`, containing
+  ///  any exception each one throws, per
+  ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule.
+  ///  Must be called with neither `availableMutex_` nor `trustAdminMutex_`
+  ///  held, since a callback may run arbitrary external (including
+  ///  Papyrus-invoking) code.
+  void InvokeAbandonedTrustAdminCallbacks(
+      std::vector<std::function<void(std::optional<std::string>)>> callbacks);
 
   ///  Resolves one trust-administration request: if `correlationId` still
   ///  has a pending entry, erases it and invokes its callback with `result`;
   ///  otherwise a no-op (the request was already resolved by another path).
   ///  Idempotent by construction, since exactly one caller ever observes the
-  ///  entry present. Called from `HandleMessage` (a correlated
-  ///  `IpcTrustAdminResultMessage`), `CloseCurrentGenerationLocked` and the
-  ///  destructor (force-abandonment), `SendTrustAdminRequest` itself (an
-  ///  immediately-failed send), and this request's own timeout worker
-  ///  (`SendTrustAdminRequest`'s spawned thread, once its bound elapses).
-  ///  Contains any exception `result`'s callback throws, per
-  ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule
-  ///  -- this may run on any of those callers' own threads.
+  ///  entry present, and safe to call from any thread without holding
+  ///  `availableMutex_` -- the callback it invokes therefore may run on
+  ///  whichever thread resolves this request first. A force-abandonment
+  ///  sweep instead detaches its callbacks via
+  ///  `DetachPendingTrustAdminCallbacksLocked` and invokes them through
+  ///  `InvokeAbandonedTrustAdminCallbacks`, so that sweep's own callback
+  ///  invocation never runs while `availableMutex_` is held. Contains any
+  ///  exception `result`'s callback throws, per
+  ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule.
   void ResolveTrustAdminRequest(std::uint64_t correlationId,
                                 std::optional<std::string> result);
 

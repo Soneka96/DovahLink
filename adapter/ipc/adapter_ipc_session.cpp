@@ -414,8 +414,13 @@ void AdapterIpcSession::HandleDecodeFailure() {
 }
 
 void AdapterIpcSession::HandleDisconnected() {
-  std::lock_guard<std::mutex> lock(availableMutex_);
-  CloseCurrentGenerationLocked();
+  std::vector<std::function<void(std::optional<std::string>)>>
+      abandonedCallbacks;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    abandonedCallbacks = CloseCurrentGenerationLocked();
+  }
+  InvokeAbandonedTrustAdminCallbacks(std::move(abandonedCallbacks));
 }
 
 bool AdapterIpcSession::IsHostAvailable() const {
@@ -424,8 +429,13 @@ bool AdapterIpcSession::IsHostAvailable() const {
 }
 
 void AdapterIpcSession::HandleClosing() {
-  std::lock_guard<std::mutex> lock(availableMutex_);
-  CloseCurrentGenerationLocked();
+  std::vector<std::function<void(std::optional<std::string>)>>
+      abandonedCallbacks;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    abandonedCallbacks = CloseCurrentGenerationLocked();
+  }
+  InvokeAbandonedTrustAdminCallbacks(std::move(abandonedCallbacks));
 }
 
 void AdapterIpcSession::HandleResynchronizeRequest(
@@ -729,9 +739,10 @@ std::uint64_t AdapterIpcSession::NextCorrelationId() {
   return nextCorrelationId_.fetch_add(1) + 1;
 }
 
-void AdapterIpcSession::CloseCurrentGenerationLocked() {
+std::vector<std::function<void(std::optional<std::string>)>>
+AdapterIpcSession::CloseCurrentGenerationLocked() {
   if (authenticationState_ == AuthenticationState::kClosed) {
-    return;
+    return {};
   }
   authenticationState_ = AuthenticationState::kClosed;
   activeTarget_.reset();
@@ -746,18 +757,35 @@ void AdapterIpcSession::CloseCurrentGenerationLocked() {
   //  it to wait out its full kTrustAdminRequestTimeout after the connection
   //  it was sent on has already ended. Each request's own timeout worker (or
   //  send-failure caller) still owns releasing activeTrustAdminWaiters_ for
-  //  it; resolving it here only invokes its callback and wakes that worker
-  //  early instead of leaving it to sleep out the rest of its bound.
-  std::vector<std::uint64_t> abandonedCorrelationIds;
+  //  it; detaching it here only wakes that worker early instead of leaving it
+  //  to sleep out the rest of its bound. The caller invokes the returned
+  //  callbacks only after releasing availableMutex_.
+  return DetachPendingTrustAdminCallbacksLocked();
+}
+
+std::vector<std::function<void(std::optional<std::string>)>>
+AdapterIpcSession::DetachPendingTrustAdminCallbacksLocked() {
+  std::vector<std::function<void(std::optional<std::string>)>> callbacks;
   {
     std::lock_guard<std::mutex> trustAdminLock(trustAdminMutex_);
-    abandonedCorrelationIds.reserve(pendingTrustAdminResults_.size());
-    for (const auto &[correlationId, onResult] : pendingTrustAdminResults_) {
-      abandonedCorrelationIds.push_back(correlationId);
+    callbacks.reserve(pendingTrustAdminResults_.size());
+    for (auto &[correlationId, onResult] : pendingTrustAdminResults_) {
+      callbacks.push_back(std::move(onResult));
     }
+    pendingTrustAdminResults_.clear();
   }
-  for (std::uint64_t correlationId : abandonedCorrelationIds) {
-    ResolveTrustAdminRequest(correlationId, std::nullopt);
+  trustAdminCondition_.notify_all();
+  return callbacks;
+}
+
+void AdapterIpcSession::InvokeAbandonedTrustAdminCallbacks(
+    std::vector<std::function<void(std::optional<std::string>)>> callbacks) {
+  for (auto &onResult : callbacks) {
+    try {
+      onResult(std::nullopt);
+    } catch (...) {
+      //  Contained: see ResolveTrustAdminRequest's identical rule for why.
+    }
   }
 }
 
