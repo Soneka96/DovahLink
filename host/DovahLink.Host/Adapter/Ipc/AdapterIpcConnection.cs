@@ -293,6 +293,11 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
         catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
         {
+            // The adapter may still be holding this request queued for its Skyrim game thread (for
+            // example a stalled load), so withdrawing only the host's own local state would let a
+            // display the host has already reported unavailable appear later anyway. Best-effort:
+            // a failed remote cancellation still leaves this wait's own false result unchanged.
+            TryCancelRemotePairingDisplay(correlationId);
             return false;
         }
         finally
@@ -306,6 +311,25 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             // correlation id from the session's own pending set via HandlePairingDisplayAck, so this
             // is a harmless no-op on that path and the only cleanup for the timeout/cancellation paths.
             session.CancelPendingPairingDisplay(correlationId);
+        }
+    }
+
+    /// <summary>
+    /// Best-effort enqueues a remote cancellation for a pairing-display request whose acknowledgement
+    /// wait ended by timeout or caller cancellation. Never called after an explicit accepted or
+    /// rejected acknowledgement, since the adapter has already executed that request by then.
+    /// </summary>
+    /// <param name="correlationId">The pairing-display request's correlation id.</param>
+    private void TryCancelRemotePairingDisplay(ulong correlationId)
+    {
+        try
+        {
+            TryCancel(correlationId);
+        }
+        catch (Exception)
+        {
+            // Best-effort: a failed send here must not change the timeout/cancellation result already
+            // decided by the caller.
         }
     }
 

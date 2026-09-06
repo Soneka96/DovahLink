@@ -72,6 +72,12 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The result <see cref="HandleTrustAdminRequestAsync"/> returns.</summary>
     public string TrustAdminRequestResult { get; set; } = string.Empty;
 
+    /// <summary>Whether <see cref="PrepareCancel"/> throws instead of returning <see cref="CancelResult"/>.</summary>
+    public bool ThrowOnPrepareCancel { get; set; }
+
+    /// <summary>The correlation ids passed to <see cref="PrepareCancel"/>, in call order.</summary>
+    public List<ulong> PreparedCancelCorrelationIds { get; } = [];
+
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
     {
@@ -115,7 +121,11 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => ReadSampleResult;
 
     /// <inheritdoc/>
-    public IpcCancelMessage? PrepareCancel(ulong correlationId) => CancelResult;
+    public IpcCancelMessage? PrepareCancel(ulong correlationId)
+    {
+        PreparedCancelCorrelationIds.Add(correlationId);
+        return ThrowOnPrepareCancel ? throw new InvalidOperationException("Test-induced PrepareCancel failure.") : CancelResult;
+    }
 
     /// <inheritdoc/>
     public void HandleDisconnected()

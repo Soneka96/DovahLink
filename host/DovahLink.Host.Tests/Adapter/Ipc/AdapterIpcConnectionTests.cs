@@ -976,6 +976,7 @@ public class AdapterIpcConnectionTests
         bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
         blockingStream.Release();
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1021,11 +1022,13 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task AwaitPairingDisplayAckAsync_UnknownCorrelationId_ReturnsFalseImmediately()
     {
-        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
 
         bool result = await connection.AwaitPairingDisplayAckAsync(999, TimeSpan.FromSeconds(5), CancellationToken.None);
 
         Assert.False(result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
     }
 
     /// <summary>
@@ -1118,6 +1121,7 @@ public class AdapterIpcConnectionTests
         bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
@@ -1151,6 +1155,174 @@ public class AdapterIpcConnectionTests
 
         Assert.False(result);
         Assert.Single(fakeSession.HandledPairingDisplayAcks);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an explicit accepted or rejected acknowledgement never triggers a remote
+    /// cancellation: the adapter has already executed the display request by the time either
+    /// acknowledgement arrives, so there is nothing left to cancel.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AwaitPairingDisplayAckAsync_AckArrives_DoesNotCancelRemotely(bool accepted)
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = accepted,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, accepted)));
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(accepted, result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a timed-out acknowledgement wait sends a remote cancellation for the exact
+    /// correlation id, so a queued Skyrim-side display cannot appear after the host has already
+    /// rolled back and reported the challenge unavailable.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_NoAckArrives_SendsRemoteCancellation()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            CancelResult = new IpcCancelMessage(0),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a caller-cancelled acknowledgement wait sends a remote cancellation for the exact
+    /// correlation id, the same as a timeout does.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Cancelled_SendsRemoteCancellation()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            CancelResult = new IpcCancelMessage(0),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), cancellation.Token)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a timed-out acknowledgement wait still returns false when the remote
+    /// cancellation itself cannot be enqueued (a full outbound queue), rather than letting a
+    /// best-effort cleanup failure change the already-decided timeout result.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Timeout_CancellationEnqueueFails_StillReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            CancelResult = null,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a timed-out acknowledgement wait still returns false when sending the remote
+    /// cancellation throws, containing the failure the same as a controlled enqueue failure.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Timeout_CancellationSendThrows_ContainedAndStillReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            ThrowOnPrepareCancel = true,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
