@@ -178,12 +178,17 @@ void AdapterIpcSession::SendTrustAdminRequest(
   //  SendTrustAdminRequest call (serialized by availableLock, still held
   //  here) can observe stale capacity between the check and the insert.
   //  onResult is invoked only after this block ends, never while either
-  //  mutex is held.
+  //  mutex is held. Checked against activeTrustAdminWaiters_, not
+  //  pendingTrustAdminResults_.size(): a request resolved by HandleMessage or
+  //  a timeout still occupies its slot until its own timeout worker (or, for
+  //  an immediately-failed send, the original caller) actually finishes
+  //  touching trustAdminMutex_-guarded state, so counting the map alone would
+  //  let a rapid sequence of fast host responses admit more concurrently
+  //  outstanding timeout workers than this bound allows.
   bool atCapacity;
   {
     std::lock_guard<std::mutex> lock(trustAdminMutex_);
-    atCapacity =
-        pendingTrustAdminResults_.size() >= kMaxPendingTrustAdminRequests;
+    atCapacity = activeTrustAdminWaiters_ >= kMaxPendingTrustAdminRequests;
     if (!atCapacity) {
       pendingTrustAdminResults_[correlationId] = std::move(onResult);
       //  Counted here, before TrySend is ever called: this closes the gap a

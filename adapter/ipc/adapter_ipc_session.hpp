@@ -79,10 +79,14 @@ public:
   ///  the now-pending request. There is no outcome where this call observes
   ///  an authenticated generation and is then admitted or sent after that
   ///  same generation has already closed. Outstanding requests are bounded by
-  ///  `kMaxPendingTrustAdminRequests`: a request beyond that capacity is
-  ///  rejected immediately, the same as an unauthenticated connection --
-  ///  nothing is sent and no timeout worker is created for it -- without
-  ///  disturbing any already-admitted request's own correlation or result.
+  ///  `kMaxPendingTrustAdminRequests`, counted from admission until the
+  ///  request's own timeout worker (or, for an immediately-failed send, the
+  ///  original caller) has actually finished handling it -- not merely until
+  ///  a result, timeout, or close resolves it -- so a request beyond that
+  ///  capacity is rejected immediately, the same as an unauthenticated
+  ///  connection: nothing is sent and no timeout worker is created for it,
+  ///  without disturbing any already-admitted request's own correlation or
+  ///  result.
   ///  @param operation Which trust-administration command to send.
   ///  @param listScope The device scope for `TrustAdminOperation::kList`;
   ///  otherwise unset.

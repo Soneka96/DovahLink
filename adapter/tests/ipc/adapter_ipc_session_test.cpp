@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <future>
+#include <latch>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -2487,42 +2488,88 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits exactly "
   }
 }
 
-TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits another request "
-          "once an outstanding one resolves, freeing its slot in the "
-          "bound") {
-  SessionFixture fixture;
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
+          "request merely because every outstanding one's map entry was "
+          "erased -- only once each one's own timeout worker actually "
+          "releases its slot") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
   FakeAdapterIpcConnection connection;
-  fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.target);
+  //  Short enough to keep this test fast: every request below is resolved by
+  //  its own timeout firing, not by HandleMessage, which matters below.
+  AdapterIpcSession session(
+      SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+      captureQueue, pairingNotificationSink, [] {},
+      std::chrono::milliseconds(30));
+  session.AttachConnection(connection);
+  Authenticate(session, connection, target);
 
-  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  //  Each of the kMaxPendingTrustAdminRequests callbacks below signals its
+  //  own entry, then blocks on a shared gate. Because every request times out
+  //  rather than being resolved by HandleMessage, its own timeout worker --
+  //  not this test's thread -- is what erases its pendingTrustAdminResults_
+  //  entry and invokes this callback, strictly before that same worker's
+  //  TrustAdminWaiterGuard can destruct and release its
+  //  activeTrustAdminWaiters_ slot. Blocking every one of them here therefore
+  //  holds every slot open deterministically with every map entry already
+  //  gone -- exactly the map-vs-waiter divergence the fix must close.
+  std::latch allEntered(kMaxPendingTrustAdminRequests);
+  std::promise<void> releaseGate;
+  std::shared_future<void> released = releaseGate.get_future().share();
   for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
-    auto [onResult, resultFuture] = CaptureTrustAdminResult();
-    fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
-                                          std::nullopt, std::nullopt,
-                                          std::nullopt, onResult);
-    resultFutures.push_back(std::move(resultFuture));
+    session.SendTrustAdminRequest(
+        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+        [&allEntered, released](std::optional<std::string>) {
+          allEntered.count_down();
+          released.wait();
+        });
   }
   REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
-  std::uint64_t firstCorrelationId =
-      std::get<IpcTrustAdminRequestMessage>(connection.Sent().front())
-          .correlationId;
-  fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
-      .correlationId = firstCorrelationId, .resultText = "ok"}});
-  REQUIRE(resultFutures.front().wait_for(std::chrono::seconds(0)) ==
+  allEntered.wait();
+
+  //  Every map entry is gone, but no slot has been released yet: under the
+  //  old pendingTrustAdminResults_.size()-based check this would be wrongly
+  //  admitted. The fix must still reject it, sending nothing.
+  auto [rejectedOnResult, rejectedResultFuture] = CaptureTrustAdminResult();
+  session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                std::nullopt, std::nullopt, rejectedOnResult);
+  REQUIRE(rejectedResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
+  CHECK_FALSE(rejectedResultFuture.get().has_value());
+  CHECK(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
-  auto [onResult, resultFuture] = CaptureTrustAdminResult();
-  fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
-                                        std::nullopt, std::nullopt,
-                                        std::nullopt, onResult);
+  releaseGate.set_value();
 
-  //  The freed slot from the resolved request above makes room for this one,
-  //  rather than the bound staying permanently occupied once ever reached.
-  CHECK(connection.Sent().size() == kMaxPendingTrustAdminRequests + 1);
-  CHECK(resultFuture.wait_for(std::chrono::seconds(0)) !=
-        std::future_status::ready);
+  //  Once released, each blocked callback returns with no further blocking
+  //  call before its own worker's guard destructs, so polling (rather than
+  //  sleeping a fixed guess) reliably observes a freed slot well within this
+  //  bound.
+  bool admitted = false;
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (std::chrono::steady_clock::now() < deadline) {
+    auto [onResult, resultFuture] = CaptureTrustAdminResult();
+    session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                  std::nullopt, std::nullopt, onResult);
+    if (connection.Sent().size() > kMaxPendingTrustAdminRequests) {
+      admitted = true;
+      break;
+    }
+    REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
+            std::future_status::ready);
+    std::this_thread::yield();
+  }
+  CHECK(admitted);
 }
 
 TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "

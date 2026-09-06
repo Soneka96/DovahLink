@@ -112,13 +112,17 @@ inline constexpr std::size_t kMaxIpcTrustAdminResultTextBytes = 4096;
 inline constexpr std::chrono::milliseconds kTrustAdminRequestTimeout{5000};
 
 ///  The maximum number of trust-admin requests `AdapterIpcSession` admits at
-///  once (sent but not yet resolved by a correlated result, a timeout, or a
-///  connection close). Bounds memory growth in `pendingTrustAdminResults_`
-///  and the number of outstanding timeout worker threads a rapid sequence of
-///  Papyrus-originated commands could otherwise spawn; a request beyond this
-///  capacity is rejected without being sent or spawning a worker. Sized well
-///  above any plausible number of concurrent manual console commands, since
-///  this is a rare control-path API rather than a per-frame or
+///  once, counted from admission until the request's own timeout worker (or,
+///  for an immediately-failed send, the original caller) has actually
+///  finished handling it -- not merely until a correlated result, a timeout,
+///  or a connection close resolves it. Strictly bounds both memory growth in
+///  `pendingTrustAdminResults_` and the number of concurrently outstanding
+///  timeout worker threads a rapid sequence of Papyrus-originated commands
+///  could otherwise spawn: a request beyond this capacity is rejected without
+///  being sent or spawning a worker, and an already-resolved request does not
+///  free its slot until the thread that owns it has actually finished. Sized
+///  well above any plausible number of concurrent manual console commands,
+///  since this is a rare control-path API rather than a per-frame or
 ///  per-connection-lifecycle operation.
 inline constexpr std::size_t kMaxPendingTrustAdminRequests = 16;
 
