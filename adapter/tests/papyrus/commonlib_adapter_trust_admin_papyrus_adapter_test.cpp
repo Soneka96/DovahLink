@@ -14,6 +14,18 @@ std::string Source() {
   return ReadSource(DOVAHLINK_ADAPTER_TRUST_ADMIN_PAPYRUS_ADAPTER_SOURCE_FILE);
 }
 
+///  The number of times `needle` occurs in `haystack`, non-overlapping.
+std::size_t CountOccurrences(const std::string &haystack,
+                             const std::string &needle) {
+  std::size_t count = 0;
+  std::size_t position = 0;
+  while ((position = haystack.find(needle, position)) != std::string::npos) {
+    ++count;
+    position += needle.size();
+  }
+  return count;
+}
+
 } //  namespace
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter includes RE/Skyrim.h and "
@@ -51,20 +63,37 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter stores the session "
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter registers every "
-          "DovahLinkAdmin function and handles a missing or failed Papyrus "
-          "interface",
+          "DovahLinkAdmin function as latent and handles a missing or "
+          "failed Papyrus interface",
           "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
           "[structural]") {
+  //  Latent, not RegisterFunction: this is this concept's own proof that no
+  //  DovahLinkAdmin command can ever block the thread the Papyrus VM calls
+  //  its initial callback on -- the behavioral half of that proof lives in
+  //  AdapterIpcSession's own tests, since this test target deliberately does
+  //  not link CommonLibSSE-NG and cannot exercise a real VM callback.
   std::string source = Source();
+
+  CHECK(source.find("vm->RegisterFunction(") == std::string::npos);
+  CHECK(CountOccurrences(
+            source, "vm->RegisterLatentFunction<RE::BSFixedString>(") == 9);
 
   for (const char *functionName :
        {"List", "Help", "Revoke", "Block", "Unblock", "Forget", "ResetTrust",
         "Reset", "ConfirmReset"}) {
-    INFO("checking registration of " << functionName);
-    std::string expected = std::string("vm->RegisterFunction(\"") +
-                           functionName + "\", \"DovahLinkAdmin\", " +
-                           functionName + ");";
-    CHECK(source.find(expected) != std::string::npos);
+    INFO("checking latent registration of " << functionName);
+    std::string registrationStartMarker =
+        std::string("vm->RegisterLatentFunction<RE::BSFixedString>(\"") +
+        functionName + "\",";
+    std::size_t registrationStart = source.find(registrationStartMarker);
+    REQUIRE(registrationStart != std::string::npos);
+    std::size_t classNameArgument =
+        source.find("\"DovahLinkAdmin\"", registrationStart);
+    std::size_t functionArgument = source.find(
+        functionName, registrationStart + registrationStartMarker.size());
+    REQUIRE(classNameArgument != std::string::npos);
+    REQUIRE(functionArgument != std::string::npos);
+    CHECK(classNameArgument < functionArgument);
   }
 
   CHECK(source.find("if (!papyrusInterface)") != std::string::npos);
@@ -73,29 +102,37 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter registers every "
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter declares all nine "
-          "native Papyrus function signatures",
+          "native Papyrus function signatures as latent",
           "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
           "[structural]") {
   std::string source = Source();
 
-  CHECK(source.find("RE::BSFixedString List(RE::StaticFunctionTag *, "
-                    "RE::BSFixedString akScope) {") != std::string::npos);
-  CHECK(source.find("RE::BSFixedString Help(RE::StaticFunctionTag *) {") !=
+  //  Every native function returns RE::BSScript::LatentStatus, not
+  //  RE::BSFixedString directly: the actual result only ever reaches the
+  //  calling script through ReturnLatentResult.
+  CHECK(CountOccurrences(source, "RE::BSScript::LatentStatus\n") >= 9);
+  CHECK(source.find("RE::BSFixedString List(") == std::string::npos);
+
+  CHECK(source.find("List(RE::BSScript::Internal::VirtualMachine *a_vm, "
+                    "RE::VMStackID a_stackID,") != std::string::npos);
+  CHECK(source.find("RE::StaticFunctionTag *, RE::BSFixedString akScope) {") !=
         std::string::npos);
-  CHECK(source.find("RE::BSFixedString Revoke(RE::StaticFunctionTag *, "
-                    "RE::BSFixedString akId) {") != std::string::npos);
-  CHECK(source.find("RE::BSFixedString Block(RE::StaticFunctionTag *, "
-                    "RE::BSFixedString akId) {") != std::string::npos);
-  CHECK(source.find("RE::BSFixedString Unblock(RE::StaticFunctionTag *, "
-                    "RE::BSFixedString akId) {") != std::string::npos);
-  CHECK(source.find("RE::BSFixedString Forget(RE::StaticFunctionTag *, "
-                    "RE::BSFixedString akId) {") != std::string::npos);
-  CHECK(source.find("RE::BSFixedString ResetTrust(RE::StaticFunctionTag "
-                    "*) {") != std::string::npos);
-  CHECK(source.find("RE::BSFixedString Reset(RE::StaticFunctionTag *) {") !=
-        std::string::npos);
-  CHECK(source.find("RE::BSFixedString ConfirmReset(RE::StaticFunctionTag "
-                    "*,") != std::string::npos);
+  CHECK(source.find("Help(RE::BSScript::Internal::VirtualMachine *a_vm, "
+                    "RE::VMStackID a_stackID,") != std::string::npos);
+  CHECK(source.find("Revoke(RE::BSScript::Internal::VirtualMachine *a_vm, "
+                    "RE::VMStackID a_stackID,") != std::string::npos);
+  CHECK(source.find("Block(RE::BSScript::Internal::VirtualMachine *a_vm, "
+                    "RE::VMStackID a_stackID,") != std::string::npos);
+  CHECK(source.find("Unblock(RE::BSScript::Internal::VirtualMachine *a_vm, "
+                    "RE::VMStackID a_stackID,") != std::string::npos);
+  CHECK(source.find("Forget(RE::BSScript::Internal::VirtualMachine *a_vm, "
+                    "RE::VMStackID a_stackID,") != std::string::npos);
+  CHECK(source.find("ResetTrust(RE::BSScript::Internal::VirtualMachine "
+                    "*a_vm,") != std::string::npos);
+  CHECK(source.find("Reset(RE::BSScript::Internal::VirtualMachine *a_vm, "
+                    "RE::VMStackID a_stackID,") != std::string::npos);
+  CHECK(source.find("ConfirmReset(RE::BSScript::Internal::VirtualMachine "
+                    "*a_vm,") != std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's short-id-targeted "
@@ -109,18 +146,14 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's short-id-targeted "
   std::string source = Source();
 
   for (const auto &[operationValue, expectedCall] :
-       {std::pair{"kRevoke",
-                  "return SendWithShortId(ipc::TrustAdminOperation::kRevoke, "
-                  "akId);"},
-        std::pair{"kBlock",
-                  "return SendWithShortId(ipc::TrustAdminOperation::kBlock, "
-                  "akId);"},
-        std::pair{"kUnblock",
-                  "return SendWithShortId(ipc::TrustAdminOperation::kUnblock,"
-                  " akId);"},
-        std::pair{"kForget",
-                  "return SendWithShortId(ipc::TrustAdminOperation::kForget, "
-                  "akId);"}}) {
+       {std::pair{"kRevoke", "return SendWithShortId(a_vm, a_stackID, "
+                             "ipc::TrustAdminOperation::kRevoke,"},
+        std::pair{"kBlock", "return SendWithShortId(a_vm, a_stackID, "
+                            "ipc::TrustAdminOperation::kBlock,"},
+        std::pair{"kUnblock", "return SendWithShortId(a_vm, a_stackID, "
+                              "ipc::TrustAdminOperation::kUnblock,"},
+        std::pair{"kForget", "return SendWithShortId(a_vm, a_stackID, "
+                             "ipc::TrustAdminOperation::kForget,"}}) {
     INFO("checking " << operationValue);
     CHECK(source.find(expectedCall) != std::string::npos);
   }
@@ -132,13 +165,13 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's no-argument functions "
           "[structural]") {
   std::string source = Source();
 
-  CHECK(source.find("return SendNoArgument(ipc::TrustAdminOperation::kHelp)"
-                    ";") != std::string::npos);
-  CHECK(source.find(
-            "return SendNoArgument(ipc::TrustAdminOperation::kResetTrust);") !=
+  CHECK(source.find("return SendNoArgument(a_vm, a_stackID, "
+                    "ipc::TrustAdminOperation::kHelp);") != std::string::npos);
+  CHECK(source.find("return SendNoArgument(a_vm, a_stackID, "
+                    "ipc::TrustAdminOperation::kResetTrust);") !=
         std::string::npos);
-  CHECK(source.find("return SendNoArgument(ipc::TrustAdminOperation::kReset)"
-                    ";") != std::string::npos);
+  CHECK(source.find("return SendNoArgument(a_vm, a_stackID, "
+                    "ipc::TrustAdminOperation::kReset);") != std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's List validates its "
@@ -148,8 +181,8 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's List validates its "
   std::string source = Source();
 
   std::size_t listStart = source.find(
-      "RE::BSFixedString List(RE::StaticFunctionTag *, RE::BSFixedString "
-      "akScope) {");
+      "List(RE::BSScript::Internal::VirtualMachine *a_vm, RE::VMStackID "
+      "a_stackID,");
   REQUIRE(listStart != std::string::npos);
   std::size_t scopeCheck = source.find("!scope.has_value()", listStart);
   std::size_t sendCall =
@@ -168,7 +201,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's ConfirmReset validates "
   std::string source = Source();
 
   std::size_t confirmResetStart =
-      source.find("RE::BSFixedString ConfirmReset(RE::StaticFunctionTag *,");
+      source.find("ConfirmReset(RE::BSScript::Internal::VirtualMachine *a_vm,");
   REQUIRE(confirmResetStart != std::string::npos);
   std::size_t digitsCheck =
       source.find("!IsFixedAsciiDigits(confirmationCode,", confirmResetStart);
@@ -182,7 +215,8 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's ConfirmReset validates "
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's shared helpers "
           "validate a short id and forward to SendTrustAdminRequest with "
-          "the caller's operation",
+          "the caller's operation, resuming the latent script through its "
+          "captured stack id",
           "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
           "[structural]") {
   //  SendNoArgument and SendWithShortId are each called from more than one
@@ -191,23 +225,29 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's shared helpers "
   std::string source = Source();
 
   std::size_t sendWithShortIdStart = source.find(
-      "RE::BSFixedString SendWithShortId(ipc::TrustAdminOperation operation,");
+      "SendWithShortId(RE::BSScript::Internal::VirtualMachine *a_vm,");
   REQUIRE(sendWithShortIdStart != std::string::npos);
   std::size_t digitsCheck =
       source.find("!IsFixedAsciiDigits(shortId,", sendWithShortIdStart);
   std::size_t sendCall = source.find(
       "operation, std::nullopt, std::string(shortId)", sendWithShortIdStart);
+  std::size_t returnLatentResult = source.find(
+      "RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));",
+      sendWithShortIdStart);
 
   REQUIRE(digitsCheck != std::string::npos);
   REQUIRE(sendCall != std::string::npos);
+  REQUIRE(returnLatentResult != std::string::npos);
   CHECK(digitsCheck < sendCall);
+  CHECK(sendCall < returnLatentResult);
 
   std::size_t sendNoArgumentStart = source.find(
-      "RE::BSFixedString SendNoArgument(ipc::TrustAdminOperation operation) "
-      "{");
+      "SendNoArgument(RE::BSScript::Internal::VirtualMachine *a_vm,");
   REQUIRE(sendNoArgumentStart != std::string::npos);
-  CHECK(source.find("SendTrustAdminRequest(operation)", sendNoArgumentStart) !=
+  CHECK(source.find("g_session->SendTrustAdminRequest(", sendNoArgumentStart) !=
         std::string::npos);
+  CHECK(source.find("operation, std::nullopt, std::nullopt, std::nullopt,",
+                    sendNoArgumentStart) != std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter reports explicit "
@@ -249,4 +289,20 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's List parses the "
   CHECK(source.find("scope == \"trust\"") != std::string::npos);
   CHECK(source.find("scope == \"block\"") != std::string::npos);
   CHECK(source.find("\"Unrecognized list scope.\"") != std::string::npos);
+}
+
+TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter resumes every latent "
+          "response -- immediate rejection or SendTrustAdminRequest's "
+          "asynchronous result -- through one shared RespondLatent call site",
+          "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
+          "[structural]") {
+  //  A single call site for RE::BSScript::IVirtualMachine::ReturnLatentResult
+  //  is itself part of this file's own proof that every response path
+  //  actually resumes its script exactly once, rather than each function
+  //  independently deciding how to unblock its caller.
+  std::string source = Source();
+
+  CHECK(CountOccurrences(source,
+                         "a_vm->ReturnLatentResult(a_stackID, message);") == 1);
+  CHECK(CountOccurrences(source, "RespondLatent(a_vm, a_stackID,") >= 9);
 }

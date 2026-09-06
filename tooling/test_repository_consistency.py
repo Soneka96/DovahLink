@@ -133,7 +133,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertEqual(port["name"], "commonlibsse-ng-flatrim")
         self.assertEqual(port["version-semver"], "3.7.0")
-        self.assertEqual(port["port-version"], 0)
+        self.assertEqual(port["port-version"], 1)
         dependencies = {
             dependency["name"] if isinstance(dependency, dict) else dependency
             for dependency in port["dependencies"]
@@ -149,8 +149,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "SHA512 fd615c16f8f2c637cad5ed9d139c776d21314664f4084a62231645114d03ee74e720c1ecf09b4e5daa5d56d418374ad6d587806788d95af8ac08ce3de930015b",
             "-DENABLE_SKYRIM_VR=off",
             "-DSKSE_SUPPORT_XBYAK=on",
+            "fix-register-latent-function-return-type.patch",
         ):
             self.assertIn(required_fragment, portfile)
+
+        self.assertTrue(
+            (
+                REPOSITORY_ROOT
+                / "tooling/vcpkg-ports/commonlibsse-ng-flatrim"
+                / "fix-register-latent-function-return-type.patch"
+            ).is_file(),
+            "the referenced latent-function patch must exist alongside the portfile",
+        )
 
     def test_bridge_clang_format_uses_the_established_source_style(self) -> None:
         """Keep Bridge formatting explicit instead of relying on clang-format defaults."""

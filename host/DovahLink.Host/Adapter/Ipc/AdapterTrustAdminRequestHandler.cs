@@ -80,7 +80,20 @@ public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestH
         _ => "Unrecognized list scope.",
     };
 
-    /// <summary>Formats an already-scoped, already-deduplicated device listing.</summary>
+    /// <summary>
+    /// The UTF-8 byte budget reserved for a truncation suffix ("... N more Xs."). Comfortably larger
+    /// than any suffix this handler actually produces, so <see cref="FormatKnownDeviceListing"/> never
+    /// needs to compute the suffix's exact size while deciding whether one more record still fits.
+    /// </summary>
+    private const int TruncationSuffixReserveBytes = 64;
+
+    /// <summary>
+    /// Formats an already-scoped, already-deduplicated device listing, truncating (with a trailing
+    /// "... N more" note) before the result would exceed <see cref="Constants.MaxIpcTrustAdminResultTextBytes"/>
+    /// UTF-8 bytes, so a sufficiently large known-device store can never turn a valid list request into
+    /// an encoding failure that tears down the private IPC connection instead of returning a controlled,
+    /// bounded result.
+    /// </summary>
     /// <param name="records">The records to format, in display order.</param>
     /// <param name="deviceKind">The singular noun describing one listed record.</param>
     /// <param name="includeState">Whether each line includes the record's trust state.</param>
@@ -93,14 +106,32 @@ public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestH
 
         var builder = new StringBuilder();
         builder.Append(records.Count).Append(' ').Append(deviceKind).Append(records.Count == 1 ? "" : "s").Append(':');
+
+        int shown = 0;
         foreach (TrustRecord record in records)
         {
             string displayName = string.IsNullOrEmpty(record.DisplayName) ? "(no display name)" : record.DisplayName;
-            builder.Append('\n').Append(record.ShortId).Append("  ").Append(displayName);
+            var line = new StringBuilder().Append('\n').Append(record.ShortId).Append("  ").Append(displayName);
             if (includeState)
             {
-                builder.Append("  ").Append(StateLabel(record.State));
+                line.Append("  ").Append(StateLabel(record.State));
             }
+
+            string lineText = line.ToString();
+            int projectedBytes = Encoding.UTF8.GetByteCount(builder.ToString()) + Encoding.UTF8.GetByteCount(lineText);
+            if (projectedBytes > Constants.MaxIpcTrustAdminResultTextBytes - TruncationSuffixReserveBytes)
+            {
+                break;
+            }
+
+            builder.Append(lineText);
+            shown++;
+        }
+
+        int omitted = records.Count - shown;
+        if (omitted > 0)
+        {
+            builder.Append('\n').Append("... ").Append(omitted).Append(" more ").Append(deviceKind).Append(omitted == 1 ? "" : "s").Append('.');
         }
 
         return builder.ToString();

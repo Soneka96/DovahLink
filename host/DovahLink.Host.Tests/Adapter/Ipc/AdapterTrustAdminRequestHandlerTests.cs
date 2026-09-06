@@ -1,3 +1,4 @@
+using System.Text;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Tests.TestDoubles;
@@ -85,6 +86,55 @@ public class AdapterTrustAdminRequestHandlerTests
         string result = await handler.HandleAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: TrustAdminListScope.Trust));
 
         Assert.Equal("1 trusted client:\n11111  Alice's PC", result);
+    }
+
+    /// <summary>
+    /// Verifies that a listing large enough to exceed the private-IPC result-text bound truncates
+    /// with a trailing "... N more" note instead of producing text the codec would reject, per this
+    /// handler's own bounded-result contract.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_List_ExceedsResultTextBudget_TruncatesWithMoreCount()
+    {
+        var records = Enumerable.Range(0, 200)
+            .Select(index => BuildRecord($"{index:D5}", $"Device {index}", KnownDeviceState.Trusted))
+            .ToList();
+        var trustAdminService = new FakeTrustAdminService { ListResult = records };
+        var handler = new AdapterTrustAdminRequestHandler(trustAdminService, new FakeTrustResetService(), new FakeClock());
+
+        string result = await handler.HandleAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: TrustAdminListScope.All));
+
+        int byteLength = Encoding.UTF8.GetByteCount(result);
+        Assert.True(byteLength <= Constants.MaxIpcTrustAdminResultTextBytes, $"result was {byteLength} UTF-8 bytes.");
+        Assert.StartsWith("200 known devices:", result);
+        Assert.Contains("00000  Device 0  trusted", result);
+        Assert.DoesNotContain("00199  Device 199  trusted", result);
+        Assert.Matches(@"\.\.\. \d+ more known devices\.$", result);
+    }
+
+    /// <summary>
+    /// Verifies that the truncation bound is computed in UTF-8 bytes, not <see cref="string.Length"/>:
+    /// a multi-byte-per-character display name must count against the budget by its true encoded
+    /// size, not its character count.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_List_NonAsciiDisplayNames_BoundedByUtf8BytesNotCharCount()
+    {
+        // 60 CJK characters: 1 UTF-16 char but 3 UTF-8 bytes apiece, so a char-length-based bound
+        // would (incorrectly) fit roughly 3x too many records before truncating.
+        string multiByteName = new string('中', 60);
+        var records = Enumerable.Range(0, 100)
+            .Select(index => BuildRecord($"{index:D5}", multiByteName, KnownDeviceState.Trusted))
+            .ToList();
+        var trustAdminService = new FakeTrustAdminService { ListResult = records };
+        var handler = new AdapterTrustAdminRequestHandler(trustAdminService, new FakeTrustResetService(), new FakeClock());
+
+        string result = await handler.HandleAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: TrustAdminListScope.All));
+
+        int byteLength = Encoding.UTF8.GetByteCount(result);
+        Assert.True(byteLength <= Constants.MaxIpcTrustAdminResultTextBytes, $"result was {byteLength} UTF-8 bytes.");
+        Assert.DoesNotContain("00099", result);
+        Assert.Matches(@"\.\.\. \d+ more known devices\.$", result);
     }
 
     // ---- Revoke ----

@@ -1009,6 +1009,10 @@ public class AdapterIpcConnectionTests
 
         Assert.Equal(accepted, result);
         Assert.Single(fakeSession.HandledPairingDisplayAcks);
+        // The unconditional cleanup in AwaitPairingDisplayAckAsync's finally block still runs on this
+        // success path; it is a harmless no-op against the real session (HandlePairingDisplayAck
+        // already removed the entry), which this fake's own unconditional call recording surfaces here.
+        Assert.Contains(correlationId, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -1024,7 +1028,11 @@ public class AdapterIpcConnectionTests
         Assert.False(result);
     }
 
-    /// <summary>Verifies that awaiting an acknowledgement that never arrives times out and returns false rather than hanging.</summary>
+    /// <summary>
+    /// Verifies that awaiting an acknowledgement that never arrives times out, returns false rather
+    /// than hanging, and withdraws the correlation id from the session's own pending set so a
+    /// connected-but-never-acknowledging adapter cannot grow that set without bound.
+    /// </summary>
     [Fact]
     public async Task AwaitPairingDisplayAckAsync_NoAckArrives_TimesOutAndReturnsFalse()
     {
@@ -1047,11 +1055,16 @@ public class AdapterIpcConnectionTests
             .WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Verifies that awaiting an acknowledgement with an already-cancelled token returns false rather than throwing.</summary>
+    /// <summary>
+    /// Verifies that awaiting an acknowledgement with an already-cancelled token returns false rather
+    /// than throwing, and withdraws the correlation id from the session's own pending set the same as
+    /// a genuine timeout does.
+    /// </summary>
     [Fact]
     public async Task AwaitPairingDisplayAckAsync_Cancelled_ReturnsFalse()
     {
@@ -1076,6 +1089,7 @@ public class AdapterIpcConnectionTests
             .WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }

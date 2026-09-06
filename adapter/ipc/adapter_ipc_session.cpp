@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <type_traits>
 #include <variant>
+#include <vector>
 
 namespace dovahlink::adapter::ipc {
 
@@ -28,6 +29,39 @@ public:
 private:
   ///  The counter decremented on destruction.
   std::atomic<std::size_t> &count_;
+};
+
+///  Decrements a trust-admin request's `activeTrustAdminWaiters_` slot and
+///  notifies its condition variable when destroyed, regardless of how the
+///  owning scope exits -- including an exception escaping the timeout
+///  worker's own wait -- so the request's slot is always released exactly
+///  once and the destructor's own wait for it is never left hanging.
+class TrustAdminWaiterGuard {
+public:
+  ///  @param mutex Guards `waiters` and pairs with `condition`.
+  ///  @param condition Notified after `waiters` is decremented.
+  ///  @param waiters The counter this guard decrements on destruction.
+  TrustAdminWaiterGuard(std::mutex &mutex, std::condition_variable &condition,
+                        std::size_t &waiters)
+      : mutex_(mutex), condition_(condition), waiters_(waiters) {}
+  ///  Decrements the guarded counter and notifies the guarded condition
+  ///  variable.
+  ~TrustAdminWaiterGuard() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    --waiters_;
+    condition_.notify_all();
+  }
+
+  TrustAdminWaiterGuard(const TrustAdminWaiterGuard &) = delete;
+  TrustAdminWaiterGuard &operator=(const TrustAdminWaiterGuard &) = delete;
+
+private:
+  ///  Guards `waiters_` and pairs with `condition_`.
+  std::mutex &mutex_;
+  ///  Notified after `waiters_` is decremented.
+  std::condition_variable &condition_;
+  ///  The counter decremented on destruction.
+  std::size_t &waiters_;
 };
 
 } //  namespace
@@ -54,16 +88,27 @@ AdapterIpcSession::~AdapterIpcSession() {
     lifetimeToken_->store(false);
   }
 
-  //  Force-abandon every outstanding SendTrustAdminRequest call, the same as
-  //  CloseCurrentGenerationLocked already does on disconnect, then wait for
-  //  each one to actually observe that and return before this destructor
-  //  itself returns: notify_all alone only schedules a waiting thread to wake
-  //  up, it does not block until that thread has actually done so, so member
+  //  Force-abandon every outstanding trust-admin request the same way
+  //  CloseCurrentGenerationLocked does, then wait for activeTrustAdminWaiters_
+  //  to actually reach zero -- not merely be notified -- before this
+  //  destructor returns: a request resolved here still has its own timeout
+  //  worker (or, for an immediately-failed send, the original calling thread)
+  //  yet to finish touching trustAdminMutex_-guarded state, so member
   //  destruction (trustAdminMutex_ and trustAdminCondition_ themselves) could
-  //  otherwise begin while a woken thread is still using them.
+  //  otherwise begin while that thread is still using them.
+  std::vector<std::uint64_t> outstandingCorrelationIds;
+  {
+    std::lock_guard<std::mutex> trustAdminLock(trustAdminMutex_);
+    outstandingCorrelationIds.reserve(pendingTrustAdminResults_.size());
+    for (const auto &[correlationId, onResult] : pendingTrustAdminResults_) {
+      outstandingCorrelationIds.push_back(correlationId);
+    }
+  }
+  for (std::uint64_t correlationId : outstandingCorrelationIds) {
+    ResolveTrustAdminRequest(correlationId, std::nullopt);
+  }
+
   std::unique_lock<std::mutex> trustAdminLock(trustAdminMutex_);
-  pendingTrustAdminResults_.clear();
-  trustAdminCondition_.notify_all();
   trustAdminCondition_.wait(trustAdminLock,
                             [this] { return activeTrustAdminWaiters_ == 0; });
 }
@@ -100,23 +145,35 @@ void AdapterIpcSession::HandleConnected(const AdapterIpcTarget &target) {
   }
 }
 
-std::optional<std::string> AdapterIpcSession::SendTrustAdminRequest(
+void AdapterIpcSession::SendTrustAdminRequest(
     TrustAdminOperation operation, std::optional<TrustAdminListScope> listScope,
     std::optional<std::string> shortId,
-    std::optional<std::string> confirmationCode) {
+    std::optional<std::string> confirmationCode,
+    std::function<void(std::optional<std::string>)> onResult) {
   bool authenticated;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
   }
   if (!authenticated || connection_ == nullptr) {
-    return std::nullopt;
+    try {
+      onResult(std::nullopt);
+    } catch (...) {
+      //  Contained: onResult may run directly on a Papyrus-invoking thread
+      //  here, per ai/context/skse/cpp-style.md's callback boundary rule.
+    }
+    return;
   }
 
   std::uint64_t correlationId = NextCorrelationId();
   {
     std::lock_guard<std::mutex> lock(trustAdminMutex_);
-    pendingTrustAdminResults_[correlationId] = std::nullopt;
+    pendingTrustAdminResults_[correlationId] = std::move(onResult);
+    //  Counted here, before TrySend is ever called: this closes the gap a
+    //  concurrent destructor could otherwise exploit by observing zero
+    //  in-flight requests while this call was still between sending and
+    //  registering the timeout worker it hands off to below.
+    ++activeTrustAdminWaiters_;
   }
 
   bool sent = connection_->TrySend(IpcMessage{IpcTrustAdminRequestMessage{
@@ -126,41 +183,80 @@ std::optional<std::string> AdapterIpcSession::SendTrustAdminRequest(
       .shortId = std::move(shortId),
       .confirmationCode = std::move(confirmationCode)}});
   if (!sent) {
+    TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,
+                                      activeTrustAdminWaiters_);
+    ResolveTrustAdminRequest(correlationId, std::nullopt);
+    return;
+  }
+
+  //  Bounded, non-blocking timeout: this worker, not the calling thread,
+  //  owns waiting out trustAdminRequestTimeout_. It wakes early once
+  //  HandleMessage or a close resolves this correlation id (both notify
+  //  trustAdminCondition_), or at the deadline otherwise, and is itself the
+  //  one that times the request out if nothing else resolved it first.
+  //  Counted by activeTrustAdminWaiters_ above, so the destructor always
+  //  waits for it to finish before returning.
+  try {
+    std::thread([this, correlationId] {
+      //  Releases this worker's activeTrustAdminWaiters_ slot on every exit
+      //  path, including the catch block immediately below: constructed
+      //  first so it is guaranteed to run even if wait_for itself throws.
+      TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,
+                                        activeTrustAdminWaiters_);
+      try {
+        {
+          std::unique_lock<std::mutex> lock(trustAdminMutex_);
+          trustAdminCondition_.wait_for(
+              lock, trustAdminRequestTimeout_, [this, correlationId] {
+                return pendingTrustAdminResults_.find(correlationId) ==
+                       pendingTrustAdminResults_.end();
+              });
+        }
+        //  Already resolved by HandleMessage or a close: a safe no-op.
+        //  Still pending past the deadline: this worker is the one that
+        //  times it out.
+        ResolveTrustAdminRequest(correlationId, std::nullopt);
+      } catch (...) {
+        //  Contained: this runs on a detached worker thread, which must
+        //  never let an exception escape, per
+        //  ai/context/skse/cpp-style.md's worker-thread boundary rule -- an
+        //  uncaught exception here would call std::terminate rather than
+        //  merely fail this one request.
+      }
+    }).detach();
+  } catch (...) {
+    //  The timeout worker never started (for example std::thread failed to
+    //  acquire OS resources): this call is still the sole owner of
+    //  activeTrustAdminWaiters_'s increment above and must release it
+    //  itself, the same as the send-failure path, or the destructor would
+    //  wait for a worker that will never exist.
+    TrustAdminWaiterGuard waiterGuard(trustAdminMutex_, trustAdminCondition_,
+                                      activeTrustAdminWaiters_);
+    ResolveTrustAdminRequest(correlationId, std::nullopt);
+  }
+}
+
+void AdapterIpcSession::ResolveTrustAdminRequest(
+    std::uint64_t correlationId, std::optional<std::string> result) {
+  std::function<void(std::optional<std::string>)> onResult;
+  {
     std::lock_guard<std::mutex> lock(trustAdminMutex_);
-    pendingTrustAdminResults_.erase(correlationId);
-    return std::nullopt;
+    auto it = pendingTrustAdminResults_.find(correlationId);
+    if (it == pendingTrustAdminResults_.end()) {
+      return;
+    }
+    onResult = std::move(it->second);
+    pendingTrustAdminResults_.erase(it);
   }
-
-  std::unique_lock<std::mutex> lock(trustAdminMutex_);
-  ++activeTrustAdminWaiters_;
-  bool resolved = trustAdminCondition_.wait_for(
-      lock, trustAdminRequestTimeout_, [this, correlationId] {
-        auto it = pendingTrustAdminResults_.find(correlationId);
-        return it == pendingTrustAdminResults_.end() || it->second.has_value();
-      });
-  //  Reported (and, if the destructor is waiting on it, observed) before
-  //  this method's own remaining logic below, none of which the destructor's
-  //  wait cares about -- only that no thread is still blocked in the
-  //  condition-variable wait itself.
-  --activeTrustAdminWaiters_;
   trustAdminCondition_.notify_all();
-
-  if (!resolved) {
-    //  Genuine timeout: nobody else will ever erase this entry.
-    pendingTrustAdminResults_.erase(correlationId);
-    return std::nullopt;
+  try {
+    onResult(std::move(result));
+  } catch (...) {
+    //  Contained: onResult may run on this request's timeout worker, the
+    //  connection's inbound-message thread, or a Papyrus-invoking thread,
+    //  none of which may ever see an exception escape, per
+    //  ai/context/skse/cpp-style.md's callback/worker-thread boundary rule.
   }
-
-  auto it = pendingTrustAdminResults_.find(correlationId);
-  if (it == pendingTrustAdminResults_.end()) {
-    //  The session closed while this request was outstanding;
-    //  CloseCurrentGenerationLocked already erased every pending entry.
-    return std::nullopt;
-  }
-
-  std::string result = std::move(*it->second);
-  pendingTrustAdminResults_.erase(it);
-  return result;
 }
 
 AdapterIpcMessageDisposition
@@ -255,17 +351,11 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
           HandlePairingAttemptsExhausted(value);
           return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcTrustAdminResultMessage>) {
-          {
-            std::lock_guard<std::mutex> lock(trustAdminMutex_);
-            auto it = pendingTrustAdminResults_.find(value.correlationId);
-            if (it != pendingTrustAdminResults_.end()) {
-              it->second = value.resultText;
-            }
-            //  An entry that is missing here (never sent, already timed out,
-            //  or already force-abandoned by a close) means no waiter cares
-            //  about this result; it is simply discarded.
-          }
-          trustAdminCondition_.notify_all();
+          //  ResolveTrustAdminRequest is a no-op if this correlation id was
+          //  never sent, already timed out, or was already force-abandoned
+          //  by a close: no pending callback cares about this result, so it
+          //  is simply discarded.
+          ResolveTrustAdminRequest(value.correlationId, value.resultText);
           return AdapterIpcMessageDisposition::kContinue;
         } else {
           //  IpcHelloMessage, IpcResynchronizeResultMessage,
@@ -619,16 +709,23 @@ void AdapterIpcSession::CloseCurrentGenerationLocked() {
   //  this point could only misfire against an unrelated request that reuses
   //  the same correlation id on a later generation.
   cancelledCorrelationIds_.clear();
-  //  Force-abandon every outstanding SendTrustAdminRequest call rather than
-  //  leaving it to wait out its full kTrustAdminRequestTimeout after the
-  //  connection it was sent on has already ended: erasing an entry (instead
-  //  of merely notifying) is itself the "abandoned" signal each waiter's own
-  //  predicate checks for.
+  //  Force-abandon every outstanding trust-admin request rather than leaving
+  //  it to wait out its full kTrustAdminRequestTimeout after the connection
+  //  it was sent on has already ended. Each request's own timeout worker (or
+  //  send-failure caller) still owns releasing activeTrustAdminWaiters_ for
+  //  it; resolving it here only invokes its callback and wakes that worker
+  //  early instead of leaving it to sleep out the rest of its bound.
+  std::vector<std::uint64_t> abandonedCorrelationIds;
   {
     std::lock_guard<std::mutex> trustAdminLock(trustAdminMutex_);
-    pendingTrustAdminResults_.clear();
+    abandonedCorrelationIds.reserve(pendingTrustAdminResults_.size());
+    for (const auto &[correlationId, onResult] : pendingTrustAdminResults_) {
+      abandonedCorrelationIds.push_back(correlationId);
+    }
   }
-  trustAdminCondition_.notify_all();
+  for (std::uint64_t correlationId : abandonedCorrelationIds) {
+    ResolveTrustAdminRequest(correlationId, std::nullopt);
+  }
 }
 
 } //  namespace dovahlink::adapter::ipc

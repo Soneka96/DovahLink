@@ -53,6 +53,10 @@ public interface IAdapterIpcConnection
     /// bounded by <paramref name="timeout"/>. A timeout, cancellation, disconnection, or an
     /// acknowledgement that does not match a currently pending request on the active connection
     /// generation are all reported as <see langword="false"/>, identically to an explicit rejection.
+    /// A timeout or cancellation also withdraws <paramref name="correlationId"/> from the session's
+    /// own pending set, the same as <see cref="IAdapterIpcSession.CancelPendingPairingDisplay"/>
+    /// would for a queue-full rejection, so an adapter that never acknowledges cannot grow that set
+    /// without bound.
     /// </summary>
     /// <param name="correlationId">The correlation id returned by <see cref="TrySendPairingDisplay"/>.</param>
     /// <param name="timeout">The maximum time to wait for the acknowledgement.</param>
@@ -297,6 +301,11 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             {
                 pendingPairingDisplayAcks.Remove(correlationId);
             }
+
+            // Safe to call unconditionally: a successful acknowledgement already removed this
+            // correlation id from the session's own pending set via HandlePairingDisplayAck, so this
+            // is a harmless no-op on that path and the only cleanup for the timeout/cancellation paths.
+            session.CancelPendingPairingDisplay(correlationId);
         }
     }
 

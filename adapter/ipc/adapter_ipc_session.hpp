@@ -24,6 +24,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 
 namespace dovahlink::adapter::ipc {
 
@@ -61,11 +62,16 @@ public:
   virtual void HandleConnected(const AdapterIpcTarget &target) = 0;
 
   ///  Sends one Papyrus-originated trust-administration command to the host
-  ///  and waits, bounded by `kTrustAdminRequestTimeout`, for its correlated
-  ///  result. Callable from any thread, including the thread SKSE invokes a
-  ///  registered Papyrus native function on: this method blocks only its own
-  ///  calling thread for at most that bound, never the Skyrim game thread
-  ///  itself, and never waits unboundedly.
+  ///  and invokes `onResult` with its correlated result once one arrives,
+  ///  once `kTrustAdminRequestTimeout` elapses without one, or immediately
+  ///  if no authenticated connection is available or the request could not
+  ///  be enqueued. Never blocks its calling thread for any bounded or
+  ///  unbounded duration -- including the thread SKSE invokes a registered
+  ///  Papyrus native function on -- so it is safe to call directly from a
+  ///  latent Papyrus function's initial callback. `onResult` may run
+  ///  synchronously on the calling thread (the immediate-failure cases), on
+  ///  this session's own timeout worker, or on the connection's
+  ///  inbound-message thread; it must not block or throw.
   ///  @param operation Which trust-administration command to send.
   ///  @param listScope The device scope for `TrustAdminOperation::kList`;
   ///  otherwise unset.
@@ -73,15 +79,17 @@ public:
   ///  `kUnblock`, or `kForget`; otherwise unset.
   ///  @param confirmationCode The six-digit Factory Reset confirmation code
   ///  for `kConfirmReset`; otherwise unset.
-  ///  @return The host's formatted result text, or `std::nullopt` when no
-  ///  authenticated connection is available, the request could not be
-  ///  enqueued, the connection ended while the request was outstanding, or
-  ///  no correlated result arrived within the bound.
-  virtual std::optional<std::string> SendTrustAdminRequest(
+  ///  @param onResult Invoked exactly once with the host's formatted result
+  ///  text, or `std::nullopt` when no authenticated connection is available,
+  ///  the request could not be enqueued, the connection ended while the
+  ///  request was outstanding, or no correlated result arrived within the
+  ///  bound.
+  virtual void SendTrustAdminRequest(
       TrustAdminOperation operation,
-      std::optional<TrustAdminListScope> listScope = std::nullopt,
-      std::optional<std::string> shortId = std::nullopt,
-      std::optional<std::string> confirmationCode = std::nullopt) = 0;
+      std::optional<TrustAdminListScope> listScope,
+      std::optional<std::string> shortId,
+      std::optional<std::string> confirmationCode,
+      std::function<void(std::optional<std::string>)> onResult) = 0;
 
   ///  Handles one successfully decoded inbound message.
   ///  @return The disposition for the current transport generation. A valid
@@ -166,11 +174,12 @@ public:
   void HandleConnected(const AdapterIpcTarget &target) override;
 
   ///  @copydoc IAdapterIpcSession::SendTrustAdminRequest
-  std::optional<std::string> SendTrustAdminRequest(
+  void SendTrustAdminRequest(
       TrustAdminOperation operation,
-      std::optional<TrustAdminListScope> listScope = std::nullopt,
-      std::optional<std::string> shortId = std::nullopt,
-      std::optional<std::string> confirmationCode = std::nullopt) override;
+      std::optional<TrustAdminListScope> listScope,
+      std::optional<std::string> shortId,
+      std::optional<std::string> confirmationCode,
+      std::function<void(std::optional<std::string>)> onResult) override;
 
   ///  @copydoc IAdapterIpcSession::HandleMessage
   AdapterIpcMessageDisposition
@@ -252,11 +261,26 @@ private:
   ///  no-op if `authenticationState_` is already `kClosed`. Called by both
   ///  `HandleClosing` and `HandleDisconnected` so the generation counter
   ///  advances only once per logical close, regardless of which one runs
-  ///  first. Must be called while holding `availableMutex_`. Also abandons
-  ///  every outstanding `SendTrustAdminRequest` call so none of them wait out
-  ///  their full timeout after the connection they were sent on has already
-  ///  ended.
+  ///  first. Must be called while holding `availableMutex_`. Also resolves
+  ///  every outstanding `SendTrustAdminRequest` call with `std::nullopt` via
+  ///  `ResolveTrustAdminRequest`, so none of them wait out their full timeout
+  ///  after the connection they were sent on has already ended.
   void CloseCurrentGenerationLocked();
+
+  ///  Resolves one trust-administration request: if `correlationId` still
+  ///  has a pending entry, erases it and invokes its callback with `result`;
+  ///  otherwise a no-op (the request was already resolved by another path).
+  ///  Idempotent by construction, since exactly one caller ever observes the
+  ///  entry present. Called from `HandleMessage` (a correlated
+  ///  `IpcTrustAdminResultMessage`), `CloseCurrentGenerationLocked` and the
+  ///  destructor (force-abandonment), `SendTrustAdminRequest` itself (an
+  ///  immediately-failed send), and this request's own timeout worker
+  ///  (`SendTrustAdminRequest`'s spawned thread, once its bound elapses).
+  ///  Contains any exception `result`'s callback throws, per
+  ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule
+  ///  -- this may run on any of those callers' own threads.
+  void ResolveTrustAdminRequest(std::uint64_t correlationId,
+                                std::optional<std::string> result);
 
   ///  This adapter process's own instance identity.
   identity::AdapterInstanceId instanceId_;
@@ -324,36 +348,45 @@ private:
   ///  cancellation from one generation must never apply to a correlation id
   ///  reused by a later one. Guarded by `availableMutex_`.
   std::deque<std::uint64_t> cancelledCorrelationIds_;
-  ///  Guards `pendingTrustAdminResults_` and pairs with
-  ///  `trustAdminCondition_`. Deliberately separate from `availableMutex_`:
-  ///  `SendTrustAdminRequest` blocks its calling thread on this mutex alone
-  ///  for up to `kTrustAdminRequestTimeout`, and must never hold
+  ///  Guards `pendingTrustAdminResults_` and `activeTrustAdminWaiters_`, and
+  ///  pairs with `trustAdminCondition_`. Deliberately separate from
+  ///  `availableMutex_`: a request's timeout worker sleeps on this mutex
+  ///  alone for up to `kTrustAdminRequestTimeout`, and must never hold
   ///  `availableMutex_` while doing so, since that would block every other
   ///  message this session processes for the same duration.
   std::mutex trustAdminMutex_;
-  ///  Wakes a thread blocked in `SendTrustAdminRequest` once its correlated
-  ///  result arrives or the session closes. Always notified while holding
+  ///  Wakes a request's timeout worker early once its correlated result
+  ///  arrives or the session closes, and wakes the destructor once
+  ///  `activeTrustAdminWaiters_` reaches zero. Always notified while holding
   ///  `trustAdminMutex_`.
   std::condition_variable trustAdminCondition_;
-  ///  One entry per trust-admin request currently awaited by
-  ///  `SendTrustAdminRequest`, keyed by its correlation id. A present entry
-  ///  with no value means still awaiting a result; `HandleMessage` fills it
-  ///  in on a matching `IpcTrustAdminResultMessage`. An entry's absence, once
-  ///  a request was sent, means the waiting call has already abandoned it
-  ///  (by timeout) or `CloseCurrentGenerationLocked` force-abandoned it.
+  ///  One entry per trust-admin request not yet resolved, keyed by its
+  ///  correlation id, holding the callback `ResolveTrustAdminRequest` invokes
+  ///  once a result, timeout, or abandonment resolves it. An entry's absence
+  ///  means the request was never sent, or has already been resolved by
+  ///  `HandleMessage`, its own timeout worker, or
+  ///  `CloseCurrentGenerationLocked`. Guarded by `trustAdminMutex_`.
+  std::map<std::uint64_t, std::function<void(std::optional<std::string>)>>
+      pendingTrustAdminResults_;
+  ///  The number of trust-admin requests whose registering
+  ///  `SendTrustAdminRequest` call has not yet finished touching
+  ///  `trustAdminMutex_`-guarded state: incremented when a request is
+  ///  registered, before it is ever sent, and decremented either by that same
+  ///  call (a send that failed, resolved synchronously) or by the timeout
+  ///  worker it hands off to (a send that succeeded). Registering before
+  ///  sending, rather than only once a wait begins, closes the gap where a
+  ///  concurrent destructor could otherwise observe zero in-flight requests
+  ///  while a call was still between sending and registering its own timeout
+  ///  worker. The destructor waits for this to reach zero before returning, so
+  ///  member destruction (in particular `trustAdminMutex_` and
+  ///  `trustAdminCondition_` themselves) can never run while another thread
+  ///  still holds or is waiting on them -- the same class of hazard
+  ///  `callbackMutex_`/`lifetimeToken_` closes for deferred game-thread tasks,
+  ///  but for a request's timeout worker instead of fire-and-forget dispatch.
   ///  Guarded by `trustAdminMutex_`.
-  std::map<std::uint64_t, std::optional<std::string>> pendingTrustAdminResults_;
-  ///  The number of `SendTrustAdminRequest` calls currently blocked inside
-  ///  `trustAdminCondition_.wait_for`. The destructor waits for this to reach
-  ///  zero before returning, so member destruction (in particular
-  ///  `trustAdminMutex_` and `trustAdminCondition_` themselves) can never run
-  ///  while another thread still holds or is waiting on them -- the same
-  ///  class of hazard `callbackMutex_`/`lifetimeToken_` closes for deferred
-  ///  game-thread tasks, but for a genuinely blocking wait instead of
-  ///  fire-and-forget dispatch. Guarded by `trustAdminMutex_`.
   std::size_t activeTrustAdminWaiters_ = 0;
-  ///  The absolute bound `SendTrustAdminRequest` waits for its correlated
-  ///  result.
+  ///  The absolute bound a trust-admin request's timeout worker waits for
+  ///  its correlated result before resolving it with `std::nullopt`.
   std::chrono::milliseconds trustAdminRequestTimeout_;
 };
 

@@ -83,138 +83,223 @@ RE::BSFixedString FormatResult(std::optional<std::string> result) {
                                               : kHostNotReadyMessage);
 }
 
-///  Sends one no-argument trust-admin request and formats the result. Shared
-///  by `Help`, `ResetTrust`, and `Reset`: each is itself the
-///  framework-mandated plain-function signature SKSE's Papyrus binding
-///  requires, and this ordinary helper reaches plugin-lifetime state through
-///  the same file-local `g_session` pointer those functions already do,
-///  rather than accepting it as a parameter.
-RE::BSFixedString SendNoArgument(ipc::TrustAdminOperation operation) {
-  if (!g_session) {
-    return RE::BSFixedString(kUnavailableMessage);
-  }
-  try {
-    return FormatResult(g_session->SendTrustAdminRequest(operation));
-  } catch (...) {
-    return RE::BSFixedString(kInternalErrorMessage);
-  }
+///  Resumes the Papyrus stack `a_stackID` suspended on with `message`. The
+///  single call site every latent trust-admin function's eventual response
+///  -- whether an immediate controlled rejection or `SendTrustAdminRequest`'s
+///  asynchronously delivered result -- goes through, so every response path
+///  is proven to actually unblock its script exactly once.
+void RespondLatent(RE::BSScript::Internal::VirtualMachine *a_vm,
+                   RE::VMStackID a_stackID, RE::BSFixedString message) {
+  a_vm->ReturnLatentResult(a_stackID, message);
 }
 
-///  Sends one short-id-targeted trust-admin request and formats the result,
-///  rejecting a malformed id before it ever reaches the host.
-RE::BSFixedString SendWithShortId(ipc::TrustAdminOperation operation,
-                                  RE::BSFixedString akId) {
+///  Sends one no-argument trust-admin request and resumes the calling script
+///  with its formatted result. Shared by `Help`, `ResetTrust`, and `Reset`:
+///  each is itself the framework-mandated plain-function signature SKSE's
+///  latent Papyrus binding requires, and this ordinary helper reaches
+///  plugin-lifetime state through the same file-local `g_session` pointer
+///  those functions already do, rather than accepting it as a parameter.
+///  Never blocks the calling thread: `SendTrustAdminRequest` always resolves
+///  its callback asynchronously (or immediately, but never by waiting), so
+///  every path here returns `kStarted` having, at most, only enqueued work.
+RE::BSScript::LatentStatus
+SendNoArgument(RE::BSScript::Internal::VirtualMachine *a_vm,
+               RE::VMStackID a_stackID, ipc::TrustAdminOperation operation) {
   if (!g_session) {
-    return RE::BSFixedString(kUnavailableMessage);
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kUnavailableMessage));
+    return RE::BSScript::LatentStatus::kStarted;
+  }
+  try {
+    g_session->SendTrustAdminRequest(
+        operation, std::nullopt, std::nullopt, std::nullopt,
+        [a_vm, a_stackID](std::optional<std::string> result) {
+          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        });
+  } catch (...) {
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));
+  }
+  return RE::BSScript::LatentStatus::kStarted;
+}
+
+///  Sends one short-id-targeted trust-admin request and resumes the calling
+///  script with its formatted result, rejecting a malformed id before it
+///  ever reaches the host. Never blocks the calling thread; see
+///  `SendNoArgument`.
+RE::BSScript::LatentStatus
+SendWithShortId(RE::BSScript::Internal::VirtualMachine *a_vm,
+                RE::VMStackID a_stackID, ipc::TrustAdminOperation operation,
+                RE::BSFixedString akId) {
+  if (!g_session) {
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kUnavailableMessage));
+    return RE::BSScript::LatentStatus::kStarted;
   }
   std::string_view shortId(akId);
   if (!IsFixedAsciiDigits(shortId, ipc::kPairingShortIdDigits)) {
-    return RE::BSFixedString(kInvalidShortIdMessage);
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInvalidShortIdMessage));
+    return RE::BSScript::LatentStatus::kStarted;
   }
   try {
-    return FormatResult(g_session->SendTrustAdminRequest(
-        operation, std::nullopt, std::string(shortId)));
+    g_session->SendTrustAdminRequest(
+        operation, std::nullopt, std::string(shortId), std::nullopt,
+        [a_vm, a_stackID](std::optional<std::string> result) {
+          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        });
   } catch (...) {
-    return RE::BSFixedString(kInternalErrorMessage);
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));
   }
+  return RE::BSScript::LatentStatus::kStarted;
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.List(String)`
-///  function.
-RE::BSFixedString List(RE::StaticFunctionTag *, RE::BSFixedString akScope) {
+///  function. Latent: never blocks the calling thread, including the
+///  thread SKSE invokes this initial callback on; see `SendNoArgument`.
+RE::BSScript::LatentStatus List(RE::BSScript::Internal::VirtualMachine *a_vm,
+                                RE::VMStackID a_stackID,
+                                RE::StaticFunctionTag *,
+                                RE::BSFixedString akScope) {
   if (!g_session) {
-    return RE::BSFixedString(kUnavailableMessage);
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kUnavailableMessage));
+    return RE::BSScript::LatentStatus::kStarted;
   }
   std::optional<ipc::TrustAdminListScope> scope =
       ParseListScope(std::string_view(akScope));
   if (!scope.has_value()) {
-    return RE::BSFixedString(kUnrecognizedScopeMessage);
+    RespondLatent(a_vm, a_stackID,
+                  RE::BSFixedString(kUnrecognizedScopeMessage));
+    return RE::BSScript::LatentStatus::kStarted;
   }
   try {
-    return FormatResult(g_session->SendTrustAdminRequest(
-        ipc::TrustAdminOperation::kList, *scope));
+    g_session->SendTrustAdminRequest(
+        ipc::TrustAdminOperation::kList, *scope, std::nullopt, std::nullopt,
+        [a_vm, a_stackID](std::optional<std::string> result) {
+          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        });
   } catch (...) {
-    return RE::BSFixedString(kInternalErrorMessage);
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));
   }
+  return RE::BSScript::LatentStatus::kStarted;
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Help()` function.
-RE::BSFixedString Help(RE::StaticFunctionTag *) {
-  return SendNoArgument(ipc::TrustAdminOperation::kHelp);
+RE::BSScript::LatentStatus Help(RE::BSScript::Internal::VirtualMachine *a_vm,
+                                RE::VMStackID a_stackID,
+                                RE::StaticFunctionTag *) {
+  return SendNoArgument(a_vm, a_stackID, ipc::TrustAdminOperation::kHelp);
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Revoke(String)`
 ///  function.
-RE::BSFixedString Revoke(RE::StaticFunctionTag *, RE::BSFixedString akId) {
-  return SendWithShortId(ipc::TrustAdminOperation::kRevoke, akId);
+RE::BSScript::LatentStatus Revoke(RE::BSScript::Internal::VirtualMachine *a_vm,
+                                  RE::VMStackID a_stackID,
+                                  RE::StaticFunctionTag *,
+                                  RE::BSFixedString akId) {
+  return SendWithShortId(a_vm, a_stackID, ipc::TrustAdminOperation::kRevoke,
+                         akId);
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Block(String)`
 ///  function.
-RE::BSFixedString Block(RE::StaticFunctionTag *, RE::BSFixedString akId) {
-  return SendWithShortId(ipc::TrustAdminOperation::kBlock, akId);
+RE::BSScript::LatentStatus Block(RE::BSScript::Internal::VirtualMachine *a_vm,
+                                 RE::VMStackID a_stackID,
+                                 RE::StaticFunctionTag *,
+                                 RE::BSFixedString akId) {
+  return SendWithShortId(a_vm, a_stackID, ipc::TrustAdminOperation::kBlock,
+                         akId);
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Unblock(String)`
 ///  function.
-RE::BSFixedString Unblock(RE::StaticFunctionTag *, RE::BSFixedString akId) {
-  return SendWithShortId(ipc::TrustAdminOperation::kUnblock, akId);
+RE::BSScript::LatentStatus Unblock(RE::BSScript::Internal::VirtualMachine *a_vm,
+                                   RE::VMStackID a_stackID,
+                                   RE::StaticFunctionTag *,
+                                   RE::BSFixedString akId) {
+  return SendWithShortId(a_vm, a_stackID, ipc::TrustAdminOperation::kUnblock,
+                         akId);
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Forget(String)`
 ///  function.
-RE::BSFixedString Forget(RE::StaticFunctionTag *, RE::BSFixedString akId) {
-  return SendWithShortId(ipc::TrustAdminOperation::kForget, akId);
+RE::BSScript::LatentStatus Forget(RE::BSScript::Internal::VirtualMachine *a_vm,
+                                  RE::VMStackID a_stackID,
+                                  RE::StaticFunctionTag *,
+                                  RE::BSFixedString akId) {
+  return SendWithShortId(a_vm, a_stackID, ipc::TrustAdminOperation::kForget,
+                         akId);
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.ResetTrust()`
 ///  function: the recoverable, non-destructive bulk revoke -- unlike
 ///  `Reset`/`ConfirmReset`, requires no confirmation code.
-RE::BSFixedString ResetTrust(RE::StaticFunctionTag *) {
-  return SendNoArgument(ipc::TrustAdminOperation::kResetTrust);
+RE::BSScript::LatentStatus
+ResetTrust(RE::BSScript::Internal::VirtualMachine *a_vm,
+           RE::VMStackID a_stackID, RE::StaticFunctionTag *) {
+  return SendNoArgument(a_vm, a_stackID, ipc::TrustAdminOperation::kResetTrust);
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Reset()` function:
 ///  starts a Factory Reset confirmation challenge. Performs no mutation; the
 ///  destructive wipe happens only through `ConfirmReset` once the displayed
 ///  code is confirmed.
-RE::BSFixedString Reset(RE::StaticFunctionTag *) {
-  return SendNoArgument(ipc::TrustAdminOperation::kReset);
+RE::BSScript::LatentStatus Reset(RE::BSScript::Internal::VirtualMachine *a_vm,
+                                 RE::VMStackID a_stackID,
+                                 RE::StaticFunctionTag *) {
+  return SendNoArgument(a_vm, a_stackID, ipc::TrustAdminOperation::kReset);
 }
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.ConfirmReset(String)`
 ///  function: confirms a Factory Reset challenge started by `Reset`,
 ///  executing the destructive wipe on a matching code.
-RE::BSFixedString ConfirmReset(RE::StaticFunctionTag *,
-                               RE::BSFixedString akCode) {
+RE::BSScript::LatentStatus
+ConfirmReset(RE::BSScript::Internal::VirtualMachine *a_vm,
+             RE::VMStackID a_stackID, RE::StaticFunctionTag *,
+             RE::BSFixedString akCode) {
   if (!g_session) {
-    return RE::BSFixedString(kUnavailableMessage);
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kUnavailableMessage));
+    return RE::BSScript::LatentStatus::kStarted;
   }
   std::string_view confirmationCode(akCode);
   if (!IsFixedAsciiDigits(confirmationCode,
                           ipc::kFactoryResetChallengeCodeDigits)) {
-    return RE::BSFixedString(kInvalidConfirmationCodeMessage);
+    RespondLatent(a_vm, a_stackID,
+                  RE::BSFixedString(kInvalidConfirmationCodeMessage));
+    return RE::BSScript::LatentStatus::kStarted;
   }
   try {
-    return FormatResult(g_session->SendTrustAdminRequest(
+    g_session->SendTrustAdminRequest(
         ipc::TrustAdminOperation::kConfirmReset, std::nullopt, std::nullopt,
-        std::string(confirmationCode)));
+        std::string(confirmationCode),
+        [a_vm, a_stackID](std::optional<std::string> result) {
+          RespondLatent(a_vm, a_stackID, FormatResult(std::move(result)));
+        });
   } catch (...) {
-    return RE::BSFixedString(kInternalErrorMessage);
+    RespondLatent(a_vm, a_stackID, RE::BSFixedString(kInternalErrorMessage));
   }
+  return RE::BSScript::LatentStatus::kStarted;
 }
 
-///  Binds the nine native functions above to their Papyrus declarations.
+///  Binds the nine native functions above to their Papyrus declarations, as
+///  latent functions: none of them ever blocks the thread the Papyrus VM
+///  calls its initial callback on, per this concept's "no blocking wait on a
+///  game-thread callback" requirement -- each one enqueues work and resumes
+///  the calling script later via
+///  `RE::BSScript::IVirtualMachine::ReturnLatentResult`.
 bool RegisterFunctions(RE::BSScript::IVirtualMachine *vm) {
-  vm->RegisterFunction("List", "DovahLinkAdmin", List);
-  vm->RegisterFunction("Help", "DovahLinkAdmin", Help);
-  vm->RegisterFunction("Revoke", "DovahLinkAdmin", Revoke);
-  vm->RegisterFunction("Block", "DovahLinkAdmin", Block);
-  vm->RegisterFunction("Unblock", "DovahLinkAdmin", Unblock);
-  vm->RegisterFunction("Forget", "DovahLinkAdmin", Forget);
-  vm->RegisterFunction("ResetTrust", "DovahLinkAdmin", ResetTrust);
-  vm->RegisterFunction("Reset", "DovahLinkAdmin", Reset);
-  vm->RegisterFunction("ConfirmReset", "DovahLinkAdmin", ConfirmReset);
+  vm->RegisterLatentFunction<RE::BSFixedString>("List", "DovahLinkAdmin", List);
+  vm->RegisterLatentFunction<RE::BSFixedString>("Help", "DovahLinkAdmin", Help);
+  vm->RegisterLatentFunction<RE::BSFixedString>("Revoke", "DovahLinkAdmin",
+                                                Revoke);
+  vm->RegisterLatentFunction<RE::BSFixedString>("Block", "DovahLinkAdmin",
+                                                Block);
+  vm->RegisterLatentFunction<RE::BSFixedString>("Unblock", "DovahLinkAdmin",
+                                                Unblock);
+  vm->RegisterLatentFunction<RE::BSFixedString>("Forget", "DovahLinkAdmin",
+                                                Forget);
+  vm->RegisterLatentFunction<RE::BSFixedString>("ResetTrust", "DovahLinkAdmin",
+                                                ResetTrust);
+  vm->RegisterLatentFunction<RE::BSFixedString>("Reset", "DovahLinkAdmin",
+                                                Reset);
+  vm->RegisterLatentFunction<RE::BSFixedString>("ConfirmReset",
+                                                "DovahLinkAdmin", ConfirmReset);
   return true;
 }
 
