@@ -78,6 +78,10 @@ composed host services, and end-to-end client-boundary test evidence.
 - `adapter/tests/ipc/`, `adapter/tests/papyrus/`, and `adapter/tests/plugin/` only for matching
   boundary proof.
 - No live capture/state publication, broad admin API, `bridge/`, SDK, or app files.
+- A narrow build/tooling/vendored-dependency expansion (`adapter/CMakeLists.txt`,
+  `adapter/tests/process/adapter_host_real_process_test.cpp`, `tooling/test_repository_consistency.py`,
+  and `tooling/vcpkg-ports/commonlibsse-ng-flatrim/`'s patch/portfile/manifest) required to compile
+  and prove the Papyrus trust-administration path is approved per `DIVERGENCES.md`'s D7.
 
 ## Proof obligations
 

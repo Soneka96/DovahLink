@@ -517,6 +517,11 @@ rather than left to mislead a cold-start reader. See "Handoff" below for the nex
   `Sessions/PublicSessionTerminationNotifier.cs`, and `Client/Protocol/SessionInvalidatedPayload.cs`.
   Flagged before implementation; the maintainer raised no objection at either flag point. See
   `DIVERGENCES.md` D6.
+- D7 is approved: Concept 04 needed a narrow build/tooling/vendored-dependency expansion outside the
+  concept's literal allowlist -- `adapter/CMakeLists.txt`, `adapter/tests/process/adapter_host_real_process_test.cpp`,
+  `tooling/test_repository_consistency.py`, and `tooling/vcpkg-ports/commonlibsse-ng-flatrim/`'s
+  patch/portfile/manifest -- to compile and prove the Papyrus trust-administration path's latent
+  non-void return type and the real Host↔Adapter process boundary. See `DIVERGENCES.md` D7.
 
 ## Deferred debt
 

@@ -211,3 +211,60 @@ your explicit read on before I touch either," alongside the Step 3 Papyrus-threa
 the maintainer replied "continue" with no objection at that point and again after the Step 3 handoff
 message repeated the same explicit flag, and raised no objection when this step's own handoff message
 reported the divergence as taken. No maintainer pushback followed either mention.
+
+## D7 — Concept 04 needed a narrow build/tooling/vendored-dependency expansion to compile and prove the Papyrus trust-administration path
+
+Original requirement: `04-adapter-notification-and-composition.md`'s "Allowed files/modules" section
+lists only `adapter/ipc/`, `adapter/papyrus/`, and `adapter/plugin/` for adapter-side implementation,
+and `adapter/tests/ipc/`, `adapter/tests/papyrus/`, and `adapter/tests/plugin/` for adapter-side test
+proof.
+
+Observed conflict: Implementing the adapter→host Papyrus trust-administration path (`help`/`list`/
+`revoke`/`block`/`unblock`/`forget`/`reset-trust`/`reset`/`confirm-reset`) as SKSE latent native
+functions requires `RE::BSScript::IVirtualMachine::RegisterLatentFunction<RE::BSFixedString>`. The
+vendored `commonlibsse-ng-flatrim` port's own `NativeLatentFunction` constructor assigned the
+unevaluated `GetRawType<T>` functor object into `_retType` instead of invoking it
+(`GetRawType<latentR>()` rather than the sibling non-latent path's own correct
+`GetRawType<result_type>{}()`), which fails to compile for every latent function whose return type is
+not `void` -- exactly this concept's own `RegisterLatentFunction<RE::BSFixedString>` calls. No file
+in the concept's literal allowlist can patch a vendored vcpkg port, wire that patch into the port's
+own build recipe, register the two new source/test files this path needs in the adapter's CMake
+target lists, or prove the patched port version stays pinned and consistent -- yet the concept's own
+Proof obligations require this exact path to compile and be proven, including the real Host↔Adapter
+process boundary.
+
+Decision: Add the narrowly scoped build/tooling/vendored-dependency files this concept's
+implementation and proof obligations required: `tooling/vcpkg-ports/commonlibsse-ng-flatrim/fix-register-latent-function-return-type.patch`
+(the one-line vendored fix, correcting only the incorrect functor assignment described above),
+`tooling/vcpkg-ports/commonlibsse-ng-flatrim/portfile.cmake` (registers the patch) and `vcpkg.json`
+(the matching `port-version` bump), `tooling/test_repository_consistency.py` (asserts the patch file
+exists and the pinned port version matches), `adapter/CMakeLists.txt` (registers the two new source/
+test files -- `papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp` and its test -- in the
+existing `dovahlink_adapter_runtime`/`dovahlink_adapter_tests` target lists), and
+`adapter/tests/process/adapter_host_real_process_test.cpp` (updated existing `AdapterIpcSession`
+construction call sites for the new `pairingNotificationSink` constructor parameter this concept's
+pairing-display work already added; no new scope). This exception is scoped to exactly the build/
+tooling/patch work required to compile and prove the approved Papyrus trust-administration and
+pairing-notification path; it does not authorize any new public protocol capability, a generic or
+private command bus, Stage 5 live player-state work, Stage 6 map functionality, production Bridge
+cutover, broader Adapter ownership of trust/policy decisions, or any other tooling change unrelated
+to this narrow build/test need.
+
+Impact: The adapter's latent Papyrus trust-administration path compiles and is proven by
+`adapter/tests/papyrus/commonlib_adapter_trust_admin_papyrus_adapter_test.cpp` and the real
+Host↔Adapter process test, without silently expanding Concept 04's scope or leaving an undocumented
+vendored patch. The existing `console-admin/DovahLinkAdmin.psc` Papyrus script declaration and its
+already-compiled `.pex` (built by `bridge/`'s own packaging, not by this concept) are unaffected and
+unchanged: this concept's native registration binds against that already-declared script surface, it
+does not declare, duplicate, or recompile it, and the existing `bridge/build/.../DovahLinkAdmin.pex`
+remains `bridge/`'s own build output, not a packaged artifact this concept or `adapter/` produces or
+owns. Production packaging exposing exactly one active `DovahLinkAdmin` runtime implementation
+remains a Stage 8 cutover concern (see `host/PLAN.md`'s Stage 8 acceptance criteria), not something
+this concept resolves.
+
+Status: approved
+
+Decision source: Direct maintainer instruction in the current task on 2026-09-06 to document this
+concept's file-scope expansion as a new divergence and add native Adapter CI coverage, following a
+same-day `/think` review that found these exact files touched outside the concept's literal allowlist
+with no divergence recorded.

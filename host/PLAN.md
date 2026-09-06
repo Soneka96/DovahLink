@@ -348,6 +348,9 @@ and fixtures that describe the supported replacement.
 - Production packaging starts the C# host and installs the native adapter with
   the required lifecycle relationship.
 - No production path links, launches, or depends on the old `bridge/` tree.
+- Production packaging exposes exactly one active runtime implementation of the `DovahLinkAdmin`
+  Papyrus script; the legacy Bridge registration (`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`)
+  is removed or disabled before Adapter production activation.
 - The final public SDK-to-host contract and private IPC contract are documented
   as the active contracts.
 - Obsolete C++ WebSocket, session, pairing, trust, queue, and protocol code is
