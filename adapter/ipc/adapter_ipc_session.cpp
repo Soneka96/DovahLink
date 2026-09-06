@@ -173,14 +173,34 @@ void AdapterIpcSession::SendTrustAdminRequest(
   }
 
   std::uint64_t correlationId = NextCorrelationId();
+  //  Admission against kMaxPendingTrustAdminRequests and registration happen
+  //  in the same trustAdminMutex_ critical section so no concurrent
+  //  SendTrustAdminRequest call (serialized by availableLock, still held
+  //  here) can observe stale capacity between the check and the insert.
+  //  onResult is invoked only after this block ends, never while either
+  //  mutex is held.
+  bool atCapacity;
   {
     std::lock_guard<std::mutex> lock(trustAdminMutex_);
-    pendingTrustAdminResults_[correlationId] = std::move(onResult);
-    //  Counted here, before TrySend is ever called: this closes the gap a
-    //  concurrent destructor could otherwise exploit by observing zero
-    //  in-flight requests while this call was still between sending and
-    //  registering the timeout worker it hands off to below.
-    ++activeTrustAdminWaiters_;
+    atCapacity =
+        pendingTrustAdminResults_.size() >= kMaxPendingTrustAdminRequests;
+    if (!atCapacity) {
+      pendingTrustAdminResults_[correlationId] = std::move(onResult);
+      //  Counted here, before TrySend is ever called: this closes the gap a
+      //  concurrent destructor could otherwise exploit by observing zero
+      //  in-flight requests while this call was still between sending and
+      //  registering the timeout worker it hands off to below.
+      ++activeTrustAdminWaiters_;
+    }
+  }
+  if (atCapacity) {
+    availableLock.unlock();
+    try {
+      onResult(std::nullopt);
+    } catch (...) {
+      //  Contained: see the unauthenticated-connection case above.
+    }
+    return;
   }
 
   bool sent = connection_->TrySend(IpcMessage{IpcTrustAdminRequestMessage{

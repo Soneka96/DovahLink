@@ -55,6 +55,7 @@ using dovahlink::adapter::ipc::IpcTrustAdminResultMessage;
 using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxPendingGameThreadDispatches;
 using dovahlink::adapter::ipc::kMaxPendingIpcCancellations;
+using dovahlink::adapter::ipc::kMaxPendingTrustAdminRequests;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::TrustAdminListScope;
 using dovahlink::adapter::ipc::TrustAdminOperation;
@@ -2447,4 +2448,169 @@ TEST_CASE("AdapterIpcSession::HandleClosing abandons only the trust-admin "
   REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
   CHECK_FALSE(secondResultFuture.get().has_value());
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits exactly "
+          "kMaxPendingTrustAdminRequests outstanding requests and rejects "
+          "the next one immediately, sending nothing for it") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
+    auto [onResult, resultFuture] = CaptureTrustAdminResult();
+    fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                          std::nullopt, std::nullopt,
+                                          std::nullopt, onResult);
+    resultFutures.push_back(std::move(resultFuture));
+  }
+  REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+
+  auto [rejectedOnResult, rejectedResultFuture] = CaptureTrustAdminResult();
+  fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                        std::nullopt, std::nullopt,
+                                        std::nullopt, rejectedOnResult);
+
+  //  Rejected synchronously, at the bound, without sending a frame.
+  REQUIRE(rejectedResultFuture.wait_for(std::chrono::seconds(0)) ==
+          std::future_status::ready);
+  CHECK_FALSE(rejectedResultFuture.get().has_value());
+  CHECK(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+
+  //  None of the already-admitted requests were evicted or disturbed by the
+  //  rejection.
+  for (auto &future : resultFutures) {
+    CHECK(future.wait_for(std::chrono::seconds(0)) !=
+          std::future_status::ready);
+  }
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits another request "
+          "once an outstanding one resolves, freeing its slot in the "
+          "bound") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
+    auto [onResult, resultFuture] = CaptureTrustAdminResult();
+    fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                          std::nullopt, std::nullopt,
+                                          std::nullopt, onResult);
+    resultFutures.push_back(std::move(resultFuture));
+  }
+  REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+
+  std::uint64_t firstCorrelationId =
+      std::get<IpcTrustAdminRequestMessage>(connection.Sent().front())
+          .correlationId;
+  fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+      .correlationId = firstCorrelationId, .resultText = "ok"}});
+  REQUIRE(resultFutures.front().wait_for(std::chrono::seconds(0)) ==
+          std::future_status::ready);
+
+  auto [onResult, resultFuture] = CaptureTrustAdminResult();
+  fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                        std::nullopt, std::nullopt,
+                                        std::nullopt, onResult);
+
+  //  The freed slot from the resolved request above makes room for this one,
+  //  rather than the bound staying permanently occupied once ever reached.
+  CHECK(connection.Sent().size() == kMaxPendingTrustAdminRequests + 1);
+  CHECK(resultFuture.wait_for(std::chrono::seconds(0)) !=
+        std::future_status::ready);
+}
+
+TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "
+          "every request when kMaxPendingTrustAdminRequests is fully "
+          "occupied") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterPairingNotificationSink pairingNotificationSink;
+  FakeAdapterIpcConnection connection;
+  auto session = std::make_unique<AdapterIpcSession>(
+      SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+      captureQueue, pairingNotificationSink, [] {},
+      std::chrono::milliseconds(50));
+  session->AttachConnection(connection);
+  Authenticate(*session, connection, target);
+
+  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
+    auto [onResult, resultFuture] = CaptureTrustAdminResult();
+    session->SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                   std::nullopt, std::nullopt, onResult);
+    resultFutures.push_back(std::move(resultFuture));
+  }
+  REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+
+  session.reset();
+
+  for (auto &future : resultFutures) {
+    REQUIRE(future.wait_for(std::chrono::seconds(1)) ==
+            std::future_status::ready);
+    CHECK_FALSE(future.get().has_value());
+  }
+}
+
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
+          "onResult throws when rejecting a request at the "
+          "outstanding-request bound") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
+    fixture.session.SendTrustAdminRequest(
+        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+        [](std::optional<std::string>) {});
+  }
+  REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+
+  REQUIRE_NOTHROW(fixture.session.SendTrustAdminRequest(
+      TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+      [](std::optional<std::string>) {
+        throw std::runtime_error("onResult failure");
+      }));
+}
+
+TEST_CASE("AdapterIpcSession::HandleClosing resolves every outstanding "
+          "request safely when kMaxPendingTrustAdminRequests is fully "
+          "occupied") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  std::vector<std::future<std::optional<std::string>>> resultFutures;
+  for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
+    auto [onResult, resultFuture] = CaptureTrustAdminResult();
+    fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                          std::nullopt, std::nullopt,
+                                          std::nullopt, onResult);
+    resultFutures.push_back(std::move(resultFuture));
+  }
+  REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+
+  fixture.session.HandleClosing();
+
+  for (auto &future : resultFutures) {
+    REQUIRE(future.wait_for(std::chrono::seconds(1)) ==
+            std::future_status::ready);
+    CHECK_FALSE(future.get().has_value());
+  }
 }

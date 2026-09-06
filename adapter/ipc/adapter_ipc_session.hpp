@@ -78,7 +78,11 @@ public:
   ///  case a `HandleClosing` that closes it afterward still force-abandons
   ///  the now-pending request. There is no outcome where this call observes
   ///  an authenticated generation and is then admitted or sent after that
-  ///  same generation has already closed.
+  ///  same generation has already closed. Outstanding requests are bounded by
+  ///  `kMaxPendingTrustAdminRequests`: a request beyond that capacity is
+  ///  rejected immediately, the same as an unauthenticated connection --
+  ///  nothing is sent and no timeout worker is created for it -- without
+  ///  disturbing any already-admitted request's own correlation or result.
   ///  @param operation Which trust-administration command to send.
   ///  @param listScope The device scope for `TrustAdminOperation::kList`;
   ///  otherwise unset.
@@ -89,8 +93,8 @@ public:
   ///  @param onResult Invoked exactly once with the host's formatted result
   ///  text, or `std::nullopt` when no authenticated connection is available,
   ///  the request could not be enqueued, the connection ended while the
-  ///  request was outstanding, or no correlated result arrived within the
-  ///  bound.
+  ///  request was outstanding, the outstanding-request bound was already
+  ///  reached, or no correlated result arrived within the bound.
   virtual void SendTrustAdminRequest(
       TrustAdminOperation operation,
       std::optional<TrustAdminListScope> listScope,
