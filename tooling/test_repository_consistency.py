@@ -1236,13 +1236,26 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertEqual(roadmap.count(phase_5_status), 1)
 
-        # 3A is an architectural migration gate, not an ordinary undone phase; its status line
-        # carries that explanation instead of the plain "Planned" every other undone phase uses.
+        # 3A is the current interstitial architectural migration gate, not an ordinary undone
+        # phase; its status line carries that explanation instead of the plain "Planned" every
+        # other undone phase uses.
         phase_3a_status = (
-            "**Status:** Planned. This is the architectural migration gate between the released "
-            "Stage 3 baseline and further Stage 4 product development; see 3A.1-3A.3 below."
+            "**Status:** Active. This is the current interstitial architectural migration gate "
+            "between the released Stage 3 baseline and further Stage 4 product development; 3A.1 "
+            "is the next implementation work. See 3A.1-3A.3 below."
         )
         self.assertEqual(roadmap.count(phase_3a_status), 1)
+
+        # Stage 4 is Active but paused after Phase 4.1 while Stage 3A is open: its own status
+        # line records that instead of the plain "Active" an in-progress stage would carry.
+        phase_4_status = (
+            "**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining "
+            "Bridge-authored phases below are paused pending Stage 3A and are not next; see "
+            "`roadmap/03a-host-adapter-production-migration.md`. Stage 4 resumes exclusively on "
+            "Host + Adapter once 3A completes, per this document's \"Host/Adapter continuation "
+            '(post-3A)" section below.'
+        )
+        self.assertEqual(roadmap.count(phase_4_status), 1)
 
         for heading in expected_headings:
             phase = self._roadmap_section(heading)
@@ -1251,10 +1264,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
-                # Stage 4 is Active while its phases (4.1-4.5) are in progress; its span
-                # also carries Phase 4.1's own "**Status:** Complete" line, since 4.1-4.5 are
-                # subsections of this stage rather than independent headings the way 3.1-3.3 are.
-                expected_statuses = ["**Status:** Active", "**Status:** Complete"]
+                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line, since
+                # 4.1-4.5 are subsections of this stage rather than independent headings the way
+                # 3.1-3.3 are.
+                expected_statuses = [phase_4_status, "**Status:** Complete"]
             elif heading == "3A. Host/Adapter Production Migration":
                 expected_statuses = [phase_3a_status]
             elif heading.startswith("5. "):

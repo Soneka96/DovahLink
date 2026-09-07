@@ -4,7 +4,7 @@
 
 ## 3A. Host/Adapter Production Migration
 
-**Status:** Planned. This is the architectural migration gate between the released Stage 3 baseline and further Stage 4 product development; see 3A.1-3A.3 below.
+**Status:** Active. This is the current interstitial architectural migration gate between the released Stage 3 baseline and further Stage 4 product development; 3A.1 is the next implementation work. See 3A.1-3A.3 below.
 
 ### Outcome
 
@@ -27,9 +27,11 @@ currently reachable through the Bridge — are not cutover prerequisites; they c
 Product Stage 4 work on Host + Adapter after 3A completes, per
 `roadmap/04-live-state-synchronization-foundation.md`.
 
-Once 3A begins, no new product functionality is developed in `bridge/`; only a maintainer-approved
-compatibility or safety fix needed to keep the frozen reference usable is permitted there. After 3A
-completes, all further Stage 4+ development happens only through Host + Adapter.
+3A is now open: no new product functionality is developed in `bridge/` while it is open; only a
+maintainer-approved compatibility or safety fix needed to keep the frozen reference usable is
+permitted there. This includes the remaining Bridge-authored Stage 4 phases (4.2 onward, per
+`roadmap/04-live-state-synchronization-foundation.md`), which are paused rather than in progress.
+After 3A completes, all further Stage 4+ development happens only through Host + Adapter.
 
 ### Scope and behavior
 
