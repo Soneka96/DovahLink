@@ -1,6 +1,6 @@
 # Stage 4 — Live State Synchronization Foundation
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./03-local-device-pairing-and-reconnection.md) · [Next stage](./05-dart-client-sdk-foundation.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./03a-host-adapter-production-migration.md) · [Next stage](./05-dart-client-sdk-foundation.md)
 
 ## 4. Live State Synchronization Foundation
 

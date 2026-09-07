@@ -1186,6 +1186,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "3.1 Live Pairing Challenge UX",
             "3.2 Known Device & Trust Administration",
             "3.3 Client Trust-State Integration",
+            "3A. Host/Adapter Production Migration",
             "4. Live State Synchronization Foundation",
             "5. Dart Client SDK Foundation",
             "5A. Android and Secure Wi-Fi Development Path",
@@ -1235,6 +1236,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertEqual(roadmap.count(phase_5_status), 1)
 
+        # 3A is an architectural migration gate, not an ordinary undone phase; its status line
+        # carries that explanation instead of the plain "Planned" every other undone phase uses.
+        phase_3a_status = (
+            "**Status:** Planned. This is the architectural migration gate between the released "
+            "Stage 3 baseline and further Stage 4 product development; see 3A.1-3A.3 below."
+        )
+        self.assertEqual(roadmap.count(phase_3a_status), 1)
+
         for heading in expected_headings:
             phase = self._roadmap_section(heading)
             if heading.startswith(
@@ -1246,6 +1255,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 # also carries Phase 4.1's own "**Status:** Complete" line, since 4.1-4.5 are
                 # subsections of this stage rather than independent headings the way 3.1-3.3 are.
                 expected_statuses = ["**Status:** Active", "**Status:** Complete"]
+            elif heading == "3A. Host/Adapter Production Migration":
+                expected_statuses = [phase_3a_status]
             elif heading.startswith("5. "):
                 expected_statuses = [phase_5_status]
             elif heading.startswith("28. "):
