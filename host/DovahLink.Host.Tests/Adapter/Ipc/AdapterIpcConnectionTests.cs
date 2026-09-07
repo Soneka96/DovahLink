@@ -1380,7 +1380,11 @@ public class AdapterIpcConnectionTests
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
         await ReadOneFrameAsync(client, codec); // the trust-admin result
         await client.WriteAsync(codec.Encode(new IpcCancelMessage(5)));
-        await Task.Delay(TimeSpan.FromMilliseconds(100));
+
+        // Waits for the read loop to actually record this frame, not a fixed delay: this proves
+        // the loop kept serving further frames after the trust-admin request, which is exactly
+        // what this test exists to show.
+        await WaitUntilAsync(() => fakeSession.HandledFrames.Count == 1, runTask);
 
         Assert.Single(fakeSession.HandledTrustAdminRequests);
         Assert.Single(fakeSession.HandledFrames);
@@ -1649,7 +1653,14 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Help)));
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+
+        // Waits for the session to actually be entered. DispatchTrustAdminRequest always
+        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
+        // lets it call the session (see that method's documentation), so this list update proves
+        // admission already happened -- the Cancel below is guaranteed something to actually
+        // cancel, rather than racing admission and silently relying on teardown's own blanket
+        // cancellation to cover for it.
+        await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
         await client.WriteAsync(codec.Encode(new IpcCancelMessage(3)));
 
         // A later, unrelated request still completes normally: cancellation reached only the exact
@@ -1758,7 +1769,12 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+
+        // Waits for the session to actually be entered: DispatchTrustAdminRequest always
+        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
+        // lets it call the session, so this list update proves admission already happened and
+        // disconnect below has an outstanding dispatch to cancel.
+        await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
 
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1797,7 +1813,12 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+
+        // Waits for the session to actually be entered: DispatchTrustAdminRequest always
+        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
+        // lets it call the session, so this list update proves admission already happened and
+        // disconnect below has an outstanding dispatch to cancel.
+        await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
 
         client.Dispose();
         // A generous margin over TrustAdminTeardownDrainTimeout: teardown must complete on its own
