@@ -1,15 +1,17 @@
 # Stage 4 — Live State Synchronization Foundation
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./03-local-device-pairing-and-reconnection.md) · [Next stage](./05-dart-client-sdk-foundation.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./03a-host-adapter-production-migration.md) · [Next stage](./05-dart-client-sdk-foundation.md)
 
 ## 4. Live State Synchronization Foundation
 
-**Status:** Active
+**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining Bridge-authored phases below are paused pending Stage 3A and are not next; see `roadmap/03a-host-adapter-production-migration.md`. Stage 4 resumes exclusively on Host + Adapter once 3A completes, per this document's "Host/Adapter continuation (post-3A)" section below.
 
 Delivery is decomposed into protocol migration, Bridge publication, internal SDK synchronization,
 and final cross-boundary cutover. The protocol migration may temporarily read
 the previous contract to keep independently reviewable PRs green, but the completed stage supports
-only the redesigned contract.
+only the redesigned contract. The Bridge publication and cross-boundary-cutover phases below (4.2
+onward) are retained as engineering specification and historical evidence; the Bridge implementation
+path they describe is superseded and will not be continued once Stage 3A begins.
 
 ### Outcome
 
@@ -172,6 +174,11 @@ temporary compatibility reader.
 
 #### 4.2 Bridge Live Publication and Bounded Transport
 
+**Paused pending Stage 3A.** Retained as the Bridge implementation's engineering specification and
+historical evidence; it is not being implemented further. This work is not "next" -- 3A.1 is. Once
+Stage 3A completes, Stage 4 resumes exclusively on Host + Adapter per the "Host/Adapter continuation
+(post-3A)" section below, which carries this same functional scope forward for that implementation.
+
 Add the Bridge-side publisher path from authoritative state stores to the full-duplex session writer.
 Game callbacks capture trustworthy values and update owned stores; they do not serialize JSON or
 touch WebSocket state. A worker-owned publisher builds typed snapshots/events and submits them to a
@@ -259,6 +266,10 @@ unchanged. These are implementation gates, not new protocol fields.
 
 #### 4.3 Production Character State Domains and Synchronization Kernel
 
+**Paused pending Stage 3A**, for the same reason as 4.2 above. The narrow first Host/Adapter state
+slice in the "Host/Adapter continuation (post-3A)" section below covers this same domain set for
+that implementation.
+
 Implement and test the first complete character-state set:
 
 | State area | Capture | Rate | Delivery |
@@ -311,6 +322,10 @@ This kernel remains reusable and internal until Stage 5 exposes its curated publ
 
 #### 4.4 Cross-Boundary Cutover and Cleanup
 
+**Paused pending Stage 3A**, for the same reason as 4.2 above. This describes the redesigned
+protocol's cutover on Bridge specifically; it is not 3A's Host/Adapter production cutover (3A.1),
+which is a separate, unrelated cutover already covered in `roadmap/03a-host-adapter-production-migration.md`.
+
 Run the cutover in this order:
 
 1. Complete the registered domain data contracts, readers, codecs, and canonical fixtures.
@@ -328,11 +343,17 @@ Run the cutover in this order:
 
 #### 4.5 Version-Impact Audit Foundation
 
+**Deferred alongside the rest of Stage 4 until Stage 3A completes.** Unlike 4.2-4.4, this phase is
+not Bridge-specific; it still runs at whichever point Stage 4 actually closes, on Host + Adapter.
+
 Create the manually invoked version-audit skill and its repository documentation before Stage 4
 closure. The skill reads the phase or bugfix diff, affected public exports, protocol/schema changes,
 persistence formats, security/runtime behavior, tests, and current version ownership. It may update
-the relevant Bridge, SDK, or Flutter version/changelog/compatibility files and prepare a commit
-message, but it never commits.
+the relevant Host, Adapter, SDK, or Flutter/app version/changelog/compatibility files and current
+protocol/product version-ownership records, and prepare a commit message, but it never commits. By
+the time this phase runs, Stage 4 has already resumed exclusively on Host + Adapter per the section
+above; `bridge/` is historical evidence only and is not an active release/version owner audited
+here.
 
 At Phase 4 completion it audits the complete phase rather than each ordinary PR. A later bugfix may
 invoke it independently; a contract-breaking bugfix must not be forced into a patch bump.
@@ -388,10 +409,81 @@ bounded reconnect path. No test-only public protocol domain is added.
 
 ### Completion criteria
 
-Stage 4 is complete only when the redesigned contract is the sole supported contract, Bridge live
-delivery is bounded and observable, `character_xp`, `character_health`, `character_magicka`,
-`character_stamina`, and `character_level` meet their source and synchronization contracts, the
-capture-policy and scheduler invariants are proven without worker-side runtime reads, the
-mode-specific queue and per-area recovery-barrier behavior is proven, all required registered domain
-data and cross-boundary tests pass, migration-only readers and fixtures are gone, and the phase-end
-version audit has completed.
+Stage 4 is complete only when the redesigned contract is the sole supported contract, Host-owned
+production live delivery through Host + Adapter is bounded and observable, `character_xp`,
+`character_health`, `character_magicka`, `character_stamina`, and `character_level` meet their
+source and synchronization contracts, the capture-policy and scheduler invariants are proven
+without worker-side runtime reads, the mode-specific queue and per-area recovery-barrier behavior is
+proven, all required registered domain data and cross-boundary tests pass, migration-only readers
+and fixtures are gone, and the phase-end version audit has completed. The Bridge-authored 4.2-4.4
+specification above is retained as historical engineering evidence; it is not itself a completion
+requirement, per the "Host/Adapter continuation (post-3A)" section below.
+
+### Host/Adapter continuation (post-3A)
+
+The `character_xp`/`character_health`/`character_magicka`/`character_stamina`/`character_level`
+scope above is the Bridge implementation of Stage 4. Once
+[Stage 3A — Host/Adapter Production Migration](./03a-host-adapter-production-migration.md)
+completes, this same functional scope continues exclusively on `host/`/`adapter/`; it is not a 3A
+cutover prerequisite. The engineering already specified for the host/adapter replacement's own
+live-state buildout — previously tracked as `host/PLAN.md`'s Stage 5 ("Host State, Publication, and
+Bounded Delivery") and Stage 6 ("Real Capture and Host Integration") — carries forward here as that
+continuation, re-homed from a migration document into this durable product-roadmap phase rather than
+discarded.
+
+#### Host-owned state, publication, and bounded delivery
+
+Implement host-owned authoritative state, subscriptions, revisions, publication ordering, recovery,
+per-session bounded queues, latest-value Snapshot behavior, reliable Event behavior, reserved control
+capacity, and serialized WebSocket writing. Use typed host messages internally and map to the public
+SDK contract only at the client boundary.
+
+Acceptance criteria:
+
+- State capture updates are applied in one deterministic per-area ordering point.
+- Play-context changes invalidate stale state and prevent stale publication.
+- Snapshots are replaceable or recoverable without unbounded growth.
+- Reliable Events remain ordered and cause controlled client failure when they cannot be admitted.
+- Control and recovery traffic retain their reserved capacity and priority.
+- No concurrent WebSocket writes occur for one client.
+- Queue, byte, timeout, cancellation, and recovery behavior is covered by deterministic C# tests.
+- A client reconnect receives fresh synchronization and never inherits the previous session's queue
+  or recovery barriers.
+
+Not in scope: adding new Skyrim domains beyond the set above.
+
+#### Real capture and host integration
+
+Connect the real adapter capture stream and play-context lifecycle to the host state pipeline. Add
+the first production state flow through the host/adapter boundary, including current-state
+resynchronization after host or IPC interruption.
+
+The first state slice is intentionally narrow: one native level-up event; one fast, coherent vitals
+sample containing health, magicka, and stamina; and one medium experience/XP sample. This matches
+the five state areas Stage 4 actually defines (`character_xp`, `character_health`,
+`character_magicka`, `character_stamina`, `character_level`); none of them is Slow-rate. The host
+owns the cadence and the meanings of fast and medium. The adapter receives only opaque event keys or
+sample tokens and performs the final native registration or read.
+
+The old `host/PLAN.md` Stage 6 slice this section is re-homed from also specified a slow gold/coins
+sample. Gold/coins is not a Stage 4 domain and is not added here; the slow gold/coins sample is
+deferred to a future domain-expansion phase, not silently folded into Stage 4's scope. No new
+gold/coins state-area contract, fixtures, or SDK surface is added by this document.
+
+Acceptance criteria:
+
+- Native-event and sampled captures reach the host through owned typed IPC messages.
+- The level-up event and the fast and medium sample tokens are mapped to the approved native
+  operations without placing cadence or application policy in the adapter.
+- No worker or host code performs deferred Skyrim runtime reads.
+- Capture remains bounded and non-blocking on the game thread.
+- A fast vitals capture is coherent across health, magicka, and stamina, rather than requiring three
+  independently scheduled reads.
+- Host-side state remains unavailable rather than fabricated when capture fails.
+- An accepted resynchronization response carries a fresh authoritative baseline from an approved
+  game-thread capture path; an unavailable baseline remains explicitly unavailable.
+- Host restart, adapter restart, game load, save transition, and shutdown do not publish stale state
+  as current.
+- The first real state flow is proven over the host, adapter, and client processes.
+
+Not in scope: broad domain expansion beyond the narrow first slice.

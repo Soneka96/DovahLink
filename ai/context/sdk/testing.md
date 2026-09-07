@@ -49,8 +49,9 @@ not an ongoing App/SDK development target. That coverage lives in files tagged `
 (`dart_test.yaml` skips them by default); run it explicitly with `dart test --tags legacy_bridge
 --run-skipped` against a locally built harness. It stays available for a developer doing manual
 Bridge/SDK verification, but is not required to pass for default SDK/App CI, and a change that
-breaks it is not by itself a defect. As `host/PLAN.md`'s Stage 7 conformance work lands, Host
-compatibility becomes the SDK's authoritative live-integration target in its place.
+breaks it is not by itself a defect. As `roadmap/03a-host-adapter-production-migration.md`'s 3A.1
+production-cutover work lands, Host compatibility becomes the SDK's authoritative live-integration
+target in its place.
 
 Phase 3.3 also requires SDK/client coverage for continuous observation of long-lived connection
 loss, distinction between ordinary transport failure and `session_invalidated(reason)`, typed

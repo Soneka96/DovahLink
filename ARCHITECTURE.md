@@ -57,37 +57,44 @@ identities. The durable migration plan is [host/PLAN.md](host/PLAN.md).
 ## Bridge migration and cutover
 
 Final cutover to `host/`/`adapter/` and removal of `bridge/` follow explicit gate conditions,
-recorded here as durable project policy that `host/PLAN.md`'s own Stage 7 and Stage 8 acceptance
-criteria implement:
+recorded here as durable project policy that
+[Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md)'s
+3A.1 and 3A.2 acceptance criteria implement. The compatibility target for cutover is the last
+released Stage 3 baseline, not unreleased Stage 4 Bridge development: Stage 4-equivalent live-state
+work (publication, capture, queues, revisions, recovery) is ordinary product work that continues on
+`host/`/`adapter/` after cutover, per `roadmap/04-live-state-synchronization-foundation.md`'s
+"Host/Adapter continuation (post-3A)" section, and is not a cutover prerequisite.
 
 - `bridge/` remains the production implementation, and every production path continues to link,
-  launch, and depend on it, until the replacement passes the complete conformance, security,
-  pairing, reconnect, state, queue, failure, and runtime validation matrix described in
-  `host/PLAN.md`'s Stage 7. A failed or incomplete gate leaves `bridge/` as the production
-  implementation; it does not fall back to a partial cutover.
-- Every retained 4.1/4.2 semantic decision recorded in `ai/context/host/migration-audit.md` must be
-  proven equivalent (or an approved, documented difference) at the live boundary before the gate is
-  considered passed, not merely implemented in isolation.
+  launch, and depend on it, until the replacement passes 3A.1's Stage-3-parity conformance,
+  security, pairing, reconnect, administration, lifecycle, and runtime validation criteria. A
+  failed or incomplete gate leaves `bridge/` as the production implementation; it does not fall
+  back to a partial cutover.
+- Every Stage-3-scoped retained semantic decision recorded in `ai/context/host/migration-audit.md`
+  must be proven equivalent (or an approved, documented difference) at the live boundary before the
+  gate is considered passed, not merely implemented in isolation. Stage-4-scoped decisions in that
+  same audit are not part of this gate; they are re-homed to the post-cutover continuation above.
 - Once the gate passes, production packaging starts the C# host and installs the native adapter
   with the required lifecycle relationship; no production path may link, launch, or depend on the
-  old `bridge/` tree.
-- Deleting `bridge/` and its build/test wiring is a separately reviewable change from the cutover
-  itself, opened only after the conformance gate has already passed and the replacement is already
-  the production implementation -- deletion never happens in the same change that first proves the
+  old `bridge/` tree. `bridge/` itself is not deleted by this gate -- it remains frozen reference
+  evidence until 3A.2 removes it.
+- Deleting `bridge/` and its build/test wiring is 3A.2, a separately reviewable change from the 3A.1
+  cutover itself, opened only after 3A.1 has already passed and the replacement is already the
+  production implementation -- deletion never happens in the same change that first proves the
   replacement works.
 
 This production-compatibility guarantee is not a development-time testing requirement. Ongoing App
 and Dart Client SDK development is not required to preserve forward compatibility with the frozen
 `bridge/` reference: App/SDK CI validates the current App/SDK architecture -- transport-independent
-SDK/App correctness, and, once `host/PLAN.md`'s relevant stages land, Host compatibility -- not
-continued operation against `bridge/`. The currently released App and the currently released
-`bridge/` remain a valid, frozen release pairing on their own; a new App/SDK change breaking that
-specific pairing's forward compatibility is acceptable when the Host migration requires it, and
-does not by itself indicate a defect. This does not excuse an unrelated App/SDK regression:
-transport-independent SDK/App behavior keeps being tested normally, and once the Stage 7/8 cutover
-gates above pass, Host + SDK + App compatibility becomes mandatory again. `bridge-ci.yml` and
-`integration-ci.yml` continue validating `bridge/` itself against `protocol/` regressions; neither
-gates unrelated App/SDK development.
+SDK/App correctness, and, once 3A.1 lands, Host compatibility -- not continued operation against
+`bridge/`. The currently released App and the currently released `bridge/` remain a valid, frozen
+release pairing on their own; a new App/SDK change breaking that specific pairing's forward
+compatibility is acceptable when the Host migration requires it, and does not by itself indicate a
+defect. This does not excuse an unrelated App/SDK regression: transport-independent SDK/App behavior
+keeps being tested normally, and once the 3A.1/3A.2 cutover gates above pass, Host + SDK + App
+compatibility becomes mandatory again. `bridge-ci.yml` and `integration-ci.yml` continue validating
+`bridge/` itself against `protocol/` regressions until 3A.2 removes them; neither gates unrelated
+App/SDK development.
 
 ## Target shape
 

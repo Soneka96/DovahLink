@@ -12,19 +12,43 @@ architecture and the host/adapter architecture records. It is not a temporary
 scratch plan and it does not authorize implementation of a later stage by
 itself.
 
-The Stage 1–8 checkboxes below track the full host/adapter migration stages.
-They are separate from the completed remediation sequence that repaired the
-host-core foundation and closed this documentation pass.
+The Stage 1–6 checkboxes below track the host/adapter engineering buildout:
+architecture and contract lock, the standalone host core, the thin native
+adapter and private IPC, the host client boundary and pairing, host-owned
+state/publication/delivery, and real capture integration. Stage 7 and
+Stage 8, formerly this plan's own conformance and cutover stages, are
+superseded by `roadmap/03a-host-adapter-production-migration.md`'s Stage 3A
+and retained below only as pointers to that authoritative document.
 
 ## Relationship to the product roadmap
 
-This is a parallel replacement track, not a renumbering or silent replacement
+This is a parallel engineering track, not a renumbering or silent replacement
 of the product roadmap's numbered stages. `ROADMAP.md` remains the source of
-product-stage order and status; this plan owns the ordered migration of the
-standalone host and thin native adapter. Completing a host/adapter stage does
-not close the corresponding product-roadmap stage or activate the replacement
-in production. The replacement remains beside the frozen `bridge/` reference
-until this plan's Stage 7 conformance gate and Stage 8 cutover are complete.
+product-stage order and status; this plan owns the host/adapter engineering
+buildout in Stages 1–6. Completing a host/adapter stage does not close the
+corresponding product-roadmap stage or activate the replacement in
+production.
+
+Activating the replacement in production and removing `bridge/` are governed
+by `roadmap/03a-host-adapter-production-migration.md`'s Stage 3A, not by this
+plan's own Stage 7/8: 3A.1 (Production Cutover) targets the released Stage 3
+baseline, not the live-state work tracked by this plan's Stage 5/6, so
+completing Stage 5/6 is not a cutover prerequisite. Stage 5 and Stage 6's
+scope and acceptance criteria are the same engineering work as
+`roadmap/04-live-state-synchronization-foundation.md`'s "Host/Adapter
+continuation (post-3A)" section; they are recorded once, there, as ordinary
+Product Stage 4 work rather than duplicated as an independent authoritative
+plan here. `ROADMAP.md` and this plan must not carry two contradictory
+cutover policies: this document defers to `ROADMAP.md`'s Stage 3A wherever
+the two could disagree.
+
+This document is a migration-engineering aid, not a second permanent
+roadmap. Once Stage 3A.3 (Repository Normalization) completes, its remaining
+durable content — the process-lifecycle and packaging target, the ownership
+split, and any invariant not already captured in `ARCHITECTURE.md`,
+`ai/context/host/architecture.md`, or `ai/context/adapter/architecture.md` —
+is expected to be folded into those durable documents and this file retired,
+per Stage 3A.3's acceptance criteria.
 
 ## Host-core remediation status
 
@@ -44,9 +68,10 @@ work.
 
 This plan builds a new C# host and thin native C++ adapter beside the existing
 `bridge/` implementation. The existing bridge remains the behavioral reference
-until the replacement passes the full conformance and runtime checks. It is not
-refactored as part of this migration and is removed only during the final
-cutover stage.
+until the replacement passes 3A.1's production-cutover acceptance criteria in
+`roadmap/03a-host-adapter-production-migration.md`. It is not refactored as
+part of this engineering buildout and is removed only by 3A.2 (Legacy Bridge
+Removal), never by this plan directly.
 
 The existing 4.1 protocol and 4.2 bridge implementation are compatibility
 evidence while the replacement is built. Their semantic decisions may be
@@ -239,128 +264,53 @@ through the adapter channel.
 ## Stage 5: Host State, Publication, and Bounded Delivery
 - [ ] Complete
 
-**Scope:**
-Implement host-owned authoritative state, subscriptions, revisions,
-publication ordering, recovery, per-session bounded queues, latest-value
-Snapshot behavior, reliable Event behavior, reserved control capacity, and
-serialized WebSocket writing. Use typed host messages internally and map to the
-selected public SDK contract only at the client boundary.
-
-**Acceptance criteria:**
-
-- State capture updates are applied in one deterministic per-area ordering
-  point.
-- Play-context changes invalidate stale state and prevent stale publication.
-- Snapshots are replaceable or recoverable without unbounded growth.
-- Reliable Events remain ordered and cause controlled client failure when they
-  cannot be admitted.
-- Control and recovery traffic retain their reserved capacity and priority.
-- No concurrent WebSocket writes occur for one client.
-- Queue, byte, timeout, cancellation, and recovery behavior is covered by
-  deterministic C# tests.
-- A client reconnect receives fresh synchronization and never inherits the
-  previous session's queue or recovery barriers.
-
-**Not in scope:** adding new Skyrim domains or deleting the old bridge.
+**Relocated.** This stage's scope and acceptance criteria — host-owned
+authoritative state, subscriptions, revisions, publication ordering,
+recovery, per-session bounded queues, Snapshot/Event behavior, reserved
+control capacity, and serialized WebSocket writing — are recorded in
+`roadmap/04-live-state-synchronization-foundation.md`'s "Host/Adapter
+continuation (post-3A)" section, "Host-owned state, publication, and bounded
+delivery" subsection. This is ordinary Product Stage 4 engineering work, not
+a prerequisite for Stage 3A's production cutover.
 
 **Depends on:** Stage 4
 
 ## Stage 6: Real Capture and Host Integration
 - [ ] Complete
 
-**Scope:**
-Connect the real adapter capture stream and play-context lifecycle to the host
-state pipeline. Add the first production state flow through the new boundary,
-including current-state resynchronization after host or IPC interruption.
-
-The first state slice is intentionally narrow: one native level-up event; one
-fast, coherent vitals sample containing health, magicka, and stamina; one medium
-experience/XP sample; and one slow gold/coins sample. The host owns the cadence
-and the meanings of fast, medium, and slow. The adapter receives only opaque
-event keys or sample tokens and performs the final native registration or read.
-
-**Acceptance criteria:**
-
-- Native-event and sampled captures reach the host through owned typed IPC
-  messages.
-- The level-up event and the fast, medium, and slow sample tokens are mapped to
-  the approved native operations without placing cadence or application policy
-  in the adapter.
-- No worker or host code performs deferred Skyrim runtime reads.
-- Capture remains bounded and non-blocking on the game thread.
-- A fast vitals capture is coherent across health, magicka, and stamina, rather
-  than requiring three independently scheduled reads.
-- Host-side state remains unavailable rather than fabricated when capture fails.
-- An accepted resynchronization response carries a fresh authoritative baseline
-  from an approved game-thread capture path; an unavailable baseline remains
-  explicitly unavailable.
-- Host restart, adapter restart, game load, save transition, and shutdown do
-  not publish stale state as current.
-- The first real state flow is proven over the new host, adapter, and client
-  processes.
-
-**Not in scope:** broad domain expansion or deletion of the old bridge.
+**Relocated.** This stage's scope and acceptance criteria — connecting the
+real adapter capture stream and play-context lifecycle to the host state
+pipeline, and the narrow first production state slice (level-up event, fast
+vitals, medium XP, slow gold) — are recorded in
+`roadmap/04-live-state-synchronization-foundation.md`'s "Host/Adapter
+continuation (post-3A)" section, "Real capture and host integration"
+subsection. This is ordinary Product Stage 4 engineering work, not a
+prerequisite for Stage 3A's production cutover.
 
 **Depends on:** Stage 3 and Stage 5
 
 ## Stage 7: Compatibility, Conformance, and Cutover Readiness
 - [ ] Complete
 
-**Scope:**
-Run the new host and adapter against the complete protocol, security,
-pairing, reconnect, state, queue, failure, and runtime validation matrix.
-Compare behavior with the frozen bridge reference and resolve intentional
-contract differences before cutover.
-
-**Acceptance criteria:**
-
-- Existing canonical fixtures are either supported by the new public contract
-  or intentionally replaced with documented migration fixtures.
-- Independent SDK and C# clients can complete pairing, reconnect, state
-  synchronization, and administrative invalidation through the host.
-- Slow clients, queue overflow, malformed input, host failure, adapter
-  failure, stale context, and shutdown are covered at the live boundary.
-- Security checks cover loopback exposure, credential handling, IPC access,
-  replay/session binding, limits, and redaction.
-- The old bridge and the replacement are compared for every retained behavior;
-  differences are approved or fixed.
-- Packaging, startup ordering, process cleanup, logging, and crash recovery
-  are documented and tested.
-- Live validation explicitly proves hidden host launch, bounded startup retry
-  without game-thread blocking, graceful Skyrim-close teardown, and cleanup
-  after a Skyrim crash or forced termination.
-
-**Not in scope:** deleting `bridge/` before the cutover gate passes.
-
-**Depends on:** Stage 6
+**Superseded.** Production cutover is now tracked as 3A.1 — Host/Adapter
+Production Cutover in `roadmap/03a-host-adapter-production-migration.md`.
+3A.1's compatibility target is the released Stage 3 baseline, not the
+live-state work this stage previously depended on (the old Stage 6 above);
+that live-state work is ordinary Stage 4 engineering and is not a cutover
+prerequisite. See 3A.1's acceptance criteria for the current, authoritative
+conformance scope: Stage 3 pairing/trust/authentication/reconnect/
+administration/lifecycle/security parity, the ported `bAlwaysActive`/
+`bAchievementCompat` runtime-compatibility behavior, a single active
+`DovahLinkAdmin` implementation, and real end-to-end validation of launch,
+pairing, reconnect, administration, and shutdown/orphan cleanup.
 
 ## Stage 8: Final Cutover and Removal
 - [ ] Complete
 
-**Scope:**
-Make `host/` and `adapter/` the only production implementation, update the
-repository’s roadmap and architecture records, remove the obsolete native
-bridge implementation and its build/test wiring, and retain only the tests
-and fixtures that describe the supported replacement.
-
-**Acceptance criteria:**
-
-- Production packaging starts the C# host and installs the native adapter with
-  the required lifecycle relationship.
-- No production path links, launches, or depends on the old `bridge/` tree.
-- Production packaging exposes exactly one active runtime implementation of the `DovahLinkAdmin`
-  Papyrus script; the legacy Bridge registration (`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`)
-  is removed or disabled before Adapter production activation.
-- The final public SDK-to-host contract and private IPC contract are documented
-  as the active contracts.
-- Obsolete C++ WebSocket, session, pairing, trust, queue, and protocol code is
-  removed only after the conformance gate passes.
-- Full Bridge, host, adapter, SDK, integration, formatting, and packaging
-  checks pass on the feature branch.
-- The old bridge deletion is a separately reviewable cutover change.
-
-**Not in scope:** new product capabilities unrelated to the migration.
-
-**Depends on:** Stage 7
-
-**Notes:** This stage intentionally performs deletion last, as requested.
+**Superseded.** Cutover and removal are now tracked as 3A.1 — Host/Adapter
+Production Cutover and 3A.2 — Legacy Bridge Removal in
+`roadmap/03a-host-adapter-production-migration.md`. See that document for the
+current, authoritative acceptance criteria, including the single active
+`DovahLinkAdmin` implementation, `bridge/` deletion and CI/build/packaging
+wiring removal, and relocating `integration/private-ipc-limits.json` before
+removing legacy integration infrastructure.

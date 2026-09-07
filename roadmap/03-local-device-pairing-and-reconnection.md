@@ -1,6 +1,6 @@
 # Stage 3 — Local Device Pairing and Reconnection
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./02-bridge-identity-and-authoritative-state.md) · [Next stage](./04-live-state-synchronization-foundation.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./02-bridge-identity-and-authoritative-state.md) · [Next stage](./03a-host-adapter-production-migration.md)
 
 ## 3. Local Device Pairing and Reconnection
 
