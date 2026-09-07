@@ -14,17 +14,39 @@ not drop any of 4.1/4.2's security or reliability guarantees.
 
 ## Durable migration status
 
-`host/PLAN.md` is the canonical, durable plan for this parallel migration. The
-current branch has completed the host-side foundation and its security,
-lifecycle, session, persistence, and documentation remediation through the
-current remediation sequence's Step 7. Private IPC is now complete on both
-sides (the host listener and the native adapter, including process launch,
-mutual authentication, and lifecycle supervision). Live WebSocket hosting,
-real capture, conformance, and final `bridge/` removal remain later work.
+`host/PLAN.md` is the canonical, durable plan for this parallel engineering
+buildout. The current branch has completed the host-side foundation and its
+security, lifecycle, session, persistence, and documentation remediation
+through the current remediation sequence's Step 7. Private IPC is now
+complete on both sides (the host listener and the native adapter, including
+process launch, mutual authentication, and lifecycle supervision). Live
+WebSocket hosting, real capture, production cutover, and final `bridge/`
+removal remain later work.
 
 The existing `bridge/` tree remains the frozen behavioral reference until the
-replacement passes the live conformance and runtime cutover gates. Nothing in
-this audit authorizes deleting or silently replacing that reference.
+replacement passes `roadmap/03a-host-adapter-production-migration.md`'s 3A.1
+production-cutover gate; `bridge/` is then removed by 3A.2. Nothing in this
+audit authorizes deleting or silently replacing that reference.
+
+### Cutover scope versus continuation scope
+
+Not every retained decision below is required for the 3A.1 cutover gate.
+3A.1 targets the released Stage 3 baseline: "Identity model", "Persistent
+trust and pairing", "Session and connection security", "Failure handling and
+diagnostics", "Trust administration surface", "Compatibility model", and
+"Private host-to-adapter boundary" (already-built infrastructure both sides
+depend on) must be proven equivalent at the live boundary before the gate
+passes. "Authoritative state, revisions, and publication ordering",
+"Outbound delivery reliability", and "Known 4.2 limitations carried forward,
+not resolved by Stage 1" describe Stage 4 live-state behavior; they are
+re-homed to `roadmap/04-live-state-synchronization-foundation.md`'s
+"Host/Adapter continuation (post-3A)" section and are not part of the 3A.1
+gate. "Adapter-only, no host interaction" is cutover-relevant regardless of
+this split: `bAlwaysActive`/`bAchievementCompat` must be ported into the
+adapter before 3A.2 removes `bridge/`, per 3A.1's acceptance criteria.
+"Deferred items (unchanged by this migration)" sits outside both buckets: it
+is unchanged by 3A either way and remains blocked on its own approval (a LAN
+design, future multi-contract support).
 
 ## Identity model
 
@@ -213,7 +235,8 @@ These are new-boundary decisions required by Stage 1 rather than reused public w
 - **`bAlwaysActive` / `bAchievementCompat` runtime compatibility toggles** -- **Retained.** Owner:
   adapter. Both are native engine-level patches/settings with no client-facing or session meaning;
   they belong entirely to the adapter's Skyrim-boundary ownership per
-  `ai/context/adapter/architecture.md`.
+  `ai/context/adapter/architecture.md`. Neither is implemented under `adapter/` as of this writing;
+  porting both is a 3A.1 acceptance criterion and must land before 3A.2 removes `bridge/`.
 - **Default loopback port `58231`** -- **Retained.** Owner: host, which now listens for clients in
   the adapter's place.
 
