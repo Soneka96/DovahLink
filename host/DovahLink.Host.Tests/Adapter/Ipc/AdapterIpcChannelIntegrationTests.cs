@@ -1,8 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Tests.Adapter.Ipc;
@@ -19,7 +20,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Connect_ValidHelloThenAcceptedResync_TrackerBecomesAvailableAndResynchronized()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -48,7 +49,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Connect_ValidHelloThenDeclinedResync_TrackerStillNeedsResynchronization()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -74,7 +75,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Connect_WrongProofHello_RejectsAndTrackerStaysUnavailable()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, _) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, _, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -97,7 +98,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Disconnect_AfterResynchronized_MarksTrackerUnavailableAndNeedingResync()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -124,7 +125,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Reconnect_AfterDisconnect_GetsFreshGenerationAndRequiresFreshBaseline()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -166,7 +167,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Connect_AvailableSubscriber_CanImmediatelySendNormalWorkAfterEstablishmentFrames()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -206,7 +207,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Disconnect_UnavailableSubscriber_CannotSendAndGracefulDrainWritesNoStaleFrame()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -256,7 +257,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Connect_ThrowingAvailableSubscriber_TrackerStillCoherentThroughConnectAndDisconnect()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -287,7 +288,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Disconnect_ThrowingUnavailableSubscriber_StillCompletesTeardownAndListenerAcceptsNextConnection()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -331,7 +332,7 @@ public class AdapterIpcChannelIntegrationTests
     [Fact]
     public async Task Reconnect_OldConnectionSameInstanceId_CannotSendAfterNewerGenerationActivates()
     {
-        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
@@ -366,16 +367,198 @@ public class AdapterIpcChannelIntegrationTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that a trust-admin request sent over a real authenticated socket reaches the
+    /// injected handler and that its formatted result is sent back correlated, covering the exact
+    /// operation/argument matrix the plan requires.
+    /// </summary>
+    [Fact]
+    public async Task Connect_ValidHelloThenTrustAdminRequest_HandlerResultIsSentBackCorrelated()
+    {
+        (IAdapterIpcListener listener, _, IAdapterPeerProofVerifier verifier, FakeAdapterTrustAdminRequestHandler trustAdminRequestHandler) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        trustAdminRequestHandler.Result = "Revoked client 12345 (My PC).";
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
+        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+
+        var request = new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Revoke, ShortId: "12345");
+        await adapterStream.WriteAsync(codec.Encode(request));
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(adapterStream, codec));
+
+        Assert.Equal(7ul, result.CorrelationId);
+        Assert.Equal("Revoked client 12345 (My PC).", result.ResultText);
+        Assert.Single(trustAdminRequestHandler.HandledRequests);
+        Assert.Equal(request, trustAdminRequestHandler.HandledRequests[0]);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an initial pairing-display request sent through the real production
+    /// <see cref="AdapterPairingNotifier"/> reaches a connected adapter over the wire and that an
+    /// accepted acknowledgement resolves the notifier's returned task <see langword="true"/>.
+    /// </summary>
+    [Fact]
+    public async Task Connect_PairingDisplayInitialThenAccepted_NotifierResolvesTrue()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        var notifier = new AdapterPairingNotifier(listener);
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
+        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+
+        Task<bool> notifyTask = notifier.TryNotifyCodeAvailableAsync("123456", CancellationToken.None);
+        var displayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        Assert.Equal("123456", displayRequest.Code);
+        Assert.Equal(PairingDisplayMode.Initial, displayRequest.Mode);
+
+        await adapterStream.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(displayRequest.CorrelationId, Accepted: true)));
+
+        Assert.True(await notifyTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a declined acknowledgement resolves the notifier's returned task <see langword="false"/>.</summary>
+    [Fact]
+    public async Task Connect_PairingDisplayDeclined_NotifierResolvesFalse()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        var notifier = new AdapterPairingNotifier(listener);
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
+        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+
+        Task<bool> notifyTask = notifier.TryNotifyRedisplayAsync("654321", CancellationToken.None);
+        var displayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        Assert.Equal(PairingDisplayMode.ManualRedisplay, displayRequest.Mode);
+
+        await adapterStream.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(displayRequest.CorrelationId, Accepted: false)));
+
+        Assert.False(await notifyTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that the no-code attempts-exhausted notification reaches a connected adapter over the wire.</summary>
+    [Fact]
+    public async Task Connect_PairingAttemptsExhausted_DeliversNoCodeNotification()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        var notifier = new AdapterPairingNotifier(listener);
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
+        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+
+        await notifier.NotifyAttemptsExhaustedAsync(CancellationToken.None);
+
+        Assert.IsType<IpcPairingAttemptsExhaustedMessage>(await ReadOneFrameAsync(adapterStream, codec));
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a pairing-display acknowledgement can never resolve a different connection's
+    /// pending request even when both connections' correlation ids coincide, by disconnecting one
+    /// adapter mid-request (which resolves its own pending wait <see langword="false"/> rather than
+    /// hanging) and reconnecting a fresh adapter whose own request reuses the exact same correlation
+    /// id -- each connection owns an independent pending-acknowledgement table, so id reuse across a
+    /// reconnect can never cross-resolve a newer request with an older one's outcome.
+    /// </summary>
+    [Fact]
+    public async Task Reconnect_AfterUnacknowledgedPairingDisplay_NewConnectionReusingSameCorrelationIdResolvesIndependently()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        var notifier = new AdapterPairingNotifier(listener);
+        ulong firstCorrelationId;
+
+        Task<bool> firstNotifyTask;
+        using (Socket firstSocket = await ConnectClientAsync(listener.BoundPort))
+        using (var firstStream = new NetworkStream(firstSocket, ownsSocket: false))
+        {
+            await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+            await ReadOneFrameAsync(firstStream, codec); // acknowledgement
+            await ReadOneFrameAsync(firstStream, codec); // resynchronize request
+            await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+
+            firstNotifyTask = notifier.TryNotifyCodeAvailableAsync("111111", CancellationToken.None);
+            var firstDisplayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(firstStream, codec));
+            firstCorrelationId = firstDisplayRequest.CorrelationId;
+            // The socket closes here without ever sending an acknowledgement.
+        }
+
+        Assert.False(await firstNotifyTask.WaitAsync(TimeSpan.FromSeconds(5)));
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
+
+        using Socket secondSocket = await ConnectClientAsync(listener.BoundPort);
+        using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
+        await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(secondStream, codec); // acknowledgement
+        await ReadOneFrameAsync(secondStream, codec); // fresh resynchronize request
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+
+        Task<bool> secondNotifyTask = notifier.TryNotifyCodeAvailableAsync("222222", CancellationToken.None);
+        var secondDisplayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(secondStream, codec));
+        Assert.Equal(firstCorrelationId, secondDisplayRequest.CorrelationId);
+
+        await secondStream.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(secondDisplayRequest.CorrelationId, Accepted: true)));
+
+        Assert.True(await secondNotifyTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Composes the real production private-IPC graph over a listener bound to an OS-assigned loopback port.</summary>
-    private static (IAdapterIpcListener Listener, IAdapterAvailabilityTracker Tracker, IAdapterPeerProofVerifier Verifier) CreateRealStack()
+    private static (IAdapterIpcListener Listener, IAdapterAvailabilityTracker Tracker, IAdapterPeerProofVerifier Verifier, FakeAdapterTrustAdminRequestHandler TrustAdminRequestHandler) CreateRealStack()
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
+        var trustAdminRequestHandler = new FakeAdapterTrustAdminRequestHandler();
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier), new SystemClock()));
-        return (listener, tracker, verifier);
+            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler), new SystemClock()));
+        return (listener, tracker, verifier, trustAdminRequestHandler);
     }
 
     /// <summary>Connects a plain client socket to the listener's bound loopback port, standing in for the adapter.</summary>

@@ -5,8 +5,10 @@
 - Source path: `host/PLAN.md`
 - Phase: Stage 4 — Host Client Boundary and Pairing
 - Snapshot date: 2026-09-01
-- Source fingerprint: `host/PLAN.md` — `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`
-- Current source matches this fingerprint: yes
+- Source fingerprint: `host/PLAN.md` — `27DE613FE3D3D75F00D94B5B26475BD53E1A1FB07C2DFD77E6AEC5C9589BB31`
+- Current source matches this fingerprint: yes (updated when all four concepts completed and this
+  phase's own Stage 4 checkbox in `host/PLAN.md` was flipped to complete; the prior fingerprint was
+  `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`)
 
 The source plan is a durable repository planning source and remains authoritative; the maintainer
 should persist the phase package and any required source-plan changes deliberately.

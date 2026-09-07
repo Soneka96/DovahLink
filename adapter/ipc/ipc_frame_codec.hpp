@@ -111,6 +111,50 @@ private:
   static std::expected<IpcMessage, IpcRejectReason>
   DecodeReadSample(std::uint64_t correlationId,
                    std::span<const std::byte> payload);
+
+  ///  Encodes an `IpcPairingDisplayMessage` payload: one mode byte followed by
+  ///  the fixed-length code digits.
+  ///  @throws std::invalid_argument The correlation id, mode, or code is
+  ///  invalid.
+  static std::vector<std::byte>
+  EncodePairingDisplay(const IpcPairingDisplayMessage &pairingDisplay);
+
+  ///  Decodes a pairing-display request, validating its mode and fixed-length
+  ///  code digits.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodePairingDisplay(std::uint64_t correlationId,
+                       std::span<const std::byte> payload);
+
+  ///  Decodes a pairing-display acknowledgement, validating its boolean
+  ///  field.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodePairingDisplayAck(std::uint64_t correlationId,
+                          std::span<const std::byte> payload);
+
+  ///  Encodes a trust-admin request: one operation byte followed by its
+  ///  operation-specific argument bytes.
+  ///  @throws std::invalid_argument The correlation id, operation, or
+  ///  argument shape is invalid.
+  static std::vector<std::byte>
+  EncodeTrustAdminRequest(const IpcTrustAdminRequestMessage &trustAdminRequest);
+
+  ///  Encodes a trust-admin result after bounding its UTF-8 encoded length.
+  ///  @throws std::invalid_argument The correlation id is zero or the result
+  ///  text exceeds the configured bound.
+  static std::vector<std::byte>
+  EncodeTrustAdminResult(const IpcTrustAdminResultMessage &trustAdminResult);
+
+  ///  Decodes a trust-admin request, validating the operation and its exact
+  ///  operation-specific argument shape.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodeTrustAdminRequest(std::uint64_t correlationId,
+                          std::span<const std::byte> payload);
+
+  ///  Decodes a trust-admin result, validating its bounded, well-formed
+  ///  UTF-8 result text.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodeTrustAdminResult(std::uint64_t correlationId,
+                         std::span<const std::byte> payload);
 };
 
 } //  namespace dovahlink::adapter::ipc

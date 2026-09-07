@@ -261,6 +261,29 @@ Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -Argume
     "--test-dir", "build/windows-x64-release", "--output-on-failure"
 )
 
+Write-Host "=== adapter-ci ==="
+# The real Host<->Adapter process test launches the built headless host executable; it must exist
+# before the Debug native test run below. Only the buildable project, not DovahLink.Host.Tests:
+# host-ci's section above already covers the host's own test suite.
+# -p:Platform=AnyCPU is required here: this script's own bridge-ci section above already imported
+# the MSVC developer environment, which exports a Platform=x64 environment variable (from
+# vcvarsall.bat) that MSBuild otherwise silently adopts, redirecting the build to
+# bin\x64\Debug\... instead of the bin\Debug\... path adapter/CMakeLists.txt's
+# DOVAHLINK_HOST_EXECUTABLE and the real-process test both expect.
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "build", "host/DovahLink.Host/DovahLink.Host.csproj", "--configuration", "Debug", "-p:Platform=AnyCPU"
+)
+$adapterDirectory = Join-Path $repoRoot "adapter"
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")
+# Runs the complete native Adapter suite -- IPC, pairing notification, trust-admin, Papyrus
+# registration, plugin, and the real Host<->Adapter process integration tests -- in one pass.
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")
+# Release is compile-only here too, mirroring adapter-ci.yml: adapter's own CMakePresets.json
+# defines a ctest testPreset only for windows-x64-debug, matching bridge's identical convention.
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")
+
 Write-Host "=== integration-ci ==="
 # dovahlink_bridge_harness has no EXCLUDE_FROM_ALL, so bridge-ci's plain Debug build above already
 # built it into build/windows-x64-debug; nothing has changed on disk since, so reconfiguring and

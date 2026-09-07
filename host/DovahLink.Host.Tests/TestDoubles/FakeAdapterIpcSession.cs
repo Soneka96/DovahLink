@@ -45,11 +45,52 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The message <see cref="PrepareReadSample"/> returns.</summary>
     public IpcReadSampleMessage? ReadSampleResult { get; set; }
 
-    /// <summary>The message <see cref="PrepareCancel"/> returns.</summary>
-    public IpcCancelMessage? CancelResult { get; set; }
+    /// <summary>
+    /// Whether <see cref="PrepareCancel"/> returns <see langword="null"/> instead of a message,
+    /// simulating the session declining to prepare a cancellation (for example an inactive lease).
+    /// When unset, <see cref="PrepareCancel"/> returns <c>new IpcCancelMessage(correlationId)</c> for
+    /// whatever correlation id it was called with, matching production
+    /// <see cref="AdapterIpcSession.PrepareCancel"/>'s own contract, so a test exercising the
+    /// realistic default does not have to hardcode a matching value in advance.
+    /// </summary>
+    public bool PrepareCancelReturnsNull { get; set; }
 
     /// <summary>An optional callback invoked synchronously at the end of <see cref="HandleDisconnected"/>, letting a test observe collaborator state exactly as it stood when the connection notified this session of disconnection.</summary>
     public Action? OnDisconnected { get; set; }
+
+    /// <summary>The message <see cref="PreparePairingDisplay"/> returns.</summary>
+    public IpcPairingDisplayMessage? PairingDisplayResult { get; set; }
+
+    /// <summary>The message <see cref="PreparePairingAttemptsExhausted"/> returns.</summary>
+    public IpcPairingAttemptsExhaustedMessage? PairingAttemptsExhaustedResult { get; set; }
+
+    /// <summary>The result <see cref="HandlePairingDisplayAck"/> returns.</summary>
+    public bool? PairingDisplayAckResult { get; set; }
+
+    /// <summary>The acknowledgements passed to <see cref="HandlePairingDisplayAck"/>, in call order.</summary>
+    public List<IpcPairingDisplayAckMessage> HandledPairingDisplayAcks { get; } = [];
+
+    /// <summary>The correlation ids passed to <see cref="CancelPendingPairingDisplay"/>, in call order.</summary>
+    public List<ulong> CancelledPendingPairingDisplayCorrelationIds { get; } = [];
+
+    /// <summary>The requests passed to <see cref="HandleTrustAdminRequestAsync"/>, in call order.</summary>
+    public List<IpcTrustAdminRequestMessage> HandledTrustAdminRequests { get; } = [];
+
+    /// <summary>The result <see cref="HandleTrustAdminRequestAsync"/> returns.</summary>
+    public string TrustAdminRequestResult { get; set; } = string.Empty;
+
+    /// <summary>Whether <see cref="PrepareCancel"/> throws instead of returning its normal result.</summary>
+    public bool ThrowOnPrepareCancel { get; set; }
+
+    /// <summary>The correlation ids passed to <see cref="PrepareCancel"/>, in call order.</summary>
+    public List<ulong> PreparedCancelCorrelationIds { get; } = [];
+
+    /// <summary>
+    /// Overrides <see cref="HandleTrustAdminRequestAsync"/>'s entire behavior when set, letting a
+    /// test control its completion timing and observe or honor the passed cancellation token.
+    /// Defaults to completing immediately with <see cref="TrustAdminRequestResult"/>.
+    /// </summary>
+    public Func<IpcTrustAdminRequestMessage, CancellationToken, Task<string>>? HandleTrustAdminRequestOverride { get; set; }
 
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
@@ -94,12 +135,46 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => ReadSampleResult;
 
     /// <inheritdoc/>
-    public IpcCancelMessage? PrepareCancel(ulong correlationId) => CancelResult;
+    public IpcCancelMessage? PrepareCancel(ulong correlationId)
+    {
+        PreparedCancelCorrelationIds.Add(correlationId);
+        if (ThrowOnPrepareCancel)
+        {
+            throw new InvalidOperationException("Test-induced PrepareCancel failure.");
+        }
+
+        return PrepareCancelReturnsNull ? null : new IpcCancelMessage(correlationId);
+    }
 
     /// <inheritdoc/>
     public void HandleDisconnected()
     {
         DisconnectedCalls++;
         OnDisconnected?.Invoke();
+    }
+
+    /// <inheritdoc/>
+    public IpcPairingDisplayMessage? PreparePairingDisplay(string code, PairingDisplayMode mode) => PairingDisplayResult;
+
+    /// <inheritdoc/>
+    public IpcPairingAttemptsExhaustedMessage? PreparePairingAttemptsExhausted() => PairingAttemptsExhaustedResult;
+
+    /// <inheritdoc/>
+    public bool? HandlePairingDisplayAck(IpcPairingDisplayAckMessage ack)
+    {
+        HandledPairingDisplayAcks.Add(ack);
+        return PairingDisplayAckResult;
+    }
+
+    /// <inheritdoc/>
+    public void CancelPendingPairingDisplay(ulong correlationId) => CancelledPendingPairingDisplayCorrelationIds.Add(correlationId);
+
+    /// <inheritdoc/>
+    public Task<string> HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken = default)
+    {
+        HandledTrustAdminRequests.Add(request);
+        return HandleTrustAdminRequestOverride is not null
+            ? HandleTrustAdminRequestOverride(request, cancellationToken)
+            : Task.FromResult(TrustAdminRequestResult);
     }
 }

@@ -36,6 +36,32 @@ public interface IAdapterIpcConnection
     /// <param name="correlationId">The nonzero correlation id of the request to cancel.</param>
     /// <returns><see langword="true"/> when the cancellation was accepted onto the outbound queue.</returns>
     bool TryCancel(ulong correlationId);
+
+    /// <summary>Attempts to enqueue a host-directed pairing-display request.</summary>
+    /// <param name="code">The code to display.</param>
+    /// <param name="mode">Which display intent this request carries.</param>
+    /// <param name="correlationId">The request's correlation id when enqueued; otherwise zero.</param>
+    /// <returns><see langword="true"/> when the request was accepted onto the outbound queue.</returns>
+    bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId);
+
+    /// <summary>Attempts to enqueue a host-directed no-code attempts-exhausted notification.</summary>
+    /// <returns><see langword="true"/> when the notification was accepted onto the outbound queue.</returns>
+    bool TrySendPairingAttemptsExhausted();
+
+    /// <summary>
+    /// Waits for the adapter's acknowledgement to a previously enqueued pairing-display request,
+    /// bounded by <paramref name="timeout"/>. A timeout, cancellation, disconnection, or an
+    /// acknowledgement that does not match a currently pending request on the active connection
+    /// generation are all reported as <see langword="false"/>, identically to an explicit rejection.
+    /// A timeout or cancellation also withdraws <paramref name="correlationId"/> from the session's
+    /// own pending set, the same as <see cref="IAdapterIpcSession.CancelPendingPairingDisplay"/>
+    /// would for a queue-full rejection, so an adapter that never acknowledges cannot grow that set
+    /// without bound.
+    /// </summary>
+    /// <param name="correlationId">The correlation id returned by <see cref="TrySendPairingDisplay"/>.</param>
+    /// <param name="timeout">The maximum time to wait for the acknowledgement.</param>
+    /// <param name="cancellationToken">The token used to stop waiting early.</param>
+    Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
 /// <inheritdoc cref="IAdapterIpcConnection"/>
@@ -68,6 +94,23 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <summary>The bounded outbound frame queue drained by <see cref="WriterLoopAsync"/>.</summary>
     private readonly Channel<byte[]> outbound = Channel.CreateBounded<byte[]>(
         new BoundedChannelOptions(Constants.MaxIpcQueuedMessages) { SingleReader = true, SingleWriter = false });
+
+    /// <summary>Guards <see cref="pendingPairingDisplayAcks"/> against concurrent access.</summary>
+    private readonly object pendingPairingDisplayAcksGate = new();
+
+    /// <summary>The acknowledgement waiters for pairing-display requests currently outstanding.</summary>
+    private readonly Dictionary<ulong, TaskCompletionSource<bool>> pendingPairingDisplayAcks = [];
+
+    /// <summary>Guards <see cref="pendingTrustAdminRequests"/> against concurrent access.</summary>
+    private readonly object pendingTrustAdminRequestsGate = new();
+
+    /// <summary>
+    /// Each trust-admin request currently admitted and not yet finished dispatching, keyed by its
+    /// correlation id. An entry's absence means the request was never admitted, or its own dispatch
+    /// has already finished handling it -- including writing its reply, being cancelled, or being
+    /// abandoned by this connection's own teardown.
+    /// </summary>
+    private readonly Dictionary<ulong, TrustAdminDispatch> pendingTrustAdminRequests = [];
 
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
@@ -114,6 +157,8 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             // teardown can land in the channel after this generation's unavailability is published.
             outbound.Writer.TryComplete();
             session.HandleDisconnected();
+            FailAllPendingPairingDisplayAcks();
+            await CancelAndDrainPendingTrustAdminRequestsAsync().ConfigureAwait(false);
             bool forceClose = cancellationToken.IsCancellationRequested ||
                 ioCancellation.IsCancellationRequested ||
                 inboundRateLimitExceeded ||
@@ -202,6 +247,104 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         return message is not null && outbound.Writer.TryWrite(codec.Encode(message));
     }
 
+    /// <inheritdoc/>
+    public bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId)
+    {
+        IpcPairingDisplayMessage? message = session.PreparePairingDisplay(code, mode);
+        if (message is null)
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        lock (pendingPairingDisplayAcksGate)
+        {
+            pendingPairingDisplayAcks[message.CorrelationId] = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        if (!outbound.Writer.TryWrite(codec.Encode(message)))
+        {
+            lock (pendingPairingDisplayAcksGate)
+            {
+                pendingPairingDisplayAcks.Remove(message.CorrelationId);
+            }
+
+            session.CancelPendingPairingDisplay(message.CorrelationId);
+            correlationId = 0;
+            return false;
+        }
+
+        correlationId = message.CorrelationId;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendPairingAttemptsExhausted()
+    {
+        IpcPairingAttemptsExhaustedMessage? message = session.PreparePairingAttemptsExhausted();
+        return message is not null && outbound.Writer.TryWrite(codec.Encode(message));
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<bool>? tcs;
+        lock (pendingPairingDisplayAcksGate)
+        {
+            pendingPairingDisplayAcks.TryGetValue(correlationId, out tcs);
+        }
+
+        if (tcs is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await tcs.Task.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
+        {
+            // The adapter may still be holding this request queued for its Skyrim game thread (for
+            // example a stalled load), so withdrawing only the host's own local state would let a
+            // display the host has already reported unavailable appear later anyway. Best-effort:
+            // a failed remote cancellation still leaves this wait's own false result unchanged.
+            TryCancelRemotePairingDisplay(correlationId);
+            return false;
+        }
+        finally
+        {
+            lock (pendingPairingDisplayAcksGate)
+            {
+                pendingPairingDisplayAcks.Remove(correlationId);
+            }
+
+            // Safe to call unconditionally: a successful acknowledgement already removed this
+            // correlation id from the session's own pending set via HandlePairingDisplayAck, so this
+            // is a harmless no-op on that path and the only cleanup for the timeout/cancellation paths.
+            session.CancelPendingPairingDisplay(correlationId);
+        }
+    }
+
+    /// <summary>
+    /// Best-effort enqueues a remote cancellation for a pairing-display request whose acknowledgement
+    /// wait ended by timeout or caller cancellation. Never called after an explicit accepted or
+    /// rejected acknowledgement, since the adapter has already executed that request by then.
+    /// </summary>
+    /// <param name="correlationId">The pairing-display request's correlation id.</param>
+    private void TryCancelRemotePairingDisplay(ulong correlationId)
+    {
+        try
+        {
+            TryCancel(correlationId);
+        }
+        catch (Exception)
+        {
+            // Best-effort: a failed send here must not change the timeout/cancellation result already
+            // decided by the caller.
+        }
+    }
+
     /// <summary>
     /// Reads and evaluates the connecting adapter's first frame within
     /// <see cref="Constants.AdapterIpcHandshakeTimeout"/>, which must be a Hello. A peer that
@@ -270,12 +413,264 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 return;
             }
 
+            if (decodeResult.Message is IpcPairingDisplayAckMessage pairingDisplayAck)
+            {
+                ResolvePairingDisplayAck(pairingDisplayAck);
+                continue;
+            }
+
+            if (decodeResult.Message is IpcTrustAdminRequestMessage trustAdminRequest)
+            {
+                AdapterIpcOutcome trustAdminOutcome = DispatchTrustAdminRequest(trustAdminRequest);
+                EnqueueOutcome(trustAdminOutcome);
+                if (trustAdminOutcome.ShouldClose)
+                {
+                    return;
+                }
+
+                continue;
+            }
+
+            if (decodeResult.Message is IpcCancelMessage trustAdminCancel)
+            {
+                // Best-effort only: falls through to the generic handling below unchanged, since a
+                // cancellation targeting a correlation id this connection never admitted as a
+                // trust-admin request (for example an unrelated pending intent) is that generic
+                // handling's own concern, not this one's.
+                TryCancelPendingTrustAdminRequest(trustAdminCancel.CorrelationId);
+            }
+
             AdapterIpcOutcome outcome = session.HandleFrame(decodeResult.Message!);
             EnqueueOutcome(outcome);
             if (outcome.ShouldClose)
             {
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Admits one received trust-admin request against the bounded, per-connection set of requests
+    /// still dispatching and, once admitted, dispatches it without awaiting: the read loop continues
+    /// serving other inbound frames -- including a pairing-display acknowledgement -- while this
+    /// request's persistence write is still outstanding, replacing the earlier design where this
+    /// connection's own read loop blocked on that write.
+    /// </summary>
+    /// <param name="request">The received request.</param>
+    /// <returns>
+    /// <see cref="AdapterIpcOutcome.None"/> once the request is admitted and dispatched;
+    /// <see cref="AdapterIpcOutcome.SendAndClose"/> rejecting a duplicate, still-outstanding
+    /// correlation id as a protocol violation, the same as an unrecognized message kind; or
+    /// <see cref="AdapterIpcOutcome.Send"/> with a controlled result, connection left open, once
+    /// <see cref="Constants.MaxPendingTrustAdminRequests"/> is already reached -- the same bound the
+    /// adapter's own <c>SendTrustAdminRequest</c> enforces on itself, so a mutually authenticated but
+    /// malfunctioning adapter cannot create unbounded host-side work.
+    /// </returns>
+    private AdapterIpcOutcome DispatchTrustAdminRequest(IpcTrustAdminRequestMessage request)
+    {
+        var requestCancellation = new CancellationTokenSource();
+        lock (pendingTrustAdminRequestsGate)
+        {
+            if (pendingTrustAdminRequests.ContainsKey(request.CorrelationId))
+            {
+                requestCancellation.Dispose();
+                return AdapterIpcOutcome.SendAndClose(
+                    new IpcRejectMessage(request.CorrelationId, IpcRejectReason.DuplicateTrustAdminCorrelationId));
+            }
+
+            if (pendingTrustAdminRequests.Count >= Constants.MaxPendingTrustAdminRequests)
+            {
+                requestCancellation.Dispose();
+                return AdapterIpcOutcome.Send(new IpcTrustAdminResultMessage(
+                    request.CorrelationId, "Too many trust-administration requests in progress. Try again shortly."));
+            }
+
+            // Started while still holding this gate, not after releasing it: RunTrustAdminRequestAsync's
+            // own explicit yield (see its documentation) guarantees none of its body can run before this
+            // call returns the Task below, so the entry below is always in place before that body's
+            // finally block could ever look for it, with no window for the two to race.
+            Task dispatchTask = RunTrustAdminRequestAsync(request, requestCancellation);
+            pendingTrustAdminRequests[request.CorrelationId] = new TrustAdminDispatch(requestCancellation, dispatchTask);
+        }
+
+        return AdapterIpcOutcome.None;
+    }
+
+    /// <summary>
+    /// Awaits one admitted trust-admin request's dispatch and enqueues its formatted
+    /// <see cref="IpcTrustAdminResultMessage"/> reply, then removes it from
+    /// <see cref="pendingTrustAdminRequests"/> and disposes its cancellation source exactly once,
+    /// regardless of outcome. A cancelled request (this connection tearing down, or an inbound
+    /// <see cref="IpcCancelMessage"/> targeting its exact correlation id) is dropped silently,
+    /// matching the private IPC contract's own "cancelling a request... is a harmless no-op"
+    /// framing: the adapter that requested the cancellation has already stopped waiting for a
+    /// reply. Contains every other exception the handler throws instead of letting this task fault:
+    /// <see cref="TrustAdminDispatch.Completion"/> documents that guarantee, which
+    /// <see cref="CancelAndDrainPendingTrustAdminRequestsAsync"/> depends on to await every
+    /// outstanding dispatch without a misbehaving handler's exception escaping teardown. Always
+    /// crosses an explicit asynchronous scheduling boundary before invoking the handler, so no
+    /// handler code -- including synchronous work preceding the handler's own first suspension
+    /// point -- ever runs on the caller's thread; <see cref="DispatchTrustAdminRequest"/> depends on
+    /// that guarantee to admit this request without awaiting its dispatch from the private IPC read
+    /// loop.
+    /// </summary>
+    /// <param name="request">The admitted request.</param>
+    /// <param name="requestCancellation">This request's own cancellation source.</param>
+    private async Task RunTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationTokenSource requestCancellation)
+    {
+        try
+        {
+            string resultText;
+            try
+            {
+                // An async method otherwise runs synchronously up to its first genuinely incomplete
+                // await, so without this explicit yield, handler code invoked directly below could
+                // still execute inline on the private IPC read loop that called
+                // DispatchTrustAdminRequest without awaiting it.
+                await Task.Yield();
+                requestCancellation.Token.ThrowIfCancellationRequested();
+                resultText = await session.HandleTrustAdminRequestAsync(request, requestCancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // The handler is expected to have already sanitized any infrastructure or persistence
+                // failure into a formatted result; reaching this catch means it did not. Reported to
+                // the adapter as a controlled failure rather than left to time out with no host-side
+                // signal, and contained here rather than left to fault this task, which this
+                // connection's teardown depends on never happening (see this method's own summary).
+                outbound.Writer.TryWrite(codec.Encode(new IpcTrustAdminResultMessage(
+                    request.CorrelationId, "Internal error processing the trust-administration request.")));
+                return;
+            }
+
+            outbound.Writer.TryWrite(codec.Encode(new IpcTrustAdminResultMessage(request.CorrelationId, resultText)));
+        }
+        finally
+        {
+            lock (pendingTrustAdminRequestsGate)
+            {
+                pendingTrustAdminRequests.Remove(request.CorrelationId);
+            }
+
+            requestCancellation.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Best-effort cancels the trust-admin request currently admitted under <paramref name="correlationId"/>,
+    /// if any. A harmless no-op when no such request is currently admitted, including when it never
+    /// was, or its own dispatch already finished.
+    /// </summary>
+    /// <param name="correlationId">The correlation id an inbound <see cref="IpcCancelMessage"/> named.</param>
+    private void TryCancelPendingTrustAdminRequest(ulong correlationId)
+    {
+        TrustAdminDispatch? dispatch;
+        lock (pendingTrustAdminRequestsGate)
+        {
+            pendingTrustAdminRequests.TryGetValue(correlationId, out dispatch);
+        }
+
+        try
+        {
+            dispatch?.Cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Best-effort: this request's own dispatch already finished and disposed its
+            // cancellation source between the lookup above and this call; nothing left to cancel.
+        }
+    }
+
+    /// <summary>
+    /// Cancels every trust-admin request still admitted, then waits up to
+    /// <see cref="Constants.TrustAdminTeardownDrainTimeout"/> for all of their dispatches to
+    /// actually finish, so none of them keep running unobserved past this connection's own
+    /// teardown. A dispatch whose handler does not honor cancellation within that bound is left
+    /// running rather than blocking teardown indefinitely; it still cannot write a reply to this
+    /// connection afterward, since <see cref="RunAsync"/> disposes <see cref="stream"/> once this
+    /// method returns and <see cref="RunTrustAdminRequestAsync"/>'s own <c>TryWrite</c> to the
+    /// already-completed <see cref="outbound"/> channel is silently ignored. Does not itself remove
+    /// or dispose any entry: each request's own <see cref="RunTrustAdminRequestAsync"/> continuation
+    /// still does that exactly once, whether it observes this cancellation, the drain timeout, or
+    /// finishes some other way first.
+    /// </summary>
+    private async Task CancelAndDrainPendingTrustAdminRequestsAsync()
+    {
+        List<TrustAdminDispatch> dispatches;
+        lock (pendingTrustAdminRequestsGate)
+        {
+            dispatches = [.. pendingTrustAdminRequests.Values];
+        }
+
+        foreach (TrustAdminDispatch dispatch in dispatches)
+        {
+            try
+            {
+                dispatch.Cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Best-effort: see TryCancelPendingTrustAdminRequest's identical race for why.
+            }
+        }
+
+        if (dispatches.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            // Every Completion task is documented never to fault (see TrustAdminDispatch), so this
+            // await cannot itself throw except by timing out.
+            await Task.WhenAll(dispatches.Select(dispatch => dispatch.Completion))
+                .WaitAsync(Constants.TrustAdminTeardownDrainTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Left running; see this method's own summary for why that is safe.
+        }
+    }
+
+    /// <summary>Resolves the pending acknowledgement wait matching a received pairing-display acknowledgement, if any.</summary>
+    /// <param name="ack">The received acknowledgement.</param>
+    private void ResolvePairingDisplayAck(IpcPairingDisplayAckMessage ack)
+    {
+        bool? accepted = session.HandlePairingDisplayAck(ack);
+        if (accepted is null)
+        {
+            return;
+        }
+
+        TaskCompletionSource<bool>? tcs;
+        lock (pendingPairingDisplayAcksGate)
+        {
+            pendingPairingDisplayAcks.Remove(ack.CorrelationId, out tcs);
+        }
+
+        tcs?.TrySetResult(accepted.Value);
+    }
+
+    /// <summary>
+    /// Resolves every still-outstanding pairing-display acknowledgement wait as not accepted, so a
+    /// caller awaiting one never hangs past this connection's teardown.
+    /// </summary>
+    private void FailAllPendingPairingDisplayAcks()
+    {
+        List<TaskCompletionSource<bool>> waiters;
+        lock (pendingPairingDisplayAcksGate)
+        {
+            waiters = [.. pendingPairingDisplayAcks.Values];
+            pendingPairingDisplayAcks.Clear();
+        }
+
+        foreach (TaskCompletionSource<bool> tcs in waiters)
+        {
+            tcs.TrySetResult(false);
         }
     }
 

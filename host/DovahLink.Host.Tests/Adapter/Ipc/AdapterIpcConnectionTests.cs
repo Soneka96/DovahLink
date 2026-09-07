@@ -393,7 +393,7 @@ public class AdapterIpcConnectionTests
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var codec = new IpcFrameCodec();
-        var fakeSession = new FakeAdapterIpcSession { CancelResult = new IpcCancelMessage(7) };
+        var fakeSession = new FakeAdapterIpcSession();
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
 
@@ -714,7 +714,8 @@ public class AdapterIpcConnectionTests
     [Fact]
     public void TryCancel_SessionRefuses_ReturnsFalse()
     {
-        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+        var fakeSession = new FakeAdapterIpcSession { PrepareCancelReturnsNull = true };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
 
         Assert.False(connection.TryCancel(1));
     }
@@ -790,7 +791,6 @@ public class AdapterIpcConnectionTests
         {
             ListenEventResult = new IpcListenEventMessage(1, 42),
             ReadSampleResult = new IpcReadSampleMessage(2, 42),
-            CancelResult = new IpcCancelMessage(3),
         };
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         bool listenAcceptedDuringDisconnect = true;
@@ -849,6 +849,1019 @@ public class AdapterIpcConnectionTests
         Assert.Equal(42u, listenEvent.EventKey);
         Assert.Equal(1, fakeSession.DisconnectedCalls);
         client.Dispose();
+    }
+
+    // ---- Pairing display ----
+
+    /// <summary>Verifies that a pairing-display request is refused before the session has anything to prepare it from.</summary>
+    [Fact]
+    public void TrySendPairingDisplay_SessionRefuses_ReturnsFalse()
+    {
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        bool enqueued = connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+    }
+
+    /// <summary>Verifies that an attempts-exhausted notification is refused before the session has anything to prepare it from.</summary>
+    [Fact]
+    public void TrySendPairingAttemptsExhausted_SessionRefuses_ReturnsFalse()
+    {
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        Assert.False(connection.TrySendPairingAttemptsExhausted());
+    }
+
+    /// <summary>Verifies that a queued pairing-display request is actually written to the peer once connected.</summary>
+    [Fact]
+    public async Task TrySendPairingDisplay_Connected_DeliversFrameToPeer()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        bool enqueued = connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId);
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        Assert.Equal(9UL, correlationId);
+        var pairingDisplay = Assert.IsType<IpcPairingDisplayMessage>(delivered);
+        Assert.Equal("123456", pairingDisplay.Code);
+        Assert.Equal(PairingDisplayMode.Initial, pairingDisplay.Mode);
+    }
+
+    /// <summary>Verifies that a queued attempts-exhausted notification is actually written to the peer once connected.</summary>
+    [Fact]
+    public async Task TrySendPairingAttemptsExhausted_Connected_DeliversFrameToPeer()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { PairingAttemptsExhaustedResult = new IpcPairingAttemptsExhaustedMessage(0) };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        bool enqueued = connection.TrySendPairingAttemptsExhausted();
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        Assert.IsType<IpcPairingAttemptsExhaustedMessage>(delivered);
+    }
+
+    /// <summary>
+    /// Verifies that the bounded outbound queue refuses a pairing-display request once full, and that
+    /// the session is told to withdraw the correlation id it had already registered as pending -- so a
+    /// later stray acknowledgement for a request that was never actually sent cannot be mistaken for a
+    /// legitimate reply.
+    /// </summary>
+    [Fact]
+    public void TrySendPairingDisplay_QueueFull_ReturnsFalseAndCancelsPendingCorrelation()
+    {
+        var fakeSession = new FakeAdapterIpcSession { PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial) };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out _));
+        }
+
+        bool enqueued = connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+        Assert.Contains(9UL, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
+    }
+
+    /// <summary>
+    /// Verifies that a rate-limit close -- a connection ending via forced writer closure rather than an
+    /// ordinary peer disconnect -- still resolves an outstanding acknowledgement wait as not accepted
+    /// instead of leaving it hanging.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_ForceClosedBlockedWriter_ReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 2);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // acknowledgement
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await client.WriteAsync(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF }); // malformed frame length forces closure
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
+        blockingStream.Release();
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that an acknowledgement arriving from the peer resolves the matching pending wait with its accepted value.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AwaitPairingDisplayAckAsync_AckArrives_ReturnsAcceptedValue(bool accepted)
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = accepted,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, accepted)));
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(accepted, result);
+        Assert.Single(fakeSession.HandledPairingDisplayAcks);
+        // The unconditional cleanup in AwaitPairingDisplayAckAsync's finally block still runs on this
+        // success path; it is a harmless no-op against the real session (HandlePairingDisplayAck
+        // already removed the entry), which this fake's own unconditional call recording surfaces here.
+        Assert.Contains(correlationId, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that awaiting an acknowledgement for a correlation id that was never sent returns false immediately.</summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_UnknownCorrelationId_ReturnsFalseImmediately()
+    {
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(999, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        Assert.False(result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
+    }
+
+    /// <summary>
+    /// Verifies that awaiting an acknowledgement that never arrives times out, returns false rather
+    /// than hanging, and withdraws the correlation id from the session's own pending set so a
+    /// connected-but-never-acknowledging adapter cannot grow that set without bound.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_NoAckArrives_TimesOutAndReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that awaiting an acknowledgement with an already-cancelled token returns false rather
+    /// than throwing, and withdraws the correlation id from the session's own pending set the same as
+    /// a genuine timeout does.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Cancelled_ReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), cancellation.Token)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.CancelledPendingPairingDisplayCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a connection ending while an acknowledgement wait is outstanding resolves it as not accepted rather than hanging forever.</summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_ConnectionEndsWhileWaiting_ReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        client.Dispose();
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an acknowledgement the session does not recognize as valid (a stale or mismatched
+    /// correlation, or a superseded connection generation) never resolves the pending wait -- the wait
+    /// times out on its own bound instead of resolving with a value the session never approved.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_SessionRejectsAck_TimesOutRatherThanResolving()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = null,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(200), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, true)));
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Single(fakeSession.HandledPairingDisplayAcks);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an explicit accepted or rejected acknowledgement never triggers a remote
+    /// cancellation: the adapter has already executed the display request by the time either
+    /// acknowledgement arrives, so there is nothing left to cancel.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AwaitPairingDisplayAckAsync_AckArrives_DoesNotCancelRemotely(bool accepted)
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = accepted,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, accepted)));
+
+        bool result = await awaitTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(accepted, result);
+        Assert.Empty(fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a timed-out acknowledgement wait sends a remote cancellation for the exact
+    /// correlation id, so a queued Skyrim-side display cannot appear after the host has already
+    /// rolled back and reported the challenge unavailable.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_NoAckArrives_SendsRemoteCancellation()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        var cancelFrame = Assert.IsType<IpcCancelMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(correlationId, cancelFrame.CorrelationId);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a caller-cancelled acknowledgement wait sends a remote cancellation for the exact
+    /// correlation id, the same as a timeout does.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Cancelled_SendsRemoteCancellation()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), cancellation.Token)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        var cancelFrame = Assert.IsType<IpcCancelMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(correlationId, cancelFrame.CorrelationId);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a timed-out acknowledgement wait still returns false when the remote
+    /// cancellation itself cannot be enqueued (a full outbound queue), rather than letting a
+    /// best-effort cleanup failure change the already-decided timeout result.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Timeout_CancellationEnqueueFails_StillReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PrepareCancelReturnsNull = true,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a timed-out acknowledgement wait still returns false when sending the remote
+    /// cancellation throws, containing the failure the same as a controlled enqueue failure.
+    /// </summary>
+    [Fact]
+    public async Task AwaitPairingDisplayAckAsync_Timeout_CancellationSendThrows_ContainedAndStillReturnsFalse()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            ThrowOnPrepareCancel = true,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+
+        bool result = await connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(100), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(result);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    // ---- Trust-admin requests ----
+
+    /// <summary>Verifies that a received trust-admin request is forwarded to the session and its formatted result is sent back correlated.</summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequest_ForwardsToSessionAndSendsResultBackCorrelated()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { TrustAdminRequestResult = "Revoked client 12345 (My PC)." };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        var request = new IpcTrustAdminRequestMessage(9, TrustAdminOperation.Revoke, ShortId: "12345");
+        await client.WriteAsync(codec.Encode(request));
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+
+        Assert.Equal(9UL, result.CorrelationId);
+        Assert.Equal("Revoked client 12345 (My PC).", result.ResultText);
+        Assert.Single(fakeSession.HandledTrustAdminRequests);
+        Assert.Equal(request, fakeSession.HandledTrustAdminRequests[0]);
+        Assert.Empty(fakeSession.HandledFrames);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that the read loop keeps serving further frames after handling a trust-admin request.</summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequestThenAnotherMessage_BothAreProcessed()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            TrustAdminRequestResult = "ok",
+            FrameOutcome = AdapterIpcOutcome.None,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await ReadOneFrameAsync(client, codec); // the trust-admin result
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(5)));
+
+        // Waits for the read loop to actually record this frame, not a fixed delay: this proves
+        // the loop kept serving further frames after the trust-admin request, which is exactly
+        // what this test exists to show.
+        await WaitUntilAsync(() => fakeSession.HandledFrames.Count == 1, runTask);
+
+        Assert.Single(fakeSession.HandledTrustAdminRequests);
+        Assert.Single(fakeSession.HandledFrames);
+        Assert.IsType<IpcCancelMessage>(fakeSession.HandledFrames[0]);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that the read loop is not blocked by a trust-admin request whose dispatch has not
+    /// yet finished: a pairing-display acknowledgement received while that dispatch is still
+    /// outstanding is processed immediately, and the trust-admin request's own correlated result
+    /// still arrives once its dispatch is later released. This is the regression proof for the
+    /// reason this concept stopped awaiting the dispatch inline on the read loop.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var dispatchGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, _) => dispatchGate.Task,
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = true,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> ackTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, true)));
+
+        // If the trust-admin request's still-pending dispatch blocked the read loop, this would time
+        // out instead of observing the ack that was written to the stream after it.
+        bool ackResult = await ackTask.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(ackResult);
+
+        dispatchGate.SetResult("ok");
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.Equal("ok", result.ResultText);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a trust-admin handler which blocks the calling thread synchronously -- before
+    /// its own returned <see cref="Task"/> is even created, rather than one that merely returns an
+    /// already-incomplete <see cref="Task"/> -- still does not block the private IPC read loop from
+    /// serving an unrelated pairing-display acknowledgement. This is the deterministic regression
+    /// proof for the asynchronous scheduling boundary at the top of
+    /// <c>AdapterIpcConnection.RunTrustAdminRequestAsync</c> (private, so not link-eligible from
+    /// here): the earlier
+    /// <see cref="RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing"/> test
+    /// cannot detect a missing boundary because its fake returns a pre-existing incomplete task,
+    /// which naturally yields on its own regardless of that boundary.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminHandlerBlocksSynchronously_StillProcessesPairingDisplayAckWhileBlocked()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        using var handlerEntered = new ManualResetEventSlim(false);
+        using var releaseHandler = new ManualResetEventSlim(false);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, _) =>
+            {
+                handlerEntered.Set();
+                Assert.True(releaseHandler.Wait(TimeSpan.FromSeconds(5)));
+                return Task.FromResult("ok");
+            },
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = true,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        Assert.True(handlerEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        // The handler is synchronously blocked inside its own dispatch right now. If that dispatch
+        // ran inline on the read loop instead of past an explicit scheduling boundary, the read loop
+        // could not still be free to admit and process this unrelated pairing-display request/ack.
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> ackTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, true)));
+
+        bool ackResult = await ackTask.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(ackResult);
+
+        releaseHandler.Set();
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.Equal("ok", result.ResultText);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a request beyond <see cref="Constants.MaxPendingTrustAdminRequests"/> is
+    /// rejected with a controlled result rather than admitted, and that completing one already-
+    /// admitted request frees its slot for a later one.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequestsAtCapacity_RejectsNextWithControlledReplyAndFreesSlotOnCompletion()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var gates = new Dictionary<ulong, TaskCompletionSource<string>>();
+        for (ulong i = 1; i <= (ulong)Constants.MaxPendingTrustAdminRequests; i++)
+        {
+            gates[i] = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (request, _) => gates[request.CorrelationId].Task,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        foreach (ulong correlationId in gates.Keys)
+        {
+            await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(correlationId, TrustAdminOperation.Help)));
+        }
+
+        // Every slot is now occupied by a request whose gate is still unreleased; a request beyond
+        // the bound must be rejected immediately rather than admitted or left hanging.
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(999, TrustAdminOperation.Help)));
+        var rejected = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(999UL, rejected.CorrelationId);
+
+        gates[1].SetResult("first");
+        var freed = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, freed.CorrelationId);
+
+        foreach ((ulong correlationId, TaskCompletionSource<string> gate) in gates)
+        {
+            if (correlationId != 1)
+            {
+                gate.SetResult("done");
+            }
+        }
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a trust-admin request whose correlation id matches one already admitted and
+    /// still outstanding is rejected as a protocol violation and closes the connection, the same as
+    /// an unrecognized message kind.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_DuplicateTrustAdminCorrelationId_RejectsAndCloses()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession { HandleTrustAdminRequestOverride = (_, _) => gate.Task };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Help)));
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Help)));
+
+        var reject = Assert.IsType<IpcRejectMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(7UL, reject.CorrelationId);
+        Assert.Equal(IpcRejectReason.DuplicateTrustAdminCorrelationId, reject.Reason);
+
+        gate.SetResult("unused");
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that independent trust-admin requests each resolve by their own exact correlation id, out of order.</summary>
+    [Fact]
+    public async Task RunAsync_MultipleTrustAdminRequests_CompleteOutOfOrder()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var firstGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (request, _) => request.CorrelationId == 1 ? firstGate.Task : secondGate.Task,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(2, TrustAdminOperation.Help)));
+
+        // Resolve the second request first: the still-pending first request must not block it.
+        secondGate.SetResult("second");
+        var secondResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(2UL, secondResult.CorrelationId);
+
+        firstGate.SetResult("first");
+        var firstResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, firstResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an inbound cancellation for a trust-admin request's exact correlation id
+    /// cancels that request's own dispatch, dropping it silently -- no reply is ever sent for it --
+    /// without disturbing a different, unrelated request.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelMessage_CancelsMatchingTrustAdminRequestAndDropsItSilently()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (request, cancellationToken) =>
+            {
+                if (request.CorrelationId != 3)
+                {
+                    return Task.FromResult("ok");
+                }
+
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+                return tcs.Task;
+            },
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Help)));
+
+        // Waits for the session to actually be entered. DispatchTrustAdminRequest always
+        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
+        // lets it call the session (see that method's documentation), so this list update proves
+        // admission already happened -- the Cancel below is guaranteed something to actually
+        // cancel, rather than racing admission and silently relying on teardown's own blanket
+        // cancellation to cover for it.
+        await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(3)));
+
+        // A later, unrelated request still completes normally: cancellation reached only the exact
+        // correlation id it named.
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(4, TrustAdminOperation.Help)));
+        var onlyResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(4UL, onlyResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a cancellation naming a correlation id whose trust-admin request already
+    /// completed is a harmless no-op: it neither throws nor disturbs a later, unrelated request.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelMessage_AfterTrustAdminRequestAlreadyCompleted_IsHarmlessNoOp()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { TrustAdminRequestResult = "done" };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await ReadOneFrameAsync(client, codec); // already completed and removed by the time this returns
+
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(1)));
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(2, TrustAdminOperation.Help)));
+        var secondResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(2UL, secondResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a cancellation naming a correlation id that was never admitted as a trust-admin
+    /// request -- not merely one already completed -- is a harmless no-op: it neither disturbs a
+    /// genuinely outstanding, differently correlated request nor closes the connection as a protocol
+    /// violation, matching an unrecognized correlation id's treatment everywhere else in this
+    /// contract.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelMessage_UnknownTrustAdminCorrelationId_IsHarmlessNoOpAndDoesNotDisturbAnOutstandingRequest()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession { HandleTrustAdminRequestOverride = (_, _) => gate.Task };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+
+        // 999 was never admitted at all -- not this connection's own correlation id 1, and not a
+        // stale id from an already-completed request either.
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(999)));
+
+        gate.SetResult("still outstanding");
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.Equal("still outstanding", result.ResultText);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that disconnecting while a trust-admin request's dispatch is still outstanding
+    /// cancels it, so it does not keep running unbounded past this connection's own teardown.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_DisconnectWhileTrustAdminRequestPending_CancelsIt()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var cancelledSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, cancellationToken) =>
+            {
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                cancellationToken.Register(() =>
+                {
+                    tcs.TrySetCanceled(cancellationToken);
+                    cancelledSignal.TrySetResult();
+                });
+                return tcs.Task;
+            },
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+
+        // Waits for the session to actually be entered: DispatchTrustAdminRequest always
+        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
+        // lets it call the session, so this list update proves admission already happened and
+        // disconnect below has an outstanding dispatch to cancel.
+        await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Teardown now awaits every outstanding trust-admin dispatch actually finishing (bounded by
+        // Constants.TrustAdminTeardownDrainTimeout) before RunAsync itself completes, not merely
+        // requesting cancellation and moving on: this handler observes cancellation synchronously as
+        // part of that Cancel() call, so by the time runTask is done, cancelledSignal is already set.
+        Assert.True(cancelledSignal.Task.IsCompleted);
+    }
+
+    /// <summary>
+    /// Verifies that a trust-admin handler which ignores its <see cref="CancellationToken"/> --
+    /// never observing it, never completing -- does not block this connection's teardown past
+    /// <see cref="Constants.TrustAdminTeardownDrainTimeout"/>: teardown still completes, abandoning
+    /// the still-running dispatch rather than waiting for it forever.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_DisconnectWhileTrustAdminHandlerIgnoresCancellation_TeardownStillCompletesWithinBound()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var neverCompletes = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            // Deliberately does not register on cancellationToken at all: this Task never completes
+            // on its own and never observes cancellation, modeling a handler that violates
+            // IAdapterTrustAdminRequestHandler.HandleAsync's documented cancellation contract.
+            HandleTrustAdminRequestOverride = (_, _) => neverCompletes.Task,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+
+        // Waits for the session to actually be entered: DispatchTrustAdminRequest always
+        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
+        // lets it call the session, so this list update proves admission already happened and
+        // disconnect below has an outstanding dispatch to cancel.
+        await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
+
+        client.Dispose();
+        // A generous margin over TrustAdminTeardownDrainTimeout: teardown must complete on its own
+        // bound, not hang until this outer timeout forces a test failure instead.
+        await runTask.WaitAsync(Constants.TrustAdminTeardownDrainTimeout + TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a trust-admin handler throwing an exception other than
+    /// <see cref="OperationCanceledException"/> -- violating <see cref="IAdapterTrustAdminRequestHandler"/>'s
+    /// documented contract of sanitizing every expected failure into a formatted result -- is
+    /// contained rather than left to fault the request's dispatch task or crash the connection: a
+    /// controlled result reaches the adapter and the connection keeps serving other requests.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminHandlerThrows_SendsControlledResultAndKeepsServing()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, _) => throw new InvalidOperationException("handler bug"),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.False(string.IsNullOrEmpty(result.ResultText));
+
+        // The connection is still alive and able to serve a second request, proving the earlier
+        // handler exception never faulted anything this connection depends on.
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(2, TrustAdminOperation.Help)));
+        var secondResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(2UL, secondResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>

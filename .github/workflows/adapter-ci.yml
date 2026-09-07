@@ -1,0 +1,155 @@
+name: Adapter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "adapter/**"
+      - "host/DovahLink.Host/**"
+      - "protocol/**"
+      - "tooling/vcpkg-ports/**"
+      - ".github/workflows/adapter-ci.yml"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: adapter-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Adapter Build & Test
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Single source of truth for the pinned vcpkg tooling commit -- referenced by both the
+      # checkout step and the tooling cache key below so they can never drift apart. Matches
+      # bridge-ci.yml's own pin: the adapter and bridge vcpkg manifests share one builtin-baseline.
+      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set VCPKG_DEFAULT_BINARY_CACHE
+        # A job-level env: value cannot use the runner context (it is not resolved until a runner
+        # picks up the job's steps), so this is computed in a step instead.
+        run: echo "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\vcpkg-binary-cache" >> $env:GITHUB_ENV
+
+      - name: Prepare vcpkg binary cache
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\vcpkg-binary-cache" | Out-Null
+
+      - name: Install pinned CMake
+        # windows-2022 ships an older CMake than the pinned version; a direct download of the
+        # official release archive is faster and no less trustworthy than a Chocolatey install.
+        run: |
+          $cmakeVersion = "4.4.2"
+          $cmakeArchive = "cmake-$cmakeVersion-windows-x86_64.zip"
+          $cmakeArchiveSha256 = "e8139d85b3813bc38833142ae1940472e9a587e9b5d2718ac1804c60f4e57a64"
+          $cmakeBin = "$env:RUNNER_TEMP\cmake\cmake-$cmakeVersion-windows-x86_64\bin"
+          Invoke-WebRequest -Uri "https://github.com/Kitware/CMake/releases/download/v$cmakeVersion/$cmakeArchive" -OutFile "$env:RUNNER_TEMP\$cmakeArchive"
+          $actualSha256 = (Get-FileHash -Path "$env:RUNNER_TEMP\$cmakeArchive" -Algorithm SHA256).Hash
+          if ($actualSha256 -ne $cmakeArchiveSha256) {
+            throw "CMake archive hash mismatch: expected $cmakeArchiveSha256, got $actualSha256."
+          }
+          Expand-Archive -Path "$env:RUNNER_TEMP\$cmakeArchive" -DestinationPath "$env:RUNNER_TEMP\cmake" -Force
+          $cmakeBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:Path = "$cmakeBin;$env:Path"
+          cmake --version
+
+      - name: Set up the MSVC 2022 developer environment
+        # Maintained stable release; no stable Node 24 replacement is available yet.
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+
+      - name: Verify pinned Ninja is available in the build environment
+        # Check after the MSVC setup because CMake runs with this step's resulting PATH.
+        run: |
+          $ninjaVersion = (ninja --version).Trim()
+          if ($ninjaVersion -ne "1.13.2") {
+            throw "Expected the windows-2022 image to provide Ninja 1.13.2, but found '$ninjaVersion'."
+          }
+
+      - name: Set up .NET 9
+        # The real Host<->Adapter process test (adapter_host_real_process_test.cpp) launches the
+        # built headless host executable; it must exist before the Debug native test run below.
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore cached vcpkg tooling
+        id: vcpkg-tooling-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ runner.temp }}\vcpkg
+          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}
+
+      - name: Check out vcpkg at the pinned builtin baseline
+        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "${{ runner.temp }}\vcpkg"
+          git -C "${{ runner.temp }}\vcpkg" checkout $env:VCPKG_BASELINE_COMMIT
+          & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**') }}
+
+      - name: Build headless host executable (Debug)
+        # Only the buildable project, not DovahLink.Host.Tests: host-ci.yml already covers the
+        # host's own test suite, so this only needs the exe the native process test launches.
+        # -p:Platform=AnyCPU is required here: the preceding MSVC dev-cmd step exports a Platform=x64
+        # environment variable (from vcvarsall.bat) that MSBuild otherwise silently adopts, which
+        # redirects the build to bin\x64\Debug\... instead of the bin\Debug\... path
+        # adapter/CMakeLists.txt's DOVAHLINK_HOST_EXECUTABLE and the real-process test both expect.
+        run: dotnet build host/DovahLink.Host/DovahLink.Host.csproj --configuration Debug -p:Platform=AnyCPU
+
+      - name: Configure Debug
+        working-directory: adapter
+        env:
+          VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+        run: cmake --preset windows-x64-debug
+
+      - name: Build Debug
+        working-directory: adapter
+        run: cmake --build --preset windows-x64-debug
+
+      - name: Test Debug
+        # Runs the complete native Adapter suite -- IPC, pairing notification, trust-admin,
+        # Papyrus registration, plugin, and the real Host<->Adapter process integration tests --
+        # in one pass: dovahlink_adapter_tests is the project's only native Adapter test target.
+        working-directory: adapter
+        run: ctest --preset windows-x64-debug
+
+      - name: Configure Release
+        # Proves the production Adapter configuration still compiles. Compile-only: adapter's own
+        # CMakePresets.json defines a ctest testPreset only for windows-x64-debug (matching
+        # bridge's identical convention), and running the full native/real-process suite a second
+        # time in Release would double the native and headless-host build cost for a target still
+        # settling, without a requirement driving it.
+        working-directory: adapter
+        env:
+          VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+        run: cmake --preset windows-x64-release
+
+      - name: Build Release
+        working-directory: adapter
+        run: cmake --build --preset windows-x64-release
+
+      - name: Upload adapter test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: adapter-ci-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: adapter/build/windows-x64-debug/Testing/
+          if-no-files-found: ignore

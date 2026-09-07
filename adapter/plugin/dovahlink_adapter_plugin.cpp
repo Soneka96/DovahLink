@@ -12,9 +12,11 @@
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 #include "ipc/adapter_ipc_session.hpp"
+#include "ipc/commonlib_adapter_pairing_notification_sink.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
+#include "papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp"
 #include "process/adapter_host_constants.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
@@ -174,6 +176,8 @@ SKSEPluginInfo(
       new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller;
   static auto *dispatcher =
       new dovahlink::adapter::dispatch::AdapterNativeDispatcher;
+  static auto *pairingNotificationSink =
+      new dovahlink::adapter::ipc::CommonLibAdapterPairingNotificationSink;
 
   dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
   static dovahlink::adapter::identity::AdapterInstanceId instanceId =
@@ -181,7 +185,7 @@ SKSEPluginInfo(
   const auto &stableOwnerLifetimeId = *gOwnerLifetimeId;
   static auto *session = new dovahlink::adapter::ipc::AdapterIpcSession(
       instanceId, stableOwnerLifetimeId, *taskMarshaller, *dispatcher,
-      *captureQueue, [] {
+      *captureQueue, *pairingNotificationSink, [] {
         SKSE::log::warn("Adapter IPC session rejected a deferred "
                         "game-thread dispatch at capacity.");
       });
@@ -228,6 +232,8 @@ SKSEPluginInfo(
   session->AttachConnection(*connection);
 
   dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(*session);
+  dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(
+      *session, *taskMarshaller);
 
   //  SKSE-QUIRK: see
   //  ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin

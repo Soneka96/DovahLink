@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -8,12 +8,18 @@ using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Tests.Client.Transport;
 
 /// <summary>Tests for <see cref="PublicWebSocketConnection"/>.</summary>
+/// <remarks>
+/// Shares <see cref="RealSocketAndProcessTestCollection"/> with <see cref="ProgramCompositionTests"/>:
+/// see that collection's own documentation for why.
+/// </remarks>
+[Collection(RealSocketAndProcessTestCollection.Name)]
 public class PublicWebSocketConnectionTests
 {
     /// <summary>Verifies that a valid handshake followed by a text message delivers the payload to the handler.</summary>
@@ -2377,7 +2383,7 @@ public class PublicWebSocketConnectionTests
         string token = tokenAuthenticator.IssueToken();
         var handler = new PublicHelloAdmissionHandler(
             codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry());
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -2467,7 +2473,7 @@ public class PublicWebSocketConnectionTests
         string token = tokenAuthenticator.IssueToken();
         var handler = new PublicHelloAdmissionHandler(
             codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry());
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();

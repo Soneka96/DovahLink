@@ -32,17 +32,27 @@ using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcListenEventMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcMessageKind;
+using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
+using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
+using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeResultMessage;
+using dovahlink::adapter::ipc::IpcTrustAdminRequestMessage;
+using dovahlink::adapter::ipc::IpcTrustAdminResultMessage;
 using dovahlink::adapter::ipc::kIpcChallengeBytes;
 using dovahlink::adapter::ipc::kIpcFrameHeaderBytes;
 using dovahlink::adapter::ipc::kIpcHostProofBytes;
 using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxIpcFrameBytes;
 using dovahlink::adapter::ipc::kMaxIpcPeerProofTokenBytes;
+using dovahlink::adapter::ipc::kMaxIpcTrustAdminResultTextBytes;
+using dovahlink::adapter::ipc::kPairingChallengeCodeDigits;
+using dovahlink::adapter::ipc::PairingDisplayMode;
+using dovahlink::adapter::ipc::TrustAdminListScope;
+using dovahlink::adapter::ipc::TrustAdminOperation;
 
 namespace {
 
@@ -333,6 +343,8 @@ TEST_CASE("reject round-trips for every reject reason",
            IpcRejectReason::kUnknownMessageKind,
            IpcRejectReason::kInvalidIdentity,
            IpcRejectReason::kMalformedPayload,
+           IpcRejectReason::kDuplicateTrustAdminCorrelationId,
+           IpcRejectReason::kDuplicateCancellableCorrelationId,
        }) {
     IpcRejectMessage original{.correlationId = 5, .reason = reason};
 
@@ -424,6 +436,105 @@ TEST_CASE("maximum correlation id round-trips exactly",
   CHECK(cancel->correlationId == kMaxCorrelationId);
 }
 
+TEST_CASE("pairing-display request round-trips for every display mode",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (PairingDisplayMode mode :
+       {PairingDisplayMode::kInitial, PairingDisplayMode::kManualRedisplay,
+        PairingDisplayMode::kWrongCodeRedisplay}) {
+    IpcPairingDisplayMessage original{
+        .correlationId = 7, .code = "048372", .mode = mode};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
+TEST_CASE("pairing-display acknowledgement round-trips for both outcomes",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (bool accepted : {true, false}) {
+    IpcPairingDisplayAckMessage original{.correlationId = 7,
+                                         .accepted = accepted};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
+TEST_CASE("attempts-exhausted notification round-trips",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  IpcPairingAttemptsExhaustedMessage original{.correlationId = 0};
+
+  auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+  REQUIRE(result.has_value());
+  CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("trust-admin request round-trips for every operation",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  const std::vector<IpcTrustAdminRequestMessage> originals = {
+      {.correlationId = 1, .operation = TrustAdminOperation::kHelp},
+      {.correlationId = 2,
+       .operation = TrustAdminOperation::kList,
+       .listScope = TrustAdminListScope::kAll},
+      {.correlationId = 3,
+       .operation = TrustAdminOperation::kList,
+       .listScope = TrustAdminListScope::kTrust},
+      {.correlationId = 4,
+       .operation = TrustAdminOperation::kList,
+       .listScope = TrustAdminListScope::kBlock},
+      {.correlationId = 5,
+       .operation = TrustAdminOperation::kRevoke,
+       .shortId = std::string("12345")},
+      {.correlationId = 6,
+       .operation = TrustAdminOperation::kBlock,
+       .shortId = std::string("54321")},
+      {.correlationId = 7,
+       .operation = TrustAdminOperation::kUnblock,
+       .shortId = std::string("00000")},
+      {.correlationId = 8,
+       .operation = TrustAdminOperation::kForget,
+       .shortId = std::string("99999")},
+      {.correlationId = 9, .operation = TrustAdminOperation::kResetTrust},
+      {.correlationId = 10, .operation = TrustAdminOperation::kReset},
+      {.correlationId = 11,
+       .operation = TrustAdminOperation::kConfirmReset,
+       .confirmationCode = std::string("482913")},
+  };
+
+  for (const IpcTrustAdminRequestMessage &original : originals) {
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
+TEST_CASE("trust-admin result round-trips, including an empty result and "
+          "non-ASCII UTF-8 text",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (const std::string &resultText :
+       {std::string(), std::string("Revoked client 12345 (My PC)."),
+        std::string("caf\xC3\xA9")}) {
+    IpcTrustAdminResultMessage original{.correlationId = 1,
+                                        .resultText = resultText};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
 //  ---- Encode failures ----
 
 TEST_CASE("encoding a hello with an oversized token throws",
@@ -443,6 +554,205 @@ TEST_CASE("encoding a close with nonzero correlation id throws",
 
   CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcCloseMessage{
                       .correlationId = 1, .reason = IpcCloseReason::kNormal}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a pairing-display request with a zero correlation id "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                      .correlationId = 0,
+                      .code = "123456",
+                      .mode = PairingDisplayMode::kInitial}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a pairing-display request with an invalid mode throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                      .correlationId = 1,
+                      .code = "123456",
+                      .mode = static_cast<PairingDisplayMode>(250)}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a pairing-display request with a code of the wrong "
+          "length throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (const std::string &code :
+       {std::string("12345"), std::string("1234567"), std::string()}) {
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                        .correlationId = 1,
+                        .code = code,
+                        .mode = PairingDisplayMode::kInitial}}),
+                    std::invalid_argument);
+  }
+}
+
+TEST_CASE("encoding a pairing-display request with a non-digit code throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (const std::string &code :
+       {std::string("12a456"), std::string("12345a")}) {
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayMessage{
+                        .correlationId = 1,
+                        .code = code,
+                        .mode = PairingDisplayMode::kInitial}}),
+                    std::invalid_argument);
+  }
+}
+
+TEST_CASE("encoding a pairing-display acknowledgement with a zero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcPairingDisplayAckMessage{
+                      .correlationId = 0, .accepted = true}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding an attempts-exhausted notification with a nonzero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{
+                      IpcPairingAttemptsExhaustedMessage{.correlationId = 1}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a trust-admin request with a zero correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(
+      codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+          .correlationId = 0, .operation = TrustAdminOperation::kHelp}}),
+      std::invalid_argument);
+}
+
+TEST_CASE("encoding a trust-admin request with an unrecognized operation "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                      .correlationId = 1,
+                      .operation = static_cast<TrustAdminOperation>(250)}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a no-argument trust-admin request with an argument set "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (TrustAdminOperation operation :
+       {TrustAdminOperation::kHelp, TrustAdminOperation::kResetTrust,
+        TrustAdminOperation::kReset}) {
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                        .correlationId = 1,
+                        .operation = operation,
+                        .shortId = std::string("12345")}}),
+                    std::invalid_argument);
+  }
+}
+
+TEST_CASE("encoding a trust-admin list request with a missing or "
+          "unrecognized scope throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(
+      codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+          .correlationId = 1, .operation = TrustAdminOperation::kList}}),
+      std::invalid_argument);
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                      .correlationId = 1,
+                      .operation = TrustAdminOperation::kList,
+                      .listScope = static_cast<TrustAdminListScope>(250)}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a short-id-targeted trust-admin request with a missing "
+          "or malformed short id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (TrustAdminOperation operation :
+       {TrustAdminOperation::kRevoke, TrustAdminOperation::kBlock,
+        TrustAdminOperation::kUnblock, TrustAdminOperation::kForget}) {
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                        .correlationId = 1, .operation = operation}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                        .correlationId = 1,
+                        .operation = operation,
+                        .shortId = std::string("1234")}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                        .correlationId = 1,
+                        .operation = operation,
+                        .shortId = std::string("1234a")}}),
+                    std::invalid_argument);
+  }
+}
+
+TEST_CASE("encoding a confirm-reset request with a missing or malformed "
+          "confirmation code throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                      .correlationId = 1,
+                      .operation = TrustAdminOperation::kConfirmReset}}),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                      .correlationId = 1,
+                      .operation = TrustAdminOperation::kConfirmReset,
+                      .confirmationCode = std::string("12345")}}),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                      .correlationId = 1,
+                      .operation = TrustAdminOperation::kConfirmReset,
+                      .confirmationCode = std::string("12345a")}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a trust-admin request with more than one argument set "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminRequestMessage{
+                      .correlationId = 1,
+                      .operation = TrustAdminOperation::kRevoke,
+                      .listScope = TrustAdminListScope::kAll,
+                      .shortId = std::string("12345")}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a trust-admin result with a zero correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminResultMessage{
+                      .correlationId = 0, .resultText = "ok"}}),
+                  std::invalid_argument);
+}
+
+TEST_CASE("encoding a trust-admin result exceeding the maximum result-text "
+          "length throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::string oversizedText(kMaxIpcTrustAdminResultTextBytes + 1, 'a');
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcTrustAdminResultMessage{
+                      .correlationId = 1, .resultText = oversizedText}}),
                   std::invalid_argument);
 }
 
@@ -504,7 +814,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  for (std::byte kindByte : {std::byte{0}, std::byte{10}, std::byte{250}}) {
+  //  15 is the value immediately past the currently highest defined kind
+  //  (kTrustAdminResult = 14); update this alongside any future kind
+  //  addition so it keeps testing the actual boundary.
+  for (std::byte kindByte : {std::byte{0}, std::byte{15}, std::byte{250}}) {
     std::vector<std::byte> frame =
         codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
     frame[4] = kindByte;
@@ -721,7 +1034,7 @@ TEST_CASE("a close payload of the wrong length fails closed",
 TEST_CASE("a reject payload with an unrecognized reason fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  for (std::byte reasonByte : {std::byte{5}, std::byte{250}}) {
+  for (std::byte reasonByte : {std::byte{6}, std::byte{250}}) {
     std::vector<std::byte> frame =
         BuildFrame(IpcMessageKind::kReject, 1, {reasonByte});
 
@@ -855,6 +1168,345 @@ TEST_CASE("capture intents preserve the maximum correlation id",
   }
 }
 
+TEST_CASE("a pairing-display request with a zero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> payload(1 + kPairingChallengeCodeDigits);
+  payload[0] =
+      std::byte{static_cast<std::uint8_t>(PairingDisplayMode::kInitial)};
+  for (std::size_t index = 0; index < kPairingChallengeCodeDigits; ++index) {
+    payload[1 + index] = std::byte{static_cast<std::uint8_t>('1' + index)};
+  }
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplay, 0, payload);
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display request with an unrecognized mode fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> payload(1 + kPairingChallengeCodeDigits,
+                                 std::byte{'1'});
+  payload[0] = std::byte{250};
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplay, 1, payload);
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display request with a non-digit code fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  //  Index 1 (the first code byte, right after the mode byte) and the last
+  //  code byte both exercise the validation loop's boundaries, not only a
+  //  middle position.
+  for (std::size_t nonDigitOffset :
+       {std::size_t{1}, kPairingChallengeCodeDigits}) {
+    std::vector<std::byte> payload(1 + kPairingChallengeCodeDigits,
+                                   std::byte{'1'});
+    payload[0] =
+        std::byte{static_cast<std::uint8_t>(PairingDisplayMode::kInitial)};
+    payload[nonDigitOffset] = std::byte{'a'};
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPairingDisplay, 1, payload);
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("a pairing-display request payload of the wrong length fails "
+          "closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (std::size_t payloadSize :
+       {kPairingChallengeCodeDigits, kPairingChallengeCodeDigits + 2}) {
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPairingDisplay, 1,
+                   std::vector<std::byte>(payloadSize));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("a pairing-display acknowledgement with a zero correlation id "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplayAck, 0, {std::byte{1}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display acknowledgement with an out-of-range accepted "
+          "byte fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingDisplayAck, 1, {std::byte{2}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a pairing-display acknowledgement payload of the wrong length "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (std::size_t payloadSize : {std::size_t{0}, std::size_t{2}}) {
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPairingDisplayAck, 1,
+                   std::vector<std::byte>(payloadSize));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("an attempts-exhausted notification with a nonzero correlation id "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingAttemptsExhausted, 1, {});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("an attempts-exhausted notification carrying an unexpected "
+          "payload fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kPairingAttemptsExhausted, 0, {std::byte{0}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a trust-admin request with a zero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame = BuildFrame(
+      IpcMessageKind::kTrustAdminRequest, 0,
+      {std::byte{static_cast<std::uint8_t>(TrustAdminOperation::kHelp)}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a trust-admin request with an empty payload fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kTrustAdminRequest, 1, {});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a trust-admin request with an unrecognized operation fails "
+          "closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kTrustAdminRequest, 1, {std::byte{250}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a no-argument trust-admin request carrying an unexpected "
+          "argument fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (TrustAdminOperation operation :
+       {TrustAdminOperation::kHelp, TrustAdminOperation::kResetTrust,
+        TrustAdminOperation::kReset}) {
+    std::vector<std::byte> frame = BuildFrame(
+        IpcMessageKind::kTrustAdminRequest, 1,
+        {std::byte{static_cast<std::uint8_t>(operation)}, std::byte{0}});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("a trust-admin list request with a missing or unrecognized scope "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  const auto listByte =
+      std::byte{static_cast<std::uint8_t>(TrustAdminOperation::kList)};
+
+  std::vector<std::byte> missingScope =
+      BuildFrame(IpcMessageKind::kTrustAdminRequest, 1, {listByte});
+  auto missingResult = codec.Decode(missingScope);
+  REQUIRE_FALSE(missingResult.has_value());
+  CHECK(missingResult.error() == IpcRejectReason::kMalformedPayload);
+
+  std::vector<std::byte> unrecognizedScope = BuildFrame(
+      IpcMessageKind::kTrustAdminRequest, 1, {listByte, std::byte{250}});
+  auto unrecognizedResult = codec.Decode(unrecognizedScope);
+  REQUIRE_FALSE(unrecognizedResult.has_value());
+  CHECK(unrecognizedResult.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a short-id-targeted trust-admin request with a wrong-length or "
+          "non-digit short id fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (TrustAdminOperation operation :
+       {TrustAdminOperation::kRevoke, TrustAdminOperation::kBlock,
+        TrustAdminOperation::kUnblock, TrustAdminOperation::kForget}) {
+    const auto operationByte = std::byte{static_cast<std::uint8_t>(operation)};
+
+    std::vector<std::byte> tooFewDigits = BuildFrame(
+        IpcMessageKind::kTrustAdminRequest, 1,
+        {operationByte, std::byte{'1'}, std::byte{'2'}, std::byte{'3'}});
+    auto tooFewResult = codec.Decode(tooFewDigits);
+    REQUIRE_FALSE(tooFewResult.has_value());
+    CHECK(tooFewResult.error() == IpcRejectReason::kMalformedPayload);
+
+    std::vector<std::byte> tooManyDigits = BuildFrame(
+        IpcMessageKind::kTrustAdminRequest, 1,
+        {operationByte, std::byte{'1'}, std::byte{'2'}, std::byte{'3'},
+         std::byte{'4'}, std::byte{'5'}, std::byte{'6'}});
+    auto tooManyResult = codec.Decode(tooManyDigits);
+    REQUIRE_FALSE(tooManyResult.has_value());
+    CHECK(tooManyResult.error() == IpcRejectReason::kMalformedPayload);
+
+    std::vector<std::byte> nonDigit =
+        BuildFrame(IpcMessageKind::kTrustAdminRequest, 1,
+                   {operationByte, std::byte{'1'}, std::byte{'2'},
+                    std::byte{'3'}, std::byte{'4'}, std::byte{'a'}});
+    auto nonDigitResult = codec.Decode(nonDigit);
+    REQUIRE_FALSE(nonDigitResult.has_value());
+    CHECK(nonDigitResult.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("a confirm-reset request with a wrong-length or non-digit "
+          "confirmation code fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  const auto confirmResetByte =
+      std::byte{static_cast<std::uint8_t>(TrustAdminOperation::kConfirmReset)};
+
+  std::vector<std::byte> tooFewDigits = BuildFrame(
+      IpcMessageKind::kTrustAdminRequest, 1,
+      {confirmResetByte, std::byte{'1'}, std::byte{'2'}, std::byte{'3'}});
+  auto tooFewResult = codec.Decode(tooFewDigits);
+  REQUIRE_FALSE(tooFewResult.has_value());
+  CHECK(tooFewResult.error() == IpcRejectReason::kMalformedPayload);
+
+  std::vector<std::byte> tooManyDigits = BuildFrame(
+      IpcMessageKind::kTrustAdminRequest, 1,
+      {confirmResetByte, std::byte{'1'}, std::byte{'2'}, std::byte{'3'},
+       std::byte{'4'}, std::byte{'5'}, std::byte{'6'}, std::byte{'7'}});
+  auto tooManyResult = codec.Decode(tooManyDigits);
+  REQUIRE_FALSE(tooManyResult.has_value());
+  CHECK(tooManyResult.error() == IpcRejectReason::kMalformedPayload);
+
+  std::vector<std::byte> nonDigit = BuildFrame(
+      IpcMessageKind::kTrustAdminRequest, 1,
+      {confirmResetByte, std::byte{'1'}, std::byte{'2'}, std::byte{'3'},
+       std::byte{'4'}, std::byte{'5'}, std::byte{'a'}});
+  auto nonDigitResult = codec.Decode(nonDigit);
+  REQUIRE_FALSE(nonDigitResult.has_value());
+  CHECK(nonDigitResult.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a trust-admin result with a zero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame = BuildFrame(
+      IpcMessageKind::kTrustAdminResult, 0, {std::byte{'o'}, std::byte{'k'}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a trust-admin result exceeding the maximum result-text length "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> oversizedPayload(kMaxIpcTrustAdminResultTextBytes + 1,
+                                          std::byte{'a'});
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kTrustAdminResult, 1, oversizedPayload);
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a trust-admin result with invalid UTF-8 fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  const std::vector<std::vector<std::byte>> invalidPayloads = {
+      //  A stray continuation byte with no preceding lead byte.
+      {std::byte{0x80}},
+      //  0xFF and 0xFE are never valid UTF-8 lead bytes.
+      {std::byte{0xFF}},
+      {std::byte{0xFE}},
+      //  A two-byte lead byte with no continuation byte following it.
+      {std::byte{0xC0}},
+      //  A three-byte lead byte followed by only one continuation byte.
+      {std::byte{0xE0}, std::byte{0x80}},
+      //  An overlong two-byte encoding of U+0000 (only valid as one byte).
+      {std::byte{0xC0}, std::byte{0x80}},
+      //  A three-byte encoding of a UTF-16 surrogate codepoint (U+D800).
+      {std::byte{0xED}, std::byte{0xA0}, std::byte{0x80}},
+  };
+
+  for (const std::vector<std::byte> &payload : invalidPayloads) {
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kTrustAdminResult, 1, payload);
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
 TEST_CASE("host and adapter share exact no-version golden wire vectors",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
@@ -917,6 +1569,33 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
                                        .sampleToken = 0xA1B2C3D4}},
        Bytes({0x0D, 0x00, 0x00, 0x00, 0x09, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33,
               0x22, 0x11, 0xD4, 0xC3, 0xB2, 0xA1})},
+      //  7-byte payload: 1 mode byte + 6 ASCII code digits.
+      {IpcMessage{
+           IpcPairingDisplayMessage{.correlationId = 8,
+                                    .code = "123456",
+                                    .mode = PairingDisplayMode::kInitial}},
+       Bytes({0x10, 0x00, 0x00, 0x00, 0x0A, 0x08, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36})},
+      {IpcMessage{
+           IpcPairingDisplayAckMessage{.correlationId = 9, .accepted = true}},
+       Bytes({0x0A, 0x00, 0x00, 0x00, 0x0B, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x01})},
+      {IpcMessage{IpcPairingAttemptsExhaustedMessage{.correlationId = 0}},
+       Bytes({0x09, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00})},
+      //  6-byte payload: 1 operation byte (kRevoke = 2) + 5 ASCII shortId
+      //  digits.
+      {IpcMessage{IpcTrustAdminRequestMessage{.correlationId = 10,
+                                              .operation =
+                                                  TrustAdminOperation::kRevoke,
+                                              .shortId = std::string("12345")}},
+       Bytes({0x0F, 0x00, 0x00, 0x00, 0x0D, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x02, 0x31, 0x32, 0x33, 0x34, 0x35})},
+      //  2-byte payload: the UTF-8 bytes of "ok".
+      {IpcMessage{
+           IpcTrustAdminResultMessage{.correlationId = 11, .resultText = "ok"}},
+       Bytes({0x0B, 0x00, 0x00, 0x00, 0x0E, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x6F, 0x6B})},
   };
 
   for (const auto &[message, expected] : vectors) {

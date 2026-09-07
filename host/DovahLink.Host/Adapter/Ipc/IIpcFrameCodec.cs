@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Text;
+using System.Text.Unicode;
 using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Adapter.Ipc;
@@ -51,6 +53,12 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcCancelMessage cancel => (IpcMessageKind.Cancel, EncodeCancel(cancel)),
             IpcListenEventMessage listenEvent => (IpcMessageKind.ListenEvent, EncodeListenEvent(listenEvent)),
             IpcReadSampleMessage readSample => (IpcMessageKind.ReadSample, EncodeReadSample(readSample)),
+            IpcPairingDisplayMessage pairingDisplay => (IpcMessageKind.PairingDisplay, EncodePairingDisplay(pairingDisplay)),
+            IpcPairingDisplayAckMessage pairingDisplayAck => (IpcMessageKind.PairingDisplayAck, EncodePairingDisplayAck(pairingDisplayAck)),
+            IpcPairingAttemptsExhaustedMessage pairingAttemptsExhausted =>
+                (IpcMessageKind.PairingAttemptsExhausted, EncodePairingAttemptsExhausted(pairingAttemptsExhausted)),
+            IpcTrustAdminRequestMessage trustAdminRequest => (IpcMessageKind.TrustAdminRequest, EncodeTrustAdminRequest(trustAdminRequest)),
+            IpcTrustAdminResultMessage trustAdminResult => (IpcMessageKind.TrustAdminResult, EncodeTrustAdminResult(trustAdminResult)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -115,6 +123,11 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
                 : IpcDecodeResult.Success(new IpcCancelMessage(correlationId)),
             IpcMessageKind.ListenEvent => DecodeListenEvent(correlationId, payload),
             IpcMessageKind.ReadSample => DecodeReadSample(correlationId, payload),
+            IpcMessageKind.PairingDisplay => DecodePairingDisplay(correlationId, payload),
+            IpcMessageKind.PairingDisplayAck => DecodePairingDisplayAck(correlationId, payload),
+            IpcMessageKind.PairingAttemptsExhausted => DecodePairingAttemptsExhausted(correlationId, payload),
+            IpcMessageKind.TrustAdminRequest => DecodeTrustAdminRequest(correlationId, payload),
+            IpcMessageKind.TrustAdminResult => DecodeTrustAdminResult(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -338,5 +351,358 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         return sampleToken == 0
             ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
             : IpcDecodeResult.Success(new IpcReadSampleMessage(correlationId, sampleToken));
+    }
+
+    /// <summary>Encodes a pairing-display request: one mode byte followed by the fixed-length code digits.</summary>
+    /// <param name="pairingDisplay">The display request to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the correlation id, mode, or code is invalid.</exception>
+    private static byte[] EncodePairingDisplay(IpcPairingDisplayMessage pairingDisplay)
+    {
+        if (pairingDisplay.CorrelationId == 0)
+        {
+            throw new ArgumentException("A pairing-display request must have a nonzero correlation id.", nameof(pairingDisplay));
+        }
+
+        if (!Enum.IsDefined(pairingDisplay.Mode))
+        {
+            throw new ArgumentException("The pairing-display mode is not a recognized value.", nameof(pairingDisplay));
+        }
+
+        byte[] code = ValidatePairingCode(pairingDisplay.Code, nameof(pairingDisplay));
+        var payload = new byte[1 + code.Length];
+        payload[0] = (byte)pairingDisplay.Mode;
+        code.CopyTo(payload.AsSpan(1));
+        return payload;
+    }
+
+    /// <summary>Encodes a pairing-display acknowledgement after enforcing its required request correlation.</summary>
+    /// <param name="pairingDisplayAck">The acknowledgement to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the acknowledgement has correlation id zero.</exception>
+    private static byte[] EncodePairingDisplayAck(IpcPairingDisplayAckMessage pairingDisplayAck)
+    {
+        if (pairingDisplayAck.CorrelationId == 0)
+        {
+            throw new ArgumentException(
+                "A pairing-display acknowledgement must identify a nonzero request correlation id.", nameof(pairingDisplayAck));
+        }
+
+        return [pairingDisplayAck.Accepted ? (byte)1 : (byte)0];
+    }
+
+    /// <summary>Encodes an attempts-exhausted notification after enforcing its unsolicited-message correlation rule.</summary>
+    /// <param name="pairingAttemptsExhausted">The notification to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the notification carries a nonzero correlation id.</exception>
+    private static byte[] EncodePairingAttemptsExhausted(IpcPairingAttemptsExhaustedMessage pairingAttemptsExhausted)
+    {
+        if (pairingAttemptsExhausted.CorrelationId != 0)
+        {
+            throw new ArgumentException("An attempts-exhausted notification must have correlation id zero.", nameof(pairingAttemptsExhausted));
+        }
+
+        return Array.Empty<byte>();
+    }
+
+    /// <summary>Validates a pairing code and converts it into its fixed-length ASCII-digit wire form.</summary>
+    /// <param name="code">The code to validate.</param>
+    /// <param name="parameterName">The message parameter name used in validation errors.</param>
+    /// <exception cref="ArgumentException">Thrown when the code is not exactly the required count of ASCII decimal digits.</exception>
+    private static byte[] ValidatePairingCode(string code, string parameterName)
+    {
+        if (code.Length != Constants.PairingChallengeCodeDigits)
+        {
+            throw new ArgumentException(
+                $"A pairing code must be exactly {Constants.PairingChallengeCodeDigits} ASCII decimal digits.", parameterName);
+        }
+
+        var codeBytes = new byte[code.Length];
+        for (int i = 0; i < code.Length; i++)
+        {
+            char c = code[i];
+            if (c is < '0' or > '9')
+            {
+                throw new ArgumentException(
+                    $"A pairing code must be exactly {Constants.PairingChallengeCodeDigits} ASCII decimal digits.", parameterName);
+            }
+
+            codeBytes[i] = (byte)c;
+        }
+
+        return codeBytes;
+    }
+
+    /// <summary>Decodes a pairing-display request, validating its mode and fixed-length code digits.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The one-byte mode followed by the fixed-length code payload.</param>
+    private static IpcDecodeResult DecodePairingDisplay(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0
+            || payload.Length != 1 + Constants.PairingChallengeCodeDigits
+            || !Enum.IsDefined((PairingDisplayMode)payload[0]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        ReadOnlySpan<byte> codeBytes = payload[1..];
+        Span<char> codeChars = stackalloc char[Constants.PairingChallengeCodeDigits];
+        for (int i = 0; i < codeBytes.Length; i++)
+        {
+            if (codeBytes[i] is < (byte)'0' or > (byte)'9')
+            {
+                return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+            }
+
+            codeChars[i] = (char)codeBytes[i];
+        }
+
+        return IpcDecodeResult.Success(new IpcPairingDisplayMessage(correlationId, new string(codeChars), (PairingDisplayMode)payload[0]));
+    }
+
+    /// <summary>Decodes a pairing-display acknowledgement, validating its boolean field.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed one-byte accepted-flag payload.</param>
+    private static IpcDecodeResult DecodePairingDisplayAck(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length != 1 || payload[0] > 1)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcPairingDisplayAckMessage(correlationId, payload[0] == 1));
+    }
+
+    /// <summary>Decodes an attempts-exhausted notification, validating its unsolicited-message correlation rule.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The empty payload.</param>
+    private static IpcDecodeResult DecodePairingAttemptsExhausted(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId != 0 || !payload.IsEmpty)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcPairingAttemptsExhaustedMessage(correlationId));
+    }
+
+    /// <summary>Encodes a trust-admin request: one operation byte followed by its operation-specific argument bytes.</summary>
+    /// <param name="trustAdminRequest">The request to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the correlation id, operation, or argument shape is invalid.</exception>
+    private static byte[] EncodeTrustAdminRequest(IpcTrustAdminRequestMessage trustAdminRequest)
+    {
+        if (trustAdminRequest.CorrelationId == 0)
+        {
+            throw new ArgumentException("A trust-admin request must have a nonzero correlation id.", nameof(trustAdminRequest));
+        }
+
+        if (!Enum.IsDefined(trustAdminRequest.Operation))
+        {
+            throw new ArgumentException("The trust-admin operation is not a recognized value.", nameof(trustAdminRequest));
+        }
+
+        byte[] argument = trustAdminRequest.Operation switch
+        {
+            TrustAdminOperation.List => EncodeTrustAdminListArgument(trustAdminRequest),
+            TrustAdminOperation.Revoke or TrustAdminOperation.Block or TrustAdminOperation.Unblock or TrustAdminOperation.Forget =>
+                EncodeTrustAdminShortIdArgument(trustAdminRequest),
+            TrustAdminOperation.ConfirmReset => EncodeTrustAdminConfirmationCodeArgument(trustAdminRequest),
+            _ => EncodeTrustAdminNoArgument(trustAdminRequest),
+        };
+
+        var payload = new byte[1 + argument.Length];
+        payload[0] = (byte)trustAdminRequest.Operation;
+        argument.CopyTo(payload.AsSpan(1));
+        return payload;
+    }
+
+    /// <summary>Validates and encodes the empty argument required by a no-argument trust-admin operation.</summary>
+    /// <param name="trustAdminRequest">The request being encoded.</param>
+    /// <exception cref="ArgumentException">Thrown when any argument field is set.</exception>
+    private static byte[] EncodeTrustAdminNoArgument(IpcTrustAdminRequestMessage trustAdminRequest)
+    {
+        if (trustAdminRequest.ListScope is not null || trustAdminRequest.ShortId is not null || trustAdminRequest.ConfirmationCode is not null)
+        {
+            throw new ArgumentException($"{trustAdminRequest.Operation} takes no argument.", nameof(trustAdminRequest));
+        }
+
+        return Array.Empty<byte>();
+    }
+
+    /// <summary>Validates and encodes the scope argument required by <see cref="TrustAdminOperation.List"/>.</summary>
+    /// <param name="trustAdminRequest">The request being encoded.</param>
+    /// <exception cref="ArgumentException">Thrown when the scope is missing, an unrelated argument is set, or the scope is not a recognized value.</exception>
+    private static byte[] EncodeTrustAdminListArgument(IpcTrustAdminRequestMessage trustAdminRequest)
+    {
+        if (trustAdminRequest.ListScope is null || trustAdminRequest.ShortId is not null || trustAdminRequest.ConfirmationCode is not null)
+        {
+            throw new ArgumentException("List requires exactly a scope argument.", nameof(trustAdminRequest));
+        }
+
+        if (!Enum.IsDefined(trustAdminRequest.ListScope.Value))
+        {
+            throw new ArgumentException("The list scope is not a recognized value.", nameof(trustAdminRequest));
+        }
+
+        return [(byte)trustAdminRequest.ListScope.Value];
+    }
+
+    /// <summary>Validates and encodes the short-id argument required by the device-targeted trust-admin operations.</summary>
+    /// <param name="trustAdminRequest">The request being encoded.</param>
+    /// <exception cref="ArgumentException">Thrown when the short id is missing, an unrelated argument is set, or the short id is not the required digit shape.</exception>
+    private static byte[] EncodeTrustAdminShortIdArgument(IpcTrustAdminRequestMessage trustAdminRequest)
+    {
+        if (trustAdminRequest.ShortId is null || trustAdminRequest.ListScope is not null || trustAdminRequest.ConfirmationCode is not null)
+        {
+            throw new ArgumentException($"{trustAdminRequest.Operation} requires exactly a short id argument.", nameof(trustAdminRequest));
+        }
+
+        return ValidateFixedDigits(trustAdminRequest.ShortId, Constants.PairingShortIdDigits, nameof(trustAdminRequest));
+    }
+
+    /// <summary>Validates and encodes the confirmation-code argument required by <see cref="TrustAdminOperation.ConfirmReset"/>.</summary>
+    /// <param name="trustAdminRequest">The request being encoded.</param>
+    /// <exception cref="ArgumentException">Thrown when the code is missing, an unrelated argument is set, or the code is not the required digit shape.</exception>
+    private static byte[] EncodeTrustAdminConfirmationCodeArgument(IpcTrustAdminRequestMessage trustAdminRequest)
+    {
+        if (trustAdminRequest.ConfirmationCode is null || trustAdminRequest.ListScope is not null || trustAdminRequest.ShortId is not null)
+        {
+            throw new ArgumentException("ConfirmReset requires exactly a confirmation code argument.", nameof(trustAdminRequest));
+        }
+
+        return ValidateFixedDigits(trustAdminRequest.ConfirmationCode, Constants.FactoryResetChallengeCodeDigits, nameof(trustAdminRequest));
+    }
+
+    /// <summary>Validates a value is exactly the required count of ASCII decimal digits and converts it to wire bytes.</summary>
+    /// <param name="value">The value to validate.</param>
+    /// <param name="expectedLength">The exact required digit count.</param>
+    /// <param name="parameterName">The message parameter name used in validation errors.</param>
+    /// <exception cref="ArgumentException">Thrown when the value is not exactly the required count of ASCII decimal digits.</exception>
+    private static byte[] ValidateFixedDigits(string value, int expectedLength, string parameterName)
+    {
+        if (value.Length != expectedLength)
+        {
+            throw new ArgumentException($"Expected exactly {expectedLength} ASCII decimal digits.", parameterName);
+        }
+
+        var bytes = new byte[value.Length];
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (c is < '0' or > '9')
+            {
+                throw new ArgumentException($"Expected exactly {expectedLength} ASCII decimal digits.", parameterName);
+            }
+
+            bytes[i] = (byte)c;
+        }
+
+        return bytes;
+    }
+
+    /// <summary>Encodes a trust-admin result after bounding its UTF-8 encoded length.</summary>
+    /// <param name="trustAdminResult">The result to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the correlation id is zero or the result text exceeds the configured bound.</exception>
+    private static byte[] EncodeTrustAdminResult(IpcTrustAdminResultMessage trustAdminResult)
+    {
+        if (trustAdminResult.CorrelationId == 0)
+        {
+            throw new ArgumentException("A trust-admin result must have a nonzero correlation id.", nameof(trustAdminResult));
+        }
+
+        byte[] resultTextBytes = Encoding.UTF8.GetBytes(trustAdminResult.ResultText);
+        if (resultTextBytes.Length > Constants.MaxIpcTrustAdminResultTextBytes)
+        {
+            throw new ArgumentException(
+                $"The trust-admin result text must be at most {Constants.MaxIpcTrustAdminResultTextBytes} UTF-8 bytes.", nameof(trustAdminResult));
+        }
+
+        return resultTextBytes;
+    }
+
+    /// <summary>Decodes a trust-admin request, validating the operation and its exact operation-specific argument shape.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The one-byte operation followed by its operation-specific argument payload.</param>
+    private static IpcDecodeResult DecodeTrustAdminRequest(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.IsEmpty || !Enum.IsDefined((TrustAdminOperation)payload[0]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        var operation = (TrustAdminOperation)payload[0];
+        ReadOnlySpan<byte> argument = payload[1..];
+
+        switch (operation)
+        {
+            case TrustAdminOperation.Help:
+            case TrustAdminOperation.ResetTrust:
+            case TrustAdminOperation.Reset:
+                return argument.IsEmpty
+                    ? IpcDecodeResult.Success(new IpcTrustAdminRequestMessage(correlationId, operation))
+                    : IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+
+            case TrustAdminOperation.List:
+                if (argument.Length != 1 || !Enum.IsDefined((TrustAdminListScope)argument[0]))
+                {
+                    return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+                }
+
+                return IpcDecodeResult.Success(new IpcTrustAdminRequestMessage(correlationId, operation, ListScope: (TrustAdminListScope)argument[0]));
+
+            case TrustAdminOperation.Revoke:
+            case TrustAdminOperation.Block:
+            case TrustAdminOperation.Unblock:
+            case TrustAdminOperation.Forget:
+                return TryDecodeFixedDigits(argument, Constants.PairingShortIdDigits, out string? shortId)
+                    ? IpcDecodeResult.Success(new IpcTrustAdminRequestMessage(correlationId, operation, ShortId: shortId))
+                    : IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+
+            case TrustAdminOperation.ConfirmReset:
+                return TryDecodeFixedDigits(argument, Constants.FactoryResetChallengeCodeDigits, out string? confirmationCode)
+                    ? IpcDecodeResult.Success(new IpcTrustAdminRequestMessage(correlationId, operation, ConfirmationCode: confirmationCode))
+                    : IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+
+            default:
+                return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+    }
+
+    /// <summary>Attempts to decode a fixed-length run of ASCII decimal digits into a string.</summary>
+    /// <param name="bytes">The candidate digit bytes.</param>
+    /// <param name="expectedLength">The exact required digit count.</param>
+    /// <param name="value">The decoded digits when this returns <see langword="true"/>; otherwise <see langword="null"/>.</param>
+    private static bool TryDecodeFixedDigits(ReadOnlySpan<byte> bytes, int expectedLength, out string? value)
+    {
+        if (bytes.Length != expectedLength)
+        {
+            value = null;
+            return false;
+        }
+
+        Span<char> chars = stackalloc char[expectedLength];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            if (bytes[i] is < (byte)'0' or > (byte)'9')
+            {
+                value = null;
+                return false;
+            }
+
+            chars[i] = (char)bytes[i];
+        }
+
+        value = new string(chars);
+        return true;
+    }
+
+    /// <summary>Decodes a trust-admin result, validating its bounded, well-formed UTF-8 result text.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The UTF-8 encoded result text.</param>
+    private static IpcDecodeResult DecodeTrustAdminResult(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length > Constants.MaxIpcTrustAdminResultTextBytes || !Utf8.IsValid(payload))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcTrustAdminResultMessage(correlationId, Encoding.UTF8.GetString(payload)));
     }
 }

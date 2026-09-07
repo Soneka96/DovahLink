@@ -178,6 +178,41 @@ public static class Constants
     /// </summary>
     public const int IpcHostProofMessageBytes = IpcChallengeBytes + 8 + 16 + IpcOwnerLifetimeIdBytes;
 
+    /// <summary>The maximum UTF-8 byte length of an <see cref="Adapter.Ipc.IpcTrustAdminResultMessage"/>'s formatted result text.</summary>
+    public const int MaxIpcTrustAdminResultTextBytes = 4096;
+
+    /// <summary>
+    /// The maximum time the host waits for the adapter's acknowledgement to a pairing-display
+    /// request before treating it as unavailable, per <c>ai/context/protocol/security.md</c>'s
+    /// bounded acknowledgement/readiness requirement for initial display and manual redisplay.
+    /// Provisional: Skyrim-facing display is expected to complete near-instantly once the private
+    /// channel is healthy, so this generously bounds transient scheduling delay rather than a real
+    /// display cost; revise with the same documented approval this file's other limits require if a
+    /// real adapter display seam needs more.
+    /// </summary>
+    public static readonly TimeSpan PairingDisplayAckTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// The maximum number of adapter-originated trust-admin requests the host admits per connection
+    /// at once, counted from admission until its dispatch actually finishes handling it. Matches the
+    /// adapter's own <c>kMaxPendingTrustAdminRequests</c>: bounds Host-side concurrent work the same
+    /// way the adapter already bounds its own outstanding requests, so a mutually authenticated but
+    /// malfunctioning adapter cannot create unbounded Host tasks. A request beyond this capacity is
+    /// rejected with a controlled result, without disturbing any already-admitted request.
+    /// </summary>
+    public const int MaxPendingTrustAdminRequests = 16;
+
+    /// <summary>
+    /// The maximum time <see cref="Adapter.Ipc.AdapterIpcConnection"/>'s teardown waits for every
+    /// still-admitted trust-admin request's own dispatch to finish after cancelling it, before
+    /// abandoning the wait and completing teardown anyway. Bounds teardown against a handler
+    /// implementation that does not honor its <see cref="CancellationToken"/> promptly, the same
+    /// way that connection's own graceful writer-drain wait already bounds its teardown against a
+    /// slow writer; a dispatch that outlives this bound is left to finish on its own rather than
+    /// blocking this connection's teardown indefinitely.
+    /// </summary>
+    public static readonly TimeSpan TrustAdminTeardownDrainTimeout = TimeSpan.FromSeconds(2);
+
     // ---- Process ----
 
     /// <summary>
@@ -205,6 +240,14 @@ public static class Constants
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
     public static string ShutdownEventName(OwnerLifetimeId ownerLifetimeId) =>
         $@"Local\DovahLink.Host.Shutdown.{ownerLifetimeId.Format()}";
+
+    /// <summary>
+    /// The name of the environment variable a real cross-process test launch sets to open the
+    /// public listener on a specific port, per <see cref="global::Program.ParseTestPublicListenerPort"/>.
+    /// The production launch path never sets this, so the public listener stays disabled there,
+    /// matching the approved "isolated development/test execution only" scope for Stage 4.
+    /// </summary>
+    public const string TestPublicListenerPortEnvironmentVariableName = "DOVAHLINK_TEST_PUBLIC_LISTENER_PORT";
 
     // ---- Client transport ----
 

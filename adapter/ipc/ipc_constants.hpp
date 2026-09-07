@@ -40,13 +40,6 @@ inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 ///  the downstream capture queue can absorb has no benefit.
 inline constexpr std::size_t kMaxPendingGameThreadDispatches = 64;
 
-///  The maximum number of not-yet-consumed `IpcCancelMessage` correlation ids
-///  `AdapterIpcSession` remembers at once. Bounds memory growth from
-///  cancellations whose target request already finished, was dropped by a
-///  disconnect, or never arrived; the oldest entry is evicted to admit a new
-///  one past this capacity.
-inline constexpr std::size_t kMaxPendingIpcCancellations = 64;
-
 //  ---- Connection ----
 
 ///  The absolute bound on one long-lived connection's pre-authentication
@@ -79,5 +72,51 @@ inline constexpr std::size_t kIpcHostProofBytes = 32;
 ///  adapterInstanceId (16) || ownerLifetimeId (kIpcOwnerLifetimeIdBytes)`.
 inline constexpr std::size_t kIpcHostProofMessageBytes =
     kIpcChallengeBytes + 8 + 16 + kIpcOwnerLifetimeIdBytes;
+
+//  ---- Pairing ----
+
+///  The number of ASCII decimal digits in an `IpcPairingDisplayMessage`'s
+///  pairing code, matching the host's own generated pairing challenge code
+///  length.
+inline constexpr std::size_t kPairingChallengeCodeDigits = 6;
+
+//  ---- Trust administration ----
+
+///  The number of ASCII decimal digits in an `IpcTrustAdminRequestMessage`'s
+///  `shortId` argument, matching the host's own generated short id length.
+inline constexpr std::size_t kPairingShortIdDigits = 5;
+
+///  The number of ASCII decimal digits in an `IpcTrustAdminRequestMessage`'s
+///  `confirmationCode` argument, matching the host's own generated Factory
+///  Reset confirmation code length.
+inline constexpr std::size_t kFactoryResetChallengeCodeDigits = 6;
+
+///  The maximum UTF-8 byte length of an `IpcTrustAdminResultMessage`'s
+///  `resultText`, matching the host's own bound on formatted result text.
+inline constexpr std::size_t kMaxIpcTrustAdminResultTextBytes = 4096;
+
+///  The absolute bound `AdapterIpcSession::SendTrustAdminRequest` waits for
+///  its correlated `IpcTrustAdminResultMessage`, covering the host's own
+///  trust-service dispatch and persistence write. Generous relative to
+///  `kAdapterIpcEstablishmentTimeout` because a trust-administration command
+///  is a rare, explicitly user-triggered console action, not a per-frame or
+///  per-connection-lifecycle operation, so a slower bound here has no effect
+///  on ordinary connection throughput or Skyrim's own responsiveness.
+inline constexpr std::chrono::milliseconds kTrustAdminRequestTimeout{5000};
+
+///  The maximum number of trust-admin requests `AdapterIpcSession` admits at
+///  once, counted from admission until the request's own timeout worker (or,
+///  for an immediately-failed send, the original caller) has actually
+///  finished handling it -- not merely until a correlated result, a timeout,
+///  or a connection close resolves it. Strictly bounds both memory growth in
+///  `pendingTrustAdminResults_` and the number of concurrently outstanding
+///  timeout worker threads a rapid sequence of Papyrus-originated commands
+///  could otherwise spawn: a request beyond this capacity is rejected without
+///  being sent or spawning a worker, and an already-resolved request does not
+///  free its slot until the thread that owns it has actually finished. Sized
+///  well above any plausible number of concurrent manual console commands,
+///  since this is a rare control-path API rather than a per-frame or
+///  per-connection-lifecycle operation.
+inline constexpr std::size_t kMaxPendingTrustAdminRequests = 16;
 
 } //  namespace dovahlink::adapter::ipc

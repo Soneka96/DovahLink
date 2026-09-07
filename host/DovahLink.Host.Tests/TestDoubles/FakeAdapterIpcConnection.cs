@@ -44,4 +44,47 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
 
     /// <inheritdoc/>
     public bool TryCancel(ulong correlationId) => false;
+
+    /// <summary>The result <see cref="TrySendPairingDisplay"/> returns.</summary>
+    public bool TrySendPairingDisplayResult { get; set; }
+
+    /// <summary>The correlation id <see cref="TrySendPairingDisplay"/> reports when <see cref="TrySendPairingDisplayResult"/> is <see langword="true"/>.</summary>
+    public ulong TrySendPairingDisplayCorrelationId { get; set; }
+
+    /// <summary>The code and mode passed to <see cref="TrySendPairingDisplay"/>, in call order.</summary>
+    public List<(string Code, PairingDisplayMode Mode)> PairingDisplayCalls { get; } = [];
+
+    /// <summary>The result <see cref="TrySendPairingAttemptsExhausted"/> returns.</summary>
+    public bool TrySendPairingAttemptsExhaustedResult { get; set; }
+
+    /// <summary>The number of times <see cref="TrySendPairingAttemptsExhausted"/> was called.</summary>
+    public int PairingAttemptsExhaustedCalls { get; private set; }
+
+    /// <summary>The function used to produce <see cref="AwaitPairingDisplayAckAsync"/>'s result. Defaults to always returning <see langword="false"/>.</summary>
+    public Func<ulong, TimeSpan, CancellationToken, Task<bool>> AwaitPairingDisplayAckAsyncResult { get; set; } = (_, _, _) => Task.FromResult(false);
+
+    /// <summary>The arguments passed to <see cref="AwaitPairingDisplayAckAsync"/>, in call order.</summary>
+    public List<(ulong CorrelationId, TimeSpan Timeout, CancellationToken CancellationToken)> AwaitPairingDisplayAckAsyncCalls { get; } = [];
+
+    /// <inheritdoc/>
+    public bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId)
+    {
+        PairingDisplayCalls.Add((code, mode));
+        correlationId = TrySendPairingDisplayResult ? TrySendPairingDisplayCorrelationId : 0;
+        return TrySendPairingDisplayResult;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendPairingAttemptsExhausted()
+    {
+        PairingAttemptsExhaustedCalls++;
+        return TrySendPairingAttemptsExhaustedResult;
+    }
+
+    /// <inheritdoc/>
+    public Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        AwaitPairingDisplayAckAsyncCalls.Add((correlationId, timeout, cancellationToken));
+        return AwaitPairingDisplayAckAsyncResult(correlationId, timeout, cancellationToken);
+    }
 }

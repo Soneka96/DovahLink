@@ -1,10 +1,13 @@
 # Current phase context
 
 Source: `host/PLAN.md`
-Source fingerprint: `host/PLAN.md` — `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`
+Source fingerprint: `host/PLAN.md` — `27DE613FE3D3D75F00D94B5B26475BD53E1A1FB07C2DFD77E6AEC5C9589BB31`
+(previously `7434ECE0A3ACDBF9A7D86460F080D1BC7310B4AF6C2A15BF8868C676DCB1CC0C`; the source plan's own
+Stage 4 checkbox was flipped to complete when this phase's four concepts finished -- see
+"Completed concepts" and "Changed files" below)
 Phase: Stage 4 — Host Client Boundary and Pairing
 Package: `plans/stage-4-host-client-boundary-and-pairing/`
-Status: pending
+Status: complete
 
 The broad local `.git/info/exclude` rule for `PLAN.md` has been removed. `host/PLAN.md` and this
 package's `PLAN.md` are now visible to Git as durable planning sources, but the maintainer must
@@ -29,10 +32,9 @@ branch, D1/D2/D3 status, and clean scope before implementation.
 
 ## Active concept
 
-- File: `03-pairing-and-client-dispatch.md`
-- Status: not started; awaiting explicit maintainer authorization to begin
-- Prerequisites: Concept 02 complete; Stage 2 authentication/trust/identity/session services and Stage 3 host composition available; feature branch `feature/4-host-client-boundary-and-pairing` active; cold-start handoff gate satisfied
-- Next action: Revalidate the source fingerprint and this ledger, then implement only Concept 03 once the maintainer names it as the requested scope.
+None. All four Stage 4 concepts (`01`-`04`) are complete; this ledger's own "Active concept" pointer
+went stale after Concept 02's close and was not updated across Concepts 03 and 04 -- corrected here
+rather than left to mislead a cold-start reader. See "Handoff" below for the next phase.
 
 ## Completed concepts
 
@@ -404,6 +406,68 @@ branch, D1/D2/D3 status, and clean scope before implementation.
       suite, and this traceability update. Fresh-eyes traceability pass over the whole of Concept 02
       (not only this fix) found every Contracts/Invariants/Proof-obligations/Non-goals/
       Completion-criteria line satisfied by current code and covered by a passing test.
+- `03-pairing-and-client-dispatch.md`: complete, merged via PR #50. This ledger's own per-step history
+  for Concept 03 was never recorded; that gap is noted here rather than backfilled with an unverified
+  narrative. Its approved file-scope divergence (canonical protocol DTOs live under `Client/Protocol/`
+  rather than `Client/Dispatch/`) is D5 in `DIVERGENCES.md`; its own concept file's Status line and
+  Contracts/Invariants/Proof-obligations text remain the authoritative record of what it implements.
+- `04-adapter-notification-and-composition.md`: complete, built across two passes on
+  `feature/4-adapter-notification-and-composition`.
+  - First pass (twelve commits, prior to this ledger entry -- this ledger was not updated at the
+    close of that pass; verified directly against the current repository rather than reconstructed
+    from memory before writing this entry): implemented the complete private-IPC pairing-display and
+    trust-administration wire vocabulary in both C# (`host/DovahLink.Host/Adapter/Ipc/`) and C++
+    (`adapter/ipc/`); `AdapterIpcSession`/`AdapterIpcConnection`'s correlation-scoped pairing-display
+    request/acknowledgement plumbing; the real `AdapterPairingNotifier` and
+    `AdapterTrustAdminRequestHandler` over the adapter listener's current connection; the adapter-side
+    `IAdapterPairingNotificationSink`/`CommonLibAdapterPairingNotificationSink` Skyrim-facing display
+    seam; the `DovahLinkAdmin` Papyrus console-command surface
+    (`CommonLibAdapterTrustAdminPapyrusAdapter`) covering the exact `help`/`list`/`revoke`/`block`/
+    `unblock`/`forget`/`reset-trust`/`reset`/`confirm-reset` operation matrix; and
+    `Program.ComposeAndRunAsync`'s composition of the trust store (loaded, and fail-closed on
+    malformed/undecryptable data, before either listener is constructed), the adapter-IPC listener,
+    the isolated-development-only public listener, `PairingCoordinator`, `ClientMessageDispatcher`,
+    `SessionRegistry`, and the real `PublicSessionConnectionRegistry`/`PublicSessionTerminationNotifier`
+    pair D6 approved, all wired through one shared shutdown token.
+  - Second pass (`/step-build`, three steps, 2026-09-06): before trusting the stale ledger above, a
+    fresh-eyes gap analysis against this concept's own Proof obligations found the implementation
+    solid but three proof obligations with no test at the level that could actually demonstrate them:
+    the private display acknowledgement's correlation/generation isolation across an adapter
+    reconnect; `pairing_request` actually flipping between `unavailable` and `available` once a real
+    attached adapter accepts or declines display, over the fully composed process graph; and an
+    adapter-originated `revoke` request force-closing a real connected public client after
+    `session_invalidated` -- plus the public/private listeners' mutual unreachability and a
+    reconnect's fresh-session guarantee, both provable only with both real listeners composed
+    together. No prod-code defect was found; all three steps are test-only.
+    - Step 1: extended `host/DovahLink.Host.Tests/Adapter/Ipc/AdapterIpcChannelIntegrationTests.cs`
+      (already this concept's real-socket full-stack proof file for the trust-admin round trip) with
+      four tests proving `AdapterPairingNotifier`'s initial-display, redisplay, and
+      attempts-exhausted notifications reach a connected adapter over the real wire, and that a
+      disconnected adapter's unacknowledged request can never cross-resolve a reconnected adapter's
+      own request even when both connections' correlation ids coincide -- each connection owns an
+      independent pending-acknowledgement table, so id reuse across a reconnect is structurally safe
+      by construction, not merely by the values happening to differ.
+    - Step 2: added `host/DovahLink.Host.Tests/Client/Integration/AdapterNotificationIntegrationTests.cs`,
+      one of the two files this concept's own "Expected focused test files" names but which did not
+      exist, composing `Program.ComposeAndRunAsync` with both listeners bound to real loopback ports.
+      Proves `pairing_request` reports `unavailable` with no adapter attached, `available` (with a
+      positive remaining lifetime and never the code itself) once a raw-socket adapter stand-in
+      accepts the display request, `unavailable` again when it declines, and that an
+      adapter-originated `revoke` trust-admin request sends `session_invalidated` before
+      force-closing the matching real public client's socket.
+    - Step 3: added `host/DovahLink.Host.Tests/Client/Integration/PublicClientBoundaryIntegrationTests.cs`,
+      the second named file, over the same composed-stack setup. Proves a reconnect with the same
+      `clientId` is admitted with a fresh `sessionId` rather than resuming the prior one, that a
+      WebSocket client cannot complete a handshake against the private adapter listener, and that a
+      raw private-IPC frame sent to the public listener is never interpreted and closes the
+      connection.
+  - This entry (documentation-only): reconciled this ledger's "Active concept"/"Handoff" sections,
+    stale since Concept 02's close across the whole of Concepts 03 and 04; added the D5/D6 pointers
+    this section was also missing below; marked the Concept 02 "Still open" routing-gap debt resolved
+    below; flipped `host/PLAN.md`'s Stage 4 checkbox to complete; and reconciled the package
+    fingerprint that edit changes (see this file's own header above and
+    `plans/stage-4-host-client-boundary-and-pairing/PLAN.md`). No public schema, SDK, or production
+    behavior changed.
 
 ## Decisions and approved deviations
 
@@ -442,6 +506,22 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   post-completion corrective pass's generation-scoped reservation fix and three-step plan, following
   a same-day third `/think` re-review that found the second pass's own reservation fix was itself an
   ABA hazard.
+- D5 is approved: Concept 03's canonical protocol DTOs (`PairingStatusPayload`, `PairingOutcomePayload`,
+  `RenameOutcomePayload`, and related wire enums) live under `Client/Protocol/` alongside Concept 01's
+  own envelope/codec types, not under `Client/Dispatch/` as the concept's written file-scope literally
+  said -- `Client/Protocol/` remains the one place every canonical wire DTO lives. See `DIVERGENCES.md` D5.
+- D6 is approved: Concept 04's real `ISessionTerminationNotifier` needed a narrow `Register`/
+  `Unregister` hook on `PublicHelloAdmissionHandler` (a new `IPublicSessionConnectionRegistry`
+  constructor parameter, called from `Admit()` and `HandleConnectionEnded()`) plus three new files
+  outside the concept's literal allowlist: `Sessions/PublicSessionConnectionRegistry.cs`,
+  `Sessions/PublicSessionTerminationNotifier.cs`, and `Client/Protocol/SessionInvalidatedPayload.cs`.
+  Flagged before implementation; the maintainer raised no objection at either flag point. See
+  `DIVERGENCES.md` D6.
+- D7 is approved: Concept 04 needed a narrow build/tooling/vendored-dependency expansion outside the
+  concept's literal allowlist -- `adapter/CMakeLists.txt`, `adapter/tests/process/adapter_host_real_process_test.cpp`,
+  `tooling/test_repository_consistency.py`, and `tooling/vcpkg-ports/commonlibsse-ng-flatrim/`'s
+  patch/portfile/manifest -- to compile and prove the Papyrus trust-administration path's latent
+  non-void return type and the real Host↔Adapter process boundary. See `DIVERGENCES.md` D7.
 
 ## Deferred debt
 
@@ -485,6 +565,13 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   transport, routing a `clientId`/`sessionId` to its exact live connection; Concept 03's own tests use
   a fake in its place. This entry is left as the historical decision record per this document's own
   append-only convention rather than editing the entry it clarifies.
+- Resolved by Concept 04, per D6: `PublicSessionConnectionRegistry` and
+  `PublicSessionTerminationNotifier` are the real `ISessionTerminationNotifier` implementation over
+  the public WebSocket transport, registered/unregistered at
+  `PublicHelloAdmissionHandler.Admit()`/`HandleConnectionEnded()` so a target can never resolve a
+  different, newer connection that reused the same admission slot. Proven end to end (a real trust
+  mutation, a real connected public client) by
+  `AdapterNotificationIntegrationTests.AdapterRevokeRequest_MatchingTrustedPublicClient_SendsSessionInvalidatedThenForceCloses`.
 
 ## Changed files
 
@@ -630,6 +717,32 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   `02-authentication-and-session-admission.md` (one Contracts addition, one new Proof-obligations
   bullet covering the generation-scoped invariant); this `CONTEXT.md` (this decision entry, this file
   list, the verification counts below). No public schema, SDK, or Concept 03 file touched.
+- Concept 03: file list not recorded in this ledger at the time (see the "Completed concepts" entry
+  above); its own concept file and PR #50 remain the record.
+- Concept 04, first pass (twelve commits, prior to this ledger entry), new: private-IPC pairing-display
+  and trust-admin wire vocabulary and connection/session plumbing under `host/DovahLink.Host/Adapter/Ipc/`
+  and `adapter/ipc/`; `host/DovahLink.Host/Adapter/Ipc/AdapterPairingNotifier.cs` and
+  `AdapterTrustAdminRequestHandler.cs`; `adapter/ipc/adapter_pairing_notification_sink.hpp` and
+  `commonlib_adapter_pairing_notification_sink.{hpp,cpp}`; `adapter/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.{hpp,cpp}`;
+  `host/DovahLink.Host/Sessions/PublicSessionConnectionRegistry.cs` and
+  `PublicSessionTerminationNotifier.cs` (D6); `host/DovahLink.Host/Client/Protocol/SessionInvalidatedPayload.cs`
+  (D6); matching new test files under `host/DovahLink.Host.Tests/Adapter/Ipc/`, `adapter/tests/ipc/`,
+  and `adapter/tests/papyrus/`. Modified: `host/DovahLink.Host/Program.cs` (full composition:
+  fail-closed trust-store startup ordering, both listeners, the trust-services graph, the connection
+  registry/termination notifier wiring); `host/DovahLink.Host/Client/Authentication/PublicHelloAdmissionHandler.cs`
+  (D6's `Register`/`Unregister` hook); `host/DovahLink.Host/Enums.cs`, `Constants.cs`;
+  `adapter/plugin/dovahlink_adapter_plugin.cpp`, `adapter/CMakeLists.txt`; matching test files.
+- Concept 04, second pass (`/step-build`, three steps, this ledger entry), new:
+  `host/DovahLink.Host.Tests/Client/Integration/AdapterNotificationIntegrationTests.cs`,
+  `host/DovahLink.Host.Tests/Client/Integration/PublicClientBoundaryIntegrationTests.cs`. Modified:
+  `host/DovahLink.Host.Tests/Adapter/Ipc/AdapterIpcChannelIntegrationTests.cs` (four new full-stack
+  pairing-display/attempts-exhausted tests). No `host/DovahLink.Host` production file changed.
+- Concept 04 completion pass (this entry), modified: `host/PLAN.md` (Stage 4 checkbox flipped to
+  complete); `04-adapter-notification-and-composition.md` (`Status: pending` -> `Status: complete`);
+  `plans/stage-4-host-client-boundary-and-pairing/PLAN.md` (source fingerprint reconciled to
+  `host/PLAN.md`'s new content); this `CONTEXT.md` (this decision entry, the D5/D6 pointers, the
+  resolved deferred-debt note, this file list, the verification counts below, "Active concept" and
+  "Handoff"). No public schema, SDK, or production behavior changed.
 
 ## Verification
 
@@ -780,10 +893,40 @@ branch, D1/D2/D3 status, and clean scope before implementation.
   two new bullets this pass added, is satisfied by the current implementation and covered by a
   passing regression test. `git status`: clean except this pass's own documentation edits at the time
   of writing.
+- Concept 04 baseline re-verified at this ledger entry's session start, independently of the twelve
+  prior commits' own (unrecorded) verification: `dotnet test host/DovahLink.Host.Tests` 1501 passed;
+  `ctest --test-dir adapter/build/windows-x64-debug` 384/384 passed (required loading
+  `vcvars64.bat`'s environment into the build/test shell first -- a bare `cmd /c`/`ninja` invocation
+  on this machine cannot find the MSVC standard library headers); `python -m unittest discover -s
+  tooling -p "test_*.py"` 95 passed.
+- Concept 04, second pass, progression: 1505 passed after Step 1 (+4: the pairing-display/
+  attempts-exhausted full-stack tests), re-run five times with no flake; 1509 passed after Step 2
+  (+4: `AdapterNotificationIntegrationTests`), re-run five times with no flake; 1512 passed after Step
+  3 (+3: `PublicClientBoundaryIntegrationTests`), re-run five times with no flake. Each step's own
+  fresh-eyes pass and convention audit found no gap requiring a code or test change.
+- `ctest --test-dir adapter/build/windows-x64-debug`: unchanged at 384/384 -- Concept 04's second pass
+  touched only `host/DovahLink.Host.Tests` C# test files, no native/adapter file.
+- `python -m unittest discover -s tooling -p "test_*.py"`: unchanged at 95 passed -- confirmed
+  unaffected by this pass's `host/PLAN.md` checkbox edit and this file's own documentation edits.
+- Fresh traceability pass at Concept 04's close: every Contracts/Invariants/Proof-obligations/
+  Non-goals/Completion-criteria line in `04-adapter-notification-and-composition.md` is satisfied by
+  the current implementation and covered by a passing test, including the startup trust-persistence
+  fail-closed proof `DIVERGENCES.md`'s D4 hands off to this concept
+  (`ProgramCompositionTests.ComposeAndRunAsync_MalformedTrustPersistence_FailsClosedWithoutStartingEitherListener`
+  and `ComposeAndRunAsync_TrustPersistenceLoadInProgress_NeitherListenerIsReportedUntilItCompletes`).
+  `git status`: clean except this pass's own new/modified test files and documentation edits at the
+  time of writing.
 
 ## Handoff
 
-Next concept: `03-pairing-and-client-dispatch.md`
-Blocked by: explicit maintainer authorization naming Concept 03 as the requested scope. Per the
-package's own execution guardrails, implementation does not auto-proceed from one concept to the
-next; the maintainer must confirm before Concept 03 begins.
+Stage 4 is complete: all four concepts (`01`-`04`) are done, `host/PLAN.md`'s Stage 4 checkbox is
+flipped, and this package's own phase-completion gate (`PLAN.md`) is satisfied per the verification
+recorded above.
+
+Next phase: Stage 5 -- Host State, Publication, and Bounded Delivery (`host/PLAN.md`, "Stage 5:
+Host State, Publication, and Bounded Delivery"). No phase package for it exists under `plans/` yet.
+Blocked by: explicit maintainer authorization naming Stage 5 as the requested scope, and (per this
+package's own "Phase completion gate") the source plan's Stage 4 completion mark does not itself
+authorize Stage 7 cutover, old-bridge deletion, release packaging, or production activation --
+Stage 5 remains live-state work on the replacement host only, with `bridge/` still the production
+implementation.
