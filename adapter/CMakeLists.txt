@@ -130,6 +130,7 @@ add_executable(dovahlink_adapter_tests
     tests/ipc/adapter_ipc_hmac_test.cpp
     tests/ipc/settable_adapter_ipc_peer_proof_provider_test.cpp
     tests/ipc/trust_admin_completion_dispatch_test.cpp
+    tests/ipc/trust_admin_request_result_test.cpp
     tests/process/adapter_owner_lifetime_id_test.cpp
     tests/process/adapter_host_endpoint_report_test.cpp
     tests/process/adapter_host_rendezvous_reader_test.cpp

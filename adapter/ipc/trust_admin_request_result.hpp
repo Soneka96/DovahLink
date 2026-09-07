@@ -31,8 +31,9 @@ enum class TrustAdminRequestOutcome {
 ///  Result of one `IAdapterIpcSession::SendTrustAdminRequest` call, delivered
 ///  to its `onResult` callback exactly once.
 struct TrustAdminRequestResult {
-  ///  Which of the three outcomes occurred.
-  TrustAdminRequestOutcome outcome;
+  ///  Which of the three outcomes occurred. Defaults to `kUnavailable` so a
+  ///  default-constructed result never leaves this indeterminate.
+  TrustAdminRequestOutcome outcome = TrustAdminRequestOutcome::kUnavailable;
   ///  The host's formatted result text, populated only when `outcome ==
   ///  TrustAdminRequestOutcome::kCompleted`.
   std::optional<std::string> resultText;
