@@ -344,6 +344,7 @@ TEST_CASE("reject round-trips for every reject reason",
            IpcRejectReason::kInvalidIdentity,
            IpcRejectReason::kMalformedPayload,
            IpcRejectReason::kDuplicateTrustAdminCorrelationId,
+           IpcRejectReason::kDuplicateCancellableCorrelationId,
        }) {
     IpcRejectMessage original{.correlationId = 5, .reason = reason};
 
@@ -1033,7 +1034,7 @@ TEST_CASE("a close payload of the wrong length fails closed",
 TEST_CASE("a reject payload with an unrecognized reason fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  for (std::byte reasonByte : {std::byte{5}, std::byte{250}}) {
+  for (std::byte reasonByte : {std::byte{6}, std::byte{250}}) {
     std::vector<std::byte> frame =
         BuildFrame(IpcMessageKind::kReject, 1, {reasonByte});
 

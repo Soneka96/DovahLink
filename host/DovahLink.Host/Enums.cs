@@ -332,6 +332,13 @@ public enum IpcRejectReason : byte
     /// session already has admitted and still outstanding.
     /// </summary>
     DuplicateTrustAdminCorrelationId = 4,
+
+    /// <summary>
+    /// A cancellable request's (resynchronize, listen-event, read-sample, or pairing-display)
+    /// correlation id matches one this session already has admitted and still outstanding on the
+    /// current connection generation.
+    /// </summary>
+    DuplicateCancellableCorrelationId = 5,
 }
 
 /// <summary>Why the host rejected an <see cref="Adapter.Ipc.IpcHelloMessage"/> negotiation.</summary>

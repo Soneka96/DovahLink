@@ -171,7 +171,7 @@ constexpr bool IsFixedAsciiDigits(std::string_view text,
 constexpr bool IsDefinedCloseReason(std::uint8_t value) { return value <= 2; }
 
 ///  Whether `value` is one of `IpcRejectReason`'s contiguous defined values.
-constexpr bool IsDefinedRejectReason(std::uint8_t value) { return value <= 4; }
+constexpr bool IsDefinedRejectReason(std::uint8_t value) { return value <= 5; }
 
 ///  Whether `value` is one of `IpcHelloRejectReason`'s contiguous defined
 ///  values.

@@ -127,7 +127,10 @@ public:
   ///  @return The disposition for the current transport generation. A valid
   ///  HelloAck returns `kAuthenticated`; every non-HelloAck received before
   ///  authentication, a rejected or invalid HelloAck, a duplicate HelloAck,
-  ///  received close, or unexpected message kind returns `kClose`.
+  ///  received close, unexpected message kind, or cancellable request (
+  ///  resynchronize, listen-event, read-sample, or pairing-display) whose
+  ///  correlation id is already admitted and still outstanding on the current
+  ///  generation returns `kClose`.
   virtual AdapterIpcMessageDisposition
   HandleMessage(const IpcMessage &message) = 0;
 
@@ -243,22 +246,41 @@ private:
 
   ///  Marshals the resynchronization decision onto the game thread and replies
   ///  that no baseline is available until an approved domain is registered.
-  void
+  ///  @return `kClose` if `request.correlationId` is already admitted and
+  ///  still outstanding on the current generation, after sending
+  ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
+  ///  otherwise.
+  AdapterIpcMessageDisposition
   HandleResynchronizeRequest(const IpcResynchronizeRequestMessage &request);
 
   ///  Marshals the dispatcher's translation for `listenEvent.eventKey` onto
   ///  the game thread and hands any captured value to the capture queue.
-  void HandleListenEvent(const IpcListenEventMessage &listenEvent);
+  ///  @return `kClose` if `listenEvent.correlationId` is already admitted and
+  ///  still outstanding on the current generation, after sending
+  ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
+  ///  otherwise.
+  AdapterIpcMessageDisposition
+  HandleListenEvent(const IpcListenEventMessage &listenEvent);
 
   ///  Marshals the dispatcher's translation for `readSample.sampleToken`
   ///  onto the game thread and hands any captured value to the capture
   ///  queue.
-  void HandleReadSample(const IpcReadSampleMessage &readSample);
+  ///  @return `kClose` if `readSample.correlationId` is already admitted and
+  ///  still outstanding on the current generation, after sending
+  ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
+  ///  otherwise.
+  AdapterIpcMessageDisposition
+  HandleReadSample(const IpcReadSampleMessage &readSample);
 
   ///  Marshals a pairing-display request onto the game thread, presents it
   ///  through `pairingNotificationSink_`, and replies with an
   ///  `IpcPairingDisplayAckMessage` carrying the sink's accepted value.
-  void HandlePairingDisplay(const IpcPairingDisplayMessage &pairingDisplay);
+  ///  @return `kClose` if `pairingDisplay.correlationId` is already admitted
+  ///  and still outstanding on the current generation, after sending
+  ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
+  ///  otherwise.
+  AdapterIpcMessageDisposition
+  HandlePairingDisplay(const IpcPairingDisplayMessage &pairingDisplay);
 
   ///  Marshals a no-code attempts-exhausted notification onto the game
   ///  thread and presents it through `pairingNotificationSink_`. Best

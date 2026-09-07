@@ -402,14 +402,11 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
                                : AdapterIpcMessageDisposition::kClose;
         } else if constexpr (std::is_same_v<T,
                                             IpcResynchronizeRequestMessage>) {
-          HandleResynchronizeRequest(value);
-          return AdapterIpcMessageDisposition::kContinue;
+          return HandleResynchronizeRequest(value);
         } else if constexpr (std::is_same_v<T, IpcListenEventMessage>) {
-          HandleListenEvent(value);
-          return AdapterIpcMessageDisposition::kContinue;
+          return HandleListenEvent(value);
         } else if constexpr (std::is_same_v<T, IpcReadSampleMessage>) {
-          HandleReadSample(value);
-          return AdapterIpcMessageDisposition::kContinue;
+          return HandleReadSample(value);
         } else if constexpr (std::is_same_v<T, IpcCloseMessage>) {
           return AdapterIpcMessageDisposition::kClose;
         } else if constexpr (std::is_same_v<T, IpcRejectMessage>) {
@@ -418,8 +415,7 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
           HandleCancel(value);
           return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcPairingDisplayMessage>) {
-          HandlePairingDisplay(value);
-          return AdapterIpcMessageDisposition::kContinue;
+          return HandlePairingDisplay(value);
         } else if constexpr (std::is_same_v<
                                  T, IpcPairingAttemptsExhaustedMessage>) {
           HandlePairingAttemptsExhausted(value);
@@ -480,7 +476,7 @@ void AdapterIpcSession::HandleClosing() {
   InvokeAbandonedTrustAdminCallbacks(std::move(abandonedCallbacks));
 }
 
-void AdapterIpcSession::HandleResynchronizeRequest(
+AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage &request) {
   std::uint64_t correlationId = request.correlationId;
   std::uint64_t connectionGeneration;
@@ -489,6 +485,14 @@ void AdapterIpcSession::HandleResynchronizeRequest(
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
     cancellation = RegisterCancellableDispatchLocked(correlationId);
+  }
+  if (cancellation == nullptr) {
+    if (connection_ != nullptr) {
+      connection_->TrySend(IpcMessage{IpcRejectMessage{
+          .correlationId = correlationId,
+          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
+    }
+    return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -540,10 +544,11 @@ void AdapterIpcSession::HandleResynchronizeRequest(
     std::lock_guard<std::mutex> lock(availableMutex_);
     UnregisterCancellableDispatchLocked(correlationId, cancellation);
   }
+  return AdapterIpcMessageDisposition::kContinue;
 }
 
-void AdapterIpcSession::HandleListenEvent(
-    const IpcListenEventMessage &listenEvent) {
+AdapterIpcMessageDisposition
+AdapterIpcSession::HandleListenEvent(const IpcListenEventMessage &listenEvent) {
   std::uint32_t eventKey = listenEvent.eventKey;
   std::uint64_t correlationId = listenEvent.correlationId;
   std::uint64_t connectionGeneration;
@@ -561,7 +566,15 @@ void AdapterIpcSession::HandleListenEvent(
     //  The host-authentication result must be accepted before any
     //  host-directed intent reaches game-thread dispatch, per the
     //  mandatory Concept 03 handoff requirement.
-    return;
+    return AdapterIpcMessageDisposition::kContinue;
+  }
+  if (cancellation == nullptr) {
+    if (connection_ != nullptr) {
+      connection_->TrySend(IpcMessage{IpcRejectMessage{
+          .correlationId = correlationId,
+          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
+    }
+    return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -604,10 +617,11 @@ void AdapterIpcSession::HandleListenEvent(
     std::lock_guard<std::mutex> lock(availableMutex_);
     UnregisterCancellableDispatchLocked(correlationId, cancellation);
   }
+  return AdapterIpcMessageDisposition::kContinue;
 }
 
-void AdapterIpcSession::HandleReadSample(
-    const IpcReadSampleMessage &readSample) {
+AdapterIpcMessageDisposition
+AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage &readSample) {
   std::uint32_t sampleToken = readSample.sampleToken;
   std::uint64_t correlationId = readSample.correlationId;
   std::uint64_t connectionGeneration;
@@ -625,7 +639,15 @@ void AdapterIpcSession::HandleReadSample(
     //  The host-authentication result must be accepted before any
     //  host-directed intent reaches game-thread dispatch, per the
     //  mandatory Concept 03 handoff requirement.
-    return;
+    return AdapterIpcMessageDisposition::kContinue;
+  }
+  if (cancellation == nullptr) {
+    if (connection_ != nullptr) {
+      connection_->TrySend(IpcMessage{IpcRejectMessage{
+          .correlationId = correlationId,
+          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
+    }
+    return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -668,9 +690,10 @@ void AdapterIpcSession::HandleReadSample(
     std::lock_guard<std::mutex> lock(availableMutex_);
     UnregisterCancellableDispatchLocked(correlationId, cancellation);
   }
+  return AdapterIpcMessageDisposition::kContinue;
 }
 
-void AdapterIpcSession::HandlePairingDisplay(
+AdapterIpcMessageDisposition AdapterIpcSession::HandlePairingDisplay(
     const IpcPairingDisplayMessage &pairingDisplay) {
   std::string code = pairingDisplay.code;
   PairingDisplayMode mode = pairingDisplay.mode;
@@ -690,7 +713,15 @@ void AdapterIpcSession::HandlePairingDisplay(
     //  The host-authentication result must be accepted before any
     //  host-directed intent reaches game-thread dispatch, per the
     //  mandatory Concept 03 handoff requirement.
-    return;
+    return AdapterIpcMessageDisposition::kContinue;
+  }
+  if (cancellation == nullptr) {
+    if (connection_ != nullptr) {
+      connection_->TrySend(IpcMessage{IpcRejectMessage{
+          .correlationId = correlationId,
+          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
+    }
+    return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -730,6 +761,7 @@ void AdapterIpcSession::HandlePairingDisplay(
     std::lock_guard<std::mutex> lock(availableMutex_);
     UnregisterCancellableDispatchLocked(correlationId, cancellation);
   }
+  return AdapterIpcMessageDisposition::kContinue;
 }
 
 void AdapterIpcSession::HandlePairingAttemptsExhausted(
@@ -823,6 +855,10 @@ void AdapterIpcSession::HandleCancel(const IpcCancelMessage &cancel) {
 std::shared_ptr<PendingDispatchCancellationState>
 AdapterIpcSession::RegisterCancellableDispatchLocked(
     std::uint64_t correlationId) {
+  if (gameThreadDispatchCancellation_.find(correlationId) !=
+      gameThreadDispatchCancellation_.end()) {
+    return nullptr;
+  }
   auto state = std::make_shared<PendingDispatchCancellationState>();
   gameThreadDispatchCancellation_[correlationId] = state;
   return state;

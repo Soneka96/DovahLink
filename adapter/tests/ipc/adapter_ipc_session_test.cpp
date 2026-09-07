@@ -998,6 +998,178 @@ TEST_CASE("AdapterIpcSession draining several stale queued dispatches after "
   CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
+TEST_CASE("AdapterIpcSession rejects and closes a listen-event request that "
+          "reuses a correlation id already admitted and still outstanding in "
+          "the same generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 8}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  REQUIRE(connection.Sent().size() == 1);
+  auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
+  REQUIRE(reject != nullptr);
+  CHECK(reject->correlationId == 1);
+  CHECK(reject->reason == IpcRejectReason::kDuplicateCancellableCorrelationId);
+  //  The rejected duplicate was never admitted; the original request's own
+  //  registration is untouched.
+  CHECK(fixture.marshaller.PendingCount() == 1);
+
+  fixture.marshaller.RunAllPending();
+
+  //  The first request's own registration survived the rejected duplicate
+  //  and dispatched normally.
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+}
+
+TEST_CASE("AdapterIpcSession rejects and closes a read-sample request that "
+          "reuses a correlation id already admitted and still outstanding in "
+          "the same generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcReadSampleMessage{.correlationId = 1, .sampleToken = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcReadSampleMessage{.correlationId = 1, .sampleToken = 8}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  REQUIRE(connection.Sent().size() == 1);
+  auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
+  REQUIRE(reject != nullptr);
+  CHECK(reject->correlationId == 1);
+  CHECK(reject->reason == IpcRejectReason::kDuplicateCancellableCorrelationId);
+  CHECK(fixture.marshaller.PendingCount() == 1);
+
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+}
+
+TEST_CASE("AdapterIpcSession rejects and closes a resynchronization request "
+          "that reuses a correlation id already admitted and still "
+          "outstanding in the same generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kClose);
+  REQUIRE(connection.Sent().size() == 1);
+  auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
+  REQUIRE(reject != nullptr);
+  CHECK(reject->correlationId == 1);
+  CHECK(reject->reason == IpcRejectReason::kDuplicateCancellableCorrelationId);
+  CHECK(fixture.marshaller.PendingCount() == 1);
+
+  fixture.marshaller.RunAllPending();
+
+  //  The first request's own registration survived the rejected duplicate
+  //  and still sent its own result.
+  REQUIRE(connection.Sent().size() == 2);
+  auto *result =
+      std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().back());
+  REQUIRE(result != nullptr);
+  CHECK(result->correlationId == 1);
+}
+
+TEST_CASE("AdapterIpcSession rejects and closes a pairing-display request "
+          "that reuses a correlation id already admitted and still "
+          "outstanding in the same generation") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcPairingDisplayMessage{.correlationId = 1,
+                                     .code = "123456",
+                                     .mode = PairingDisplayMode::kInitial}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcPairingDisplayMessage{
+            .correlationId = 1,
+            .code = "654321",
+            .mode = PairingDisplayMode::kManualRedisplay}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  REQUIRE(connection.Sent().size() == 1);
+  auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
+  REQUIRE(reject != nullptr);
+  CHECK(reject->correlationId == 1);
+  CHECK(reject->reason == IpcRejectReason::kDuplicateCancellableCorrelationId);
+  CHECK(fixture.marshaller.PendingCount() == 1);
+
+  fixture.marshaller.RunAllPending();
+
+  //  The first request's own registration survived the rejected duplicate
+  //  and still ran, presenting the original code.
+  REQUIRE(connection.Sent().size() == 2);
+  auto *ack =
+      std::get_if<IpcPairingDisplayAckMessage>(&connection.Sent().back());
+  REQUIRE(ack != nullptr);
+  CHECK(ack->correlationId == 1);
+  REQUIRE(fixture.pairingNotificationSink.Displayed().size() == 1);
+  CHECK(fixture.pairingNotificationSink.Displayed().front().first == "123456");
+}
+
+TEST_CASE("AdapterIpcSession admits a new listen-event request that reuses a "
+          "correlation id already consumed by an earlier request's own "
+          "completed dispatch, in the same generation") {
+  //  Duplicate rejection is scoped to "still outstanding", not "ever used
+  //  this generation": once the first request's own dispatch has run and
+  //  unregistered itself, the same correlation id is free to admit a
+  //  genuinely new request without being mistaken for a live duplicate.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  fixture.marshaller.RunAllPending();
+  REQUIRE(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 8}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() ==
+        std::vector<std::uint32_t>{7, 8});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
+  CHECK(fixture.captureQueue.Enqueued().back().intentKey == 8);
+  CHECK(connection.Sent().empty());
+}
+
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{

@@ -75,6 +75,10 @@ enum class IpcRejectReason : std::uint8_t {
   ///  An `IpcTrustAdminRequestMessage`'s correlation id matches one this
   ///  session already has admitted and still outstanding.
   kDuplicateTrustAdminCorrelationId = 4,
+  ///  A cancellable request's (resynchronize, listen-event, read-sample, or
+  ///  pairing-display) correlation id matches one this session already has
+  ///  admitted and still outstanding on the current connection generation.
+  kDuplicateCancellableCorrelationId = 5,
 };
 
 ///  Why the host rejected an `IpcHelloMessage` negotiation.

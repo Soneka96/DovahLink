@@ -334,6 +334,7 @@ public class IpcFrameCodecTests
     [InlineData(IpcRejectReason.InvalidIdentity)]
     [InlineData(IpcRejectReason.MalformedPayload)]
     [InlineData(IpcRejectReason.DuplicateTrustAdminCorrelationId)]
+    [InlineData(IpcRejectReason.DuplicateCancellableCorrelationId)]
     public void RoundTrip_Reject(IpcRejectReason reason)
     {
         var codec = new IpcFrameCodec();
