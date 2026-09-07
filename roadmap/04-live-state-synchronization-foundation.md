@@ -349,8 +349,11 @@ not Bridge-specific; it still runs at whichever point Stage 4 actually closes, o
 Create the manually invoked version-audit skill and its repository documentation before Stage 4
 closure. The skill reads the phase or bugfix diff, affected public exports, protocol/schema changes,
 persistence formats, security/runtime behavior, tests, and current version ownership. It may update
-the relevant Bridge, SDK, or Flutter version/changelog/compatibility files and prepare a commit
-message, but it never commits.
+the relevant Host, Adapter, SDK, or Flutter/app version/changelog/compatibility files and current
+protocol/product version-ownership records, and prepare a commit message, but it never commits. By
+the time this phase runs, Stage 4 has already resumed exclusively on Host + Adapter per the section
+above; `bridge/` is historical evidence only and is not an active release/version owner audited
+here.
 
 At Phase 4 completion it audits the complete phase rather than each ordinary PR. A later bugfix may
 invoke it independently; a contract-breaking bugfix must not be forced into a patch bump.
@@ -406,13 +409,15 @@ bounded reconnect path. No test-only public protocol domain is added.
 
 ### Completion criteria
 
-Stage 4 is complete only when the redesigned contract is the sole supported contract, Bridge live
-delivery is bounded and observable, `character_xp`, `character_health`, `character_magicka`,
-`character_stamina`, and `character_level` meet their source and synchronization contracts, the
-capture-policy and scheduler invariants are proven without worker-side runtime reads, the
-mode-specific queue and per-area recovery-barrier behavior is proven, all required registered domain
-data and cross-boundary tests pass, migration-only readers and fixtures are gone, and the phase-end
-version audit has completed.
+Stage 4 is complete only when the redesigned contract is the sole supported contract, Host-owned
+production live delivery through Host + Adapter is bounded and observable, `character_xp`,
+`character_health`, `character_magicka`, `character_stamina`, and `character_level` meet their
+source and synchronization contracts, the capture-policy and scheduler invariants are proven
+without worker-side runtime reads, the mode-specific queue and per-area recovery-barrier behavior is
+proven, all required registered domain data and cross-boundary tests pass, migration-only readers
+and fixtures are gone, and the phase-end version audit has completed. The Bridge-authored 4.2-4.4
+specification above is retained as historical engineering evidence; it is not itself a completion
+requirement, per the "Host/Adapter continuation (post-3A)" section below.
 
 ### Host/Adapter continuation (post-3A)
 
@@ -454,14 +459,21 @@ the first production state flow through the host/adapter boundary, including cur
 resynchronization after host or IPC interruption.
 
 The first state slice is intentionally narrow: one native level-up event; one fast, coherent vitals
-sample containing health, magicka, and stamina; one medium experience/XP sample; and one slow
-gold/coins sample. The host owns the cadence and the meanings of fast, medium, and slow. The adapter
-receives only opaque event keys or sample tokens and performs the final native registration or read.
+sample containing health, magicka, and stamina; and one medium experience/XP sample. This matches
+the five state areas Stage 4 actually defines (`character_xp`, `character_health`,
+`character_magicka`, `character_stamina`, `character_level`); none of them is Slow-rate. The host
+owns the cadence and the meanings of fast and medium. The adapter receives only opaque event keys or
+sample tokens and performs the final native registration or read.
+
+The old `host/PLAN.md` Stage 6 slice this section is re-homed from also specified a slow gold/coins
+sample. Gold/coins is not a Stage 4 domain and is not added here; the slow gold/coins sample is
+deferred to a future domain-expansion phase, not silently folded into Stage 4's scope. No new
+gold/coins state-area contract, fixtures, or SDK surface is added by this document.
 
 Acceptance criteria:
 
 - Native-event and sampled captures reach the host through owned typed IPC messages.
-- The level-up event and the fast, medium, and slow sample tokens are mapped to the approved native
+- The level-up event and the fast and medium sample tokens are mapped to the approved native
   operations without placing cadence or application policy in the adapter.
 - No worker or host code performs deferred Skyrim runtime reads.
 - Capture remains bounded and non-blocking on the game thread.
