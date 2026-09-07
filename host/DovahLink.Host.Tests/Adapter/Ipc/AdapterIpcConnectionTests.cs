@@ -393,7 +393,7 @@ public class AdapterIpcConnectionTests
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var codec = new IpcFrameCodec();
-        var fakeSession = new FakeAdapterIpcSession { CancelResult = new IpcCancelMessage(7) };
+        var fakeSession = new FakeAdapterIpcSession();
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
 
@@ -714,7 +714,8 @@ public class AdapterIpcConnectionTests
     [Fact]
     public void TryCancel_SessionRefuses_ReturnsFalse()
     {
-        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+        var fakeSession = new FakeAdapterIpcSession { PrepareCancelReturnsNull = true };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
 
         Assert.False(connection.TryCancel(1));
     }
@@ -790,7 +791,6 @@ public class AdapterIpcConnectionTests
         {
             ListenEventResult = new IpcListenEventMessage(1, 42),
             ReadSampleResult = new IpcReadSampleMessage(2, 42),
-            CancelResult = new IpcCancelMessage(3),
         };
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         bool listenAcceptedDuringDisconnect = true;
@@ -1209,7 +1209,6 @@ public class AdapterIpcConnectionTests
         var fakeSession = new FakeAdapterIpcSession
         {
             PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
-            CancelResult = new IpcCancelMessage(0),
         };
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
@@ -1225,6 +1224,8 @@ public class AdapterIpcConnectionTests
 
         Assert.False(result);
         Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        var cancelFrame = Assert.IsType<IpcCancelMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(correlationId, cancelFrame.CorrelationId);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -1241,7 +1242,6 @@ public class AdapterIpcConnectionTests
         var fakeSession = new FakeAdapterIpcSession
         {
             PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
-            CancelResult = new IpcCancelMessage(0),
         };
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
@@ -1259,6 +1259,8 @@ public class AdapterIpcConnectionTests
 
         Assert.False(result);
         Assert.Contains(correlationId, fakeSession.PreparedCancelCorrelationIds);
+        var cancelFrame = Assert.IsType<IpcCancelMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(correlationId, cancelFrame.CorrelationId);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -1276,7 +1278,7 @@ public class AdapterIpcConnectionTests
         var fakeSession = new FakeAdapterIpcSession
         {
             PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
-            CancelResult = null,
+            PrepareCancelReturnsNull = true,
         };
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));

@@ -45,8 +45,15 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The message <see cref="PrepareReadSample"/> returns.</summary>
     public IpcReadSampleMessage? ReadSampleResult { get; set; }
 
-    /// <summary>The message <see cref="PrepareCancel"/> returns.</summary>
-    public IpcCancelMessage? CancelResult { get; set; }
+    /// <summary>
+    /// Whether <see cref="PrepareCancel"/> returns <see langword="null"/> instead of a message,
+    /// simulating the session declining to prepare a cancellation (for example an inactive lease).
+    /// When unset, <see cref="PrepareCancel"/> returns <c>new IpcCancelMessage(correlationId)</c> for
+    /// whatever correlation id it was called with, matching production
+    /// <see cref="AdapterIpcSession.PrepareCancel"/>'s own contract, so a test exercising the
+    /// realistic default does not have to hardcode a matching value in advance.
+    /// </summary>
+    public bool PrepareCancelReturnsNull { get; set; }
 
     /// <summary>An optional callback invoked synchronously at the end of <see cref="HandleDisconnected"/>, letting a test observe collaborator state exactly as it stood when the connection notified this session of disconnection.</summary>
     public Action? OnDisconnected { get; set; }
@@ -72,7 +79,7 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The result <see cref="HandleTrustAdminRequestAsync"/> returns.</summary>
     public string TrustAdminRequestResult { get; set; } = string.Empty;
 
-    /// <summary>Whether <see cref="PrepareCancel"/> throws instead of returning <see cref="CancelResult"/>.</summary>
+    /// <summary>Whether <see cref="PrepareCancel"/> throws instead of returning its normal result.</summary>
     public bool ThrowOnPrepareCancel { get; set; }
 
     /// <summary>The correlation ids passed to <see cref="PrepareCancel"/>, in call order.</summary>
@@ -131,7 +138,12 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     public IpcCancelMessage? PrepareCancel(ulong correlationId)
     {
         PreparedCancelCorrelationIds.Add(correlationId);
-        return ThrowOnPrepareCancel ? throw new InvalidOperationException("Test-induced PrepareCancel failure.") : CancelResult;
+        if (ThrowOnPrepareCancel)
+        {
+            throw new InvalidOperationException("Test-induced PrepareCancel failure.");
+        }
+
+        return PrepareCancelReturnsNull ? null : new IpcCancelMessage(correlationId);
     }
 
     /// <inheritdoc/>
