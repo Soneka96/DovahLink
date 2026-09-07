@@ -13,6 +13,12 @@ using DovahLink.Host.Trust;
 namespace DovahLink.Host.Tests;
 
 /// <summary>Tests for <see cref="global::Program.ComposeAndRunAsync"/>.</summary>
+/// <remarks>
+/// Shares <see cref="RealSocketAndProcessTestCollection"/> with
+/// <see cref="Client.Transport.PublicWebSocketConnectionTests"/>: see that collection's own
+/// documentation for why.
+/// </remarks>
+[Collection(RealSocketAndProcessTestCollection.Name)]
 public class ProgramCompositionTests
 {
     /// <summary>Verifies that a missing launch argument falls back to the default owner-lifetime-id.</summary>
@@ -306,7 +312,7 @@ public class ProgramCompositionTests
     /// delay. Proves shutdown never deadlocks regardless of exactly when it lands relative to
     /// admission or pairing, that a racing client always observes one of exactly two well-defined
     /// outcomes -- a completed exchange, or the connection ending -- never a hang, and (once
-    /// <paramref name="global::Program.ComposeAndRunAsync"/> itself has returned, so its own
+    /// <see cref="global::Program.ComposeAndRunAsync"/> itself has returned, so its own
     /// deterministic session/private-IPC teardown has already run) that no authoritative session or
     /// active pairing challenge survives for that iteration's client, regardless of exactly where in
     /// the exchange shutdown landed.

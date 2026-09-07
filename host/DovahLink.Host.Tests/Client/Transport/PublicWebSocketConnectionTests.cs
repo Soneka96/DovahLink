@@ -15,6 +15,11 @@ using DovahLink.Host.Time;
 namespace DovahLink.Host.Tests.Client.Transport;
 
 /// <summary>Tests for <see cref="PublicWebSocketConnection"/>.</summary>
+/// <remarks>
+/// Shares <see cref="RealSocketAndProcessTestCollection"/> with <see cref="ProgramCompositionTests"/>:
+/// see that collection's own documentation for why.
+/// </remarks>
+[Collection(RealSocketAndProcessTestCollection.Name)]
 public class PublicWebSocketConnectionTests
 {
     /// <summary>Verifies that a valid handshake followed by a text message delivers the payload to the handler.</summary>
