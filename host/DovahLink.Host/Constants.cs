@@ -241,6 +241,14 @@ public static class Constants
     public static string ShutdownEventName(OwnerLifetimeId ownerLifetimeId) =>
         $@"Local\DovahLink.Host.Shutdown.{ownerLifetimeId.Format()}";
 
+    /// <summary>
+    /// The name of the environment variable a real cross-process test launch sets to open the
+    /// public listener on a specific port, per <see cref="global::Program.ParseTestPublicListenerPort"/>.
+    /// The production launch path never sets this, so the public listener stays disabled there,
+    /// matching the approved "isolated development/test execution only" scope for Stage 4.
+    /// </summary>
+    public const string TestPublicListenerPortEnvironmentVariableName = "DOVAHLINK_TEST_PUBLIC_LISTENER_PORT";
+
     // ---- Client transport ----
 
     /// <summary>

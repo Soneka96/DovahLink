@@ -29,6 +29,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -40,10 +41,12 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
@@ -280,6 +283,260 @@ public:
   void NotifyAttemptsExhausted() override {}
 };
 
+///  Records every `Display` call for the real cross-language pairing-display
+///  E2E test, accepting or rejecting per `SetAcceptDisplay`. Thread-safe:
+///  `Display` runs on whichever thread `AdapterIpcSession` marshals
+///  game-thread work from -- this fixture's `ImmediateTaskMarshaller` runs it
+///  inline on the private IPC connection's own read thread, not this test's
+///  main thread.
+class RecordingPairingNotificationSink final
+    : public dovahlink::adapter::ipc::IAdapterPairingNotificationSink {
+public:
+  bool Display(const std::string &code,
+               dovahlink::adapter::ipc::PairingDisplayMode mode) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    displayed_.emplace_back(code, mode);
+    return acceptDisplay_;
+  }
+
+  void NotifyAttemptsExhausted() override {}
+
+  ///  Every `Display` call observed so far, in order.
+  std::vector<
+      std::pair<std::string, dovahlink::adapter::ipc::PairingDisplayMode>>
+  Displayed() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return displayed_;
+  }
+
+  ///  Sets the value every subsequent `Display` call returns; `true` (accept
+  ///  the display) until changed.
+  void SetAcceptDisplay(bool accept) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    acceptDisplay_ = accept;
+  }
+
+private:
+  ///  Guards `displayed_` and `acceptDisplay_`.
+  mutable std::mutex mutex_;
+  ///  Every `Display` call observed so far, in order. Guarded by `mutex_`.
+  std::vector<
+      std::pair<std::string, dovahlink::adapter::ipc::PairingDisplayMode>>
+      displayed_;
+  ///  The value `Display` returns. Guarded by `mutex_`.
+  bool acceptDisplay_ = true;
+};
+
+///  A minimal, test-only WebSocket client speaking just enough of RFC 6455
+///  and the public protocol's plain-JSON envelope to drive a real Host's
+///  public listener from this native test process: a raw TCP connect, the
+///  HTTP/1.1 upgrade handshake
+///  `PublicWebSocketHandshake::TryParseUpgradeRequest`
+///  (`host/DovahLink.Host/Client/Transport/`) expects, and RFC 6455's
+///  mandatory client-to-server frame masking. Does not verify the server's
+///  returned `Sec-WebSocket-Accept` value: this test trusts its own real
+///  Host's handshake response rather than re-implementing a general-purpose
+///  WebSocket client. No production code depends on this class; it exists
+///  only to prove the private IPC pairing-display wire agreement this file's
+///  own tests otherwise cannot reach, by acting as a real external public
+///  client for the one real Host process under test.
+class MinimalPublicWebSocketClient {
+public:
+  ///  Connects to the given loopback port and completes the WebSocket
+  ///  upgrade handshake.
+  explicit MinimalPublicWebSocketClient(std::uint16_t port) {
+    WSADATA data{};
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+      throw std::runtime_error("Unable to initialize Winsock.");
+    }
+    winsockStarted_ = true;
+
+    socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (socket_ == INVALID_SOCKET) {
+      throw std::runtime_error("Unable to create the public WebSocket client "
+                               "socket.");
+    }
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+    if (connect(socket_, reinterpret_cast<const sockaddr *>(&address),
+                sizeof(address)) == SOCKET_ERROR) {
+      throw std::runtime_error(
+          "Unable to connect to the real Host's public listener.");
+    }
+
+    const std::string request =
+        "GET / HTTP/1.1\r\n"
+        "Host: 127.0.0.1:" +
+        std::to_string(port) +
+        "\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "\r\n";
+    SendRaw(request.data(), request.size());
+
+    std::string response = ReadUntilBlankLine();
+    if (response.rfind("HTTP/1.1 101", 0) != 0) {
+      throw std::runtime_error(
+          "The real Host rejected the WebSocket upgrade handshake: " +
+          response);
+    }
+  }
+
+  ///  Closes the socket and releases this instance's Winsock reference.
+  ~MinimalPublicWebSocketClient() {
+    if (socket_ != INVALID_SOCKET) {
+      closesocket(socket_);
+    }
+    if (winsockStarted_) {
+      WSACleanup();
+    }
+  }
+
+  MinimalPublicWebSocketClient(const MinimalPublicWebSocketClient &) = delete;
+  MinimalPublicWebSocketClient &
+  operator=(const MinimalPublicWebSocketClient &) = delete;
+
+  ///  Sends `json` as one masked WebSocket text frame, per RFC 6455's
+  ///  client-to-server framing.
+  void SendText(std::string_view json) {
+    std::vector<std::uint8_t> frame;
+    frame.push_back(0x81); //  FIN + text opcode.
+    const std::size_t length = json.size();
+    if (length < 126) {
+      frame.push_back(static_cast<std::uint8_t>(0x80 | length));
+    } else if (length <= 0xFFFF) {
+      frame.push_back(0x80 | 126);
+      frame.push_back(static_cast<std::uint8_t>((length >> 8) & 0xFF));
+      frame.push_back(static_cast<std::uint8_t>(length & 0xFF));
+    } else {
+      throw std::runtime_error(
+          "MinimalPublicWebSocketClient does not support payloads this "
+          "large.");
+    }
+    const std::array<std::uint8_t, 4> mask{0x12, 0x34, 0x56, 0x78};
+    frame.insert(frame.end(), mask.begin(), mask.end());
+    for (std::size_t i = 0; i < length; ++i) {
+      frame.push_back(static_cast<std::uint8_t>(json[i]) ^ mask[i % 4]);
+    }
+    SendRaw(reinterpret_cast<const char *>(frame.data()), frame.size());
+  }
+
+  ///  Reads one complete, unfragmented, unmasked WebSocket text frame from
+  ///  the server and returns its payload.
+  std::string ReceiveText() {
+    std::array<std::uint8_t, 2> header{};
+    ReadExact(reinterpret_cast<char *>(header.data()), header.size());
+    const std::uint8_t opcode = header[0] & 0x0F;
+    if ((header[0] & 0x80) == 0) {
+      throw std::runtime_error(
+          "MinimalPublicWebSocketClient does not support fragmented "
+          "frames.");
+    }
+    if (opcode != 0x1) {
+      throw std::runtime_error("Expected a text frame from the real Host.");
+    }
+    if ((header[1] & 0x80) != 0) {
+      throw std::runtime_error("A server-to-client frame must not be "
+                               "masked.");
+    }
+    std::uint64_t length = header[1] & 0x7F;
+    if (length == 126) {
+      std::array<std::uint8_t, 2> extended{};
+      ReadExact(reinterpret_cast<char *>(extended.data()), extended.size());
+      length = (static_cast<std::uint64_t>(extended[0]) << 8) | extended[1];
+    } else if (length == 127) {
+      throw std::runtime_error(
+          "MinimalPublicWebSocketClient does not support payloads this "
+          "large.");
+    }
+    std::string payload(length, '\0');
+    if (length > 0) {
+      ReadExact(payload.data(), payload.size());
+    }
+    return payload;
+  }
+
+private:
+  ///  Sends every byte in `[data, data + size)`, retrying a short write
+  ///  until the whole buffer is sent.
+  void SendRaw(const char *data, std::size_t size) {
+    std::size_t sent = 0;
+    while (sent < size) {
+      int result = send(socket_, data + sent, static_cast<int>(size - sent), 0);
+      if (result == SOCKET_ERROR) {
+        throw std::runtime_error(
+            "Unable to write to the real Host's public listener.");
+      }
+      sent += static_cast<std::size_t>(result);
+    }
+  }
+
+  ///  Reads exactly `size` bytes into `data`, blocking until the whole
+  ///  buffer is filled.
+  void ReadExact(char *data, std::size_t size) {
+    std::size_t received = 0;
+    while (received < size) {
+      int result =
+          recv(socket_, data + received, static_cast<int>(size - received), 0);
+      if (result <= 0) {
+        throw std::runtime_error(
+            "The real Host's public listener closed the connection early.");
+      }
+      received += static_cast<std::size_t>(result);
+    }
+  }
+
+  ///  Reads one byte at a time until the terminating blank line of an HTTP
+  ///  response is seen, returning everything read.
+  std::string ReadUntilBlankLine() {
+    std::string response;
+    char byte;
+    while (true) {
+      ReadExact(&byte, 1);
+      response.push_back(byte);
+      if (response.size() >= 4 &&
+          response.compare(response.size() - 4, 4, "\r\n\r\n") == 0) {
+        return response;
+      }
+    }
+  }
+
+  ///  The connected socket.
+  SOCKET socket_ = INVALID_SOCKET;
+  ///  Whether this instance owns a Winsock startup reference.
+  bool winsockStarted_ = false;
+};
+
+///  RAII guard that sets `DOVAHLINK_TEST_PUBLIC_LISTENER_PORT` for the scope
+///  of a single test, then clears it -- so the real Host process this test
+///  launches opens its public listener on a fixed port (per
+///  `Program::ParseTestPublicListenerPort`), and no other test sharing this
+///  process's environment block ever observes it set.
+class ScopedTestPublicListenerPortEnvironmentVariable {
+public:
+  explicit ScopedTestPublicListenerPortEnvironmentVariable(std::uint16_t port) {
+    if (_putenv_s("DOVAHLINK_TEST_PUBLIC_LISTENER_PORT",
+                  std::to_string(port).c_str()) != 0) {
+      throw std::runtime_error(
+          "Unable to set the public-listener-port environment variable.");
+    }
+  }
+
+  ~ScopedTestPublicListenerPortEnvironmentVariable() {
+    _putenv_s("DOVAHLINK_TEST_PUBLIC_LISTENER_PORT", "");
+  }
+
+  ScopedTestPublicListenerPortEnvironmentVariable(
+      const ScopedTestPublicListenerPortEnvironmentVariable &) = delete;
+  ScopedTestPublicListenerPortEnvironmentVariable &
+  operator=(const ScopedTestPublicListenerPortEnvironmentVariable &) = delete;
+};
+
 ///  A real loopback listener that occupies a port without speaking the
 ///  private IPC protocol, representing stale rendezvous data naming an
 ///  unrelated process.
@@ -417,6 +674,25 @@ LifetimeIdWithMarker(std::byte marker) {
   std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes> id{};
   id.fill(marker);
   return id;
+}
+
+///  Extracts a top-level JSON string field's value by key from `json`, using
+///  plain substring search rather than a full JSON parser -- sufficient for
+///  this test's own real, well-formed server responses. Returns an empty
+///  string if `key` is absent or its value is not a JSON string.
+std::string ExtractJsonStringField(const std::string &json,
+                                   const std::string &key) {
+  const std::string marker = "\"" + key + "\":\"";
+  std::size_t start = json.find(marker);
+  if (start == std::string::npos) {
+    return {};
+  }
+  start += marker.size();
+  std::size_t end = json.find('"', start);
+  if (end == std::string::npos) {
+    return {};
+  }
+  return json.substr(start, end - start);
 }
 
 ///  Waits for a bounded asynchronous process condition without busy spinning.
@@ -655,13 +931,23 @@ class RealHostFixture {
 public:
   ///  Launches a real host under a fresh, uniquely marked owner-lifetime id,
   ///  then connects and authenticates a real native session against it.
-  explicit RealHostFixture(std::byte ownerLifetimeMarker)
+  ///  @param pairingSink Optional pairing-display sink override; when null,
+  ///  falls back to a no-op sink, for tests not concerned with pairing
+  ///  display.
+  explicit RealHostFixture(
+      std::byte ownerLifetimeMarker,
+      dovahlink::adapter::ipc::IAdapterPairingNotificationSink *pairingSink =
+          nullptr)
       : hostExecutable_(DOVAHLINK_HOST_EXECUTABLE),
         ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
         launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
         session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
                  taskMarshaller_, dispatcher_, captureQueue_,
-                 pairingNotificationSink_),
+                 pairingSink != nullptr
+                     ? *pairingSink
+                     : static_cast<dovahlink::adapter::ipc::
+                                       IAdapterPairingNotificationSink &>(
+                           noopPairingNotificationSink_)),
         connection_(
             connectionSocket_, codec_,
             dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
@@ -725,7 +1011,7 @@ private:
   ImmediateTaskMarshaller taskMarshaller_;
   AdapterNativeDispatcher dispatcher_;
   NoopCaptureQueue captureQueue_;
-  NoopPairingNotificationSink pairingNotificationSink_;
+  NoopPairingNotificationSink noopPairingNotificationSink_;
   AdapterIpcSession session_;
   AdapterIpcConnection connection_;
 };
@@ -763,6 +1049,141 @@ TEST_CASE("a real native adapter completes a trust-admin List request "
   CHECK(std::regex_search(
       *result.resultText,
       std::regex(R"(^(No known devices\.|\d+ known devices?:))")));
+}
+
+TEST_CASE("a real native adapter observes a real Host's pairing-display "
+          "notification and acknowledges it, driven by a real public "
+          "pairing_request",
+          "[process][integration]") {
+  //  Proves the cross-language direction the trust-admin List E2E above does
+  //  not cover: a real public client's pairing_request drives the real
+  //  Host's real PairingCoordinator to decide to display a code, which the
+  //  real Host encodes into a real IpcPairingDisplayMessage and sends over
+  //  the real private IPC socket; this real native session decodes it,
+  //  dispatches it onto the game thread (inline, via this fixture's
+  //  ImmediateTaskMarshaller), presents it through a recording sink, and
+  //  encodes a real IpcPairingDisplayAckMessage the real Host receives and
+  //  resolves into a committed pairing_status. The public listener only
+  //  opens here because this one test sets
+  //  DOVAHLINK_TEST_PUBLIC_LISTENER_PORT before launching the real Host --
+  //  see Program::ParseTestPublicListenerPort's own documentation for why
+  //  the production launch path never does.
+  constexpr std::uint16_t kPublicListenerPort = 58427;
+  ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+      kPublicListenerPort);
+  RecordingPairingNotificationSink pairingSink;
+  RealHostFixture fixture(std::byte{0xE6}, &pairingSink);
+
+  MinimalPublicWebSocketClient client(kPublicListenerPort);
+  client.SendText(
+      R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+      R"("correlationId":null,"payload":{"endpoint":"client",)"
+      R"("clientId":"e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6","auth":{"method":)"
+      R"("unpaired"}},"bridgeInstanceId":null,"playContextId":null,)"
+      R"("clientId":null})");
+  std::string helloAck = client.ReceiveText();
+  REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+  //  Every subsequent message must echo the real Host-assigned session id
+  //  exactly, or it is rejected as stale.
+  std::string sessionId = ExtractJsonStringField(helloAck, "sessionId");
+  REQUIRE_FALSE(sessionId.empty());
+  //  Every admission sends hello_ack followed by an unsolicited, empty
+  //  capabilities advertisement -- consumed here so it is never mistaken
+  //  for the pairing_status reply below.
+  std::string capabilities = client.ReceiveText();
+  REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+          std::string::npos);
+
+  //  A post-admission client message must carry both the socket-bound
+  //  sessionId and the envelope-level clientId it declared in hello -- null
+  //  was only ever valid pre-admission.
+  client.SendText(
+      R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+      sessionId +
+      R"(","correlationId":null,"payload":{},"bridgeInstanceId":null,)"
+      R"("playContextId":null,"clientId":"e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6"})");
+
+  REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                    std::chrono::seconds(10)));
+  auto displayed = pairingSink.Displayed();
+  REQUIRE(displayed.size() == 1);
+  const auto &[code, mode] = displayed.front();
+  //  The code survived real C#-encode/real C++-decode over the wire:
+  //  non-empty and well-formed, the shape PairingCoordinator generates.
+  CHECK_FALSE(code.empty());
+  CHECK(std::ranges::all_of(code, [](char c) { return c >= '0' && c <= '9'; }));
+  //  PairingDisplayMode::kInitial agrees across C++ and C#: a mismatched
+  //  wire encoding would decode to a different mode value here.
+  CHECK(mode == dovahlink::adapter::ipc::PairingDisplayMode::kInitial);
+
+  //  The real Host received and resolved the real IpcPairingDisplayAckMessage
+  //  this session sent back: TryNotifyCodeAvailableAsync only returns true,
+  //  producing this "available" status, once its own
+  //  AwaitPairingDisplayAckAsync observed an ack correlated to the exact
+  //  request it sent -- a wrong or missing correlation id would time out into
+  //  "unavailable" instead.
+  std::string pairingStatus = client.ReceiveText();
+  CHECK(pairingStatus.find(R"("messageType":"pairing_status")") !=
+        std::string::npos);
+  CHECK(pairingStatus.find(R"("state":"available")") != std::string::npos);
+  //  The displayed code must never appear in the public wire response.
+  CHECK(pairingStatus.find(code) == std::string::npos);
+}
+
+TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
+          "request, and the real Host reports it unavailable rather than "
+          "committing a challenge",
+          "[process][integration]") {
+  //  The rejected-ack counterpart to the accepted-display E2E above: the
+  //  recording sink refuses the display, the real native session still
+  //  encodes and sends a real IpcPairingDisplayAckMessage with accepted =
+  //  false, and the real Host's own rollback path reports pairing_status
+  //  unavailable rather than committing a challenge no adapter actually
+  //  presented.
+  constexpr std::uint16_t kPublicListenerPort = 58428;
+  ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+      kPublicListenerPort);
+  RecordingPairingNotificationSink pairingSink;
+  pairingSink.SetAcceptDisplay(false);
+  RealHostFixture fixture(std::byte{0xE7}, &pairingSink);
+
+  MinimalPublicWebSocketClient client(kPublicListenerPort);
+  client.SendText(
+      R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+      R"("correlationId":null,"payload":{"endpoint":"client",)"
+      R"("clientId":"e7e7e7e7-e7e7-e7e7-e7e7-e7e7e7e7e7e7","auth":{"method":)"
+      R"("unpaired"}},"bridgeInstanceId":null,"playContextId":null,)"
+      R"("clientId":null})");
+  std::string helloAck = client.ReceiveText();
+  REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+  //  Every subsequent message must echo the real Host-assigned session id
+  //  exactly, or it is rejected as stale.
+  std::string sessionId = ExtractJsonStringField(helloAck, "sessionId");
+  REQUIRE_FALSE(sessionId.empty());
+  //  Every admission sends hello_ack followed by an unsolicited, empty
+  //  capabilities advertisement -- consumed here so it is never mistaken
+  //  for the pairing_status reply below.
+  std::string capabilities = client.ReceiveText();
+  REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+          std::string::npos);
+
+  //  A post-admission client message must carry both the socket-bound
+  //  sessionId and the envelope-level clientId it declared in hello -- null
+  //  was only ever valid pre-admission.
+  client.SendText(
+      R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+      sessionId +
+      R"(","correlationId":null,"payload":{},"bridgeInstanceId":null,)"
+      R"("playContextId":null,"clientId":"e7e7e7e7-e7e7-e7e7-e7e7-e7e7e7e7e7e7"})");
+
+  REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                    std::chrono::seconds(10)));
+  CHECK(pairingSink.Displayed().size() == 1);
+
+  std::string pairingStatus = client.ReceiveText();
+  CHECK(pairingStatus.find(R"("messageType":"pairing_status")") !=
+        std::string::npos);
+  CHECK(pairingStatus.find(R"("state":"unavailable")") != std::string::npos);
 }
 
 TEST_CASE("a rendezvous port occupied by another process falls back to a "

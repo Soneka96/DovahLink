@@ -23,6 +23,8 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         OwnerLifetimeId ownerLifetimeId = ParseOwnerLifetimeIdArgument(args);
+        int? publicListenerPort = ParseTestPublicListenerPort(
+            Environment.GetEnvironmentVariable(Constants.TestPublicListenerPortEnvironmentVariableName));
 
         using var shutdown = new CancellationTokenSource();
         EventHandler processExitHandler = (_, _) => shutdown.Cancel();
@@ -31,7 +33,7 @@ internal static class Program
         try
         {
             return await ComposeAndRunAsync(
-                ownerLifetimeId, Constants.AdapterIpcLoopbackPort, Console.Out, new HostProcessLifetime(), shutdown);
+                ownerLifetimeId, Constants.AdapterIpcLoopbackPort, Console.Out, new HostProcessLifetime(), shutdown, publicListenerPort);
         }
         finally
         {
@@ -133,14 +135,21 @@ internal static class Program
         var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
         rendezvousPublisher.Publish(adapterListener.BoundPort, verifier.ExpectedToken, verifier.HostProofKey);
 
+        // PORT, PROOF, and HOSTPROOF are always exactly the first three lines, in this exact
+        // order: a real launched process's own native launcher (Win32AdapterHostProcessLauncher)
+        // reads exactly three lines from this stream and treats them positionally as those three
+        // values, with no public-listener awareness of its own. PUBLICPORT is written last,
+        // strictly after them, so its presence -- test execution only, see
+        // Program.ParseTestPublicListenerPort -- can never shift PROOF or HOSTPROOF into the
+        // position that reader expects the other to occupy.
         await rendezvousOutput.WriteLineAsync($"PORT {adapterListener.BoundPort}");
+        await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(verifier.ExpectedToken)}");
+        await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(verifier.HostProofKey)}");
         if (publicListener is not null)
         {
             await rendezvousOutput.WriteLineAsync($"PUBLICPORT {publicListener.BoundPort}");
         }
 
-        await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(verifier.ExpectedToken)}");
-        await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(verifier.HostProofKey)}");
         await rendezvousOutput.FlushAsync();
 
         Task adapterListenerTask = adapterListener.RunAsync(shutdown.Token);
@@ -174,6 +183,18 @@ internal static class Program
     /// <param name="args">The process launch arguments.</param>
     internal static OwnerLifetimeId ParseOwnerLifetimeIdArgument(string[] args) =>
         args.Length > 0 && OwnerLifetimeId.TryParse(args[0], out OwnerLifetimeId parsed) ? parsed : default;
+
+    /// <summary>
+    /// Parses <see cref="Constants.TestPublicListenerPortEnvironmentVariableName"/>'s value into a
+    /// public listener port, for a real cross-process test launch only. The production launch path
+    /// never sets this environment variable, so <paramref name="value"/> is <see langword="null"/>
+    /// there and this returns <see langword="null"/>, leaving the public listener disabled exactly
+    /// as before this hook existed -- matching Stage 4's approved "isolated development/test
+    /// execution only" scope for the public listener.
+    /// </summary>
+    /// <param name="value">The environment variable's raw value, or <see langword="null"/> if unset.</param>
+    internal static int? ParseTestPublicListenerPort(string? value) =>
+        int.TryParse(value, out int port) ? port : null;
 
     /// <summary>Cancels <paramref name="shutdown"/> once the adapter's named shutdown-request signal is set.</summary>
     /// <param name="signal">The shutdown signal to wait on.</param>

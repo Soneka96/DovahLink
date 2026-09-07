@@ -41,6 +41,33 @@ public class ProgramCompositionTests
         Assert.Equal(expected, result);
     }
 
+    /// <summary>Verifies that an unset environment variable value leaves the public listener disabled.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_NullValue_ReturnsNull()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort(null);
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that an unparseable environment variable value leaves the public listener disabled.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_Unparseable_ReturnsNull()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("not-a-port");
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that a valid environment variable value is parsed into the matching port.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_ValidValue_ReturnsParsedPort()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("58426");
+
+        Assert.Equal(58426, result);
+    }
+
     /// <summary>
     /// Verifies that composing and running reports the bound port, peer-proof token, and HostProof
     /// key over the rendezvous output.
