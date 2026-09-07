@@ -91,6 +91,24 @@ public:
     RunAllPending();
   }
 
+  ///  Runs exactly the single oldest still-pending task, in FIFO order,
+  ///  without draining any other currently pending or newly scheduled task.
+  ///  Used to test interleavings where a later-queued task's observable
+  ///  outcome depends on exactly one earlier task having run first, and
+  ///  `RunAllPending`'s drain-to-completion behavior would run both.
+  void RunNextPending() {
+    std::function<void()> task;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (pendingTasks_.empty()) {
+        return;
+      }
+      task = std::move(pendingTasks_.front());
+      pendingTasks_.erase(pendingTasks_.begin());
+    }
+    task();
+  }
+
   ///  Blocks until at least `minCount` tasks have been scheduled, without
   ///  running any of them -- unlike `WaitForPendingAndRunAll`, which drains
   ///  as soon as it observes the first one. Used to prove a property holds

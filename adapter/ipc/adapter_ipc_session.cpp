@@ -484,16 +484,18 @@ void AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage &request) {
   std::uint64_t correlationId = request.correlationId;
   std::uint64_t connectionGeneration;
+  std::shared_ptr<PendingDispatchCancellationState> cancellation;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
+    cancellation = RegisterCancellableDispatchLocked(correlationId);
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  ScheduleGameThreadDispatch(
+  bool admitted = ScheduleGameThreadDispatch(
       [this, callbackMutex = std::move(callbackMutex),
        lifetimeToken = std::move(lifetimeToken), correlationId,
-       connectionGeneration] {
+       connectionGeneration, cancellation] {
         std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
         if (!lifetimeToken->load()) {
           return;
@@ -501,12 +503,13 @@ void AdapterIpcSession::HandleResynchronizeRequest(
         try {
           {
             std::lock_guard<std::mutex> lock(availableMutex_);
-            //  Consumed unconditionally, before the generation/authentication
-            //  checks below, so this dispatch's registration in
-            //  `gameThreadDispatchCancellation_` is always released exactly
-            //  once this task runs -- regardless of which condition below ends
-            //  up returning early.
-            bool cancelled = ConsumeCancellationLocked(correlationId);
+            //  Read from this dispatch's own captured object -- never a later
+            //  lookup by correlation id -- unconditionally, before the
+            //  generation/authentication checks below, so this dispatch's own
+            //  registration is always released exactly once this task runs,
+            //  regardless of which condition below ends up returning early.
+            bool cancelled = cancellation->cancelled;
+            UnregisterCancellableDispatchLocked(correlationId, cancellation);
             //  Re-checked at execution time, not just at enqueue time: logical
             //  closing (AdapterIpcConnectionCallbacks::onClosing) invalidates
             //  authentication for this generation immediately, before the
@@ -532,8 +535,11 @@ void AdapterIpcSession::HandleResynchronizeRequest(
           //  SKSE's own task interface, which must never see an exception
           //  escape.
         }
-      },
-      correlationId);
+      });
+  if (!admitted) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    UnregisterCancellableDispatchLocked(correlationId, cancellation);
+  }
 }
 
 void AdapterIpcSession::HandleListenEvent(
@@ -542,10 +548,14 @@ void AdapterIpcSession::HandleListenEvent(
   std::uint64_t correlationId = listenEvent.correlationId;
   std::uint64_t connectionGeneration;
   bool authenticated;
+  std::shared_ptr<PendingDispatchCancellationState> cancellation;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
     authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+    if (authenticated) {
+      cancellation = RegisterCancellableDispatchLocked(correlationId);
+    }
   }
   if (!authenticated) {
     //  The host-authentication result must be accepted before any
@@ -555,10 +565,10 @@ void AdapterIpcSession::HandleListenEvent(
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  ScheduleGameThreadDispatch(
+  bool admitted = ScheduleGameThreadDispatch(
       [this, callbackMutex = std::move(callbackMutex),
        lifetimeToken = std::move(lifetimeToken), eventKey, correlationId,
-       connectionGeneration] {
+       connectionGeneration, cancellation] {
         std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
         if (!lifetimeToken->load()) {
           return;
@@ -566,9 +576,10 @@ void AdapterIpcSession::HandleListenEvent(
         try {
           {
             std::lock_guard<std::mutex> lock(availableMutex_);
-            //  Consumed unconditionally; see HandleResynchronizeRequest's
-            //  identical guard for why.
-            bool cancelled = ConsumeCancellationLocked(correlationId);
+            //  Read from this dispatch's own captured object; see
+            //  HandleResynchronizeRequest's identical guard for why.
+            bool cancelled = cancellation->cancelled;
+            UnregisterCancellableDispatchLocked(correlationId, cancellation);
             //  Re-checked at execution time, not just at enqueue time: a later
             //  authentication failure can close the same connection
             //  generation, so the generation guard alone must not authorize
@@ -588,8 +599,11 @@ void AdapterIpcSession::HandleListenEvent(
         } catch (...) {
           //  Contained; see HandleResynchronizeRequest's task for why.
         }
-      },
-      correlationId);
+      });
+  if (!admitted) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    UnregisterCancellableDispatchLocked(correlationId, cancellation);
+  }
 }
 
 void AdapterIpcSession::HandleReadSample(
@@ -598,10 +612,14 @@ void AdapterIpcSession::HandleReadSample(
   std::uint64_t correlationId = readSample.correlationId;
   std::uint64_t connectionGeneration;
   bool authenticated;
+  std::shared_ptr<PendingDispatchCancellationState> cancellation;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
     authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+    if (authenticated) {
+      cancellation = RegisterCancellableDispatchLocked(correlationId);
+    }
   }
   if (!authenticated) {
     //  The host-authentication result must be accepted before any
@@ -611,10 +629,10 @@ void AdapterIpcSession::HandleReadSample(
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  ScheduleGameThreadDispatch(
+  bool admitted = ScheduleGameThreadDispatch(
       [this, callbackMutex = std::move(callbackMutex),
        lifetimeToken = std::move(lifetimeToken), sampleToken, correlationId,
-       connectionGeneration] {
+       connectionGeneration, cancellation] {
         std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
         if (!lifetimeToken->load()) {
           return;
@@ -622,9 +640,10 @@ void AdapterIpcSession::HandleReadSample(
         try {
           {
             std::lock_guard<std::mutex> lock(availableMutex_);
-            //  Consumed unconditionally; see HandleResynchronizeRequest's
-            //  identical guard for why.
-            bool cancelled = ConsumeCancellationLocked(correlationId);
+            //  Read from this dispatch's own captured object; see
+            //  HandleResynchronizeRequest's identical guard for why.
+            bool cancelled = cancellation->cancelled;
+            UnregisterCancellableDispatchLocked(correlationId, cancellation);
             //  Re-checked at execution time, not just at enqueue time: a later
             //  authentication failure can close the same connection
             //  generation, so the generation guard alone must not authorize
@@ -644,8 +663,11 @@ void AdapterIpcSession::HandleReadSample(
         } catch (...) {
           //  Contained; see HandleResynchronizeRequest's task for why.
         }
-      },
-      correlationId);
+      });
+  if (!admitted) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    UnregisterCancellableDispatchLocked(correlationId, cancellation);
+  }
 }
 
 void AdapterIpcSession::HandlePairingDisplay(
@@ -655,10 +677,14 @@ void AdapterIpcSession::HandlePairingDisplay(
   std::uint64_t correlationId = pairingDisplay.correlationId;
   std::uint64_t connectionGeneration;
   bool authenticated;
+  std::shared_ptr<PendingDispatchCancellationState> cancellation;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
     authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+    if (authenticated) {
+      cancellation = RegisterCancellableDispatchLocked(correlationId);
+    }
   }
   if (!authenticated) {
     //  The host-authentication result must be accepted before any
@@ -668,10 +694,10 @@ void AdapterIpcSession::HandlePairingDisplay(
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  ScheduleGameThreadDispatch(
+  bool admitted = ScheduleGameThreadDispatch(
       [this, callbackMutex = std::move(callbackMutex),
        lifetimeToken = std::move(lifetimeToken), code = std::move(code), mode,
-       correlationId, connectionGeneration] {
+       correlationId, connectionGeneration, cancellation] {
         std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
         if (!lifetimeToken->load()) {
           return;
@@ -679,9 +705,10 @@ void AdapterIpcSession::HandlePairingDisplay(
         try {
           {
             std::lock_guard<std::mutex> lock(availableMutex_);
-            //  Consumed unconditionally; see HandleResynchronizeRequest's
-            //  identical guard for why.
-            bool cancelled = ConsumeCancellationLocked(correlationId);
+            //  Read from this dispatch's own captured object; see
+            //  HandleResynchronizeRequest's identical guard for why.
+            bool cancelled = cancellation->cancelled;
+            UnregisterCancellableDispatchLocked(correlationId, cancellation);
             //  Re-checked at execution time, not just at enqueue time; see
             //  HandleListenEvent's identical guard for why.
             if (connectionGeneration != connectionGeneration_ ||
@@ -698,8 +725,11 @@ void AdapterIpcSession::HandlePairingDisplay(
         } catch (...) {
           //  Contained; see HandleResynchronizeRequest's task for why.
         }
-      },
-      correlationId);
+      });
+  if (!admitted) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    UnregisterCancellableDispatchLocked(correlationId, cancellation);
+  }
 }
 
 void AdapterIpcSession::HandlePairingAttemptsExhausted(
@@ -743,28 +773,11 @@ void AdapterIpcSession::HandlePairingAttemptsExhausted(
   });
 }
 
-bool AdapterIpcSession::ScheduleGameThreadDispatch(
-    std::function<void()> task,
-    std::optional<std::uint64_t> cancellableCorrelationId) {
-  if (cancellableCorrelationId.has_value()) {
-    std::lock_guard<std::mutex> lock(availableMutex_);
-    gameThreadDispatchCancellation_[*cancellableCorrelationId] = false;
-  }
-  //  Removes this call's own cancellation registration, if it made one.
-  //  Invoked on every rejection path below so a dispatch this bound never
-  //  actually admits never leaves a registration for `task` to eventually
-  //  consume.
-  auto eraseRegistration = [this, cancellableCorrelationId] {
-    if (cancellableCorrelationId.has_value()) {
-      std::lock_guard<std::mutex> lock(availableMutex_);
-      gameThreadDispatchCancellation_.erase(*cancellableCorrelationId);
-    }
-  };
+bool AdapterIpcSession::ScheduleGameThreadDispatch(std::function<void()> task) {
   if (pendingGameThreadDispatchCount_->fetch_add(
           1, std::memory_order_relaxed) >= kMaxPendingGameThreadDispatches) {
     pendingGameThreadDispatchCount_->fetch_sub(1, std::memory_order_relaxed);
     ReportGameThreadDispatchRejected();
-    eraseRegistration();
     return false;
   }
   try {
@@ -786,7 +799,6 @@ bool AdapterIpcSession::ScheduleGameThreadDispatch(
     //  permanently until the bound rejects all further dispatch.
     pendingGameThreadDispatchCount_->fetch_sub(1, std::memory_order_relaxed);
     ReportGameThreadDispatchRejected();
-    eraseRegistration();
     return false;
   }
   return true;
@@ -804,18 +816,25 @@ void AdapterIpcSession::HandleCancel(const IpcCancelMessage &cancel) {
   std::lock_guard<std::mutex> lock(availableMutex_);
   auto it = gameThreadDispatchCancellation_.find(cancel.correlationId);
   if (it != gameThreadDispatchCancellation_.end()) {
-    it->second = true;
+    it->second->cancelled = true;
   }
 }
 
-bool AdapterIpcSession::ConsumeCancellationLocked(std::uint64_t correlationId) {
+std::shared_ptr<PendingDispatchCancellationState>
+AdapterIpcSession::RegisterCancellableDispatchLocked(
+    std::uint64_t correlationId) {
+  auto state = std::make_shared<PendingDispatchCancellationState>();
+  gameThreadDispatchCancellation_[correlationId] = state;
+  return state;
+}
+
+void AdapterIpcSession::UnregisterCancellableDispatchLocked(
+    std::uint64_t correlationId,
+    const std::shared_ptr<PendingDispatchCancellationState> &state) {
   auto it = gameThreadDispatchCancellation_.find(correlationId);
-  if (it == gameThreadDispatchCancellation_.end()) {
-    return false;
+  if (it != gameThreadDispatchCancellation_.end() && it->second == state) {
+    gameThreadDispatchCancellation_.erase(it);
   }
-  bool cancelled = it->second;
-  gameThreadDispatchCancellation_.erase(it);
-  return cancelled;
 }
 
 std::uint64_t AdapterIpcSession::NextCorrelationId() {
@@ -830,16 +849,18 @@ AdapterIpcSession::CloseCurrentGenerationLocked() {
   authenticationState_ = AuthenticationState::kClosed;
   activeTarget_.reset();
   ++connectionGeneration_;
-  //  A cancellation only ever applies to a deferred task from the generation
-  //  that received it; every such task already self-rejects once
-  //  connectionGeneration_ no longer matches, so a registration surviving
-  //  past this point could only misfire against an unrelated request that
-  //  reuses the same correlation id on a later generation. Clearing here is
-  //  defensive, not required for correctness today: correlation ids are
-  //  otherwise monotonic for this session's lifetime (see
-  //  `NextCorrelationId`), and a still-queued dispatch from the closed
-  //  generation already self-rejects on its own generation check regardless
-  //  of whether its registration survives to be consumed.
+  //  The host is free to reuse a correlation id on a new connection
+  //  generation (its own correlation counter is not scoped to this adapter's
+  //  session lifetime), so a registration left over from this closing
+  //  generation could otherwise still occupy that id's slot in
+  //  `gameThreadDispatchCancellation_` once a later generation tries to admit
+  //  a genuinely new request under it. Clearing here is what lets that new
+  //  admission succeed instead of being mistaken for an already-registered
+  //  duplicate. It is not what protects a stale, already-queued dispatch from
+  //  this closing generation from disturbing that later registration: each
+  //  registration's own identity-checked removal in
+  //  `UnregisterCancellableDispatchLocked` is what actually guarantees that,
+  //  regardless of whether this clear ran first.
   gameThreadDispatchCancellation_.clear();
   //  Force-abandon every outstanding trust-admin request rather than leaving
   //  it to wait out its full kTrustAdminRequestTimeout after the connection

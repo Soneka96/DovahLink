@@ -889,6 +889,115 @@ TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
   CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
 }
 
+TEST_CASE("AdapterIpcSession does not let a stale generation's still-queued "
+          "dispatch consume a later generation's own live cancellation "
+          "registration for a reused correlation id") {
+  //  Regression coverage for a race admitting two dispatches under the same
+  //  correlation id across a reconnect can trigger: ScheduleGameThreadDispatch
+  //  admits Gen1's dispatch (registering its own cancellation state), the
+  //  connection closes before that dispatch's marshaled task ever runs, Gen2
+  //  reconnects and reuses the same correlation id for an unrelated request
+  //  (registering its own, separate cancellation state), and only then does
+  //  the stale Gen1 task finally drain. Before the per-dispatch-object fix,
+  //  the stale task's own cancellation consumption looked up the shared
+  //  correlation-id key and erased whatever was currently registered there --
+  //  Gen2's live registration -- before ever checking its own generation
+  //  mismatch, silently discarding a request Gen2 had not even cancelled yet.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(9, {std::byte{9}});
+
+  //  Gen1 admits corr=1 and queues its game-thread task; it never runs before
+  //  disconnect.
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 9}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  fixture.session.HandleDisconnected();
+  fixture.session.HandleConnected(fixture.target);
+  connection.Clear();
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  Gen2 reuses corr=1 for an unrelated request, queuing its own game-thread
+  //  task behind the still-pending Gen1 task.
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 2);
+
+  //  Run only the stale Gen1 task -- it must self-reject on its own
+  //  generation mismatch without touching the dispatcher or capture queue.
+  fixture.marshaller.RunNextPending();
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+
+  //  The host cancels the Gen2 request. If the stale Gen1 task had erased
+  //  Gen2's registration, this cancellation would find nothing and be a
+  //  no-op, and Gen2's dispatch would incorrectly run its Skyrim-facing work
+  //  below.
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+
+  fixture.marshaller.RunNextPending();
+
+  //  Gen2's own dispatch honored the cancellation; neither generation's work
+  //  ever touched the dispatcher or capture queue.
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession draining several stale queued dispatches after "
+          "reconnect does not disturb a new generation's own cancellation "
+          "registration") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(9, {std::byte{9}});
+  fixture.dispatcher.SetResult(10, {std::byte{10}});
+
+  //  Gen1 admits two cancellable dispatches; neither runs before disconnect.
+  //  One of them (corr=1) will have its correlation id reused by Gen2 below.
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 9}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 2, .eventKey = 10}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 2);
+
+  fixture.session.HandleDisconnected();
+  fixture.session.HandleConnected(fixture.target);
+  connection.Clear();
+  Authenticate(fixture.session, connection, fixture.target);
+
+  //  Gen2 reuses corr=1 for a new request, queued behind both stale tasks.
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 3);
+
+  //  Drain every stale Gen1 task before Gen2's own task ever runs.
+  fixture.marshaller.RunNextPending();
+  fixture.marshaller.RunNextPending();
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+
+  //  Gen2's registration for the reused id survived both stale dispatches
+  //  draining, so a real cancel for it is still honored.
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+
+  fixture.marshaller.RunNextPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{

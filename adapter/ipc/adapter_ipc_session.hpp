@@ -9,6 +9,7 @@
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_enums.hpp"
 #include "ipc/ipc_message.hpp"
+#include "ipc/pending_dispatch_cancellation_state.hpp"
 #include "ipc/trust_admin_request_result.hpp"
 #include "runtime/adapter_task_marshaller.hpp"
 
@@ -270,23 +271,15 @@ private:
   ///  `pendingGameThreadDispatchCount_` is always released -- whether `task`
   ///  runs, or `RunOnGameThread` itself fails to admit it. Reports a rejected
   ///  admission (bound reached, or a failed `RunOnGameThread` call) through
-  ///  `onGameThreadDispatchRejected_`.
-  ///  @param cancellableCorrelationId When present, registers this id in
-  ///  `gameThreadDispatchCancellation_` for the duration this dispatch stays
-  ///  admitted -- from this call succeeding until `task` actually runs (via
-  ///  `ConsumeCancellationLocked`) -- or removes the registration immediately
-  ///  if admission itself is rejected, so a registration only ever exists for
-  ///  a dispatch this bound has actually admitted. `task` itself is
-  ///  responsible for calling
-  ///  `ConsumeCancellationLocked(*cancellableCorrelationId)` on every path
-  ///  through its own body, including one that returns early for an unrelated
-  ///  reason, so the registration is always released exactly once `task` runs.
+  ///  `onGameThreadDispatchRejected_`. Carries no cancellation concept of its
+  ///  own: a caller that needs a cancellable dispatch registers its own
+  ///  `PendingDispatchCancellationState` through
+  ///  `RegisterCancellableDispatchLocked` first, captures it directly in
+  ///  `task`, and unregisters it itself if this call returns `false`.
   ///  @return Whether `task` was admitted (queued via `RunOnGameThread`);
   ///  `false` if the bound was already reached or `RunOnGameThread` itself
   ///  failed to accept it.
-  bool ScheduleGameThreadDispatch(
-      std::function<void()> task,
-      std::optional<std::uint64_t> cancellableCorrelationId = std::nullopt);
+  bool ScheduleGameThreadDispatch(std::function<void()> task);
 
   ///  Invokes `onGameThreadDispatchRejected_`, containing any exception it
   ///  throws so diagnostics can never escape into the IPC worker thread.
@@ -297,17 +290,36 @@ private:
   ///  `gameThreadDispatchCancellation_`; otherwise a no-op. An unknown, stale,
   ///  or duplicate cancellation therefore never displaces cancellation state
   ///  for a genuinely pending dispatch: nothing is evicted, since this method
-  ///  never inserts, only marks an existing registration.
+  ///  never inserts, only marks the object a live registration already points
+  ///  at.
   void HandleCancel(const IpcCancelMessage &cancel);
 
-  ///  Returns whether `correlationId` was cancelled, consuming (erasing) the
-  ///  registration if one exists; a missing registration (never admitted,
-  ///  already consumed, or from a since-closed generation) returns `false`
-  ///  without effect. Must be called while holding `availableMutex_`, and
-  ///  exactly once per admitted dispatch that registered a
-  ///  `cancellableCorrelationId`, on every path through that dispatch's own
-  ///  task body -- see `ScheduleGameThreadDispatch`.
-  bool ConsumeCancellationLocked(std::uint64_t correlationId);
+  ///  Creates a fresh `PendingDispatchCancellationState` and registers it
+  ///  under `correlationId` in `gameThreadDispatchCancellation_`, unless a
+  ///  live registration already exists under that id. Must be called while
+  ///  holding `availableMutex_`. The returned object is owned jointly by the
+  ///  map entry and the caller's own task closure, which must capture it
+  ///  directly and never look it up again by correlation id -- this is what
+  ///  stops a stale dispatch from a closed generation from ever consuming a
+  ///  later, unrelated dispatch's cancellation state, even when both share
+  ///  the same correlation id.
+  ///  @return The newly registered state; `nullptr` if `correlationId`
+  ///  already has a live registration.
+  [[nodiscard]] std::shared_ptr<PendingDispatchCancellationState>
+  RegisterCancellableDispatchLocked(std::uint64_t correlationId);
+
+  ///  Removes `correlationId`'s registration, but only if it still points at
+  ///  `state` -- the exact object `RegisterCancellableDispatchLocked` gave the
+  ///  caller. A registration that no longer matches (already replaced by a
+  ///  later admission reusing the same id, or already removed) is left
+  ///  untouched, so a stale dispatch can never erase a different dispatch's
+  ///  live state. Must be called while holding `availableMutex_`, exactly
+  ///  once per registration this session ever creates: once when the
+  ///  registering dispatch's own task runs, or immediately if
+  ///  `ScheduleGameThreadDispatch` then rejects that dispatch's admission.
+  void UnregisterCancellableDispatchLocked(
+      std::uint64_t correlationId,
+      const std::shared_ptr<PendingDispatchCancellationState> &state);
 
   ///  Issues the next monotonic outbound correlation id, starting at 1.
   std::uint64_t NextCorrelationId();
@@ -434,27 +446,37 @@ private:
   ///  destroyed.
   std::shared_ptr<std::atomic<std::size_t>> pendingGameThreadDispatchCount_ =
       std::make_shared<std::atomic<std::size_t>>(0);
-  ///  Cancellation state for currently-admitted, not-yet-run deferred
-  ///  dispatches (resynchronization, listen-event, read-sample, and
-  ///  pairing-display requests), keyed by their own correlation id, value
-  ///  `true` once an `IpcCancelMessage` has marked that id cancelled.
-  ///  `ScheduleGameThreadDispatch` inserts an entry (`false`) exactly when it
-  ///  admits a dispatch with a `cancellableCorrelationId` and removes it
-  ///  immediately if admission is then rejected; `ConsumeCancellationLocked`
-  ///  removes it exactly once, when the admitted dispatch's own task runs.
-  ///  This ties the map's size to `kMaxPendingGameThreadDispatches` -- the
-  ///  same bound that already limits how many such dispatches can be
-  ///  admitted at once -- rather than an independent bound: an unknown,
-  ///  stale, or duplicate `IpcCancelMessage` can never insert an entry, so it
-  ///  can never displace cancellation state for a dispatch that is actually
-  ///  still pending. Scoped to the current connection generation:
-  ///  `CloseCurrentGenerationLocked` clears every entry defensively, since a
-  ///  cancellation from one generation must never apply to a correlation id
-  ///  reused by a later one -- correlation ids are otherwise monotonic for
-  ///  this session's lifetime (see `NextCorrelationId`), so this guards only
-  ///  the theoretical wraparound case, not ordinary reuse. Guarded by
-  ///  `availableMutex_`.
-  std::map<std::uint64_t, bool> gameThreadDispatchCancellation_;
+  ///  The currently-admitted, not-yet-run deferred dispatch (resynchronization,
+  ///  listen-event, read-sample, or pairing-display request) registered under
+  ///  each correlation id, if any. `RegisterCancellableDispatchLocked` inserts
+  ///  an entry exactly when it admits a dispatch under a correlation id with
+  ///  no live registration, and returns `nullptr` instead of overwriting one
+  ///  that already exists; `UnregisterCancellableDispatchLocked` removes an
+  ///  entry exactly once, identity-checked against the exact object being
+  ///  removed, when the registering dispatch's own task runs or its admission
+  ///  is rejected. This ties the map's size to
+  ///  `kMaxPendingGameThreadDispatches`
+  ///  -- the same bound that already limits how many such dispatches can be
+  ///  admitted at once -- rather than an independent bound: an unknown, stale,
+  ///  or duplicate `IpcCancelMessage` can never insert an entry, so it can
+  ///  never displace cancellation state for a dispatch that is actually still
+  ///  pending. The host-supplied correlation ids these four handlers key
+  ///  registrations under are not constrained by this adapter's own
+  ///  `NextCorrelationId()` (which only numbers this adapter's own outbound
+  ///  requests, such as Hello and TrustAdminRequest) and are deliberately
+  ///  reused by the host across a reconnect, restarting at 1 for every new
+  ///  connection generation -- so `CloseCurrentGenerationLocked` clearing
+  ///  every entry on generation close is required, not merely defensive: it
+  ///  is what lets a legitimate new-generation request reuse an id without
+  ///  being blocked by a stale, defunct entry the previous generation left
+  ///  behind. Each registration's own identity-checked removal is what
+  ///  actually stops a stale dispatch draining after that clear from ever
+  ///  erasing a later, unrelated dispatch's live registration under the same
+  ///  reused id -- generation-scoping this map's keys is not itself
+  ///  sufficient, since two dispatches can also collide on one correlation id
+  ///  within a single generation. Guarded by `availableMutex_`.
+  std::map<std::uint64_t, std::shared_ptr<PendingDispatchCancellationState>>
+      gameThreadDispatchCancellation_;
   ///  Guards `pendingTrustAdminResults_` and `activeTrustAdminWaiters_`, and
   ///  pairs with `trustAdminCondition_`. Deliberately separate from
   ///  `availableMutex_`: a request's timeout worker sleeps on this mutex
