@@ -1443,7 +1443,8 @@ public class AdapterIpcConnectionTests
     /// already-incomplete <see cref="Task"/> -- still does not block the private IPC read loop from
     /// serving an unrelated pairing-display acknowledgement. This is the deterministic regression
     /// proof for the asynchronous scheduling boundary at the top of
-    /// <see cref="AdapterIpcConnection.RunTrustAdminRequestAsync"/>: the earlier
+    /// <c>AdapterIpcConnection.RunTrustAdminRequestAsync</c> (private, so not link-eligible from
+    /// here): the earlier
     /// <see cref="RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing"/> test
     /// cannot detect a missing boundary because its fake returns a pre-existing incomplete task,
     /// which naturally yields on its own regardless of that boundary.
