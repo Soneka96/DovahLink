@@ -3,7 +3,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
 using DovahLink.Host.Process;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
 
@@ -297,12 +300,16 @@ public class ProgramCompositionTests
     }
 
     /// <summary>
-    /// Stress-races a public client's connect/hello/authentication exactly against
+    /// Stress-races a public client's connect/hello/authentication/pairing exactly against
     /// <see cref="global::Program.ComposeAndRunAsync"/>'s own shutdown across many iterations, so
     /// the exact interleaving varies from run to run rather than being fixed by a single coordinated
     /// delay. Proves shutdown never deadlocks regardless of exactly when it lands relative to
-    /// admission, and that a racing client always observes one of exactly two well-defined outcomes
-    /// -- a completed <c>hello_ack</c>, or the connection ending -- never a hang.
+    /// admission or pairing, that a racing client always observes one of exactly two well-defined
+    /// outcomes -- a completed exchange, or the connection ending -- never a hang, and (once
+    /// <paramref name="global::Program.ComposeAndRunAsync"/> itself has returned, so its own
+    /// deterministic session/private-IPC teardown has already run) that no authoritative session or
+    /// active pairing challenge survives for that iteration's client, regardless of exactly where in
+    /// the exchange shutdown landed.
     /// </summary>
     [Fact]
     public async Task ComposeAndRunAsync_ShutdownRacingPublicHelloAdmission_NeverDeadlocksAndClientNeverHangs()
@@ -312,35 +319,65 @@ public class ProgramCompositionTests
         {
             using var shutdown = new CancellationTokenSource();
             var output = new StringWriter();
+            SessionRegistry? sessionRegistry = null;
+            PairingCoordinator? pairingCoordinator = null;
+            var clientId = new ClientId(Guid.NewGuid());
 
             Task<int> runTask = global::Program.ComposeAndRunAsync(
-                UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+                UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0,
+                onComposed: (composedSessionRegistry, composedPairingCoordinator) =>
+                {
+                    sessionRegistry = composedSessionRegistry;
+                    pairingCoordinator = composedPairingCoordinator;
+                });
             await WaitUntilAsync(() => output.ToString().Contains("PUBLICPORT "), runTask);
             int publicPort = int.Parse(output.ToString().Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
 
             var codec = new PublicEnvelopeCodec();
             using var clientWebSocket = new ClientWebSocket();
-            Task connectAndHelloTask = ConnectAndAwaitHelloOutcomeAsync(clientWebSocket, publicPort, codec);
+            Task connectHelloAndPairTask = ConnectHelloAndPairAsync(clientWebSocket, publicPort, codec, clientId);
 
-            // No coordinated delay: shutdown fires as soon as the connect/hello race is launched, so
-            // successive iterations naturally vary which side of the admission window it lands on.
+            // No coordinated delay: shutdown fires as soon as the connect/hello/pairing race is
+            // launched, so successive iterations naturally vary which side of the admission or
+            // pairing window it lands on.
             shutdown.Cancel();
 
             // Neither side may hang, regardless of how they interleaved on this iteration.
-            await connectAndHelloTask.WaitAsync(TimeSpan.FromSeconds(5));
+            await connectHelloAndPairTask.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(0, await runTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+            // ComposeAndRunAsync has now returned, so its own deterministic public-session and
+            // private-IPC teardown already ran (see its own await adapterListenerTask/publicListenerTask
+            // sequencing) -- the private Adapter IPC listener and public listener being stopped is
+            // already proven by that return itself, not re-asserted here. No authoritative public
+            // session survives this iteration's client, regardless of whether the race landed before,
+            // during, or after admission.
+            Assert.NotNull(sessionRegistry);
+            Assert.Equal(0, sessionRegistry.ActiveCount);
+
+            // No active (committed/displayed) pairing challenge survives for this iteration's client:
+            // a genuinely interrupted pairing_request either never started, or its own rollback path
+            // already ran before ComposeAndRunAsync returned. UncommittedDisplayReservation is
+            // accepted alongside Idle -- per PairingCoordinator's own documented distinction, it was
+            // never actually shown to the client, so it is not an active challenge either.
+            Assert.NotNull(pairingCoordinator);
+            PairingStatusSnapshot snapshot = pairingCoordinator.GetStatusSnapshot(clientId);
+            Assert.True(
+                snapshot.Kind is PairingStatusKind.Idle or PairingStatusKind.UncommittedDisplayReservation,
+                $"Expected no active pairing challenge to survive shutdown, but observed {snapshot.Kind}.");
         }
     }
 
     /// <summary>
-    /// Connects, sends an unpaired <c>hello</c>, and awaits exactly one well-defined outcome for
+    /// Connects, sends an unpaired <c>hello</c> for <paramref name="clientId"/>, and -- once
+    /// admitted -- also sends a <c>pairing_request</c>, awaiting exactly one well-defined outcome at
+    /// each step for
     /// <see cref="ComposeAndRunAsync_ShutdownRacingPublicHelloAdmission_NeverDeadlocksAndClientNeverHangs"/>:
-    /// a decoded <c>hello_ack</c> response, or the connection ending (refused, closed, or faulted)
-    /// before one arrives, at any point from the initial connect onward. Any other observation --
-    /// in particular hanging past the caller's own bounded wait -- fails this method's caller
-    /// instead.
+    /// a decoded reply, or the connection ending (refused, closed, or faulted) before one arrives, at
+    /// any point from the initial connect onward. Any other observation -- in particular hanging past
+    /// the caller's own bounded wait -- fails this method's caller instead.
     /// </summary>
-    private static async Task ConnectAndAwaitHelloOutcomeAsync(ClientWebSocket clientWebSocket, int port, PublicEnvelopeCodec codec)
+    private static async Task ConnectHelloAndPairAsync(ClientWebSocket clientWebSocket, int port, PublicEnvelopeCodec codec, ClientId clientId)
     {
         try
         {
@@ -348,7 +385,7 @@ public class ProgramCompositionTests
 
             byte[] hello = codec.Encode(
                 PublicMessageType.Hello, "hello-1", null, null, null, null,
-                new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+                new HelloPayload { Endpoint = "client", ClientId = clientId.Value.ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
             await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
 
             var buffer = new byte[4096];
@@ -359,8 +396,39 @@ public class ProgramCompositionTests
                 return;
             }
 
-            Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? envelope));
-            Assert.Equal(PublicMessageType.HelloAck, envelope!.MessageType);
+            Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? helloAckEnvelope));
+            Assert.Equal(PublicMessageType.HelloAck, helloAckEnvelope!.MessageType);
+            string sessionId = helloAckEnvelope.SessionId!;
+
+            // Every admission sends hello_ack followed by an unsolicited, empty capabilities
+            // advertisement -- consumed here so it is never mistaken for a pairing_status reply.
+            result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                return;
+            }
+
+            Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? capabilitiesEnvelope));
+            Assert.Equal(PublicMessageType.Capabilities, capabilitiesEnvelope!.MessageType);
+
+            // A post-admission client message must carry both the socket-bound sessionId and the
+            // envelope-level clientId it declared in hello.
+            byte[] pairingRequest = codec.Encode(
+                PublicMessageType.PairingRequest, "pairing-1", sessionId, null, null, clientId.Value.ToString(), new EmptyPayload());
+            await clientWebSocket.SendAsync(pairingRequest, WebSocketMessageType.Text, true, CancellationToken.None);
+
+            result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                // The connection closed instead of answering pairing_request: also well-defined.
+                return;
+            }
+
+            Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? pairingEnvelope));
+            // pairing_status (accepted or unavailable) and error (for example a stale session raced
+            // by shutdown between hello_ack and this send) are both well-defined outcomes here; only
+            // an undecodable or unrelated reply would indicate a genuine protocol violation.
+            Assert.True(pairingEnvelope!.MessageType is PublicMessageType.PairingStatus or PublicMessageType.Error);
         }
         catch (Exception exception) when (exception is WebSocketException or SocketException or IOException or OperationCanceledException)
         {

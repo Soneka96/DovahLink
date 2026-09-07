@@ -75,6 +75,13 @@ internal static class Program
     /// per-Windows-user DPAPI-protected file; overridable only so a test can exercise startup
     /// ordering and fail-closed behavior without touching a real encrypted file.
     /// </param>
+    /// <param name="onComposed">
+    /// Invoked once, immediately after composition, with the composed session registry and pairing
+    /// coordinator -- test observability only, so a test can inspect authoritative state after this
+    /// method's own shutdown teardown has run, without this composition root exposing that state as
+    /// part of its own return value or a new production service. Never invoked by the production
+    /// <see cref="Main"/> entry point.
+    /// </param>
     /// <returns>A successful process exit code once <paramref name="shutdown"/> is cancelled and teardown completes.</returns>
     /// <exception cref="System.Net.Sockets.SocketException">A listener could not bind its configured port.</exception>
     /// <exception cref="InvalidDataException">The persisted trust store exists but could not be decrypted or parsed.</exception>
@@ -85,7 +92,8 @@ internal static class Program
         IHostProcessLifetime lifetime,
         CancellationTokenSource shutdown,
         int? publicListenerPort = null,
-        ITrustStorePersistence? trustStorePersistence = null)
+        ITrustStorePersistence? trustStorePersistence = null,
+        Action<SessionRegistry, PairingCoordinator>? onComposed = null)
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -100,6 +108,7 @@ internal static class Program
             trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), clock, securityStateGate);
         var sessionRegistry = new SessionRegistry(securityStateGate);
         var pairingCoordinator = new PairingCoordinator(trustStore, clock);
+        onComposed?.Invoke(sessionRegistry, pairingCoordinator);
         var playContextTracker = new PlayContextTracker();
         var envelopeCodec = new PublicEnvelopeCodec();
         var connectionRegistry = new PublicSessionConnectionRegistry();
