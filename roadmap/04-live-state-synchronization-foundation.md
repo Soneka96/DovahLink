@@ -395,3 +395,65 @@ capture-policy and scheduler invariants are proven without worker-side runtime r
 mode-specific queue and per-area recovery-barrier behavior is proven, all required registered domain
 data and cross-boundary tests pass, migration-only readers and fixtures are gone, and the phase-end
 version audit has completed.
+
+### Host/Adapter continuation (post-3A)
+
+The `character_xp`/`character_health`/`character_magicka`/`character_stamina`/`character_level`
+scope above is the Bridge implementation of Stage 4. Once
+[Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md)
+completes, this same functional scope continues exclusively on `host/`/`adapter/`; it is not a 3A
+cutover prerequisite. The engineering already specified for the host/adapter replacement's own
+live-state buildout — previously tracked as `host/PLAN.md`'s Stage 5 ("Host State, Publication, and
+Bounded Delivery") and Stage 6 ("Real Capture and Host Integration") — carries forward here as that
+continuation, re-homed from a migration document into this durable product-roadmap phase rather than
+discarded.
+
+#### Host-owned state, publication, and bounded delivery
+
+Implement host-owned authoritative state, subscriptions, revisions, publication ordering, recovery,
+per-session bounded queues, latest-value Snapshot behavior, reliable Event behavior, reserved control
+capacity, and serialized WebSocket writing. Use typed host messages internally and map to the public
+SDK contract only at the client boundary.
+
+Acceptance criteria:
+
+- State capture updates are applied in one deterministic per-area ordering point.
+- Play-context changes invalidate stale state and prevent stale publication.
+- Snapshots are replaceable or recoverable without unbounded growth.
+- Reliable Events remain ordered and cause controlled client failure when they cannot be admitted.
+- Control and recovery traffic retain their reserved capacity and priority.
+- No concurrent WebSocket writes occur for one client.
+- Queue, byte, timeout, cancellation, and recovery behavior is covered by deterministic C# tests.
+- A client reconnect receives fresh synchronization and never inherits the previous session's queue
+  or recovery barriers.
+
+Not in scope: adding new Skyrim domains beyond the set above.
+
+#### Real capture and host integration
+
+Connect the real adapter capture stream and play-context lifecycle to the host state pipeline. Add
+the first production state flow through the host/adapter boundary, including current-state
+resynchronization after host or IPC interruption.
+
+The first state slice is intentionally narrow: one native level-up event; one fast, coherent vitals
+sample containing health, magicka, and stamina; one medium experience/XP sample; and one slow
+gold/coins sample. The host owns the cadence and the meanings of fast, medium, and slow. The adapter
+receives only opaque event keys or sample tokens and performs the final native registration or read.
+
+Acceptance criteria:
+
+- Native-event and sampled captures reach the host through owned typed IPC messages.
+- The level-up event and the fast, medium, and slow sample tokens are mapped to the approved native
+  operations without placing cadence or application policy in the adapter.
+- No worker or host code performs deferred Skyrim runtime reads.
+- Capture remains bounded and non-blocking on the game thread.
+- A fast vitals capture is coherent across health, magicka, and stamina, rather than requiring three
+  independently scheduled reads.
+- Host-side state remains unavailable rather than fabricated when capture fails.
+- An accepted resynchronization response carries a fresh authoritative baseline from an approved
+  game-thread capture path; an unavailable baseline remains explicitly unavailable.
+- Host restart, adapter restart, game load, save transition, and shutdown do not publish stale state
+  as current.
+- The first real state flow is proven over the host, adapter, and client processes.
+
+Not in scope: broad domain expansion beyond the narrow first slice.
