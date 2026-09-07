@@ -1436,6 +1436,65 @@ public class AdapterIpcConnectionTests
     }
 
     /// <summary>
+    /// Verifies that a trust-admin handler which blocks the calling thread synchronously -- before
+    /// its own returned <see cref="Task"/> is even created, rather than one that merely returns an
+    /// already-incomplete <see cref="Task"/> -- still does not block the private IPC read loop from
+    /// serving an unrelated pairing-display acknowledgement. This is the deterministic regression
+    /// proof for the asynchronous scheduling boundary at the top of
+    /// <see cref="AdapterIpcConnection.RunTrustAdminRequestAsync"/>: the earlier
+    /// <see cref="RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing"/> test
+    /// cannot detect a missing boundary because its fake returns a pre-existing incomplete task,
+    /// which naturally yields on its own regardless of that boundary.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminHandlerBlocksSynchronously_StillProcessesPairingDisplayAckWhileBlocked()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        using var handlerEntered = new ManualResetEventSlim(false);
+        using var releaseHandler = new ManualResetEventSlim(false);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, _) =>
+            {
+                handlerEntered.Set();
+                Assert.True(releaseHandler.Wait(TimeSpan.FromSeconds(5)));
+                return Task.FromResult("ok");
+            },
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = true,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        Assert.True(handlerEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        // The handler is synchronously blocked inside its own dispatch right now. If that dispatch
+        // ran inline on the read loop instead of past an explicit scheduling boundary, the read loop
+        // could not still be free to admit and process this unrelated pairing-display request/ack.
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> ackTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, true)));
+
+        bool ackResult = await ackTask.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(ackResult);
+
+        releaseHandler.Set();
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.Equal("ok", result.ResultText);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Verifies that a request beyond <see cref="Constants.MaxPendingTrustAdminRequests"/> is
     /// rejected with a controlled result rather than admitted, and that completing one already-
     /// admitted request frees its slot for a later one.

@@ -500,7 +500,11 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <see cref="IpcCancelMessage"/> targeting its exact correlation id) is dropped silently,
     /// matching the private IPC contract's own "cancelling a request... is a harmless no-op"
     /// framing: the adapter that requested the cancellation has already stopped waiting for a
-    /// reply.
+    /// reply. Always crosses an explicit asynchronous scheduling boundary before invoking the
+    /// handler, so no handler code -- including synchronous work preceding the handler's own first
+    /// suspension point -- ever runs on the caller's thread; <see cref="DispatchTrustAdminRequest"/>
+    /// depends on that guarantee to admit this request without awaiting its dispatch from the
+    /// private IPC read loop.
     /// </summary>
     /// <param name="request">The admitted request.</param>
     /// <param name="requestCancellation">This request's own cancellation source.</param>
@@ -511,6 +515,12 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             string resultText;
             try
             {
+                // An async method otherwise runs synchronously up to its first genuinely incomplete
+                // await, so without this explicit yield, handler code invoked directly below could
+                // still execute inline on the private IPC read loop that called
+                // DispatchTrustAdminRequest without awaiting it.
+                await Task.Yield();
+                requestCancellation.Token.ThrowIfCancellationRequested();
                 resultText = await session.HandleTrustAdminRequestAsync(request, requestCancellation.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
