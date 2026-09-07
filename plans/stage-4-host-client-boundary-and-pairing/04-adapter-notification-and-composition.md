@@ -33,6 +33,15 @@ composed host services, and end-to-end client-boundary test evidence.
   notifications, and adapter→host Papyrus requests for `help`, `list`, `revoke`, `block`, `unblock`,
   `forget`, `reset-trust`, `reset`, and `confirm-reset`, with typed host results. Do not omit the
   adapter-originated administration path merely because public clients do not expose those commands.
+- Adapter-originated trust-admin dispatch is bounded and non-blocking: the host's private IPC reader
+  continues serving other inbound frames -- including a pairing-display acknowledgement -- while a
+  request's persistence write is still outstanding, and a request beyond the bounded in-flight
+  capacity receives a controlled result rather than blocking the reader or being silently dropped.
+  The adapter's own request lifecycle distinguishes a request that could not be submitted (the host
+  was unavailable) from one that was submitted but timed out waiting for a result, since the host's
+  own mutation may or may not have committed by then; a timed-out mutating command is never reported
+  to the console user as a definite failure. Reuses the existing bidirectional `IpcCancelMessage`,
+  sent by whichever side gives up on a request first, rather than adding a new cancellation message.
 - The host sends values the host has already decided; the adapter performs only Skyrim-facing glue.
 - Initial display and manual redisplay have a bounded acknowledgement/readiness result so the host
   can truthfully produce `pairing_status.available` or `pairing_outcome.renotified`. Wrong-code
@@ -108,6 +117,14 @@ Expected focused test files:
   services, and answered without exposing raw credentials or persistence exceptions.
 - Adapter Papyrus forwarding tests prove the exact operation/argument matrix from `PLAN.md`, bounded
   behavior when the host is absent, and no blocking wait on a game-thread callback.
+- Host-side trust-admin dispatch tests prove: a pending request's persistence write never blocks the
+  read loop from processing a later frame; a request beyond the bounded in-flight capacity is
+  rejected with a controlled result and frees its slot once an admitted one finishes; a duplicate,
+  still-outstanding correlation id is rejected as a protocol violation; independent requests resolve
+  out of order by their own exact correlation id; an inbound cancellation reaches only its exact
+  correlation id and drops that request silently; a cancellation for an already-resolved correlation
+  id is a harmless no-op; and disconnecting while a request is outstanding cancels it rather than
+  leaving it running unbounded past this connection's own teardown.
 - A failed initial display operation rolls back the host challenge atomically; a failed redisplay
   leaves an already-displayed challenge and its cooldown unchanged, returning only the controlled
   retryable public failure specified by Concept 03.

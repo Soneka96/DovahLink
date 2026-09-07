@@ -326,6 +326,12 @@ public enum IpcRejectReason : byte
 
     /// <summary>The payload bytes do not match the fixed or declared layout for the frame's kind.</summary>
     MalformedPayload = 3,
+
+    /// <summary>
+    /// An <see cref="Adapter.Ipc.IpcTrustAdminRequestMessage"/>'s correlation id matches one this
+    /// session already has admitted and still outstanding.
+    /// </summary>
+    DuplicateTrustAdminCorrelationId = 4,
 }
 
 /// <summary>Why the host rejected an <see cref="Adapter.Ipc.IpcHelloMessage"/> negotiation.</summary>

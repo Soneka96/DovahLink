@@ -78,6 +78,13 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The correlation ids passed to <see cref="PrepareCancel"/>, in call order.</summary>
     public List<ulong> PreparedCancelCorrelationIds { get; } = [];
 
+    /// <summary>
+    /// Overrides <see cref="HandleTrustAdminRequestAsync"/>'s entire behavior when set, letting a
+    /// test control its completion timing and observe or honor the passed cancellation token.
+    /// Defaults to completing immediately with <see cref="TrustAdminRequestResult"/>.
+    /// </summary>
+    public Func<IpcTrustAdminRequestMessage, CancellationToken, Task<string>>? HandleTrustAdminRequestOverride { get; set; }
+
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
     {
@@ -154,6 +161,8 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     public Task<string> HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken = default)
     {
         HandledTrustAdminRequests.Add(request);
-        return Task.FromResult(TrustAdminRequestResult);
+        return HandleTrustAdminRequestOverride is not null
+            ? HandleTrustAdminRequestOverride(request, cancellationToken)
+            : Task.FromResult(TrustAdminRequestResult);
     }
 }

@@ -101,6 +101,17 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <summary>The acknowledgement waiters for pairing-display requests currently outstanding.</summary>
     private readonly Dictionary<ulong, TaskCompletionSource<bool>> pendingPairingDisplayAcks = [];
 
+    /// <summary>Guards <see cref="pendingTrustAdminRequests"/> against concurrent access.</summary>
+    private readonly object pendingTrustAdminRequestsGate = new();
+
+    /// <summary>
+    /// The cancellation source for each trust-admin request currently admitted and not yet finished
+    /// dispatching, keyed by its correlation id. An entry's absence means the request was never
+    /// admitted, or its own dispatch has already finished handling it -- including writing its
+    /// reply, being cancelled, or being abandoned by this connection's own teardown.
+    /// </summary>
+    private readonly Dictionary<ulong, CancellationTokenSource> pendingTrustAdminRequests = [];
+
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="codec">The codec used to encode outbound frames and decode inbound ones.</param>
@@ -147,6 +158,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             outbound.Writer.TryComplete();
             session.HandleDisconnected();
             FailAllPendingPairingDisplayAcks();
+            CancelAllPendingTrustAdminRequests();
             bool forceClose = cancellationToken.IsCancellationRequested ||
                 ioCancellation.IsCancellationRequested ||
                 inboundRateLimitExceeded ||
@@ -409,8 +421,23 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
             if (decodeResult.Message is IpcTrustAdminRequestMessage trustAdminRequest)
             {
-                await HandleTrustAdminRequestAsync(trustAdminRequest, cancellationToken).ConfigureAwait(false);
+                AdapterIpcOutcome trustAdminOutcome = DispatchTrustAdminRequest(trustAdminRequest);
+                EnqueueOutcome(trustAdminOutcome);
+                if (trustAdminOutcome.ShouldClose)
+                {
+                    return;
+                }
+
                 continue;
+            }
+
+            if (decodeResult.Message is IpcCancelMessage trustAdminCancel)
+            {
+                // Best-effort only: falls through to the generic handling below unchanged, since a
+                // cancellation targeting a correlation id this connection never admitted as a
+                // trust-admin request (for example an unrelated pending intent) is that generic
+                // handling's own concern, not this one's.
+                TryCancelPendingTrustAdminRequest(trustAdminCancel.CorrelationId);
             }
 
             AdapterIpcOutcome outcome = session.HandleFrame(decodeResult.Message!);
@@ -423,19 +450,137 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <summary>
-    /// Handles one received trust-admin request by forwarding it to the session and enqueuing the
-    /// formatted <see cref="IpcTrustAdminResultMessage"/> reply. Runs on this connection's own read
-    /// loop, so a slow persistence write behind it delays this connection's next inbound read --
-    /// an accepted tradeoff for an infrequent, explicitly user-triggered console command against
-    /// the added complexity of a fully concurrent request pipeline this connection does not
-    /// otherwise need.
+    /// Admits one received trust-admin request against the bounded, per-connection set of requests
+    /// still dispatching and, once admitted, dispatches it without awaiting: the read loop continues
+    /// serving other inbound frames -- including a pairing-display acknowledgement -- while this
+    /// request's persistence write is still outstanding, replacing the earlier design where this
+    /// connection's own read loop blocked on that write.
     /// </summary>
     /// <param name="request">The received request.</param>
-    /// <param name="cancellationToken">The token used to cancel the underlying persistence writes.</param>
-    private async Task HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken)
+    /// <returns>
+    /// <see cref="AdapterIpcOutcome.None"/> once the request is admitted and dispatched;
+    /// <see cref="AdapterIpcOutcome.SendAndClose"/> rejecting a duplicate, still-outstanding
+    /// correlation id as a protocol violation, the same as an unrecognized message kind; or
+    /// <see cref="AdapterIpcOutcome.Send"/> with a controlled result, connection left open, once
+    /// <see cref="Constants.MaxPendingTrustAdminRequests"/> is already reached -- the same bound the
+    /// adapter's own <c>SendTrustAdminRequest</c> enforces on itself, so a mutually authenticated but
+    /// malfunctioning adapter cannot create unbounded host-side work.
+    /// </returns>
+    private AdapterIpcOutcome DispatchTrustAdminRequest(IpcTrustAdminRequestMessage request)
     {
-        string resultText = await session.HandleTrustAdminRequestAsync(request, cancellationToken).ConfigureAwait(false);
-        outbound.Writer.TryWrite(codec.Encode(new IpcTrustAdminResultMessage(request.CorrelationId, resultText)));
+        var requestCancellation = new CancellationTokenSource();
+        lock (pendingTrustAdminRequestsGate)
+        {
+            if (pendingTrustAdminRequests.ContainsKey(request.CorrelationId))
+            {
+                requestCancellation.Dispose();
+                return AdapterIpcOutcome.SendAndClose(
+                    new IpcRejectMessage(request.CorrelationId, IpcRejectReason.DuplicateTrustAdminCorrelationId));
+            }
+
+            if (pendingTrustAdminRequests.Count >= Constants.MaxPendingTrustAdminRequests)
+            {
+                requestCancellation.Dispose();
+                return AdapterIpcOutcome.Send(new IpcTrustAdminResultMessage(
+                    request.CorrelationId, "Too many trust-administration requests in progress. Try again shortly."));
+            }
+
+            pendingTrustAdminRequests[request.CorrelationId] = requestCancellation;
+        }
+
+        _ = RunTrustAdminRequestAsync(request, requestCancellation);
+        return AdapterIpcOutcome.None;
+    }
+
+    /// <summary>
+    /// Awaits one admitted trust-admin request's dispatch and enqueues its formatted
+    /// <see cref="IpcTrustAdminResultMessage"/> reply, then removes it from
+    /// <see cref="pendingTrustAdminRequests"/> and disposes its cancellation source exactly once,
+    /// regardless of outcome. A cancelled request (this connection tearing down, or an inbound
+    /// <see cref="IpcCancelMessage"/> targeting its exact correlation id) is dropped silently,
+    /// matching the private IPC contract's own "cancelling a request... is a harmless no-op"
+    /// framing: the adapter that requested the cancellation has already stopped waiting for a
+    /// reply.
+    /// </summary>
+    /// <param name="request">The admitted request.</param>
+    /// <param name="requestCancellation">This request's own cancellation source.</param>
+    private async Task RunTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationTokenSource requestCancellation)
+    {
+        try
+        {
+            string resultText;
+            try
+            {
+                resultText = await session.HandleTrustAdminRequestAsync(request, requestCancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            outbound.Writer.TryWrite(codec.Encode(new IpcTrustAdminResultMessage(request.CorrelationId, resultText)));
+        }
+        finally
+        {
+            lock (pendingTrustAdminRequestsGate)
+            {
+                pendingTrustAdminRequests.Remove(request.CorrelationId);
+            }
+
+            requestCancellation.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Best-effort cancels the trust-admin request currently admitted under <paramref name="correlationId"/>,
+    /// if any. A harmless no-op when no such request is currently admitted, including when it never
+    /// was, or its own dispatch already finished.
+    /// </summary>
+    /// <param name="correlationId">The correlation id an inbound <see cref="IpcCancelMessage"/> named.</param>
+    private void TryCancelPendingTrustAdminRequest(ulong correlationId)
+    {
+        CancellationTokenSource? requestCancellation;
+        lock (pendingTrustAdminRequestsGate)
+        {
+            pendingTrustAdminRequests.TryGetValue(correlationId, out requestCancellation);
+        }
+
+        try
+        {
+            requestCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Best-effort: this request's own dispatch already finished and disposed its
+            // cancellation source between the lookup above and this call; nothing left to cancel.
+        }
+    }
+
+    /// <summary>
+    /// Cancels every trust-admin request still admitted, so none of them keep this connection's
+    /// dispatch work outstanding past its own teardown. Does not itself remove or dispose their
+    /// entries: each request's own <see cref="RunTrustAdminRequestAsync"/> continuation still does
+    /// that exactly once, whether it observes this cancellation or finishes some other way first.
+    /// </summary>
+    private void CancelAllPendingTrustAdminRequests()
+    {
+        List<CancellationTokenSource> requestCancellations;
+        lock (pendingTrustAdminRequestsGate)
+        {
+            requestCancellations = [.. pendingTrustAdminRequests.Values];
+        }
+
+        foreach (CancellationTokenSource requestCancellation in requestCancellations)
+        {
+            try
+            {
+                requestCancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Best-effort: see TryCancelPendingTrustAdminRequest's identical race for why.
+            }
+        }
     }
 
     /// <summary>Resolves the pending acknowledgement wait matching a received pairing-display acknowledgement, if any.</summary>

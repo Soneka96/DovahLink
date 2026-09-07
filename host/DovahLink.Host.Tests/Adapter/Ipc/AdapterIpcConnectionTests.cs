@@ -1388,6 +1388,286 @@ public class AdapterIpcConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that the read loop is not blocked by a trust-admin request whose dispatch has not
+    /// yet finished: a pairing-display acknowledgement received while that dispatch is still
+    /// outstanding is processed immediately, and the trust-admin request's own correlated result
+    /// still arrives once its dispatch is later released. This is the regression proof for the
+    /// reason this concept stopped awaiting the dispatch inline on the read loop.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var dispatchGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, _) => dispatchGate.Task,
+            PairingDisplayResult = new IpcPairingDisplayMessage(9, "123456", PairingDisplayMode.Initial),
+            PairingDisplayAckResult = true,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+
+        Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
+        await ReadOneFrameAsync(client, codec); // the display request itself
+        Task<bool> ackTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
+        await client.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(correlationId, true)));
+
+        // If the trust-admin request's still-pending dispatch blocked the read loop, this would time
+        // out instead of observing the ack that was written to the stream after it.
+        bool ackResult = await ackTask.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(ackResult);
+
+        dispatchGate.SetResult("ok");
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.Equal("ok", result.ResultText);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a request beyond <see cref="Constants.MaxPendingTrustAdminRequests"/> is
+    /// rejected with a controlled result rather than admitted, and that completing one already-
+    /// admitted request frees its slot for a later one.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminRequestsAtCapacity_RejectsNextWithControlledReplyAndFreesSlotOnCompletion()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var gates = new Dictionary<ulong, TaskCompletionSource<string>>();
+        for (ulong i = 1; i <= (ulong)Constants.MaxPendingTrustAdminRequests; i++)
+        {
+            gates[i] = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (request, _) => gates[request.CorrelationId].Task,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        foreach (ulong correlationId in gates.Keys)
+        {
+            await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(correlationId, TrustAdminOperation.Help)));
+        }
+
+        // Every slot is now occupied by a request whose gate is still unreleased; a request beyond
+        // the bound must be rejected immediately rather than admitted or left hanging.
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(999, TrustAdminOperation.Help)));
+        var rejected = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(999UL, rejected.CorrelationId);
+
+        gates[1].SetResult("first");
+        var freed = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, freed.CorrelationId);
+
+        foreach ((ulong correlationId, TaskCompletionSource<string> gate) in gates)
+        {
+            if (correlationId != 1)
+            {
+                gate.SetResult("done");
+            }
+        }
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a trust-admin request whose correlation id matches one already admitted and
+    /// still outstanding is rejected as a protocol violation and closes the connection, the same as
+    /// an unrecognized message kind.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_DuplicateTrustAdminCorrelationId_RejectsAndCloses()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession { HandleTrustAdminRequestOverride = (_, _) => gate.Task };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Help)));
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Help)));
+
+        var reject = Assert.IsType<IpcRejectMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(7UL, reject.CorrelationId);
+        Assert.Equal(IpcRejectReason.DuplicateTrustAdminCorrelationId, reject.Reason);
+
+        gate.SetResult("unused");
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that independent trust-admin requests each resolve by their own exact correlation id, out of order.</summary>
+    [Fact]
+    public async Task RunAsync_MultipleTrustAdminRequests_CompleteOutOfOrder()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var firstGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (request, _) => request.CorrelationId == 1 ? firstGate.Task : secondGate.Task,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(2, TrustAdminOperation.Help)));
+
+        // Resolve the second request first: the still-pending first request must not block it.
+        secondGate.SetResult("second");
+        var secondResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(2UL, secondResult.CorrelationId);
+
+        firstGate.SetResult("first");
+        var firstResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, firstResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an inbound cancellation for a trust-admin request's exact correlation id
+    /// cancels that request's own dispatch, dropping it silently -- no reply is ever sent for it --
+    /// without disturbing a different, unrelated request.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelMessage_CancelsMatchingTrustAdminRequestAndDropsItSilently()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (request, cancellationToken) =>
+            {
+                if (request.CorrelationId != 3)
+                {
+                    return Task.FromResult("ok");
+                }
+
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+                return tcs.Task;
+            },
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Help)));
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(3)));
+
+        // A later, unrelated request still completes normally: cancellation reached only the exact
+        // correlation id it named.
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(4, TrustAdminOperation.Help)));
+        var onlyResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(4UL, onlyResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a cancellation naming a correlation id whose trust-admin request already
+    /// completed is a harmless no-op: it neither throws nor disturbs a later, unrelated request.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelMessage_AfterTrustAdminRequestAlreadyCompleted_IsHarmlessNoOp()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { TrustAdminRequestResult = "done" };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await ReadOneFrameAsync(client, codec); // already completed and removed by the time this returns
+
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(1)));
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(2, TrustAdminOperation.Help)));
+        var secondResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(2UL, secondResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that disconnecting while a trust-admin request's dispatch is still outstanding
+    /// cancels it, so it does not keep running unbounded past this connection's own teardown.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_DisconnectWhileTrustAdminRequestPending_CancelsIt()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var cancelledSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, cancellationToken) =>
+            {
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                cancellationToken.Register(() =>
+                {
+                    tcs.TrySetCanceled(cancellationToken);
+                    cancelledSignal.TrySetResult();
+                });
+                return tcs.Task;
+            },
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await cancelledSignal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>
     /// <param name="runTask">The connection task under test.</param>
     /// <param name="blockingStream">The stream expected to be force-disposed.</param>

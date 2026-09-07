@@ -192,6 +192,16 @@ public static class Constants
     /// </summary>
     public static readonly TimeSpan PairingDisplayAckTimeout = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    /// The maximum number of adapter-originated trust-admin requests the host admits per connection
+    /// at once, counted from admission until its dispatch actually finishes handling it. Matches the
+    /// adapter's own <c>kMaxPendingTrustAdminRequests</c>: bounds Host-side concurrent work the same
+    /// way the adapter already bounds its own outstanding requests, so a mutually authenticated but
+    /// malfunctioning adapter cannot create unbounded Host tasks. A request beyond this capacity is
+    /// rejected with a controlled result, without disturbing any already-admitted request.
+    /// </summary>
+    public const int MaxPendingTrustAdminRequests = 16;
+
     // ---- Process ----
 
     /// <summary>

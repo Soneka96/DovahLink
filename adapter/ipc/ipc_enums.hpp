@@ -72,6 +72,9 @@ enum class IpcRejectReason : std::uint8_t {
   ///  The payload bytes do not match the fixed or declared layout for the
   ///  frame's kind.
   kMalformedPayload = 3,
+  ///  An `IpcTrustAdminRequestMessage`'s correlation id matches one this
+  ///  session already has admitted and still outstanding.
+  kDuplicateTrustAdminCorrelationId = 4,
 };
 
 ///  Why the host rejected an `IpcHelloMessage` negotiation.

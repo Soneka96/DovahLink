@@ -343,6 +343,7 @@ TEST_CASE("reject round-trips for every reject reason",
            IpcRejectReason::kUnknownMessageKind,
            IpcRejectReason::kInvalidIdentity,
            IpcRejectReason::kMalformedPayload,
+           IpcRejectReason::kDuplicateTrustAdminCorrelationId,
        }) {
     IpcRejectMessage original{.correlationId = 5, .reason = reason};
 

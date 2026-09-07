@@ -14,9 +14,15 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// </summary>
 public interface IAdapterTrustAdminRequestHandler
 {
-    /// <summary>Handles one trust-administration request and returns its formatted result text.</summary>
+    /// <summary>
+    /// Handles one trust-administration request and returns its formatted result text. Propagates
+    /// an <see cref="OperationCanceledException"/> from <paramref name="cancellationToken"/> firing
+    /// rather than formatting it into a result: the caller uses that to distinguish a cancelled
+    /// request (which should be dropped silently) from a genuinely errored one.
+    /// </summary>
     /// <param name="request">The request to handle.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence writes.</param>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled before the request finished.</exception>
     Task<string> HandleAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken = default);
 }
 
@@ -62,11 +68,14 @@ public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestH
                 _ => "Unrecognized trust-admin operation.",
             };
         }
-        catch (Exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Never expose a raw persistence or infrastructure exception to the Skyrim-facing
             // console surface, per this concept's "without exposing credentials or persistence
-            // exceptions" contract.
+            // exceptions" contract. A genuine cancellation is deliberately let through instead of
+            // being formatted here: the caller distinguishes a cancelled request (drop silently,
+            // no reply) from an errored one (reply with the message above), and collapsing both
+            // into this same formatted string would make that distinction impossible to observe.
             return "An unexpected error occurred while processing the request.";
         }
     }
