@@ -435,11 +435,8 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
           //  IpcPairingDisplayAckMessage, and IpcTrustAdminRequestMessage are
           //  adapter-outbound only; receiving any of them is a protocol
           //  violation from the host.
-          if (connection_ != nullptr) {
-            connection_->TrySend(IpcMessage{IpcRejectMessage{
-                .correlationId = value.correlationId,
-                .reason = IpcRejectReason::kUnknownMessageKind}});
-          }
+          SendBestEffortReject(value.correlationId,
+                               IpcRejectReason::kUnknownMessageKind);
           return AdapterIpcMessageDisposition::kClose;
         }
       },
@@ -487,11 +484,8 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     cancellation = RegisterCancellableDispatchLocked(correlationId);
   }
   if (cancellation == nullptr) {
-    if (connection_ != nullptr) {
-      connection_->TrySend(IpcMessage{IpcRejectMessage{
-          .correlationId = correlationId,
-          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
-    }
+    SendBestEffortReject(correlationId,
+                         IpcRejectReason::kDuplicateCancellableCorrelationId);
     return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
@@ -569,11 +563,8 @@ AdapterIpcSession::HandleListenEvent(const IpcListenEventMessage &listenEvent) {
     return AdapterIpcMessageDisposition::kContinue;
   }
   if (cancellation == nullptr) {
-    if (connection_ != nullptr) {
-      connection_->TrySend(IpcMessage{IpcRejectMessage{
-          .correlationId = correlationId,
-          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
-    }
+    SendBestEffortReject(correlationId,
+                         IpcRejectReason::kDuplicateCancellableCorrelationId);
     return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
@@ -642,11 +633,8 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage &readSample) {
     return AdapterIpcMessageDisposition::kContinue;
   }
   if (cancellation == nullptr) {
-    if (connection_ != nullptr) {
-      connection_->TrySend(IpcMessage{IpcRejectMessage{
-          .correlationId = correlationId,
-          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
-    }
+    SendBestEffortReject(correlationId,
+                         IpcRejectReason::kDuplicateCancellableCorrelationId);
     return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
@@ -716,11 +704,8 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandlePairingDisplay(
     return AdapterIpcMessageDisposition::kContinue;
   }
   if (cancellation == nullptr) {
-    if (connection_ != nullptr) {
-      connection_->TrySend(IpcMessage{IpcRejectMessage{
-          .correlationId = correlationId,
-          .reason = IpcRejectReason::kDuplicateCancellableCorrelationId}});
-    }
+    SendBestEffortReject(correlationId,
+                         IpcRejectReason::kDuplicateCancellableCorrelationId);
     return AdapterIpcMessageDisposition::kClose;
   }
   auto callbackMutex = callbackMutex_;
@@ -841,6 +826,21 @@ void AdapterIpcSession::ReportGameThreadDispatchRejected() {
     onGameThreadDispatchRejected_();
   } catch (...) {
     //  A diagnostics callback must never escape into the IPC worker thread.
+  }
+}
+
+void AdapterIpcSession::SendBestEffortReject(std::uint64_t correlationId,
+                                             IpcRejectReason reason) {
+  if (connection_ == nullptr) {
+    return;
+  }
+  try {
+    connection_->TrySend(IpcMessage{
+        IpcRejectMessage{.correlationId = correlationId, .reason = reason}});
+  } catch (...) {
+    //  Contained: see this method's own documentation for why a failed or
+    //  throwing best-effort notification must never change the caller's
+    //  already-decided close.
   }
 }
 

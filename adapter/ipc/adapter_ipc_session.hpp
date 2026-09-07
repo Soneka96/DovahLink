@@ -307,6 +307,17 @@ private:
   ///  throws so diagnostics can never escape into the IPC worker thread.
   void ReportGameThreadDispatchRejected();
 
+  ///  Best-effort sends an `IpcRejectMessage{correlationId, reason}` through
+  ///  `connection_`, containing any exception `TrySend` itself may throw --
+  ///  see `IAdapterIpcConnection::TrySend`'s own documentation for why it is
+  ///  not `noexcept`. A caller that has already decided to close the
+  ///  connection over a protocol violation calls this only to best-effort
+  ///  notify the peer why; a failed, rejected, or throwing send must never
+  ///  change that already-decided close, so this method reports nothing back
+  ///  to indicate whether the send actually succeeded.
+  void SendBestEffortReject(std::uint64_t correlationId,
+                            IpcRejectReason reason);
+
   ///  Marks `cancel.correlationId` as cancelled if a currently-admitted
   ///  deferred dispatch is registered under it in
   ///  `gameThreadDispatchCancellation_`; otherwise a no-op. An unknown, stale,

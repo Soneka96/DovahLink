@@ -1170,6 +1170,78 @@ TEST_CASE("AdapterIpcSession admits a new listen-event request that reuses a "
   CHECK(connection.Sent().empty());
 }
 
+TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
+          "cancellable request when the best-effort reject TrySend itself "
+          "throws") {
+  //  TrySend is not noexcept (see IAdapterIpcConnection::TrySend's own
+  //  documentation); a failed best-effort notification of the peer must
+  //  never undo the authoritative decision to close a protocol-invalid
+  //  connection.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  connection.ThrowOnNextSend();
+  AdapterIpcMessageDisposition disposition =
+      AdapterIpcMessageDisposition::kContinue;
+  REQUIRE_NOTHROW(
+      disposition = fixture.session.HandleMessage(IpcMessage{
+          IpcListenEventMessage{.correlationId = 1, .eventKey = 8}}));
+
+  CHECK(disposition == AdapterIpcMessageDisposition::kClose);
+  //  The duplicate was never admitted; the original request's own
+  //  registration is the only one that exists.
+  CHECK(fixture.marshaller.PendingCount() == 1);
+
+  fixture.marshaller.RunAllPending();
+
+  //  The original request's own registration survived and dispatched
+  //  normally, proving the duplicate never replaced its cancellation state.
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+}
+
+TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
+          "cancellable request when the best-effort reject TrySend throws a "
+          "non-std::exception value") {
+  //  This boundary catches with `catch (...)`, not `catch (const
+  //  std::exception&)`; prove it contains a non-standard thrown value too.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
+
+  connection.ThrowNonStandardOnNextSend();
+  AdapterIpcMessageDisposition disposition =
+      AdapterIpcMessageDisposition::kContinue;
+  REQUIRE_NOTHROW(
+      disposition = fixture.session.HandleMessage(IpcMessage{
+          IpcListenEventMessage{.correlationId = 1, .eventKey = 8}}));
+
+  CHECK(disposition == AdapterIpcMessageDisposition::kClose);
+  CHECK(fixture.marshaller.PendingCount() == 1);
+
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+}
+
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
@@ -1497,6 +1569,23 @@ TEST_CASE("AdapterIpcSession rejects and closes an unexpected message kind "
   REQUIRE(reject != nullptr);
   CHECK(reject->correlationId == 5);
   CHECK(reject->reason == IpcRejectReason::kUnknownMessageKind);
+}
+
+TEST_CASE("AdapterIpcSession still returns kClose for an unexpected message "
+          "kind when the best-effort reject TrySend itself throws") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  connection.ThrowOnNextSend();
+  AdapterIpcMessageDisposition disposition =
+      AdapterIpcMessageDisposition::kContinue;
+  REQUIRE_NOTHROW(disposition = fixture.session.HandleMessage(
+                      IpcMessage{IpcResynchronizeResultMessage{
+                          .correlationId = 5, .accepted = true}}));
+
+  CHECK(disposition == AdapterIpcMessageDisposition::kClose);
 }
 
 TEST_CASE("AdapterIpcSession closes for every non-HelloAck message before "
