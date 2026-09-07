@@ -367,6 +367,20 @@ public:
           "Unable to connect to the real Host's public listener.");
     }
 
+    //  Bounds every subsequent blocking recv() in ReadExact, so an
+    //  unresponsive or slow real Host fails this client with a clear
+    //  exception instead of hanging the whole test process indefinitely. No
+    //  matching send timeout: every payload this client ever writes (the
+    //  HTTP upgrade request and small JSON envelope frames) is far below the
+    //  OS socket send buffer, so send() has no realistic path to blocking
+    //  here.
+    if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO,
+                   reinterpret_cast<const char *>(&kReceiveTimeoutMilliseconds),
+                   sizeof(kReceiveTimeoutMilliseconds)) == SOCKET_ERROR) {
+      throw std::runtime_error(
+          "Unable to set the public WebSocket client's receive timeout.");
+    }
+
     const std::string request =
         "GET / HTTP/1.1\r\n"
         "Host: 127.0.0.1:" +
@@ -485,7 +499,8 @@ private:
           recv(socket_, data + received, static_cast<int>(size - received), 0);
       if (result <= 0) {
         throw std::runtime_error(
-            "The real Host's public listener closed the connection early.");
+            "The real Host's public listener closed the connection early or "
+            "did not respond within the receive timeout.");
       }
       received += static_cast<std::size_t>(result);
     }
@@ -505,6 +520,11 @@ private:
       }
     }
   }
+
+  ///  How long a single blocking recv() may wait before this client treats
+  ///  an unresponsive or slow real Host as a failure instead of hanging the
+  ///  test process indefinitely.
+  static constexpr DWORD kReceiveTimeoutMilliseconds = 10000;
 
   ///  The connected socket.
   SOCKET socket_ = INVALID_SOCKET;
