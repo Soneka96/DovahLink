@@ -400,7 +400,7 @@ version audit has completed.
 
 The `character_xp`/`character_health`/`character_magicka`/`character_stamina`/`character_level`
 scope above is the Bridge implementation of Stage 4. Once
-[Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md)
+[Stage 3A — Host/Adapter Production Migration](./03a-host-adapter-production-migration.md)
 completes, this same functional scope continues exclusively on `host/`/`adapter/`; it is not a 3A
 cutover prerequisite. The engineering already specified for the host/adapter replacement's own
 live-state buildout — previously tracked as `host/PLAN.md`'s Stage 5 ("Host State, Publication, and
