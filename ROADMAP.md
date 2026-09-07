@@ -69,11 +69,14 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   Publication and Bounded Transport is next; it will establish the shared-authority, capacity-one
   session-registry boundary that later multi-client delivery will extend.
 
-The standalone host/adapter migration in `host/PLAN.md` is a parallel replacement track. Its
-Stage 4 — Host Client Boundary and Pairing may be planned and implemented without changing the
-product roadmap's Phase 4.2 status, but it does not close Phase 4.2, activate the replacement in
-production, or authorize removal of `bridge/`. Those outcomes remain gated by `host/PLAN.md`'s
-Stage 7 conformance gate and Stage 8 cutover.
+The standalone host/adapter engineering work tracked in `host/PLAN.md` may be planned and
+implemented without changing the product roadmap's Phase 4.2 status; it does not close Phase 4.2 by
+itself. Activating the replacement in production and removing `bridge/` are governed by
+[Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md),
+not by `host/PLAN.md` directly: 3A.1 (Production Cutover) targets the released Stage 3 baseline, not
+unreleased Stage 4 Bridge behavior, so completing Phase 4.2 is not a prerequisite for cutover. Once
+3A.1 and 3A.2 (Legacy Bridge Removal) complete, all further Stage 4+ development continues only on
+Host + Adapter.
 
 ## Ordered stages
 
@@ -83,6 +86,7 @@ Stage 7 conformance gate and Stage 8 cutover.
 | 1 | Complete | [Stage 1 — Skyrim Bridge Foundation](roadmap/01-skyrim-bridge-foundation.md) |
 | 2 | Complete | [Stage 2 — Bridge Identity and Authoritative State](roadmap/02-bridge-identity-and-authoritative-state.md) |
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
+| 3A | Planned. Architectural migration gate between the released Stage 3 baseline and further Stage 4 product development; does not renumber Stage 4. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Active. Phase 4.1 (typed protocol contract redesign and migration) is complete; Phase 4.2 (Bridge live publication and bounded transport) is next. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
 | 5 | Planned. The package scaffold, protocol/transport layer, and persistence boundary are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
@@ -117,6 +121,12 @@ Stage 7 conformance gate and Stage 8 cutover.
 - Stages 0–2 establish documentation, the client/protocol foundation, bridge connectivity, and
   identity/state ownership.
 - Stage 3 depends on Stage 2 and establishes local pairing, durable trust, and trust-state recovery.
+- Stage 3A depends on the released Stage 3 baseline, not on Stage 4's live-state work. It is the
+  sole cutover/removal sequence for `bridge/`: 3A.1 proves Host + Adapter as the real production
+  implementation at Stage 3 parity, 3A.2 deletes the now-obsolete `bridge/`, and 3A.3 normalizes the
+  repository to describe Host + Adapter as its active architecture. Stage 4-equivalent live-state
+  engineering work already underway on `host/`/`adapter/` is not a 3A prerequisite; it continues as
+  ordinary Stage 4 work after 3A completes.
 - Stage 4 depends on identity and pairing and now establishes the redesigned typed protocol contract,
   live Bridge delivery, the first production Snapshot and Event state domains, and the internal
   synchronization kernel. Phase 4.2 also establishes the shared-authority, capacity-one
