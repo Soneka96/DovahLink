@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Tests.TestDoubles;
@@ -135,6 +136,93 @@ public class AdapterTrustAdminRequestHandlerTests
         Assert.True(byteLength <= Constants.MaxIpcTrustAdminResultTextBytes, $"result was {byteLength} UTF-8 bytes.");
         Assert.DoesNotContain("00099", result);
         Assert.Matches(@"\.\.\. \d+ more known devices\.$", result);
+    }
+
+    /// <summary>
+    /// Verifies the truncation boundary lands at the exact byte it is meant to, in both directions:
+    /// the last shown record's own cumulative byte size never exceeds the threshold, and the first
+    /// omitted record's cumulative byte size always would have exceeded it -- neither an
+    /// off-by-one-record-early nor an off-by-one-record-late truncation. Fixed-width ASCII display
+    /// names make every line's UTF-8 byte size identical and precisely computable from the test
+    /// itself, so this recomputes the expected boundary independently rather than asserting only
+    /// that the total stays under budget.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_List_TruncatesExactlyAtTheProjectedByteBoundary()
+    {
+        const string displayName = "AAAAAAAAAA"; // 10 ASCII bytes.
+        var records = Enumerable.Range(0, 1000)
+            .Select(index => BuildRecord($"{index:D5}", displayName, KnownDeviceState.Trusted))
+            .ToList();
+        var trustAdminService = new FakeTrustAdminService { ListResult = records };
+        var handler = new AdapterTrustAdminRequestHandler(trustAdminService, new FakeTrustResetService(), new FakeClock());
+
+        string result = await handler.HandleAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: TrustAdminListScope.All));
+
+        int shown = Regex.Matches(result, @"^\d{5}  AAAAAAAAAA  trusted$", RegexOptions.Multiline).Count;
+        Assert.InRange(shown, 1, records.Count - 1); // Confirms truncation genuinely happened, mid-list.
+
+        int headerBytes = Encoding.UTF8.GetByteCount($"{records.Count} known devices:");
+        int perLineBytes = Encoding.UTF8.GetByteCount($"\n00000  {displayName}  trusted");
+        int cumulativeThroughLastShown = headerBytes + (shown * perLineBytes);
+        int cumulativeThroughFirstOmitted = cumulativeThroughLastShown + perLineBytes;
+
+        // Mirrors AdapterTrustAdminRequestHandler's own private TruncationSuffixReserveBytes: not
+        // exposed publicly, so this white-box boundary test keeps its own copy, matching the
+        // formatter's contract rather than the formatter's implementation detail directly.
+        const int truncationSuffixReserveBytes = 64;
+        int threshold = Constants.MaxIpcTrustAdminResultTextBytes - truncationSuffixReserveBytes;
+        Assert.True(cumulativeThroughLastShown <= threshold,
+            $"the last shown record's cumulative byte size ({cumulativeThroughLastShown}) must not exceed the threshold ({threshold}).");
+        Assert.True(cumulativeThroughFirstOmitted > threshold,
+            $"the first omitted record's cumulative byte size ({cumulativeThroughFirstOmitted}) must exceed the threshold ({threshold}), proving it was correctly excluded rather than coincidentally.");
+
+        int totalBytes = Encoding.UTF8.GetByteCount(result);
+        Assert.True(totalBytes <= Constants.MaxIpcTrustAdminResultTextBytes, $"result was {totalBytes} UTF-8 bytes.");
+    }
+
+    /// <summary>
+    /// Verifies the truncation suffix's own reserved byte budget is actually large enough for the
+    /// text it produces even at an extreme omitted count -- a five-digit omitted-record count, far
+    /// larger than any plausible Known Device store -- so a sufficiently large store can never make
+    /// the suffix itself push the result over <see cref="Constants.MaxIpcTrustAdminResultTextBytes"/>.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_List_ExtremeOmittedCount_TruncationSuffixStillFitsWithinBudget()
+    {
+        var records = Enumerable.Range(0, 100_000)
+            .Select(index => BuildRecord($"{index % 100000:D5}", "D", KnownDeviceState.Trusted))
+            .ToList();
+        var trustAdminService = new FakeTrustAdminService { ListResult = records };
+        var handler = new AdapterTrustAdminRequestHandler(trustAdminService, new FakeTrustResetService(), new FakeClock());
+
+        string result = await handler.HandleAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: TrustAdminListScope.All));
+
+        int totalBytes = Encoding.UTF8.GetByteCount(result);
+        Assert.True(totalBytes <= Constants.MaxIpcTrustAdminResultTextBytes, $"result was {totalBytes} UTF-8 bytes.");
+        Assert.Matches(@"\.\.\. \d{4,} more known devices\.$", result);
+    }
+
+    /// <summary>
+    /// Verifies there is no separate maximum-record-count cap to test: the UTF-8 byte budget above
+    /// already bounds the result unconditionally regardless of how many records are supplied, so a
+    /// record-count cap would be redundant. Proves that claim at a size an order of magnitude past
+    /// any plausible real Known Device store.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_List_MaximumRealisticRecordCount_StaysWithinBudgetAndReportsEveryOmission()
+    {
+        var records = Enumerable.Range(0, 500_000)
+            .Select(index => BuildRecord($"{index % 100000:D5}", "Device", KnownDeviceState.Trusted))
+            .ToList();
+        var trustAdminService = new FakeTrustAdminService { ListResult = records };
+        var handler = new AdapterTrustAdminRequestHandler(trustAdminService, new FakeTrustResetService(), new FakeClock());
+
+        string result = await handler.HandleAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.List, ListScope: TrustAdminListScope.All));
+
+        int totalBytes = Encoding.UTF8.GetByteCount(result);
+        Assert.True(totalBytes <= Constants.MaxIpcTrustAdminResultTextBytes, $"result was {totalBytes} UTF-8 bytes.");
+        Assert.Matches(@"\.\.\. \d{6} more known devices\.$", result);
     }
 
     // ---- Revoke ----

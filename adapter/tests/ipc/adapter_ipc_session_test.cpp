@@ -3,6 +3,7 @@
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_hmac.hpp"
 #include "ipc/adapter_ipc_peer_proof_provider.hpp"
+#include "ipc/adapter_task_marshaller_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -62,46 +63,10 @@ using dovahlink::adapter::ipc::TrustAdminListScope;
 using dovahlink::adapter::ipc::TrustAdminOperation;
 using dovahlink::adapter::ipc::TrustAdminRequestOutcome;
 using dovahlink::adapter::ipc::TrustAdminRequestResult;
+using dovahlink::adapter::ipc::test_support::FakeAdapterTaskMarshaller;
 using dovahlink::adapter::runtime::IAdapterTaskMarshaller;
 
 namespace {
-
-///  A fake `IAdapterTaskMarshaller` that stores tasks instead of running
-///  them, so tests control exactly when marshaled work executes.
-class FakeAdapterTaskMarshaller final : public IAdapterTaskMarshaller {
-public:
-  void RunOnGameThread(std::function<void()> task) override {
-    if (throwOnNextSchedule_) {
-      throwOnNextSchedule_ = false;
-      throw std::runtime_error("RunOnGameThread failed");
-    }
-    pendingTasks_.push_back(std::move(task));
-  }
-
-  ///  Makes the next `RunOnGameThread` call throw instead of admitting its
-  ///  task, so a test can prove a scheduling failure never leaks the
-  ///  caller's pending-dispatch slot. Consumed by the call it affects; a
-  ///  later `RunOnGameThread` call schedules normally again.
-  void ThrowOnNextSchedule() { throwOnNextSchedule_ = true; }
-
-  ///  The number of tasks not yet run.
-  std::size_t PendingCount() const { return pendingTasks_.size(); }
-
-  ///  Runs and clears every currently pending task, in order.
-  void RunAllPending() {
-    std::vector<std::function<void()>> tasks;
-    std::swap(tasks, pendingTasks_);
-    for (auto &task : tasks) {
-      task();
-    }
-  }
-
-private:
-  std::vector<std::function<void()>> pendingTasks_;
-  ///  Whether the next `RunOnGameThread` call should throw instead of
-  ///  admitting its task.
-  bool throwOnNextSchedule_ = false;
-};
 
 ///  A fake `IAdapterNativeDispatcher` with a configurable per-key result.
 class FakeAdapterNativeDispatcher final : public IAdapterNativeDispatcher {
@@ -1590,6 +1555,45 @@ TEST_CASE("AdapterIpcSession evicts the oldest pending cancellation once "
   CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
 }
 
+TEST_CASE("AdapterIpcSession's cancellation tombstone capacity is exactly "
+          "large enough that saturating the game-thread dispatch bound and "
+          "cancelling every one of them evicts none of them") {
+  //  kMaxPendingIpcCancellations is deliberately defined equal to
+  //  kMaxPendingGameThreadDispatches (see ipc_constants.hpp): at most that
+  //  many distinct correlation ids can ever be genuinely outstanding and
+  //  worth cancelling at once, so filling both to that exact same bound must
+  //  never evict a tombstone for a dispatch that is still actually queued.
+  //  This saturates both bounds simultaneously and proves every single one
+  //  of them is still cancelled, not merely most of them.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+       ++eventKey) {
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey, .eventKey = eventKey}});
+    fixture.dispatcher.SetResult(eventKey, {std::byte{1}});
+  }
+  REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+  static_assert(kMaxPendingIpcCancellations == kMaxPendingGameThreadDispatches);
+
+  for (std::uint64_t correlationId = 1;
+       correlationId <= kMaxPendingGameThreadDispatches; ++correlationId) {
+    fixture.session.HandleMessage(
+        IpcMessage{IpcCancelMessage{.correlationId = correlationId}});
+  }
+
+  fixture.marshaller.RunAllPending();
+
+  //  None of the queued dispatches touched Skyrim-facing state: every single
+  //  cancellation survived without eviction, despite filling this deque to
+  //  exactly its capacity.
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
 TEST_CASE("AdapterIpcSession cancels a resynchronization request received "
           "before its marshaled task runs, sending no result") {
   SessionFixture fixture;
@@ -1872,8 +1876,8 @@ CaptureTrustAdminResult() {
 
 } //  namespace
 
-TEST_CASE("AdapterIpcSession::SendTrustAdminRequest invokes its callback "
-          "synchronously with kUnavailable, without sending, when no "
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest delivers kUnavailable, "
+          "without sending, once the game thread runs its callback, when no "
           "authenticated connection is available") {
   SessionFixture fixture;
 
@@ -1881,6 +1885,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest invokes its callback "
   fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
                                         std::nullopt, std::nullopt,
                                         std::nullopt, onResult);
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kUnavailable);
@@ -1893,11 +1898,67 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest invokes its callback "
   fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
                                         std::nullopt, std::nullopt,
                                         std::nullopt, onResultUnauthenticated);
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFutureUnauthenticated.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFutureUnauthenticated.get().outcome ==
         TrustAdminRequestOutcome::kUnavailable);
   CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession's trust-admin completion is accepted and "
+          "delivered even while kMaxPendingGameThreadDispatches ordinary "
+          "dispatches already saturate the bound they share") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+
+  for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+       ++eventKey) {
+    fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+        .correlationId = eventKey, .eventKey = eventKey}});
+  }
+  REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+  REQUIRE(fixture.rejectedDispatchCount == 0);
+  //  Confirms the bound really is saturated: one more ordinary dispatch is
+  //  rejected here.
+  fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+      .correlationId = kMaxPendingGameThreadDispatches + 1,
+      .eventKey = kMaxPendingGameThreadDispatches + 1}});
+  REQUIRE(fixture.rejectedDispatchCount == 1);
+
+  auto [onResult, resultFuture] = CaptureTrustAdminResult();
+  fixture.session.SendTrustAdminRequest(TrustAdminOperation::kHelp,
+                                        std::nullopt, std::nullopt,
+                                        std::nullopt, onResult);
+  auto *sentRequest =
+      std::get_if<IpcTrustAdminRequestMessage>(&connection.Sent().back());
+  REQUIRE(sentRequest != nullptr);
+
+  //  A genuine host response arrives while the ordinary bound is still fully
+  //  saturated and undrained.
+  fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
+      .correlationId = sentRequest->correlationId, .resultText = "ok"}});
+
+  //  Not counted against, or dropped by, the saturated ordinary bound: no
+  //  new rejection, and the marshaller's pending count grows by exactly one
+  //  more than the saturated ordinary bound -- the trust-admin completion's
+  //  own dedicated dispatch, admitted independently of
+  //  pendingGameThreadDispatchCount_.
+  CHECK(fixture.rejectedDispatchCount == 1);
+  CHECK(fixture.marshaller.PendingCount() ==
+        kMaxPendingGameThreadDispatches + 1);
+
+  //  Drains everything; the trust-admin completion still runs exactly once,
+  //  undropped, once the game thread's queue empties.
+  fixture.marshaller.RunAllPending();
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  CHECK(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  CHECK(*result.resultText == "ok");
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest sends exactly the "
@@ -1927,6 +1988,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest sends exactly the "
   //  during test teardown.
   fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
       .correlationId = sentRequest->correlationId, .resultText = "ok"}});
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
           std::future_status::ready);
   TrustAdminRequestResult result = resultFuture.get();
@@ -1948,6 +2010,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns kUnavailable "
                                         std::nullopt, std::nullopt,
                                         std::nullopt, onResult);
 
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kUnavailable);
@@ -1971,13 +2034,15 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
         invocationCount->fetch_add(1);
       }));
 
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
   CHECK(connection.Sent().empty());
 
   //  No pending entry survives a thrown TrySend: if it had leaked, this
   //  force-abandonment sweep would find it and invoke its callback a second
-  //  time, taking invocationCount to 2.
+  //  time, taking invocationCount to 2, once drained.
   fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
 
   //  No timeout worker was spawned for the thrown send: fixture.session's
@@ -2003,6 +2068,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains a non-"
         invocationCount->fetch_add(1);
       }));
 
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
   CHECK(connection.Sent().empty());
 }
@@ -2049,7 +2115,11 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
   CHECK(resultFuture.wait_for(std::chrono::seconds(0)) ==
         std::future_status::timeout);
 
-  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+  //  Waits for the timeout worker to actually schedule the game-thread
+  //  completion, then runs it -- deterministic even though the worker itself
+  //  wakes on a real clock.
+  marshaller.WaitForPendingAndRunAll();
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 
@@ -2102,6 +2172,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker sends "
 
     session->HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
         .correlationId = correlationId, .resultText = "ok"}});
+    marshaller.RunAllPending();
     REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
             std::future_status::ready);
     CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kCompleted);
@@ -2153,14 +2224,15 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker "
   //  the request already sent above.
   connection.ThrowOnNextSend();
 
-  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+  marshaller.WaitForPendingAndRunAll();
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves with the "
-          "host's correlated result, synchronously, once HandleMessage "
-          "delivers it") {
+          "host's correlated result once the game thread runs its callback "
+          "after HandleMessage delivers it") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -2179,6 +2251,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves with the "
       .correlationId = correlationId,
       .resultText = "Reset Trust complete (0 devices revoked)."}});
 
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   TrustAdminRequestResult result = resultFuture.get();
@@ -2219,6 +2292,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves concurrent "
   fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
       .correlationId = firstCorrelationId, .resultText = "first"}});
 
+  fixture.marshaller.RunAllPending();
   REQUIRE(firstResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(0)) ==
@@ -2275,6 +2349,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's onResult callback is "
 
     session->HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
         .correlationId = correlationId, .resultText = "ok"}});
+    marshaller.RunAllPending();
     CHECK(invocationCount->load() == 1);
 
     //  session's destructor blocks until this request's timeout worker has
@@ -2306,6 +2381,9 @@ TEST_CASE("AdapterIpcSession contains an exception a trust-admin onResult "
   CHECK(fixture.session.HandleMessage(IpcMessage{IpcTrustAdminResultMessage{
             .correlationId = correlationId, .resultText = "ok"}}) ==
         AdapterIpcMessageDisposition::kContinue);
+  //  The callback itself only actually runs once the game-thread dispatch is
+  //  drained; that is where its exception must be contained now.
+  REQUIRE_NOTHROW(fixture.marshaller.RunAllPending());
 }
 
 TEST_CASE("AdapterIpcSession contains an exception a trust-admin onResult "
@@ -2313,13 +2391,15 @@ TEST_CASE("AdapterIpcSession contains an exception a trust-admin onResult "
           "session") {
   SessionFixture fixture;
 
-  //  A throw here must not propagate into this call, since it may run
-  //  directly on a Papyrus-invoking thread.
   fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
       [](TrustAdminRequestResult) {
         throw std::runtime_error("onResult failed");
       });
+  //  Even an immediate, no-connection outcome is delivered through the
+  //  game-thread dispatch, not invoked directly here -- its exception must
+  //  be contained once that dispatch is drained.
+  REQUIRE_NOTHROW(fixture.marshaller.RunAllPending());
 }
 
 TEST_CASE("AdapterIpcSession ignores a trust-admin result with no matching "
@@ -2344,8 +2424,8 @@ TEST_CASE("AdapterIpcSession closes the connection on a trust-admin result "
 }
 
 TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
-          "synchronously with kTimedOut when disconnect ends the connection "
-          "while the request is outstanding") {
+          "kTimedOut, once the game thread runs its callback, when "
+          "disconnect ends the connection while the request is outstanding") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -2359,6 +2439,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
 
   fixture.session.HandleDisconnected();
 
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   //  Already sent when the connection ended, so its submission to the host
@@ -2366,9 +2447,9 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
-TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
-          "synchronously with kTimedOut when logical closing ends the "
-          "connection while the request is outstanding") {
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback delivers "
+          "kTimedOut, once the game thread runs its callback, when logical "
+          "closing ends the connection while the request is outstanding") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -2382,6 +2463,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback fires "
 
   fixture.session.HandleClosing();
 
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
@@ -2400,16 +2482,16 @@ TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
       [&fixture, invocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
-        //  Reentrant call requiring availableMutex_: if HandleClosing (via
-        //  CloseCurrentGenerationLocked) still held that mutex while
-        //  invoking this callback, this call would deadlock against itself
-        //  rather than returning.
+        //  Runs later, once the game-thread dispatch is drained -- entirely
+        //  outside HandleClosing's own call frame -- so this reentrant call
+        //  can never observe availableMutex_ still held by it.
         (void)fixture.session.IsHostAvailable();
       });
   REQUIRE(connection.Sent().size() == 1);
 
   fixture.session.HandleClosing();
 
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
 }
 
@@ -2426,16 +2508,16 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
       [&fixture, invocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
-        //  Reentrant call requiring availableMutex_: if HandleDisconnected
-        //  (via CloseCurrentGenerationLocked) still held that mutex while
-        //  invoking this callback, this call would deadlock against itself
-        //  rather than returning.
+        //  Runs later, once the game-thread dispatch is drained -- entirely
+        //  outside HandleDisconnected's own call frame -- so this reentrant
+        //  call can never observe availableMutex_ still held by it.
         (void)fixture.session.IsHostAvailable();
       });
   REQUIRE(connection.Sent().size() == 1);
 
   fixture.session.HandleDisconnected();
 
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
 }
 
@@ -2454,10 +2536,13 @@ TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
       [&fixture, invocationCount,
        reentrantInvocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
-        //  Reentrant call requiring availableMutex_ for its own admission
-        //  check: if HandleClosing still held that mutex here, this call
-        //  would deadlock instead of observing the generation already
-        //  closed and resolving synchronously with kUnavailable.
+        //  Runs later, once the game-thread dispatch is drained -- entirely
+        //  outside HandleClosing's own call frame -- so this reentrant call
+        //  can never observe availableMutex_ still held by it. It still
+        //  observes the generation already closed and resolves with
+        //  kUnavailable, itself delivered through another queued dispatch
+        //  that FakeAdapterTaskMarshaller::RunAllPending keeps draining
+        //  until no task remains.
         fixture.session.SendTrustAdminRequest(
             TrustAdminOperation::kHelp, std::nullopt, std::nullopt,
             std::nullopt,
@@ -2470,6 +2555,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing does not deadlock when its "
 
   fixture.session.HandleClosing();
 
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
   CHECK(reentrantInvocationCount->load() == 1);
   //  The reentrant call observed the generation already closed, so it never
@@ -2492,10 +2578,13 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
       [&fixture, invocationCount,
        reentrantInvocationCount](TrustAdminRequestResult) {
         invocationCount->fetch_add(1);
-        //  Reentrant call requiring availableMutex_ for its own admission
-        //  check: if HandleDisconnected still held that mutex here, this
-        //  call would deadlock instead of observing the generation already
-        //  closed and resolving synchronously with kUnavailable.
+        //  Runs later, once the game-thread dispatch is drained -- entirely
+        //  outside HandleDisconnected's own call frame -- so this reentrant
+        //  call can never observe availableMutex_ still held by it. It
+        //  still observes the generation already closed and resolves with
+        //  kUnavailable, itself delivered through another queued dispatch
+        //  that FakeAdapterTaskMarshaller::RunAllPending keeps draining
+        //  until no task remains.
         fixture.session.SendTrustAdminRequest(
             TrustAdminOperation::kHelp, std::nullopt, std::nullopt,
             std::nullopt,
@@ -2508,6 +2597,7 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected does not deadlock when its "
 
   fixture.session.HandleDisconnected();
 
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
   CHECK(reentrantInvocationCount->load() == 1);
   //  The reentrant call observed the generation already closed, so it never
@@ -2552,6 +2642,12 @@ TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
     //  not merely notify it.
   }
 
+  //  The destructor's own force-abandonment queues this result onto
+  //  marshaller -- a variable outside the destroyed session's own lifetime
+  //  -- rather than losing it; draining marshaller here, after the session
+  //  no longer exists, is the proof that the queued completion never
+  //  dereferences it.
+  marshaller.RunAllPending();
   //  A defined kTimedOut (from the destructor's own force-abandonment)
   //  rather than a crash or hang proves the destructor actually waited.
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
@@ -2611,7 +2707,8 @@ TEST_CASE("AdapterIpcSession's destructor safely waits for a "
   sendCall.get();
   destroyer.join();
 
-  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+  marshaller.WaitForPendingAndRunAll();
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
@@ -2648,18 +2745,19 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's admission is atomic "
   sendCall.get();
   closer.join();
 
-  //  A short wait, well inside SessionFixture's default 5-second
+  //  A bounded wait, well inside SessionFixture's default 5-second
   //  kTrustAdminRequestTimeout, proves this kTimedOut came from HandleClosing's
   //  own force-abandonment rather than the timeout coincidentally landing
   //  first.
-  REQUIRE(resultFuture.wait_for(std::chrono::seconds(1)) ==
+  fixture.marshaller.WaitForPendingAndRunAll();
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
 }
 
-TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves synchronously "
-          "with kUnavailable and sends nothing when HandleClosing has already "
-          "closed the generation") {
+TEST_CASE("AdapterIpcSession::SendTrustAdminRequest delivers kUnavailable "
+          "and sends nothing when HandleClosing has already closed the "
+          "generation") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -2672,6 +2770,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest resolves synchronously "
                                         std::nullopt, std::nullopt,
                                         std::nullopt, onResult);
 
+  fixture.marshaller.RunAllPending();
   REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kUnavailable);
@@ -2715,15 +2814,16 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's requests admitted "
   REQUIRE(connection.Sent().size() == 2);
 
   session.HandleClosing();
+  marshaller.RunAllPending();
 
   //  Each request's own captured future is tied to its own correlation id by
   //  construction (a distinct pending-map entry and callback per call): if
   //  the close path ever cross-delivered or dropped one, the corresponding
   //  future below would never become ready rather than merely carrying the
   //  wrong value.
-  REQUIRE(firstResultFuture.wait_for(std::chrono::seconds(1)) ==
+  REQUIRE(firstResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
-  REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(1)) ==
+  REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(firstResultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
   CHECK(secondResultFuture.get().outcome ==
@@ -2749,6 +2849,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's callback is never "
           .correlationId;
 
   fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
   CHECK(invocationCount->load() == 1);
 
   //  HandleDisconnected is a no-op for an already-closed generation (see
@@ -2780,6 +2881,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing abandons only the trust-admin "
   fixture.session.HandleMessage(IpcMessage{
       IpcTrustAdminResultMessage{.correlationId = firstCorrelationId,
                                  .resultText = "resolved-before-close"}});
+  fixture.marshaller.RunAllPending();
   REQUIRE(firstResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
 
@@ -2792,12 +2894,13 @@ TEST_CASE("AdapterIpcSession::HandleClosing abandons only the trust-admin "
   //  first must be left exactly as HandleMessage already resolved it, not
   //  re-abandoned or re-delivered.
   fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
 
   TrustAdminRequestResult firstResult = firstResultFuture.get();
   CHECK(firstResult.outcome == TrustAdminRequestOutcome::kCompleted);
   REQUIRE(firstResult.resultText.has_value());
   CHECK(*firstResult.resultText == "resolved-before-close");
-  REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(1)) ==
+  REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(secondResultFuture.get().outcome ==
         TrustAdminRequestOutcome::kTimedOut);
@@ -2826,7 +2929,9 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits exactly "
                                         std::nullopt, std::nullopt,
                                         std::nullopt, rejectedOnResult);
 
-  //  Rejected synchronously, at the bound, without sending a frame.
+  //  Rejected at the bound, sending nothing, once the game thread runs its
+  //  callback.
+  fixture.marshaller.RunAllPending();
   REQUIRE(rejectedResultFuture.wait_for(std::chrono::seconds(0)) ==
           std::future_status::ready);
   CHECK(rejectedResultFuture.get().outcome ==
@@ -2841,10 +2946,20 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest admits exactly "
   }
 }
 
-TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
-          "request merely because every outstanding one's map entry was "
-          "erased -- only once each one's own timeout worker actually "
-          "releases its slot") {
+TEST_CASE("AdapterIpcSession releases a timed-out trust-admin request's "
+          "capacity slot as soon as its timeout worker finishes, decoupled "
+          "from whether its queued game-thread completion has been drained "
+          "yet") {
+  //  Before the trust-admin completion dispatch fix, a request's callback
+  //  ran directly on its timeout worker's own thread, so the worker's
+  //  TrustAdminWaiterGuard could not destruct (and its slot could not
+  //  release) until that callback returned -- capacity release and callback
+  //  delivery were the same event. The fix decouples them: the worker now
+  //  only schedules the completion and returns immediately, so its slot
+  //  releases well before -- and regardless of -- whenever the queued
+  //  completion actually runs. This test proves that decoupling directly:
+  //  every request below times out, but none of their queued completions are
+  //  ever drained, and a new request is still admitted.
   FixedAdapterIpcPeerProofProvider peerProofProvider{
       {std::byte{9}, std::byte{8}, std::byte{7}}};
   AdapterIpcTarget target{
@@ -2859,7 +2974,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
   FakeAdapterPairingNotificationSink pairingNotificationSink;
   FakeAdapterIpcConnection connection;
   //  Short enough to keep this test fast: every request below is resolved by
-  //  its own timeout firing, not by HandleMessage, which matters below.
+  //  its own timeout firing, not by HandleMessage.
   AdapterIpcSession session(
       SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
       captureQueue, pairingNotificationSink, [] {},
@@ -2867,67 +2982,46 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest does not admit a new "
   session.AttachConnection(connection);
   Authenticate(session, connection, target);
 
-  //  Each of the kMaxPendingTrustAdminRequests callbacks below signals its
-  //  own entry, then blocks on a shared gate. Because every request times out
-  //  rather than being resolved by HandleMessage, its own timeout worker --
-  //  not this test's thread -- is what erases its pendingTrustAdminResults_
-  //  entry and invokes this callback, strictly before that same worker's
-  //  TrustAdminWaiterGuard can destruct and release its
-  //  activeTrustAdminWaiters_ slot. Blocking every one of them here therefore
-  //  holds every slot open deterministically with every map entry already
-  //  gone -- exactly the map-vs-waiter divergence the fix must close.
-  std::latch allEntered(kMaxPendingTrustAdminRequests);
-  std::promise<void> releaseGate;
-  std::shared_future<void> released = releaseGate.get_future().share();
+  std::vector<std::future<TrustAdminRequestResult>> resultFutures;
   for (std::size_t i = 0; i < kMaxPendingTrustAdminRequests; ++i) {
-    session.SendTrustAdminRequest(
-        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
-        [&allEntered, released](TrustAdminRequestResult) {
-          allEntered.count_down();
-          released.wait();
-        });
-  }
-  REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
-
-  allEntered.wait();
-
-  //  Every map entry is gone, but no slot has been released yet: under the
-  //  old pendingTrustAdminResults_.size()-based check this would be wrongly
-  //  admitted. The fix must still reject it, sending nothing.
-  auto [rejectedOnResult, rejectedResultFuture] = CaptureTrustAdminResult();
-  session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
-                                std::nullopt, std::nullopt, rejectedOnResult);
-  REQUIRE(rejectedResultFuture.wait_for(std::chrono::seconds(0)) ==
-          std::future_status::ready);
-  CHECK(rejectedResultFuture.get().outcome ==
-        TrustAdminRequestOutcome::kUnavailable);
-  //  Each of the kMaxPendingTrustAdminRequests timed-out requests above also
-  //  sent its own best-effort cancellation by the time allEntered.wait()
-  //  returned, so the baseline is double the admitted count, not merely it.
-  std::size_t baselineSentCount = 2 * kMaxPendingTrustAdminRequests;
-  CHECK(connection.Sent().size() == baselineSentCount);
-
-  releaseGate.set_value();
-
-  //  Once released, each blocked callback returns with no further blocking
-  //  call before its own worker's guard destructs, so polling (rather than
-  //  sleeping a fixed guess) reliably observes a freed slot well within this
-  //  bound.
-  bool admitted = false;
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-  while (std::chrono::steady_clock::now() < deadline) {
     auto [onResult, resultFuture] = CaptureTrustAdminResult();
     session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
                                   std::nullopt, std::nullopt, onResult);
-    if (connection.Sent().size() > baselineSentCount) {
-      admitted = true;
-      break;
-    }
+    resultFutures.push_back(std::move(resultFuture));
+  }
+  REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
+
+  //  Waits for every one of the kMaxPendingTrustAdminRequests timeout workers
+  //  to have scheduled its completion -- proving each one has already erased
+  //  its map entry, notified, and let its own TrustAdminWaiterGuard destruct
+  //  -- without running any of those scheduled completions.
+  marshaller.WaitForPendingCountAtLeast(kMaxPendingTrustAdminRequests);
+  for (auto &resultFuture : resultFutures) {
+    CHECK(resultFuture.wait_for(std::chrono::seconds(0)) !=
+          std::future_status::ready);
+  }
+
+  //  Every slot is already released, even though not one completion above
+  //  has been delivered yet: admitted, not rejected. Each of the
+  //  kMaxPendingTrustAdminRequests timed-out requests also already sent its
+  //  own best-effort cancellation by this point, so the baseline is double
+  //  the admitted count, not merely it.
+  std::size_t baselineSentCount = 2 * kMaxPendingTrustAdminRequests;
+  auto [onResult, resultFuture] = CaptureTrustAdminResult();
+  session.SendTrustAdminRequest(TrustAdminOperation::kHelp, std::nullopt,
+                                std::nullopt, std::nullopt, onResult);
+  REQUIRE(connection.Sent().size() == baselineSentCount + 1);
+
+  marshaller.RunAllPending();
+  for (auto &resultFuture : resultFutures) {
     REQUIRE(resultFuture.wait_for(std::chrono::seconds(0)) ==
             std::future_status::ready);
-    std::this_thread::yield();
+    CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kTimedOut);
   }
-  CHECK(admitted);
+  //  The newly admitted request resolves on its own, later timeout; not
+  //  cross-delivered with any of the earlier batch.
+  CHECK(resultFuture.wait_for(std::chrono::seconds(0)) !=
+        std::future_status::ready);
 }
 
 TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "
@@ -2963,16 +3057,17 @@ TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "
   REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
   session.reset();
+  marshaller.RunAllPending();
 
   for (auto &future : resultFutures) {
-    REQUIRE(future.wait_for(std::chrono::seconds(1)) ==
+    REQUIRE(future.wait_for(std::chrono::seconds(0)) ==
             std::future_status::ready);
     CHECK(future.get().outcome == TrustAdminRequestOutcome::kTimedOut);
   }
 }
 
-TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
-          "onResult throws when rejecting a request at the "
+TEST_CASE("AdapterIpcSession contains an exception onResult throws, once "
+          "the game thread runs it, when rejecting a request at the "
           "outstanding-request bound") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
@@ -2986,11 +3081,14 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest contains an exception "
   }
   REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
-  REQUIRE_NOTHROW(fixture.session.SendTrustAdminRequest(
+  fixture.session.SendTrustAdminRequest(
       TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
       [](TrustAdminRequestResult) {
         throw std::runtime_error("onResult failure");
-      }));
+      });
+  //  The rejection callback only actually runs, and could only actually
+  //  throw, once the game-thread dispatch is drained.
+  REQUIRE_NOTHROW(fixture.marshaller.RunAllPending());
 }
 
 TEST_CASE("AdapterIpcSession::HandleClosing resolves every outstanding "
@@ -3012,9 +3110,10 @@ TEST_CASE("AdapterIpcSession::HandleClosing resolves every outstanding "
   REQUIRE(connection.Sent().size() == kMaxPendingTrustAdminRequests);
 
   fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
 
   for (auto &future : resultFutures) {
-    REQUIRE(future.wait_for(std::chrono::seconds(1)) ==
+    REQUIRE(future.wait_for(std::chrono::seconds(0)) ==
             std::future_status::ready);
     CHECK(future.get().outcome == TrustAdminRequestOutcome::kTimedOut);
   }

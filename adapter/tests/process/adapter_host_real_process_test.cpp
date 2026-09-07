@@ -32,10 +32,12 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -49,9 +51,14 @@ using dovahlink::adapter::dispatch::AdapterNativeDispatcher;
 using dovahlink::adapter::identity::AdapterInstanceIdGenerator;
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcSession;
+using dovahlink::adapter::ipc::AdapterIpcTarget;
 using dovahlink::adapter::ipc::IpcFrameCodec;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider;
+using dovahlink::adapter::ipc::TrustAdminListScope;
+using dovahlink::adapter::ipc::TrustAdminOperation;
+using dovahlink::adapter::ipc::TrustAdminRequestOutcome;
+using dovahlink::adapter::ipc::TrustAdminRequestResult;
 using dovahlink::adapter::ipc::WinsockAdapterIpcSocket;
 using dovahlink::adapter::process::AdapterHostEndpoint;
 using dovahlink::adapter::process::AdapterHostSupervisor;
@@ -633,6 +640,129 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
   CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
   supervisor.reset();
+}
+
+///  Drives the real native `AdapterIpcSession`/`AdapterIpcConnection` pair
+///  through a full Hello/HelloAck handshake against a real launched
+///  `DovahLink.Host.exe`, connecting directly to the endpoint
+///  `Win32AdapterHostProcessLauncher::Launch` already returns rather than
+///  discovering it through a supervisor or rendezvous file -- this test is
+///  concerned only with proving the private IPC wire agreement, not
+///  discovery. Blocks the calling thread by construction, not by polling: the
+///  fixture's task marshaller runs every game-thread dispatch inline, so no
+///  Skyrim game-thread stand-in is needed to observe results.
+class RealHostFixture {
+public:
+  ///  Launches a real host under a fresh, uniquely marked owner-lifetime id,
+  ///  then connects and authenticates a real native session against it.
+  explicit RealHostFixture(std::byte ownerLifetimeMarker)
+      : hostExecutable_(DOVAHLINK_HOST_EXECUTABLE),
+        ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
+        launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
+        session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
+                 taskMarshaller_, dispatcher_, captureQueue_,
+                 pairingNotificationSink_),
+        connection_(
+            connectionSocket_, codec_,
+            dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
+                .onTargetConnected =
+                    [this](const AdapterIpcTarget &target) {
+                      session_.HandleConnected(target);
+                    },
+                .onMessageReceived =
+                    [this](const IpcMessage &message) {
+                      return session_.HandleMessage(message);
+                    },
+                .onDecodeFailure = [this] { session_.HandleDecodeFailure(); },
+                .onDisconnected = [this] { session_.HandleDisconnected(); },
+                .onAttemptFinished =
+                    [](std::uint64_t,
+                       dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) {},
+            }) {
+    if (!std::filesystem::exists(hostExecutable_)) {
+      throw std::runtime_error("DovahLink.Host.exe was not found at " +
+                               hostExecutable_.string());
+    }
+
+    auto endpoint = launcher_.Launch();
+    if (!endpoint.has_value()) {
+      throw std::runtime_error("Unable to launch a real Host process.");
+    }
+
+    session_.AttachConnection(connection_);
+    connection_.ConfigureTarget(
+        AdapterIpcTarget{.port = endpoint->port,
+                         .proofToken = endpoint->proofToken,
+                         .hostProofKey = endpoint->hostProofKey,
+                         .targetGeneration = 1});
+    connection_.Start();
+
+    if (!WaitUntil([this] { return session_.IsHostAvailable(); },
+                   std::chrono::seconds(10))) {
+      throw std::runtime_error(
+          "The real host never completed Hello/HelloAck authentication.");
+    }
+  }
+
+  ~RealHostFixture() {
+    connection_.Stop();
+    launcher_.AwaitExitOrTerminate(std::chrono::seconds(5));
+  }
+
+  RealHostFixture(const RealHostFixture &) = delete;
+  RealHostFixture &operator=(const RealHostFixture &) = delete;
+
+  ///  The authenticated session under test.
+  AdapterIpcSession &Session() { return session_; }
+
+private:
+  std::filesystem::path hostExecutable_;
+  std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
+      ownerLifetimeId_;
+  Win32AdapterHostProcessLauncher launcher_;
+  WinsockAdapterIpcSocket connectionSocket_{0};
+  IpcFrameCodec codec_;
+  ImmediateTaskMarshaller taskMarshaller_;
+  AdapterNativeDispatcher dispatcher_;
+  NoopCaptureQueue captureQueue_;
+  NoopPairingNotificationSink pairingNotificationSink_;
+  AdapterIpcSession session_;
+  AdapterIpcConnection connection_;
+};
+
+TEST_CASE("a real native adapter completes a trust-admin List request "
+          "against a real launched Host, decoding its typed result",
+          "[process][integration]") {
+  //  Proves the actual C++ and C# TrustAdminOperation/TrustAdminListScope
+  //  wire encodings agree, and that IpcTrustAdminRequestMessage's
+  //  correlation id round-trips through a real Host's real handler and back
+  //  into IpcTrustAdminResultMessage -- the cross-language ABI proof gap a
+  //  same-process fake Host peer cannot close. The real Host's own trust
+  //  store is a real DPAPI-backed store, not test-isolated per owner-lifetime
+  //  id (that identity is only this test's process-launch/rendezvous
+  //  scope), so this deliberately does not assert its content -- only that a
+  //  well-formed, correctly correlated result decodes back.
+  RealHostFixture fixture(std::byte{0xE5});
+
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kList, TrustAdminListScope::kAll, std::nullopt,
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  CHECK_FALSE(result.resultText->empty());
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(R"(^(No known devices\.|\d+ known devices?:))")));
 }
 
 TEST_CASE("a rendezvous port occupied by another process falls back to a "

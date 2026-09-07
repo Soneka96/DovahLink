@@ -269,6 +269,79 @@ public class ProgramCompositionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Stress-races a public client's connect/hello/authentication exactly against
+    /// <see cref="global::Program.ComposeAndRunAsync"/>'s own shutdown across many iterations, so
+    /// the exact interleaving varies from run to run rather than being fixed by a single coordinated
+    /// delay. Proves shutdown never deadlocks regardless of exactly when it lands relative to
+    /// admission, and that a racing client always observes one of exactly two well-defined outcomes
+    /// -- a completed <c>hello_ack</c>, or the connection ending -- never a hang.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_ShutdownRacingPublicHelloAdmission_NeverDeadlocksAndClientNeverHangs()
+    {
+        const int iterations = 10;
+        for (int iteration = 0; iteration < iterations; iteration++)
+        {
+            using var shutdown = new CancellationTokenSource();
+            var output = new StringWriter();
+
+            Task<int> runTask = global::Program.ComposeAndRunAsync(
+                UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+            await WaitUntilAsync(() => output.ToString().Contains("PUBLICPORT "), runTask);
+            int publicPort = int.Parse(output.ToString().Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
+
+            var codec = new PublicEnvelopeCodec();
+            using var clientWebSocket = new ClientWebSocket();
+            Task connectAndHelloTask = ConnectAndAwaitHelloOutcomeAsync(clientWebSocket, publicPort, codec);
+
+            // No coordinated delay: shutdown fires as soon as the connect/hello race is launched, so
+            // successive iterations naturally vary which side of the admission window it lands on.
+            shutdown.Cancel();
+
+            // Neither side may hang, regardless of how they interleaved on this iteration.
+            await connectAndHelloTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, await runTask.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+    }
+
+    /// <summary>
+    /// Connects, sends an unpaired <c>hello</c>, and awaits exactly one well-defined outcome for
+    /// <see cref="ComposeAndRunAsync_ShutdownRacingPublicHelloAdmission_NeverDeadlocksAndClientNeverHangs"/>:
+    /// a decoded <c>hello_ack</c> response, or the connection ending (refused, closed, or faulted)
+    /// before one arrives, at any point from the initial connect onward. Any other observation --
+    /// in particular hanging past the caller's own bounded wait -- fails this method's caller
+    /// instead.
+    /// </summary>
+    private static async Task ConnectAndAwaitHelloOutcomeAsync(ClientWebSocket clientWebSocket, int port, PublicEnvelopeCodec codec)
+    {
+        try
+        {
+            await clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+            byte[] hello = codec.Encode(
+                PublicMessageType.Hello, "hello-1", null, null, null, null,
+                new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+            await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+
+            var buffer = new byte[4096];
+            WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                // The connection closed instead of admitting: also well-defined.
+                return;
+            }
+
+            Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? envelope));
+            Assert.Equal(PublicMessageType.HelloAck, envelope!.MessageType);
+        }
+        catch (Exception exception) when (exception is WebSocketException or SocketException or IOException or OperationCanceledException)
+        {
+            // The listener or connection ended because the racing shutdown landed first, at whatever
+            // point in the exchange it happened to land: also well-defined.
+        }
+    }
+
     /// <summary>Builds a unique owner-lifetime-id per test, so parallel and repeated test runs never collide over the same rendezvous file or named event.</summary>
     private static OwnerLifetimeId UniqueOwnerLifetimeId() =>
         new((uint)Random.Shared.Next(), (ulong)Random.Shared.NextInt64());

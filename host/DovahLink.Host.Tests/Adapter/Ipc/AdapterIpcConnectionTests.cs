@@ -1692,6 +1692,42 @@ public class AdapterIpcConnectionTests
     }
 
     /// <summary>
+    /// Verifies that a cancellation naming a correlation id that was never admitted as a trust-admin
+    /// request -- not merely one already completed -- is a harmless no-op: it neither disturbs a
+    /// genuinely outstanding, differently correlated request nor closes the connection as a protocol
+    /// violation, matching an unrecognized correlation id's treatment everywhere else in this
+    /// contract.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelMessage_UnknownTrustAdminCorrelationId_IsHarmlessNoOpAndDoesNotDisturbAnOutstandingRequest()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession { HandleTrustAdminRequestOverride = (_, _) => gate.Task };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+
+        // 999 was never admitted at all -- not this connection's own correlation id 1, and not a
+        // stale id from an already-completed request either.
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(999)));
+
+        gate.SetResult("still outstanding");
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.Equal("still outstanding", result.ResultText);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Verifies that disconnecting while a trust-admin request's dispatch is still outstanding
     /// cancels it, so it does not keep running unbounded past this connection's own teardown.
     /// </summary>
@@ -1727,7 +1763,84 @@ public class AdapterIpcConnectionTests
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        await cancelledSignal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // Teardown now awaits every outstanding trust-admin dispatch actually finishing (bounded by
+        // Constants.TrustAdminTeardownDrainTimeout) before RunAsync itself completes, not merely
+        // requesting cancellation and moving on: this handler observes cancellation synchronously as
+        // part of that Cancel() call, so by the time runTask is done, cancelledSignal is already set.
+        Assert.True(cancelledSignal.Task.IsCompleted);
+    }
+
+    /// <summary>
+    /// Verifies that a trust-admin handler which ignores its <see cref="CancellationToken"/> --
+    /// never observing it, never completing -- does not block this connection's teardown past
+    /// <see cref="Constants.TrustAdminTeardownDrainTimeout"/>: teardown still completes, abandoning
+    /// the still-running dispatch rather than waiting for it forever.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_DisconnectWhileTrustAdminHandlerIgnoresCancellation_TeardownStillCompletesWithinBound()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var neverCompletes = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            // Deliberately does not register on cancellationToken at all: this Task never completes
+            // on its own and never observes cancellation, modeling a handler that violates
+            // IAdapterTrustAdminRequestHandler.HandleAsync's documented cancellation contract.
+            HandleTrustAdminRequestOverride = (_, _) => neverCompletes.Task,
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+
+        client.Dispose();
+        // A generous margin over TrustAdminTeardownDrainTimeout: teardown must complete on its own
+        // bound, not hang until this outer timeout forces a test failure instead.
+        await runTask.WaitAsync(Constants.TrustAdminTeardownDrainTimeout + TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a trust-admin handler throwing an exception other than
+    /// <see cref="OperationCanceledException"/> -- violating <see cref="IAdapterTrustAdminRequestHandler"/>'s
+    /// documented contract of sanitizing every expected failure into a formatted result -- is
+    /// contained rather than left to fault the request's dispatch task or crash the connection: a
+    /// controlled result reaches the adapter and the connection keeps serving other requests.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_TrustAdminHandlerThrows_SendsControlledResultAndKeepsServing()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandleTrustAdminRequestOverride = (_, _) => throw new InvalidOperationException("handler bug"),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(1UL, result.CorrelationId);
+        Assert.False(string.IsNullOrEmpty(result.ResultText));
+
+        // The connection is still alive and able to serve a second request, proving the earlier
+        // handler exception never faulted anything this connection depends on.
+        await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(2, TrustAdminOperation.Help)));
+        var secondResult = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
+        Assert.Equal(2UL, secondResult.CorrelationId);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>

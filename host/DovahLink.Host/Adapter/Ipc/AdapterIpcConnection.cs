@@ -105,12 +105,12 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     private readonly object pendingTrustAdminRequestsGate = new();
 
     /// <summary>
-    /// The cancellation source for each trust-admin request currently admitted and not yet finished
-    /// dispatching, keyed by its correlation id. An entry's absence means the request was never
-    /// admitted, or its own dispatch has already finished handling it -- including writing its
-    /// reply, being cancelled, or being abandoned by this connection's own teardown.
+    /// Each trust-admin request currently admitted and not yet finished dispatching, keyed by its
+    /// correlation id. An entry's absence means the request was never admitted, or its own dispatch
+    /// has already finished handling it -- including writing its reply, being cancelled, or being
+    /// abandoned by this connection's own teardown.
     /// </summary>
-    private readonly Dictionary<ulong, CancellationTokenSource> pendingTrustAdminRequests = [];
+    private readonly Dictionary<ulong, TrustAdminDispatch> pendingTrustAdminRequests = [];
 
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
@@ -158,7 +158,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             outbound.Writer.TryComplete();
             session.HandleDisconnected();
             FailAllPendingPairingDisplayAcks();
-            CancelAllPendingTrustAdminRequests();
+            await CancelAndDrainPendingTrustAdminRequestsAsync().ConfigureAwait(false);
             bool forceClose = cancellationToken.IsCancellationRequested ||
                 ioCancellation.IsCancellationRequested ||
                 inboundRateLimitExceeded ||
@@ -485,10 +485,14 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                     request.CorrelationId, "Too many trust-administration requests in progress. Try again shortly."));
             }
 
-            pendingTrustAdminRequests[request.CorrelationId] = requestCancellation;
+            // Started while still holding this gate, not after releasing it: RunTrustAdminRequestAsync's
+            // own explicit yield (see its documentation) guarantees none of its body can run before this
+            // call returns the Task below, so the entry below is always in place before that body's
+            // finally block could ever look for it, with no window for the two to race.
+            Task dispatchTask = RunTrustAdminRequestAsync(request, requestCancellation);
+            pendingTrustAdminRequests[request.CorrelationId] = new TrustAdminDispatch(requestCancellation, dispatchTask);
         }
 
-        _ = RunTrustAdminRequestAsync(request, requestCancellation);
         return AdapterIpcOutcome.None;
     }
 
@@ -500,11 +504,15 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <see cref="IpcCancelMessage"/> targeting its exact correlation id) is dropped silently,
     /// matching the private IPC contract's own "cancelling a request... is a harmless no-op"
     /// framing: the adapter that requested the cancellation has already stopped waiting for a
-    /// reply. Always crosses an explicit asynchronous scheduling boundary before invoking the
-    /// handler, so no handler code -- including synchronous work preceding the handler's own first
-    /// suspension point -- ever runs on the caller's thread; <see cref="DispatchTrustAdminRequest"/>
-    /// depends on that guarantee to admit this request without awaiting its dispatch from the
-    /// private IPC read loop.
+    /// reply. Contains every other exception the handler throws instead of letting this task fault:
+    /// <see cref="TrustAdminDispatch.Completion"/> documents that guarantee, which
+    /// <see cref="CancelAndDrainPendingTrustAdminRequestsAsync"/> depends on to await every
+    /// outstanding dispatch without a misbehaving handler's exception escaping teardown. Always
+    /// crosses an explicit asynchronous scheduling boundary before invoking the handler, so no
+    /// handler code -- including synchronous work preceding the handler's own first suspension
+    /// point -- ever runs on the caller's thread; <see cref="DispatchTrustAdminRequest"/> depends on
+    /// that guarantee to admit this request without awaiting its dispatch from the private IPC read
+    /// loop.
     /// </summary>
     /// <param name="request">The admitted request.</param>
     /// <param name="requestCancellation">This request's own cancellation source.</param>
@@ -525,6 +533,17 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             }
             catch (OperationCanceledException)
             {
+                return;
+            }
+            catch (Exception)
+            {
+                // The handler is expected to have already sanitized any infrastructure or persistence
+                // failure into a formatted result; reaching this catch means it did not. Reported to
+                // the adapter as a controlled failure rather than left to time out with no host-side
+                // signal, and contained here rather than left to fault this task, which this
+                // connection's teardown depends on never happening (see this method's own summary).
+                outbound.Writer.TryWrite(codec.Encode(new IpcTrustAdminResultMessage(
+                    request.CorrelationId, "Internal error processing the trust-administration request.")));
                 return;
             }
 
@@ -549,15 +568,15 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <param name="correlationId">The correlation id an inbound <see cref="IpcCancelMessage"/> named.</param>
     private void TryCancelPendingTrustAdminRequest(ulong correlationId)
     {
-        CancellationTokenSource? requestCancellation;
+        TrustAdminDispatch? dispatch;
         lock (pendingTrustAdminRequestsGate)
         {
-            pendingTrustAdminRequests.TryGetValue(correlationId, out requestCancellation);
+            pendingTrustAdminRequests.TryGetValue(correlationId, out dispatch);
         }
 
         try
         {
-            requestCancellation?.Cancel();
+            dispatch?.Cancellation.Cancel();
         }
         catch (ObjectDisposedException)
         {
@@ -567,29 +586,53 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <summary>
-    /// Cancels every trust-admin request still admitted, so none of them keep this connection's
-    /// dispatch work outstanding past its own teardown. Does not itself remove or dispose their
-    /// entries: each request's own <see cref="RunTrustAdminRequestAsync"/> continuation still does
-    /// that exactly once, whether it observes this cancellation or finishes some other way first.
+    /// Cancels every trust-admin request still admitted, then waits up to
+    /// <see cref="Constants.TrustAdminTeardownDrainTimeout"/> for all of their dispatches to
+    /// actually finish, so none of them keep running unobserved past this connection's own
+    /// teardown. A dispatch whose handler does not honor cancellation within that bound is left
+    /// running rather than blocking teardown indefinitely; it still cannot write a reply to this
+    /// connection afterward, since <see cref="RunAsync"/> disposes <see cref="stream"/> once this
+    /// method returns and <see cref="RunTrustAdminRequestAsync"/>'s own <c>TryWrite</c> to the
+    /// already-completed <see cref="outbound"/> channel is silently ignored. Does not itself remove
+    /// or dispose any entry: each request's own <see cref="RunTrustAdminRequestAsync"/> continuation
+    /// still does that exactly once, whether it observes this cancellation, the drain timeout, or
+    /// finishes some other way first.
     /// </summary>
-    private void CancelAllPendingTrustAdminRequests()
+    private async Task CancelAndDrainPendingTrustAdminRequestsAsync()
     {
-        List<CancellationTokenSource> requestCancellations;
+        List<TrustAdminDispatch> dispatches;
         lock (pendingTrustAdminRequestsGate)
         {
-            requestCancellations = [.. pendingTrustAdminRequests.Values];
+            dispatches = [.. pendingTrustAdminRequests.Values];
         }
 
-        foreach (CancellationTokenSource requestCancellation in requestCancellations)
+        foreach (TrustAdminDispatch dispatch in dispatches)
         {
             try
             {
-                requestCancellation.Cancel();
+                dispatch.Cancellation.Cancel();
             }
             catch (ObjectDisposedException)
             {
                 // Best-effort: see TryCancelPendingTrustAdminRequest's identical race for why.
             }
+        }
+
+        if (dispatches.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            // Every Completion task is documented never to fault (see TrustAdminDispatch), so this
+            // await cannot itself throw except by timing out.
+            await Task.WhenAll(dispatches.Select(dispatch => dispatch.Completion))
+                .WaitAsync(Constants.TrustAdminTeardownDrainTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Left running; see this method's own summary for why that is safe.
         }
     }
 

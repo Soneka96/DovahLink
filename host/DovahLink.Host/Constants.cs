@@ -202,6 +202,17 @@ public static class Constants
     /// </summary>
     public const int MaxPendingTrustAdminRequests = 16;
 
+    /// <summary>
+    /// The maximum time <see cref="Adapter.Ipc.AdapterIpcConnection"/>'s teardown waits for every
+    /// still-admitted trust-admin request's own dispatch to finish after cancelling it, before
+    /// abandoning the wait and completing teardown anyway. Bounds teardown against a handler
+    /// implementation that does not honor its <see cref="CancellationToken"/> promptly, the same
+    /// way that connection's own graceful writer-drain wait already bounds its teardown against a
+    /// slow writer; a dispatch that outlives this bound is left to finish on its own rather than
+    /// blocking this connection's teardown indefinitely.
+    /// </summary>
+    public static readonly TimeSpan TrustAdminTeardownDrainTimeout = TimeSpan.FromSeconds(2);
+
     // ---- Process ----
 
     /// <summary>

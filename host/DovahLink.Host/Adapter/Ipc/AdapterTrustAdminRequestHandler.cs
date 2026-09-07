@@ -18,7 +18,13 @@ public interface IAdapterTrustAdminRequestHandler
     /// Handles one trust-administration request and returns its formatted result text. Propagates
     /// an <see cref="OperationCanceledException"/> from <paramref name="cancellationToken"/> firing
     /// rather than formatting it into a result: the caller uses that to distinguish a cancelled
-    /// request (which should be dropped silently) from a genuinely errored one.
+    /// request (which should be dropped silently) from a genuinely errored one. An implementation
+    /// must honor <paramref name="cancellationToken"/> promptly -- propagating it into every
+    /// downstream async call rather than only checking it once at entry -- since the owning
+    /// connection's teardown cancels this token and then waits only a bounded time for this call to
+    /// actually return before abandoning the wait and completing teardown anyway; an implementation
+    /// that ignores the token can keep running past that point with no further way for the host to
+    /// observe or bound it.
     /// </summary>
     /// <param name="request">The request to handle.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence writes.</param>

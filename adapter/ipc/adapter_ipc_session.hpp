@@ -84,10 +84,14 @@ public:
   ///  any bounded or
   ///  unbounded duration -- including the thread SKSE invokes a registered
   ///  Papyrus native function on -- so it is safe to call directly from a
-  ///  latent Papyrus function's initial callback. `onResult` may run
-  ///  synchronously on the calling thread (the immediate-failure cases), on
-  ///  this session's own timeout worker, or on the connection's
-  ///  inbound-message thread; it must not block or throw. Admission is
+  ///  latent Papyrus function's initial callback. `onResult` always runs on
+  ///  the game thread, exactly once, regardless of which thread resolves the
+  ///  request (the calling thread for an immediate outcome, this session's
+  ///  own timeout worker, or the connection's inbound-message thread) --
+  ///  `DispatchTrustAdminCompletion` marshals delivery there independently of
+  ///  this session's own lifetime, so a request resolved as this session is
+  ///  being destroyed still resumes its latent Papyrus script afterward. It
+  ///  must not block or throw. Admission is
   ///  atomic with `HandleClosing`'s own generation close: a call either
   ///  observes the current generation already closed and sends nothing, or
   ///  is admitted and sent while that generation is still open, in which
@@ -315,29 +319,29 @@ private:
   [[nodiscard]] std::vector<std::function<void(TrustAdminRequestResult)>>
   DetachPendingTrustAdminCallbacksLocked();
 
-  ///  Invokes every callback in `callbacks` with
+  ///  Delivers every callback in `callbacks`
   ///  `TrustAdminRequestOutcome::kTimedOut` (see `CloseCurrentGenerationLocked`
-  ///  for why), containing any exception each one throws, per
-  ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule.
+  ///  for why) through `DispatchTrustAdminCompletion`, so each one still
+  ///  resumes its latent Papyrus script on the game thread exactly once,
+  ///  regardless of which thread this connection-lifecycle callback runs on.
   ///  Must be called with neither `availableMutex_` nor `trustAdminMutex_`
-  ///  held, since a callback may run arbitrary external (including
-  ///  Papyrus-invoking) code.
+  ///  held.
   void InvokeAbandonedTrustAdminCallbacks(
       std::vector<std::function<void(TrustAdminRequestResult)>> callbacks);
 
   ///  Resolves one trust-administration request: if `correlationId` still
-  ///  has a pending entry, erases it and invokes its callback with `result`;
-  ///  otherwise a no-op (the request was already resolved by another path).
-  ///  Idempotent by construction, since exactly one caller ever observes the
-  ///  entry present, and safe to call from any thread without holding
-  ///  `availableMutex_` -- the callback it invokes therefore may run on
-  ///  whichever thread resolves this request first. A force-abandonment
+  ///  has a pending entry, erases it and delivers `result` to its callback
+  ///  through `DispatchTrustAdminCompletion`; otherwise a no-op (the request
+  ///  was already resolved by another path). Idempotent by construction,
+  ///  since exactly one caller ever observes the entry present, and safe to
+  ///  call from any thread without holding `availableMutex_` -- the request
+  ///  may be resolved by whichever thread reaches this call first, but its
+  ///  callback itself always runs on the game thread, exactly once, per
+  ///  `DispatchTrustAdminCompletion`'s own contract. A force-abandonment
   ///  sweep instead detaches its callbacks via
-  ///  `DetachPendingTrustAdminCallbacksLocked` and invokes them through
+  ///  `DetachPendingTrustAdminCallbacksLocked` and delivers them through
   ///  `InvokeAbandonedTrustAdminCallbacks`, so that sweep's own callback
-  ///  invocation never runs while `availableMutex_` is held. Contains any
-  ///  exception `result`'s callback throws, per
-  ///  `ai/context/skse/cpp-style.md`'s callback/worker-thread boundary rule.
+  ///  delivery never runs while `availableMutex_` is held.
   void ResolveTrustAdminRequest(std::uint64_t correlationId,
                                 TrustAdminRequestResult result);
 

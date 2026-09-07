@@ -2,6 +2,7 @@
 
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_hmac.hpp"
+#include "ipc/trust_admin_completion_dispatch.hpp"
 
 #include <algorithm>
 #include <type_traits>
@@ -167,13 +168,11 @@ void AdapterIpcSession::SendTrustAdminRequest(
   if (authenticationState_ != AuthenticationState::kAuthenticated ||
       connection_ == nullptr) {
     availableLock.unlock();
-    try {
-      onResult(TrustAdminRequestResult{TrustAdminRequestOutcome::kUnavailable,
-                                       std::nullopt});
-    } catch (...) {
-      //  Contained: onResult may run directly on a Papyrus-invoking thread
-      //  here, per ai/context/skse/cpp-style.md's callback boundary rule.
-    }
+    DispatchTrustAdminCompletion(
+        taskMarshaller_, std::move(onResult),
+        TrustAdminRequestResult{TrustAdminRequestOutcome::kUnavailable,
+                                std::nullopt},
+        [this] { ReportGameThreadDispatchRejected(); });
     return;
   }
 
@@ -205,12 +204,11 @@ void AdapterIpcSession::SendTrustAdminRequest(
   }
   if (atCapacity) {
     availableLock.unlock();
-    try {
-      onResult(TrustAdminRequestResult{TrustAdminRequestOutcome::kUnavailable,
-                                       std::nullopt});
-    } catch (...) {
-      //  Contained: see the unauthenticated-connection case above.
-    }
+    DispatchTrustAdminCompletion(
+        taskMarshaller_, std::move(onResult),
+        TrustAdminRequestResult{TrustAdminRequestOutcome::kUnavailable,
+                                std::nullopt},
+        [this] { ReportGameThreadDispatchRejected(); });
     return;
   }
 
@@ -331,14 +329,9 @@ void AdapterIpcSession::ResolveTrustAdminRequest(
     pendingTrustAdminResults_.erase(it);
   }
   trustAdminCondition_.notify_all();
-  try {
-    onResult(std::move(result));
-  } catch (...) {
-    //  Contained: onResult may run on this request's timeout worker, the
-    //  connection's inbound-message thread, or a Papyrus-invoking thread,
-    //  none of which may ever see an exception escape, per
-    //  ai/context/skse/cpp-style.md's callback/worker-thread boundary rule.
-  }
+  DispatchTrustAdminCompletion(taskMarshaller_, std::move(onResult),
+                               std::move(result),
+                               [this] { ReportGameThreadDispatchRejected(); });
 }
 
 AdapterIpcMessageDisposition
@@ -831,14 +824,13 @@ AdapterIpcSession::DetachPendingTrustAdminCallbacksLocked() {
 void AdapterIpcSession::InvokeAbandonedTrustAdminCallbacks(
     std::vector<std::function<void(TrustAdminRequestResult)>> callbacks) {
   for (auto &onResult : callbacks) {
-    try {
-      //  Already registered (and, barring a vanishingly narrow admission
-      //  race, already sent), so submission to the host cannot be ruled out.
-      onResult(TrustAdminRequestResult{TrustAdminRequestOutcome::kTimedOut,
-                                       std::nullopt});
-    } catch (...) {
-      //  Contained: see ResolveTrustAdminRequest's identical rule for why.
-    }
+    //  Already registered (and, barring a vanishingly narrow admission race,
+    //  already sent), so submission to the host cannot be ruled out.
+    DispatchTrustAdminCompletion(
+        taskMarshaller_, std::move(onResult),
+        TrustAdminRequestResult{TrustAdminRequestOutcome::kTimedOut,
+                                std::nullopt},
+        [this] { ReportGameThreadDispatchRejected(); });
   }
 }
 
