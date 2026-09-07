@@ -62,6 +62,26 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter stores the session "
   CHECK(source.find("ipc::AdapterIpcSession *g_session") == std::string::npos);
 }
 
+TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter stores the game-thread "
+          "marshaller behind its interface contract and sets it in the same "
+          "call that sets the session",
+          "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
+          "[structural]") {
+  std::string source = Source();
+
+  CHECK(source.find("runtime::IAdapterTaskMarshaller *g_marshaller") !=
+        std::string::npos);
+
+  std::size_t installStart =
+      source.find("void InstallAdapterTrustAdminPapyrusAdapter(");
+  REQUIRE(installStart != std::string::npos);
+  std::size_t setSession = source.find("g_session = &session;", installStart);
+  std::size_t setMarshaller =
+      source.find("g_marshaller = &marshaller;", installStart);
+  REQUIRE(setSession != std::string::npos);
+  REQUIRE(setMarshaller != std::string::npos);
+}
+
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter registers every "
           "DovahLinkAdmin function as latent and handles a missing or "
           "failed Papyrus interface",
@@ -252,13 +272,14 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's shared helpers "
   REQUIRE(digitsCheck != std::string::npos);
   REQUIRE(sendCall != std::string::npos);
   //  Bounded two-part find, starting only after sendCall: clang-format may
-  //  wrap RespondLatent's argument list onto its own line, so a single
-  //  literal spanning that break would fail the instant it reformats even
-  //  though the call itself is unchanged, and starting from sendCall (rather
-  //  than sendWithShortIdStart) skips the earlier, unrelated RespondLatent
-  //  call on the invalid-short-id rejection path above it.
+  //  wrap RespondLatentOnGameThread's argument list onto its own line, so a
+  //  single literal spanning that break would fail the instant it reformats
+  //  even though the call itself is unchanged, and starting from sendCall
+  //  (rather than sendWithShortIdStart) skips the earlier, unrelated
+  //  RespondLatentOnGameThread call on the invalid-short-id rejection path
+  //  above it.
   std::size_t returnLatentResult =
-      source.find("RespondLatent(a_vm, a_stackID,", sendCall);
+      source.find("RespondLatentOnGameThread(a_vm, a_stackID,", sendCall);
   REQUIRE(returnLatentResult != std::string::npos);
   CHECK(source.find("FormatResult(std::move(result), operation));",
                     returnLatentResult) != std::string::npos);
@@ -391,16 +412,39 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's List parses the "
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter resumes every latent "
           "response -- immediate rejection or SendTrustAdminRequest's "
-          "asynchronous result -- through one shared RespondLatent call site",
+          "asynchronous result -- through one shared game-thread-marshaling "
+          "call site, never a direct ReturnLatentResult call",
           "[papyrus][commonlib_adapter_trust_admin_papyrus_adapter]"
           "[structural]") {
   //  A single call site for RE::BSScript::IVirtualMachine::ReturnLatentResult
-  //  is itself part of this file's own proof that every response path
-  //  actually resumes its script exactly once, rather than each function
-  //  independently deciding how to unblock its caller.
+  //  (inside RespondLatent), reached only from a single call site for
+  //  RespondLatent itself (inside RespondLatentOnGameThread), is this file's
+  //  own proof that every response path -- an immediate local rejection this
+  //  adapter decides (unavailable session, invalid input, a synchronous
+  //  exception) as well as SendTrustAdminRequest's asynchronously delivered
+  //  result -- actually resumes its script exactly once, on the game thread,
+  //  rather than any call site deciding for itself whether marshaling is
+  //  needed. Regression coverage for the earlier design, where every
+  //  immediate local rejection called ReturnLatentResult directly on
+  //  whichever thread the Papyrus VM invoked the native function on.
   std::string source = Source();
 
   CHECK(CountOccurrences(source,
                          "a_vm->ReturnLatentResult(a_stackID, message);") == 1);
-  CHECK(CountOccurrences(source, "RespondLatent(a_vm, a_stackID,") >= 9);
+  CHECK(CountOccurrences(source, "RespondLatent(a_vm, a_stackID, message);") ==
+        1);
+  CHECK(CountOccurrences(source,
+                         "RespondLatentOnGameThread(a_vm, a_stackID,") >= 9);
+
+  //  RespondLatentOnGameThread's own definition is the sole caller of
+  //  RespondLatent, and schedules it through the shared game-thread seam
+  //  rather than invoking it inline.
+  std::size_t wrapperStart =
+      source.find("void RespondLatentOnGameThread(RE::BSScript::Internal::"
+                  "VirtualMachine *a_vm,");
+  REQUIRE(wrapperStart != std::string::npos);
+  CHECK(source.find("if (!g_marshaller)", wrapperStart) != std::string::npos);
+  CHECK(source.find("runtime::RunOnGameThreadOrReportFailure(", wrapperStart) !=
+        std::string::npos);
+  CHECK(source.find("*g_marshaller", wrapperStart) != std::string::npos);
 }

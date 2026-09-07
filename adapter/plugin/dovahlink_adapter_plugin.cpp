@@ -232,7 +232,8 @@ SKSEPluginInfo(
   session->AttachConnection(*connection);
 
   dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(*session);
-  dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(*session);
+  dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(
+      *session, *taskMarshaller);
 
   //  SKSE-QUIRK: see
   //  ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin

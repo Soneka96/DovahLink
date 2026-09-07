@@ -30,14 +30,11 @@ namespace dovahlink::adapter::ipc {
 ///  work: it must never be dropped merely because that unrelated bound is
 ///  currently saturated.
 ///
-///  If `marshaller.RunOnGameThread` itself fails to enqueue the task (an
-///  exception escapes it), `onResult` is never invoked on the calling thread
-///  as a fallback -- doing so would defeat the invariant this function
-///  exists to enforce. `onDispatchFailed` is called instead so the caller can
-///  report the failure; the latent script remains suspended. `marshaller`
-///  failing to accept a task at all reflects the underlying SKSE task
-///  interface itself being unable to function, a condition with no safe
-///  recovery short of leaving the script suspended.
+///  Delivers through `runtime::RunOnGameThreadOrReportFailure`, which owns
+///  the actual scheduling, exception containment, and dispatch-failure
+///  reporting mechanism -- see its own documentation for why `onResult` is
+///  never invoked on the calling thread as a fallback when `marshaller`
+///  itself fails to enqueue it.
 ///  @param marshaller Schedules the completion onto the game thread. Read
 ///  only at this call, not captured into the queued task.
 ///  @param onResult The trust-admin request's terminal callback. Invoked

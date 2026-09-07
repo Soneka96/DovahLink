@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ipc/adapter_ipc_session.hpp"
+#include "runtime/adapter_task_marshaller.hpp"
 
 namespace dovahlink::adapter::papyrus {
 
@@ -21,6 +22,16 @@ namespace dovahlink::adapter::papyrus {
 ///  are not.
 ///  @param session Session every command is forwarded through; must outlive
 ///  the Papyrus VM (in practice, the plugin's lifetime).
-void InstallAdapterTrustAdminPapyrusAdapter(ipc::IAdapterIpcSession &session);
+///  @param marshaller Schedules every latent function's terminal
+///  `ReturnLatentResult` call onto the game thread -- the one thread
+///  Skyrim's scripting VM supports -- for every outcome this adapter itself
+///  decides locally (an unavailable session, malformed input, or a
+///  synchronous exception), the same invariant `session`'s own
+///  `SendTrustAdminRequest`-originated outcomes already satisfy through
+///  `DispatchTrustAdminCompletion`. Must outlive the Papyrus VM, the same as
+///  `session`.
+void InstallAdapterTrustAdminPapyrusAdapter(
+    ipc::IAdapterIpcSession &session,
+    runtime::IAdapterTaskMarshaller &marshaller);
 
 } //  namespace dovahlink::adapter::papyrus
