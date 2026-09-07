@@ -56,7 +56,6 @@ using dovahlink::adapter::ipc::IpcTrustAdminRequestMessage;
 using dovahlink::adapter::ipc::IpcTrustAdminResultMessage;
 using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxPendingGameThreadDispatches;
-using dovahlink::adapter::ipc::kMaxPendingIpcCancellations;
 using dovahlink::adapter::ipc::kMaxPendingTrustAdminRequests;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::TrustAdminListScope;
@@ -855,11 +854,18 @@ TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
   Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(9, {std::byte{9}});
 
-  //  The host cancels correlation id 1 on the first generation. No matching
-  //  request is pending yet; HandleCancel still records the tombstone.
+  //  Genuinely admit and cancel correlation id 1 on the first generation --
+  //  a real registration exists in gameThreadDispatchCancellation_, not
+  //  merely an inbound cancellation for a correlation id nothing was ever
+  //  admitted under. Its own marshaled task never runs before disconnect.
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 9}}) ==
+        AdapterIpcMessageDisposition::kContinue);
   CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
             .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+  REQUIRE(fixture.marshaller.PendingCount() == 1);
 
   fixture.session.HandleDisconnected();
   fixture.session.HandleConnected(fixture.target);
@@ -867,13 +873,17 @@ TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
   Authenticate(fixture.session, connection, fixture.target);
 
   //  The new generation's host reuses correlation id 1 for an unrelated
-  //  request; the stale cancellation from the old generation must not apply.
+  //  request; the old generation's registration -- cleared by
+  //  CloseCurrentGenerationLocked -- must not apply to it.
   fixture.dispatcher.SetResult(7, {std::byte{1}});
   CHECK(fixture.session.HandleMessage(IpcMessage{
             IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
         AdapterIpcMessageDisposition::kContinue);
   fixture.marshaller.RunAllPending();
 
+  //  Only the new generation's dispatch ran; the old generation's own
+  //  marshaled task (still queued when it disconnected) self-rejected on its
+  //  generation check when the marshaller drained it.
   CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
   REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
   CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
@@ -1523,48 +1533,16 @@ TEST_CASE("AdapterIpcSession cancels only the listen-event request whose "
   CHECK(fixture.captureQueue.Enqueued().front().intentKey == 8);
 }
 
-TEST_CASE("AdapterIpcSession evicts the oldest pending cancellation once "
-          "more than the bound have been received") {
-  SessionFixture fixture;
-  FakeAdapterIpcConnection connection;
-  fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.target);
-  fixture.dispatcher.SetResult(7, {std::byte{1}});
-  fixture.dispatcher.SetResult(8, {std::byte{2}});
-
-  for (std::uint64_t correlationId = 1;
-       correlationId <= kMaxPendingIpcCancellations + 1; ++correlationId) {
-    fixture.session.HandleMessage(
-        IpcMessage{IpcCancelMessage{.correlationId = correlationId}});
-  }
-
-  //  Correlation id 1 was evicted to admit the
-  //  (kMaxPendingIpcCancellations + 1)th cancellation, so a request reusing
-  //  it now dispatches normally.
-  fixture.session.HandleMessage(
-      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
-  //  Correlation id (kMaxPendingIpcCancellations + 1) is still recorded, so
-  //  the matching request is cancelled.
-  fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
-      .correlationId = kMaxPendingIpcCancellations + 1, .eventKey = 8}});
-
-  fixture.marshaller.RunAllPending();
-
-  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
-}
-
-TEST_CASE("AdapterIpcSession's cancellation tombstone capacity is exactly "
-          "large enough that saturating the game-thread dispatch bound and "
-          "cancelling every one of them evicts none of them") {
-  //  kMaxPendingIpcCancellations is deliberately defined equal to
-  //  kMaxPendingGameThreadDispatches (see ipc_constants.hpp): at most that
-  //  many distinct correlation ids can ever be genuinely outstanding and
-  //  worth cancelling at once, so filling both to that exact same bound must
-  //  never evict a tombstone for a dispatch that is still actually queued.
-  //  This saturates both bounds simultaneously and proves every single one
-  //  of them is still cancelled, not merely most of them.
+TEST_CASE("AdapterIpcSession's cancellation state is tied to admitted "
+          "dispatches, so saturating the game-thread dispatch bound and "
+          "cancelling every one of them cancels all of them") {
+  //  Cancellation state lives in a map keyed by admitted correlation id
+  //  (see AdapterIpcSession::gameThreadDispatchCancellation_), not an
+  //  independently bounded tombstone history: its size is tied to
+  //  kMaxPendingGameThreadDispatches by construction, since only an actually
+  //  admitted dispatch can ever have an entry. This saturates the dispatch
+  //  bound and cancels every one of them, proving every single one is still
+  //  cancelled, not merely most of them.
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -1577,7 +1555,6 @@ TEST_CASE("AdapterIpcSession's cancellation tombstone capacity is exactly "
     fixture.dispatcher.SetResult(eventKey, {std::byte{1}});
   }
   REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
-  static_assert(kMaxPendingIpcCancellations == kMaxPendingGameThreadDispatches);
 
   for (std::uint64_t correlationId = 1;
        correlationId <= kMaxPendingGameThreadDispatches; ++correlationId) {
@@ -1587,11 +1564,115 @@ TEST_CASE("AdapterIpcSession's cancellation tombstone capacity is exactly "
 
   fixture.marshaller.RunAllPending();
 
-  //  None of the queued dispatches touched Skyrim-facing state: every single
-  //  cancellation survived without eviction, despite filling this deque to
-  //  exactly its capacity.
+  //  None of the queued dispatches touched Skyrim-facing state.
   CHECK(fixture.dispatcher.DispatchedKeys().empty());
   CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession's cancellation state is unaffected by a flood "
+          "of unknown correlation ids") {
+  //  Regression coverage for the FIFO-tombstone-history design this
+  //  replaced: an unknown correlation id used to consume the same bounded
+  //  eviction capacity as a genuine cancellation, so enough of them could
+  //  evict the tombstone for a still-queued dispatch before it ever ran.
+  //  Cancellation state is now a map keyed by admitted correlation id, so an
+  //  unknown id simply finds no entry to mark and never inserts one.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcCancelMessage{.correlationId = 1}});
+
+  //  Flood far more unknown cancellations than the old design's own eviction
+  //  bound, targeting correlation ids no dispatch was ever admitted under.
+  for (std::uint64_t correlationId = 1000;
+       correlationId < 1000 + 4 * kMaxPendingGameThreadDispatches;
+       ++correlationId) {
+    fixture.session.HandleMessage(
+        IpcMessage{IpcCancelMessage{.correlationId = correlationId}});
+  }
+
+  fixture.marshaller.RunAllPending();
+
+  //  Correlation id 1's genuine cancellation survived the flood.
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession's cancellation state is unaffected by a flood "
+          "of duplicate cancellations for the same correlation id") {
+  //  A sharper variant of the unknown-id flood: repeated cancellations for
+  //  the SAME still-pending correlation id must not grow the underlying
+  //  state at all (the map holds at most one entry per correlation id), so
+  //  duplicates can never crowd out an unrelated dispatch's own cancellation
+  //  either.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 2, .eventKey = 8}});
+
+  //  Repeatedly cancel correlation id 1 -- idempotent, and must never affect
+  //  correlation id 2's own, separate (and here, absent) cancellation state.
+  for (int i = 0; i < 4 * static_cast<int>(kMaxPendingGameThreadDispatches);
+       ++i) {
+    CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+              .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+  }
+
+  fixture.marshaller.RunAllPending();
+
+  //  Correlation id 1 stayed cancelled; correlation id 2 was never touched
+  //  and dispatched normally.
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{8});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 8);
+}
+
+TEST_CASE("AdapterIpcSession's cancellation registration is not leaked when "
+          "RunOnGameThread itself rejects the dispatch") {
+  //  ScheduleGameThreadDispatch registers a cancellable correlation id
+  //  before it knows whether the marshaler will actually accept the task;
+  //  if RunOnGameThread throws, the registration must be erased in the same
+  //  call rather than surviving to falsely mark a later, unrelated dispatch
+  //  that reuses the same correlation id as pre-cancelled.
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.target);
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  fixture.marshaller.ThrowOnNextSchedule();
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  REQUIRE(fixture.marshaller.PendingCount() == 0);
+
+  //  A cancellation for the failed dispatch's correlation id, arriving
+  //  after the fact, finds no registration and is a harmless no-op.
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
+
+  //  A later, unrelated dispatch reusing the same correlation id admits and
+  //  runs normally -- it is not treated as pre-cancelled by a leaked
+  //  registration from the failed admission above.
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
+  REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+  CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
 }
 
 TEST_CASE("AdapterIpcSession cancels a resynchronization request received "

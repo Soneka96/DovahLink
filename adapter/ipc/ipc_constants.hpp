@@ -40,30 +40,6 @@ inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 ///  the downstream capture queue can absorb has no benefit.
 inline constexpr std::size_t kMaxPendingGameThreadDispatches = 64;
 
-///  The maximum number of not-yet-consumed `IpcCancelMessage` correlation ids
-///  `AdapterIpcSession` remembers at once. Bounds memory growth from
-///  cancellations whose target request already finished, was dropped by a
-///  disconnect, or never arrived; the oldest entry is evicted to admit a new
-///  one past this capacity.
-///
-///  Deliberately equal to `kMaxPendingGameThreadDispatches`, not an
-///  independent value: every cancellable dispatch is one of that bound's own
-///  admitted entries, so at most `kMaxPendingGameThreadDispatches` distinct
-///  correlation ids can ever be genuinely outstanding and worth cancelling at
-///  once. Matching this capacity to that bound means the oldest-entry
-///  eviction above can never discard a tombstone for a dispatch that is
-///  still actually queued -- filling this deque to capacity from genuinely
-///  outstanding cancellations alone is only possible when every admitted
-///  dispatch has already been cancelled, at which point evicting the oldest
-///  one is harmless since a newer cancellation is arriving to replace it.
-///  Eviction remains reachable only from cancellations whose target already
-///  finished, was dropped, or never arrived -- messages this session's own
-///  mutually authenticated Host peer controls the volume of, the same trust
-///  boundary every other private-channel bound in this file already relies
-///  on. Keep these two values equal if either one is ever revised.
-inline constexpr std::size_t kMaxPendingIpcCancellations =
-    kMaxPendingGameThreadDispatches;
-
 //  ---- Connection ----
 
 ///  The absolute bound on one long-lived connection's pre-authentication
