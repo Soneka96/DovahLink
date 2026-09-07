@@ -86,16 +86,16 @@ public class ProgramCompositionTests
     {
         var ownerLifetimeId = UniqueOwnerLifetimeId();
         using var shutdown = new CancellationTokenSource();
-        var output = new StringWriter();
+        var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
             ownerLifetimeId, listenerPort: 0, output, new HostProcessLifetime(), shutdown);
-        await WaitUntilAsync(() => output.ToString().Contains("PORT "), runTask);
+        await WaitUntilAsync(() => output.Snapshot().Contains("PORT "), runTask);
 
         shutdown.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        string reported = output.ToString();
+        string reported = output.Snapshot();
         Assert.Matches(@"PORT \d+", reported);
         Assert.Matches("PROOF [0-9a-f]+", reported);
         Assert.Matches("HOSTPROOF [0-9a-f]+", reported);
@@ -110,7 +110,7 @@ public class ProgramCompositionTests
     {
         var ownerLifetimeId = UniqueOwnerLifetimeId();
         using var shutdown = new CancellationTokenSource();
-        var output = new StringWriter();
+        var output = new SynchronizedTextCapture();
         string rendezvousPath = Constants.RendezvousFilePath(ownerLifetimeId);
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
@@ -139,7 +139,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, new StringWriter(), new HostProcessLifetime(), shutdown);
+            UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown);
         Assert.False(runTask.IsCompleted);
 
         shutdown.Cancel();
@@ -155,7 +155,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            ownerLifetimeId, listenerPort: 0, new StringWriter(), new HostProcessLifetime(), shutdown);
+            ownerLifetimeId, listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown);
         Assert.False(runTask.IsCompleted);
 
         using var adapterSideHandle = new EventWaitHandle(
@@ -176,7 +176,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         await Assert.ThrowsAsync<SocketException>(() => global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), occupiedPort, new StringWriter(), new HostProcessLifetime(), shutdown));
+            UniqueOwnerLifetimeId(), occupiedPort, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown));
     }
 
     /// <summary>
@@ -193,7 +193,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         await Assert.ThrowsAsync<SocketException>(() => global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, new StringWriter(), new HostProcessLifetime(), shutdown,
+            UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,
             publicListenerPort: occupiedPort));
     }
 
@@ -202,17 +202,24 @@ public class ProgramCompositionTests
     public async Task ComposeAndRunAsync_NoPublicListenerPort_NeverReportsPublicPort()
     {
         using var shutdown = new CancellationTokenSource();
-        var output = new StringWriter();
+        var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
             UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown);
-        await WaitUntilAsync(() => output.ToString().Contains("PORT "), runTask);
+        await WaitUntilAsync(() => output.Snapshot().Contains("PORT "), runTask);
+
+        // Known limitation: proving PUBLICPORT is never written is proving a negative, and
+        // Program.cs exposes no cheaper completion signal for the omitted-listener path -- unlike
+        // the positive case, there is no later text marker to wait on, since starting the public
+        // listener (if this branch were ever wrongly taken) involves real async socket setup before
+        // it would write anything. This bounded margin gives that setup time to happen before the
+        // assertion below, rather than asserting immediately after "PORT " and risking a false pass.
         await Task.Delay(TimeSpan.FromMilliseconds(200));
 
         shutdown.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.DoesNotContain("PUBLICPORT", output.ToString());
+        Assert.DoesNotContain("PUBLICPORT", output.Snapshot());
     }
 
     /// <summary>
@@ -224,12 +231,13 @@ public class ProgramCompositionTests
     public async Task ComposeAndRunAsync_PublicListenerPortSupplied_AcceptsClientAndCompletesHelloAck()
     {
         using var shutdown = new CancellationTokenSource();
-        var output = new StringWriter();
+        var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
             UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
-        await WaitUntilAsync(() => output.ToString().Contains("PUBLICPORT "), runTask);
-        int publicPort = int.Parse(output.ToString().Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
+        await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
+        string rendezvous = output.Snapshot();
+        int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
 
         var codec = new PublicEnvelopeCodec();
         using var clientWebSocket = new ClientWebSocket();
@@ -259,14 +267,14 @@ public class ProgramCompositionTests
     public async Task ComposeAndRunAsync_MalformedTrustPersistence_FailsClosedWithoutStartingEitherListener()
     {
         using var shutdown = new CancellationTokenSource();
-        var output = new StringWriter();
+        var output = new SynchronizedTextCapture();
         var persistence = new FakeTrustStorePersistence { ThrowOnLoad = new InvalidDataException("corrupt") };
 
         await Assert.ThrowsAsync<InvalidDataException>(() => global::Program.ComposeAndRunAsync(
             UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
             publicListenerPort: 0, trustStorePersistence: persistence));
 
-        Assert.DoesNotContain("PORT", output.ToString());
+        Assert.DoesNotContain("PORT", output.Snapshot());
     }
 
     /// <summary>
@@ -279,7 +287,7 @@ public class ProgramCompositionTests
     public async Task ComposeAndRunAsync_TrustPersistenceLoadInProgress_NeitherListenerIsReportedUntilItCompletes()
     {
         using var shutdown = new CancellationTokenSource();
-        var output = new StringWriter();
+        var output = new SynchronizedTextCapture();
         var enteredLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var persistence = new FakeTrustStorePersistence
@@ -296,10 +304,10 @@ public class ProgramCompositionTests
             publicListenerPort: 0, trustStorePersistence: persistence);
         await enteredLoad.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(string.Empty, output.ToString());
+        Assert.Equal(string.Empty, output.Snapshot());
 
         releaseLoad.SetResult();
-        await WaitUntilAsync(() => output.ToString().Contains("PUBLICPORT "), runTask);
+        await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
 
         shutdown.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -324,7 +332,7 @@ public class ProgramCompositionTests
         for (int iteration = 0; iteration < iterations; iteration++)
         {
             using var shutdown = new CancellationTokenSource();
-            var output = new StringWriter();
+            var output = new SynchronizedTextCapture();
             SessionRegistry? sessionRegistry = null;
             PairingCoordinator? pairingCoordinator = null;
             var clientId = new ClientId(Guid.NewGuid());
@@ -336,8 +344,9 @@ public class ProgramCompositionTests
                     sessionRegistry = composedSessionRegistry;
                     pairingCoordinator = composedPairingCoordinator;
                 });
-            await WaitUntilAsync(() => output.ToString().Contains("PUBLICPORT "), runTask);
-            int publicPort = int.Parse(output.ToString().Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
+            await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
+            string rendezvous = output.Snapshot();
+            int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
 
             var codec = new PublicEnvelopeCodec();
             using var clientWebSocket = new ClientWebSocket();

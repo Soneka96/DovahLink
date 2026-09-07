@@ -162,14 +162,18 @@ public class AdapterNotificationIntegrationTests
     {
         var ownerLifetimeId = new OwnerLifetimeId((uint)Random.Shared.Next(), (ulong)Random.Shared.NextInt64());
         var shutdown = new CancellationTokenSource();
-        var output = new StringWriter();
+        var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
             ownerLifetimeId, listenerPort: 0, output, new HostProcessLifetime(), shutdown,
             publicListenerPort: 0, trustStorePersistence: trustStorePersistence);
-        await WaitUntilAsync(() => output.ToString().Contains("HOSTPROOF "), runTask);
+        // Waits for PUBLICPORT specifically, not HOSTPROOF: Program.cs writes PUBLICPORT last, after
+        // HOSTPROOF, so HOSTPROOF alone does not prove every line this helper parses below is present
+        // yet.
+        await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
 
-        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string rendezvous = output.Snapshot();
+        string[] lines = rendezvous.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         int adapterPort = int.Parse(lines.Single(line => line.StartsWith("PORT ")).Split(' ')[1]);
         int publicPort = int.Parse(lines.Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
         byte[] adapterProofToken = Convert.FromHexString(lines.Single(line => line.StartsWith("PROOF ")).Split(' ')[1]);
