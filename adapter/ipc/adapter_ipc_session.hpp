@@ -26,6 +26,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace dovahlink::adapter::ipc {
 
