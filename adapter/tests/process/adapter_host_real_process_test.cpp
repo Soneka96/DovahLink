@@ -1334,6 +1334,139 @@ TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
   CHECK(pairingStatus.find(R"("state":"unavailable")") != std::string::npos);
 }
 
+TEST_CASE("a real native adapter completes full pairing and a fresh "
+          "connection reconnects trusted with the issued credential, "
+          "without repeating pairing",
+          "[process][integration]") {
+  //  Extends the pairing-display E2E above past the code display this file
+  //  already proves, through the rest of the real cross-language pairing
+  //  contract: the code the real native adapter displayed is submitted back
+  //  as a real pairing_confirm, the real Host's real PairingCoordinator
+  //  issues a real credential, a real pairing_ack durably trusts it, and a
+  //  second, independent public connection presenting that exact credential
+  //  is admitted as `clientIdentityKind: "paired"` with no adapter
+  //  involvement at all -- proving trusted reconnect never depends on the
+  //  adapter being present. Closes the roadmap's "trusted reconnect" real
+  //  end-to-end requirement, previously only proven against a raw IPC stream
+  //  stand-in for the adapter (host/DovahLink.Host.Tests), never the real
+  //  native adapter binary that produces the displayed code here.
+  constexpr std::uint16_t kPublicListenerPort = 58431;
+  ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+      kPublicListenerPort);
+  RecordingPairingNotificationSink pairingSink;
+  RealHostFixture fixture(std::byte{0xEB}, &pairingSink);
+  const std::string clientId = "ebebebeb-ebeb-ebeb-ebeb-ebebebebebeb";
+
+  std::string sessionId;
+  std::string code;
+  std::string credential;
+  {
+    //  Scoped so the first client's socket -- and its admitted session --
+    //  closes before the reconnect below opens a second, independent
+    //  connection, proving reconnect never resumes or reuses this one.
+    MinimalPublicWebSocketClient client(kPublicListenerPort);
+    client.SendText(
+        R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+        R"("correlationId":null,"payload":{"endpoint":"client",)"
+        R"("clientId":")" +
+        clientId +
+        R"(","auth":{"method":"unpaired"}},"bridgeInstanceId":null,)"
+        R"("playContextId":null,"clientId":null})");
+    std::string helloAck = client.ReceiveText();
+    REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+    sessionId = ExtractJsonStringField(helloAck, "sessionId");
+    REQUIRE_FALSE(sessionId.empty());
+    std::string capabilities = client.ReceiveText();
+    REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+            std::string::npos);
+
+    client.SendText(
+        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{},)" +
+        R"("bridgeInstanceId":null,"playContextId":null,"clientId":")" +
+        clientId + R"("})");
+
+    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                      std::chrono::seconds(10)));
+    auto displayed = pairingSink.Displayed();
+    REQUIRE(displayed.size() == 1);
+    code = displayed.front().first;
+    REQUIRE_FALSE(code.empty());
+
+    std::string pairingStatus = client.ReceiveText();
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+
+    //  The code a human would read off their Skyrim screen -- never sent
+    //  over the public wire -- is exactly what the real native adapter was
+    //  just told to display.
+    client.SendText(
+        R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"code":")" + code +
+        R"(","displayName":"Native E2E PC"},"bridgeInstanceId":null,)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    std::string confirmOutcome = client.ReceiveText();
+    REQUIRE(confirmOutcome.find(R"("messageType":"pairing_outcome")") !=
+            std::string::npos);
+    REQUIRE(confirmOutcome.find(R"("outcome":"credential_issued")") !=
+            std::string::npos);
+    credential = ExtractJsonStringField(confirmOutcome, "credential");
+    REQUIRE_FALSE(credential.empty());
+
+    client.SendText(
+        R"({"messageType":"pairing_ack","messageId":"m4","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"credential":")" +
+        credential + R"("},"bridgeInstanceId":null,"playContextId":null,)" +
+        R"("clientId":")" + clientId + R"("})");
+    std::string ackOutcome = client.ReceiveText();
+    REQUIRE(ackOutcome.find(R"("messageType":"pairing_outcome")") !=
+            std::string::npos);
+    REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
+    REQUIRE(ExtractJsonStringField(ackOutcome, "credential") == credential);
+  }
+
+  //  A fresh connection presenting the exact credential just issued must be
+  //  admitted directly as trusted -- proving reconnect never requires
+  //  repeating the pairing flow above, or the adapter's own display/ack
+  //  round-trip -- opened only now that the first client (and its own
+  //  admitted session) has already gone out of scope above. A raw TCP
+  //  connect immediately following that first client's abrupt closesocket()
+  //  (no graceful WebSocket close handshake, unlike a real SDK client) can
+  //  briefly race the real Host's own accept-loop cleanup for the closed
+  //  connection; retried bounded rather than treated as a hard failure,
+  //  mirroring this file's own WaitUntil idiom for other bounded async
+  //  waits.
+  std::unique_ptr<MinimalPublicWebSocketClient> reconnectedClientPtr;
+  for (int attempt = 0; attempt < 20 && reconnectedClientPtr == nullptr;
+       ++attempt) {
+    try {
+      reconnectedClientPtr =
+          std::make_unique<MinimalPublicWebSocketClient>(kPublicListenerPort);
+    } catch (const std::exception &) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+  }
+  REQUIRE(reconnectedClientPtr != nullptr);
+  MinimalPublicWebSocketClient &reconnectedClient = *reconnectedClientPtr;
+  reconnectedClient.SendText(
+      R"({"messageType":"hello","messageId":"hello-reconnect-1",)"
+      R"("sessionId":null,"correlationId":null,"payload":{"endpoint":)"
+      R"("client","clientId":")" +
+      clientId + R"(","auth":{"method":"trusted_device_credential","token":")" +
+      credential +
+      R"("}},"bridgeInstanceId":null,"playContextId":null,"clientId":)"
+      R"(null})");
+  std::string reconnectHelloAck = reconnectedClient.ReceiveText();
+  REQUIRE(reconnectHelloAck.find(R"("messageType":"hello_ack")") !=
+          std::string::npos);
+  CHECK(reconnectHelloAck.find(R"("clientIdentityKind":"paired")") !=
+        std::string::npos);
+  //  A trusted reconnect is a fresh session, not a resumed one.
+  CHECK(ExtractJsonStringField(reconnectHelloAck, "sessionId") != sessionId);
+  std::string reconnectCapabilities = reconnectedClient.ReceiveText();
+  CHECK(reconnectCapabilities.find(R"("messageType":"capabilities")") !=
+        std::string::npos);
+}
+
 TEST_CASE("a rendezvous port occupied by another process falls back to a "
           "fresh host after the connection attempt fails",
           "[process][integration]") {
