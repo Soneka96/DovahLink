@@ -36,12 +36,12 @@ class ParseArgsTests(unittest.TestCase):
     """Tests for parse_args."""
 
     def test_parse_args_requires_every_argument(self) -> None:
-        """Verifies all three required arguments are enforced."""
+        """Verifies all four required arguments are enforced."""
         with self.assertRaises(SystemExit):
             parse_args([])
 
     def test_parse_args_parses_every_supplied_argument(self) -> None:
-        """Verifies every argument parses into its typed Path value."""
+        """Verifies every argument parses into its typed value."""
         args = parse_args(
             [
                 "--adapter-build-dir",
@@ -50,12 +50,31 @@ class ParseArgsTests(unittest.TestCase):
                 "publish",
                 "--package-dir",
                 "package",
+                "--configuration",
+                "Release",
             ]
         )
 
         self.assertEqual(args.adapter_build_dir, Path("build"))
         self.assertEqual(args.host_publish_dir, Path("publish"))
         self.assertEqual(args.package_dir, Path("package"))
+        self.assertEqual(args.configuration, "Release")
+
+    def test_parse_args_rejects_an_invalid_configuration(self) -> None:
+        """Verifies --configuration only accepts Debug or Release."""
+        with self.assertRaises(SystemExit):
+            parse_args(
+                [
+                    "--adapter-build-dir",
+                    "build",
+                    "--host-publish-dir",
+                    "publish",
+                    "--package-dir",
+                    "package",
+                    "--configuration",
+                    "RelWithDebInfo",
+                ]
+            )
 
 
 class MainTests(unittest.TestCase):
@@ -85,6 +104,8 @@ class MainTests(unittest.TestCase):
                         str(temp_dir / "host_publish"),
                         "--package-dir",
                         str(package_dir),
+                        "--configuration",
+                        "Debug",
                     ]
                 )
 
@@ -113,11 +134,71 @@ class MainTests(unittest.TestCase):
                         str(temp_dir / "host_publish"),
                         "--package-dir",
                         str(package_dir),
+                        "--configuration",
+                        "Debug",
                     ]
                 )
 
             self.assertEqual(exit_code, MISSING_RELEASE_RUNTIME_DLLS_SKIP_CODE)
             assemble_package.assert_not_called()
+
+    def test_main_release_missing_runtime_dlls_raises_instead_of_skipping(self) -> None:
+        """Verifies a Release-configuration build missing required runtime DLLs fails, not skips."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            # Missing every production-named runtime DLL, but declared as a Release build this time.
+            package_dir = temp_dir / "package"
+
+            with mock.patch(
+                "assemble_adapter_host_package_for_ctest.AdapterHostPackager.assemble_package"
+            ) as assemble_package:
+                with self.assertRaises(FileNotFoundError):
+                    main(
+                        [
+                            "--adapter-build-dir",
+                            str(adapter_build_dir),
+                            "--host-publish-dir",
+                            str(temp_dir / "host_publish"),
+                            "--package-dir",
+                            str(package_dir),
+                            "--configuration",
+                            "Release",
+                        ]
+                    )
+
+            assemble_package.assert_not_called()
+            self.assertFalse(package_dir.exists())
+
+    def test_main_debug_configuration_with_production_named_dlls_assembles_the_real_package(
+        self,
+    ) -> None:
+        """Verifies --configuration only changes the missing-DLL outcome, not the present-DLL one."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_release_adapter_build_dir(adapter_build_dir)
+            host_publish_dir = temp_dir / "host_publish"
+            _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")
+            package_dir = temp_dir / "package"
+
+            exit_code = main(
+                [
+                    "--adapter-build-dir",
+                    str(adapter_build_dir),
+                    "--host-publish-dir",
+                    str(host_publish_dir),
+                    "--package-dir",
+                    str(package_dir),
+                    "--configuration",
+                    "Debug",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
 
     def test_main_release_runtime_dlls_present_assembles_the_real_package(self) -> None:
         """Verifies a Release-shaped adapter build assembles the real package and returns success."""
@@ -137,6 +218,8 @@ class MainTests(unittest.TestCase):
                     str(host_publish_dir),
                     "--package-dir",
                     str(package_dir),
+                    "--configuration",
+                    "Release",
                 ]
             )
 
@@ -167,6 +250,8 @@ class MainTests(unittest.TestCase):
                         str(host_publish_dir),
                         "--package-dir",
                         str(temp_dir / "package"),
+                        "--configuration",
+                        "Release",
                     ]
                 )
 

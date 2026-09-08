@@ -48,24 +48,39 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         required=True,
         help="Directory the assembled Data/ layout is written under.",
     )
+    parser.add_argument(
+        "--configuration",
+        choices=("Debug", "Release"),
+        required=True,
+        help="The adapter build configuration this invocation was run for, matching "
+        "adapter/CMakeLists.txt's DOVAHLINK_HOST_BUILD_CONFIGURATION. Missing Release-named "
+        "runtime DLLs skip only when this is Debug; the same gap in a Release configuration fails.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
-    """Assembles the real package, or skips when the adapter build is not a Release configuration.
+    """Assembles the real package, or skips a Debug build missing Release-named runtime DLLs.
 
     `AdapterHostPackager.assemble_package` requires its runtime dependency DLLs under their exact
     production names (`ADAPTER_RUNTIME_DLL_NAMES`), which only a Release-configuration adapter build
     produces -- a Debug build produces debug-suffixed names instead. Rather than weakening the real
-    packager to accept those, a Debug adapter build simply skips this check, matching
-    `SKIP_RETURN_CODE`'s configured meaning in `adapter/CMakeLists.txt` so the dependent package-layout
-    test is skipped too, not failed.
+    packager to accept those, a Debug adapter build missing those exact names simply skips this
+    check, matching `SKIP_RETURN_CODE`'s configured meaning in `adapter/CMakeLists.txt` so the
+    dependent package-layout test is skipped too, not failed. A Release configuration missing the
+    same names is a genuine build problem, not an expected shape difference, so it fails instead of
+    skipping: `--configuration` distinguishes the two rather than inferring it from DLL presence
+    alone, which would let a broken Release build silently skip instead of failing.
 
     Args:
         argv: The argument list, excluding the program name.
 
     Returns:
-        Zero on success, or `MISSING_RELEASE_RUNTIME_DLLS_SKIP_CODE` when skipped.
+        Zero on success, or `MISSING_RELEASE_RUNTIME_DLLS_SKIP_CODE` when a Debug build skips.
+
+    Raises:
+        FileNotFoundError: `--configuration Release` was given but a required runtime DLL is
+            missing from `--adapter-build-dir`.
     """
     args = parse_args(argv)
 
@@ -75,13 +90,19 @@ def main(argv: list[str]) -> int:
         if not (args.adapter_build_dir / dll_name).is_file()
     ]
     if missing_dll_names:
-        print(
-            "Skipping the real assembled-package test: "
-            f"{args.adapter_build_dir} is missing {', '.join(missing_dll_names)} "
-            "(a Release-configuration adapter build is required; a Debug build "
-            "produces debug-suffixed runtime DLL names instead)."
+        if args.configuration == "Debug":
+            print(
+                "Skipping the real assembled-package test: "
+                f"{args.adapter_build_dir} is missing {', '.join(missing_dll_names)} "
+                "(a Release-configuration adapter build is required; a Debug build "
+                "produces debug-suffixed runtime DLL names instead)."
+            )
+            return MISSING_RELEASE_RUNTIME_DLLS_SKIP_CODE
+        raise FileNotFoundError(
+            f"{args.adapter_build_dir} is missing {', '.join(missing_dll_names)} in a "
+            "Release-configuration adapter build; this is a real build problem, not an "
+            "expected Debug/Release naming difference."
         )
-        return MISSING_RELEASE_RUNTIME_DLLS_SKIP_CODE
 
     packager = AdapterHostPackager(SubprocessProcessRunner())
     packager.assemble_package(

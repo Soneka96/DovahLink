@@ -205,15 +205,15 @@ include(Catch)
 # Assembles the real Vortex Data/ layout using the real production packager (see
 # tooling/adapter_host_packager.py), so the [package]-tagged test below launches the Host from the
 # actual installable package shape rather than a raw publish output. Skips (SKIP_RETURN_CODE, not a
-# failure) when this build's runtime DLLs are not Release-named -- see
-# assemble_adapter_host_package_for_ctest.py's own documentation for why only a Release
-# configuration can satisfy this.
+# failure) only when this is a Debug build with Debug-suffixed runtime DLL names; the same gap in a
+# Release build fails instead -- see assemble_adapter_host_package_for_ctest.py's own documentation.
 add_test(NAME AssembleRealAdapterHostPackage
     COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/../tooling/assemble_adapter_host_package_for_ctest.py"
         --adapter-build-dir $<TARGET_FILE_DIR:dovahlink_adapter_plugin>
         --host-publish-dir "${DOVAHLINK_HOST_PUBLISH_DIR}"
         --package-dir "${DOVAHLINK_ASSEMBLED_PACKAGE_DIR}"
+        --configuration "${DOVAHLINK_HOST_BUILD_CONFIGURATION}"
 )
 set_tests_properties(AssembleRealAdapterHostPackage PROPERTIES
     FIXTURES_SETUP RealAdapterHostPackage
