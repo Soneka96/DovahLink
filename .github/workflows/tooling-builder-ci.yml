@@ -1,0 +1,50 @@
+name: Builder
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tooling/DovahLinkBuilder/**"
+      - "ai/context/tooling/**"
+      - "ai/context/dotnet/**"
+      - "ai/context/common.md"
+      - ".github/workflows/tooling-builder-ci.yml"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: builder-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Builder Build & Test
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore DovahLinkBuilder dependencies
+        # -p:Configuration=Release: DovahLinkBuilder.csproj only sets RuntimeIdentifier under the
+        # Release condition, so a Debug-implied restore leaves the Release build without a
+        # net9.0-windows/win-x64 target in project.assets.json (NETSDK1047).
+        run: dotnet restore tooling/DovahLinkBuilder/DovahLinkBuilder.slnx -p:Configuration=Release
+
+      - name: Build DovahLinkBuilder
+        run: dotnet build tooling/DovahLinkBuilder/DovahLinkBuilder.slnx --configuration Release --no-restore
+
+      - name: Test DovahLinkBuilder
+        run: dotnet test tooling/DovahLinkBuilder/DovahLinkBuilder.slnx --configuration Release --no-restore --no-build
