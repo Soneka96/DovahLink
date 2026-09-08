@@ -1098,6 +1098,107 @@ TEST_CASE("a real native adapter completes a trust-admin List request "
       std::regex(R"(^(No known devices\.|\d+ known devices?:))")));
 }
 
+TEST_CASE("a real native adapter completes a trust-admin Revoke request "
+          "against a real launched Host, decoding its typed result",
+          "[process][integration]") {
+  //  Extends the trust-admin List E2E above to a short-id-targeted mutation:
+  //  proves TrustAdminOperation::kRevoke and its shortId argument round-trip
+  //  through the real cross-language wire encoding and a real Host's real
+  //  handler -- closing the roadmap's "revoke" real end-to-end requirement,
+  //  previously only proven against a raw IPC stream stand-in for the
+  //  adapter (host/DovahLink.Host.Tests), never the real native adapter
+  //  binary. As with the List test above, the real Host's own DPAPI-backed
+  //  trust store is not test-isolated, so this asserts only that the result
+  //  is well-formed and echoes the short id back, not a specific outcome.
+  RealHostFixture fixture(std::byte{0xE8});
+
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kRevoke, std::nullopt, std::string("99999"),
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  //  Matches every possible Revoke outcome (found-and-changed, not-found, or
+  //  ineligible), never a Block/Unblock/Forget outcome that also happened to
+  //  echo this short id -- a substring check alone could pass even if the
+  //  real Host dispatched the wrong operation.
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(
+          R"(^(Revoked client 99999 \(.*\)\.|No trusted client with id 99999\.|Client 99999 cannot be revoked \(not currently trusted\)\.)$)")));
+}
+
+TEST_CASE("a real native adapter completes a trust-admin Block request "
+          "against a real launched Host, decoding its typed result",
+          "[process][integration]") {
+  //  Mirrors the Revoke E2E above for TrustAdminOperation::kBlock, closing
+  //  the roadmap's "block" real end-to-end requirement the same way.
+  RealHostFixture fixture(std::byte{0xE9});
+
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kBlock, std::nullopt, std::string("99999"),
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  //  Matches every possible Block outcome, never a Revoke/Unblock/Forget
+  //  outcome that also happened to echo this short id -- see the Revoke E2E
+  //  above for why a substring check alone is not dispatch-proof.
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(
+          R"(^(Blocked device 99999 \(.*\)\.|Device 99999 is already blocked\.|No known device with id 99999\.|Device 99999 cannot be blocked \(not currently trusted or revoked\)\.)$)")));
+}
+
+TEST_CASE("a real native adapter completes a trust-admin ResetTrust request "
+          "against a real launched Host, decoding its typed result",
+          "[process][integration]") {
+  //  Mirrors the Revoke/Block E2Es above for the no-argument, bulk
+  //  TrustAdminOperation::kResetTrust, closing the roadmap's "reset" real
+  //  end-to-end requirement. Unlike Revoke/Block, ResetTrust's result text is
+  //  deterministic regardless of the real trust store's content -- it always
+  //  reports how many devices it revoked, including zero -- so this asserts
+  //  the exact shape rather than merely a substring.
+  RealHostFixture fixture(std::byte{0xEA});
+
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kResetTrust, std::nullopt, std::nullopt,
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(R"(^Reset Trust complete \(\d+ devices? revoked\)\.$)")));
+}
+
 TEST_CASE("a real native adapter observes a real Host's pairing-display "
           "notification and acknowledges it, driven by a real public "
           "pairing_request",
