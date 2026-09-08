@@ -411,6 +411,66 @@ public class ProgramCompositionTests
     }
 
     /// <summary>
+    /// Verifies that shutdown cleanly closes an already-admitted, steady-state (idle, not
+    /// mid-handshake) client connection and still returns a successful exit code -- the one shutdown
+    /// scenario <see cref="ComposeAndRunAsync_ShutdownRacingPublicHelloAdmission_NeverDeadlocksAndClientNeverHangs"/>
+    /// does not cover, since it always shuts down mid-connect/hello/pairing rather than after a
+    /// connection has settled into steady state.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_ShutdownWithSteadyStateAdmittedClient_ClosesConnectionAndReturnsCleanly()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var output = new SynchronizedTextCapture();
+
+        Task<int> runTask = global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+        await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
+        string rendezvous = output.Snapshot();
+        int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
+
+        var codec = new PublicEnvelopeCodec();
+        using var clientWebSocket = new ClientWebSocket();
+        await clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{publicPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        byte[] hello = codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+        await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var buffer = new byte[4096];
+        WebSocketReceiveResult helloAckResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, helloAckResult.Count), out PublicEnvelope? helloAckEnvelope));
+        Assert.Equal(PublicMessageType.HelloAck, helloAckEnvelope!.MessageType);
+
+        // Every admission sends hello_ack followed by an unsolicited, empty capabilities
+        // advertisement, drained here so the connection is fully idle -- steady state -- before
+        // shutdown fires below.
+        WebSocketReceiveResult capabilitiesResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, capabilitiesResult.Count), out PublicEnvelope? capabilitiesEnvelope));
+        Assert.Equal(PublicMessageType.Capabilities, capabilitiesEnvelope!.MessageType);
+
+        shutdown.Cancel();
+
+        // Shutdown must close the connection in a well-defined way: an orderly close handshake or an
+        // abort (surfacing as a WebSocketException here) are both valid outcomes, matching the same
+        // force-close contract the administrative-invalidation tests already prove for their own
+        // trigger.
+        try
+        {
+            WebSocketReceiveResult closeResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(WebSocketMessageType.Close, closeResult.MessageType);
+        }
+        catch (WebSocketException)
+        {
+            // The connection was aborted rather than gracefully closed -- also a valid close.
+        }
+
+        Assert.NotEqual(WebSocketState.Open, clientWebSocket.State);
+        Assert.Equal(0, await runTask.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    /// <summary>
     /// Connects, sends an unpaired <c>hello</c> for <paramref name="clientId"/>, and -- once
     /// admitted -- also sends a <c>pairing_request</c>, awaiting exactly one well-defined outcome at
     /// each step for
