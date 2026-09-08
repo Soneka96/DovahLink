@@ -3,11 +3,11 @@
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$integrationScript = Join-Path $repoRoot "integration\run-scenarios.ps1"
+$toolchainScript = Join-Path $PSScriptRoot "local-ci-toolchain.ps1"
 $vcpkgBaseline = "2f1d605400c8727cc00c15797aba796c88ccd523"
 $vcpkgRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg"
 
-. $integrationScript
+. $toolchainScript
 
 $toolchain = Find-VisualStudioToolchain -LocatorPath (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe")
 Import-VisualStudioEnvironment -Toolchain $toolchain
@@ -303,20 +303,6 @@ Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -Argum
 # windows-x64-debug ctest run above already ran.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -ArgumentList @(
     "--test-dir", "build/windows-x64-release", "-L", "package", "--output-on-failure"
-)
-
-Write-Host "=== integration-ci ==="
-# dovahlink_bridge_harness has no EXCLUDE_FROM_ALL, so bridge-ci's plain Debug build above already
-# built it into build/windows-x64-debug; nothing has changed on disk since, so reconfiguring and
-# rebuilding it here would just be a duplicate no-op. This only holds because this script runs
-# both sections in one sequential process -- integration-ci.yml runs as its own job on a fresh
-# runner with no bridge-ci build tree to reuse, so it must configure and build independently there.
-Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
-    "restore", "integration/DovahLinkValidation.sln"
-)
-Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
-    "test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore",
-    "--logger", "trx;LogFileName=integration.trx", "--results-directory", "integration/TestResults"
 )
 
 Write-Host "All local CI command payloads passed."

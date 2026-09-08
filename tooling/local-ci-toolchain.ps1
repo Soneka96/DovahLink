@@ -1,19 +1,8 @@
-# Builds the Skyrim-independent C++ bridge harness and runs every
-# DovahLinkValidationClient.Tests scenario against it. Each test launches
-# and tears down its own harness instance (see HarnessProcess.cs); this
-# script's job is only to make sure the harness executable exists first and
-# to give a human a single command to run every validation scenario.
-#
-# Usage: powershell -File integration/run-scenarios.ps1
-#        powershell -File integration/run-scenarios.ps1 -ValidateToolchainOnly
-
-param(
-    [string]$VsWherePath = (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"),
-    [switch]$ValidateToolchainOnly
-)
+# Shared Visual Studio/native-toolchain discovery and invocation helpers used by
+# tooling/run-local-ci.ps1. Dot-source this file; it defines functions only and has no
+# direct-invocation entry point of its own.
 
 $ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent $PSScriptRoot
 
 <#
 .SYNOPSIS
@@ -137,36 +126,5 @@ function Invoke-CheckedNativeCommand {
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "$FilePath failed with exit code $exitCode."
-    }
-}
-
-if ($MyInvocation.InvocationName -ne '.') {
-    $toolchain = Find-VisualStudioToolchain -LocatorPath $VsWherePath
-    Write-Host "Using Visual Studio at $($toolchain.InstallationPath)"
-    if ($ValidateToolchainOnly) {
-        return
-    }
-
-    Write-Host "=== Building the bridge harness ==="
-    Import-VisualStudioEnvironment -Toolchain $toolchain
-
-    Push-Location (Join-Path $repoRoot "bridge")
-    try {
-        Invoke-CheckedNativeCommand -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")
-        Invoke-CheckedNativeCommand -FilePath "cmake" -ArgumentList @(
-            "--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"
-        )
-    }
-    finally {
-        Pop-Location
-    }
-
-    Write-Host "=== Running validation-client scenarios ==="
-    Push-Location (Join-Path $repoRoot "integration")
-    try {
-        Invoke-CheckedNativeCommand -FilePath "dotnet" -ArgumentList @("test", "DovahLinkValidation.sln")
-    }
-    finally {
-        Pop-Location
     }
 }

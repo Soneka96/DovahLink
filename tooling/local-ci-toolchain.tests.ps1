@@ -1,7 +1,7 @@
-# Validates Visual Studio discovery and environment import without building the bridge.
+# Validates Visual Studio discovery and environment import.
 
 $ErrorActionPreference = "Stop"
-. (Join-Path $PSScriptRoot "run-scenarios.ps1")
+. (Join-Path $PSScriptRoot "local-ci-toolchain.ps1")
 
 $script:assertionCount = 0
 
@@ -243,7 +243,7 @@ try {
     Assert-True ($nativeOutput -contains "native-output") "Checked native command suppressed standard output."
     Assert-True ($nativeOutput -contains "argument=argument with spaces") "Checked native command did not preserve spaced arguments."
 
-    Write-Host "run-scenarios.ps1 validation passed ($script:assertionCount assertions)."
+    Write-Host "local-ci-toolchain.ps1 validation passed ($script:assertionCount assertions)."
 }
 finally {
     $env:DOVAHLINK_TEST_VSWHERE_RESULT = $originalResult

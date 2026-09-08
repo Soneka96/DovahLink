@@ -467,179 +467,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(fragment, workflow)
         self.assertNotIn("continue-on-error:", workflow)
 
-    def test_integration_ci_uses_pinned_harness_and_dotnet_scenarios(self) -> None:
-        """Require the independent .NET scenarios to run against the pinned bridge harness."""
-        workflow = self._read(".github/workflows/integration-ci.yml")
-        expected_paths = {
-            '- "bridge/**"',
-            '- "integration/**"',
-            '- "protocol/**"',
-            '- ".github/workflows/integration-ci.yml"',
-        }
-
-        push_block = self._yaml_block(workflow, "  push:")
-        self.assertIn("    branches: [main]", push_block)
-        paths_block = self._yaml_block(push_block, "    paths:")
-        self.assertEqual(
-            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-            expected_paths,
-        )
-
-        # Pull-request CI must always post a status regardless of changed files: a path filter here
-        # would let a PR outside these paths skip this workflow entirely while it is still a
-        # required branch-protection check, leaving the PR stuck waiting on a status that never
-        # arrives.
-        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
-
-        self.assertEqual(
-            self._yaml_block(workflow, "permissions:"),
-            "permissions:\n  contents: read",
-        )
-        checkout = self._yaml_block(
-            workflow,
-            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6",
-        )
-        self.assertEqual(
-            checkout,
-            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n"
-            "        with:\n"
-            "          persist-credentials: false",
-        )
-        self.assertIn("    runs-on: windows-2022", workflow)
-        self.assertIn("    timeout-minutes: 30", workflow)
-        self.assertIn("        shell: pwsh", workflow)
-        self.assertIn("  workflow_dispatch:", workflow)
-        self.assertIn(
-            "  group: integration-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
-            workflow,
-        )
-        self.assertIn("  cancel-in-progress: true", workflow)
-        self.assertNotIn("choco install", workflow)
-        self.assertNotIn("ChocolateyInstall", workflow)
-        self.assertIn('$cmakeVersion = "4.4.2"', workflow)
-        # A job-level env: cannot reference the runner context (unresolved until a runner picks up
-        # the job's steps); VCPKG_DEFAULT_BINARY_CACHE is computed in its own step instead.
-        self.assertNotIn(
-            "    env:\n      VCPKG_DEFAULT_BINARY_CACHE:",
-            workflow,
-        )
-        self.assertIn("      - name: Set VCPKG_DEFAULT_BINARY_CACHE", workflow)
-        self.assertIn(
-            'run: echo "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\\vcpkg-binary-cache" >> $env:GITHUB_ENV',
-            workflow,
-        )
-        self.assertIn("      - name: Prepare vcpkg binary cache", workflow)
-        self.assertIn(
-            'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-binary-cache"',
-            workflow,
-        )
-        self.assertIn(
-            '$cmakeArchiveSha256 = "e8139d85b3813bc38833142ae1940472e9a587e9b5d2718ac1804c60f4e57a64"',
-            workflow,
-        )
-        self.assertIn(
-            'Get-FileHash -Path "$env:RUNNER_TEMP\\$cmakeArchive" -Algorithm SHA256',
-            workflow,
-        )
-        self.assertIn("if ($actualSha256 -ne $cmakeArchiveSha256) {", workflow)
-        # A regression that swaps this for Write-Warning/Write-Host would silently downgrade the
-        # check to a no-op while leaving the `if` condition above intact -- assert the actual
-        # enforcement statement, not just the condition that guards it.
-        self.assertIn(
-            'throw "CMake archive hash mismatch: expected $cmakeArchiveSha256, got $actualSha256."',
-            workflow,
-        )
-        self.assertLess(
-            workflow.index("Get-FileHash -Path"),
-            workflow.index("Expand-Archive -Path"),
-            "the CMake archive must be hash-verified before extraction",
-        )
-        self.assertIn("      - name: Install pinned CMake", workflow)
-        self.assertIn(
-            "      - name: Verify pinned Ninja is available in the build environment",
-            workflow,
-        )
-        self.assertIn('if ($ninjaVersion -ne "1.13.2") {', workflow)
-        self.assertIn("ninja --version", workflow)
-        self.assertLess(
-            workflow.index("Set up the MSVC 2022 developer environment"),
-            workflow.index("Verify pinned Ninja is available in the build environment"),
-        )
-        self.assertLess(
-            workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
-            workflow.index("Prepare vcpkg binary cache"),
-        )
-        self.assertLess(
-            workflow.index("Prepare vcpkg binary cache"),
-            workflow.index("Restore vcpkg binary cache"),
-        )
-        self.assertLess(
-            workflow.index("ninja --version"),
-            workflow.index("Configure bridge debug harness"),
-        )
-        self.assertLess(
-            workflow.index("      - name: Install pinned CMake"),
-            workflow.index("Configure bridge debug harness"),
-        )
-        self.assertIn(
-            'git -C "${{ runner.temp }}\\vcpkg" checkout $env:VCPKG_BASELINE_COMMIT',
-            workflow,
-        )
-        self.assertIn(
-            '& "${{ runner.temp }}\\vcpkg\\bootstrap-vcpkg.bat" -disableMetrics',
-            workflow,
-        )
-        self.assertIn(
-            "uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
-            workflow,
-        )
-        self.assertIn("dotnet-version: 9.0.x", workflow)
-        self.assertIn(
-            "uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1",
-            workflow,
-        )
-        self.assertIn(
-            "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
-            workflow,
-        )
-        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
-        self.assertIn("run: cmake --preset windows-x64-debug", workflow)
-        self.assertIn(
-            "run: cmake --build --preset windows-x64-debug --target dovahlink_bridge_harness",
-            workflow,
-        )
-        harness_step = self._yaml_block(
-            workflow, "      - name: Configure bridge debug harness"
-        )
-        self.assertIn("        working-directory: bridge", harness_step)
-        self.assertIn("          VCPKG_ROOT: ${{ runner.temp }}\\vcpkg", harness_step)
-        self.assertIn(
-            "run: dotnet restore integration/DovahLinkValidation.sln", workflow
-        )
-        self.assertIn(
-            "run: dotnet test integration/DovahLinkValidation.sln --configuration Release --no-restore",
-            workflow,
-        )
-        self.assertIn('--logger "trx;LogFileName=integration.trx"', workflow)
-        self.assertIn("--results-directory integration/TestResults", workflow)
-        self.assertIn(
-            "uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6",
-            workflow,
-        )
-        self.assertIn(
-            "Maintained stable release; no stable Node 24 replacement is available yet.",
-            workflow,
-        )
-        self.assertIn("integration/TestResults/", workflow)
-        self.assertLess(
-            workflow.index("Build bridge validation harness"),
-            workflow.index("Run integration scenarios"),
-        )
-        self.assertLess(
-            workflow.index("Restore integration dependencies"),
-            workflow.index("Run integration scenarios"),
-        )
-
     def test_tooling_ci_covers_repository_consistency_surfaces(self) -> None:
         """Require repository checks to run when their inspected files change."""
         workflow = self._read(".github/workflows/tooling-ci.yml")
@@ -827,10 +654,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             common,
         )
 
-        for workflow_path in (
-            ".github/workflows/bridge-ci.yml",
-            ".github/workflows/integration-ci.yml",
-        ):
+        for workflow_path in (".github/workflows/bridge-ci.yml",):
             workflow = self._read(workflow_path)
             self.assertIn(
                 "Maintained stable release; no stable Node 24 replacement is available yet.",
@@ -925,7 +749,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         """Require the local preflight to mirror every CI command surface in order."""
         script = self._read("tooling/run-local-ci.ps1")
         required_fragments = (
-            ". $integrationScript",
+            ". $toolchainScript",
             "Find-VisualStudioToolchain",
             "Import-VisualStudioEnvironment",
             '$vcpkgBaseline = "2f1d605400c8727cc00c15797aba796c88ccd523"',
@@ -963,8 +787,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")',
             'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")',
             '"--test-dir", "build/windows-x64-release", "--output-on-failure"',
-            '"restore", "integration/DovahLinkValidation.sln"',
-            '"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"',
             '"build", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",',
             '"--no-restore", "--no-incremental"\n)',
             '"test", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",',
@@ -976,27 +798,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", script)
         self.assertNotIn("vcpkg-registries-cache", script)
 
-        # dovahlink_bridge_harness has no EXCLUDE_FROM_ALL, so bridge-ci's plain Debug build above
-        # already builds it into the same tree this sequential script later reuses for
-        # integration-ci -- reconfiguring/rebuilding it there would be a pure duplicate, unlike in
-        # integration-ci.yml's own separate, fresh-runner job where it is not a duplicate.
-        self.assertNotIn(
-            '"--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"',
-            script,
-        )
-        # Guards the assumption the removal above depends on: if this target ever gains
-        # EXCLUDE_FROM_ALL, bridge-ci's plain Debug build would stop building it and this script
-        # would need its explicit harness build back.
-        self.assertIn(
-            "add_executable(dovahlink_bridge_harness harness/dovahlink_bridge_harness.cpp)",
-            self._read("bridge/CMakeLists.txt"),
-        )
-
         section_positions = [
             script.index("=== tooling-ci ==="),
             script.index("=== app-ci ==="),
             script.index("=== bridge-ci ==="),
-            script.index("=== integration-ci ==="),
         ]
         self.assertEqual(section_positions, sorted(section_positions))
         command_positions = [
@@ -1064,10 +869,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             script.index(
                 '"--test-dir", "build/windows-x64-release", "--output-on-failure"'
             ),
-            script.index('"restore", "integration/DovahLinkValidation.sln"'),
-            script.index(
-                '"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"'
-            ),
         ]
         self.assertEqual(command_positions, sorted(command_positions))
         self.assertNotIn("choco install", script)
@@ -1116,12 +917,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             f"REL::Version{{{version_components}, 0}}",
             self._read("bridge/plugin/dovahlink_bridge_plugin.cpp"),
         )
-
-        compatibility = self._read(
-            "integration/DovahLinkValidationClient/BridgeVersionCompatibility.cs"
-        )
-        for limit in ("MinimumSupportedVersion", "MaximumSupportedVersion"):
-            self.assertIn(f"{limit} = new({version_components});", compatibility, limit)
 
         self.assertIn(
             f'CHECK(helloAck->bridgeVersion == "{version}");',
@@ -1298,10 +1093,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             bridge_readme,
         )
         self.assertIn("## Live event delivery is deferred to Phase 4", bridge_readme)
-        self.assertIn(
-            "the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries",
-            integration_readme,
-        )
 
         ordering = {
             heading: roadmap.index(f"## {heading}") for heading in expected_headings
@@ -1877,8 +1668,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "bridge/application/revision_tracker.hpp",
             "adapter/tests/plugin/dovahlink_adapter_plugin_test.cpp",
             "bridge/application/handshake_handler.cpp",
-            "integration/DovahLinkValidationClient.Tests/RestartScenarioTests.cs",
-            "integration/DovahLinkValidationClient.Tests/PairingScenarioTests.cs",
         ):
             source = self._read(source_path)
             self.assertNotIn("roadmap/", source)
@@ -1935,7 +1724,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for required_phrase in (
             "Do not maintain the same Dart client correctness test suite independently inside "
             "both `app/` and\n`sdk/`.",
-            "It must not consume, wrap, generate from, or\notherwise reuse the Dart SDK",
         ):
             self.assertIn(required_phrase, sdk_testing)
 
@@ -1993,11 +1781,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("do not duplicate a rule across more than one of them.", common)
 
-    def test_app_protocol_and_integration_docs_reconcile_the_sdk_boundary(self) -> None:
-        """Guard the SDK-transition notes added to app/, protocol/, and integration/ READMEs."""
+    def test_app_and_protocol_docs_reconcile_the_sdk_boundary(self) -> None:
+        """Guard the SDK-transition notes added to app/ and protocol/ READMEs."""
         app_readme = self._read("app/README.md")
         protocol_readme = self._read("protocol/README.md")
-        integration_readme = self._read("integration/README.md")
 
         self.assertIn("## SDK migration", app_readme)
         self.assertIn(
@@ -2026,13 +1813,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "The repository-root [`app/`](../app/) and planned `bridge/` areas, and the planned\n"
             "  [`sdk/`](../sdk/) area, contain adapters, not competing protocol definitions.",
             protocol_readme,
-        )
-
-        self.assertIn(
-            "It also does not consume, wrap, or generate from the future Dart Client SDK\n"
-            "(`sdk/`, see `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5) once one exists; its value depends on staying "
-            "an independent\nimplementation of the canonical contract.",
-            integration_readme,
         )
 
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(
@@ -2144,48 +1924,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("before public release", dependency_audit)
         self.assertEqual(dependency_audit.count("before the next public release"), 3)
 
-    def test_token_examples_use_secure_generation_and_powershell_assignment(
-        self,
-    ) -> None:
-        """Reject insecure token generation and shell-incompatible environment examples."""
-        bridge_readme = self._read("bridge/README.md")
-        integration_readme = self._read("integration/README.md")
-        token_example_match = re.search(
-            r"(?ms)```powershell\n(?P<example>.*?RandomNumberGenerator.*?)\n```",
-            bridge_readme,
-        )
-        self.assertIsNotNone(token_example_match)
-        token_example = token_example_match.group("example")
-
-        self.assertNotIn("Get-Random", bridge_readme)
-        self.assertIn("$tokenBytes = [byte[]]::new(32)", token_example)
-        self.assertIn("RandomNumberGenerator", token_example)
-        self.assertIn("$rng.GetBytes($tokenBytes)", token_example)
-        self.assertIn(
-            "$env:DOVAHLINK_BRIDGE_TOKEN = "
-            '[BitConverter]::ToString($tokenBytes).Replace("-", "").ToLowerInvariant()',
-            token_example,
-        )
-        self.assertIn("[Array]::Clear($tokenBytes", token_example)
-        self.assertLess(
-            token_example.index("[byte[]]::new(32)"), token_example.index("GetBytes")
-        )
-        self.assertLess(
-            token_example.index("$rng.GetBytes($tokenBytes)"),
-            token_example.index("$env:DOVAHLINK_BRIDGE_TOKEN"),
-        )
-        self.assertLess(
-            token_example.index("$env:DOVAHLINK_BRIDGE_TOKEN"),
-            token_example.index("[Array]::Clear($tokenBytes"),
-        )
-        self.assertIn(
-            '$env:DOVAHLINK_BRIDGE_TOKEN = "<the same hex token', integration_readme
-        )
-        self.assertNotRegex(
-            integration_readme,
-            r"(?m)^DOVAHLINK_BRIDGE_TOKEN=.*\bdotnet run$",
-        )
-
     def test_handshake_handler_revalidates_trust_after_session_admission(self) -> None:
         """Keep HandleHello's revoke/block-race closure wired after admission, not only before it."""
         handshake_handler = self._read("bridge/application/handshake_handler.cpp")
@@ -2273,65 +2011,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertLess(
             workflow.index("      - name: Install pinned CMake"),
             workflow.index("Configure Debug"),
-        )
-
-    def test_integration_ci_caches_vcpkg_tooling_without_external_registry(
-        self,
-    ) -> None:
-        """Require cached vcpkg tooling without a live third-party registry dependency."""
-        workflow = self._read(".github/workflows/integration-ci.yml")
-
-        self.assertIn(
-            "      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523",
-            workflow,
-        )
-        self.assertEqual(
-            workflow.count("2f1d605400c8727cc00c15797aba796c88ccd523"),
-            1,
-            "the pinned vcpkg commit must appear exactly once (the job-level env value); every "
-            "other reference must go through $env:VCPKG_BASELINE_COMMIT or env.VCPKG_BASELINE_COMMIT",
-        )
-
-        tooling_cache = self._yaml_block(
-            workflow, "      - name: Restore cached vcpkg tooling"
-        )
-        self.assertIn("        id: vcpkg-tooling-cache", tooling_cache)
-        self.assertIn(
-            "        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
-            tooling_cache,
-        )
-        self.assertIn("          path: ${{ runner.temp }}\\vcpkg", tooling_cache)
-        self.assertIn(
-            "          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}",
-            tooling_cache,
-        )
-
-        checkout_step = self._yaml_block(
-            workflow, "      - name: Check out vcpkg at the pinned builtin baseline"
-        )
-        self.assertIn(
-            "        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'",
-            checkout_step,
-        )
-        self.assertIn("checkout $env:VCPKG_BASELINE_COMMIT", checkout_step)
-
-        binary_cache = self._yaml_block(
-            workflow, "      - name: Restore vcpkg binary cache"
-        )
-        self.assertIn(
-            "          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-"
-            "${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json', "
-            "'tooling/vcpkg-ports/**') }}",
-            binary_cache,
-        )
-
-        self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", workflow)
-        self.assertNotIn("vcpkg-registries-cache", workflow)
-        self.assertNotIn("gitlab.com/colorglass/vcpkg-colorglass", workflow)
-
-        self.assertLess(
-            workflow.index("Restore cached vcpkg tooling"),
-            workflow.index("Configure bridge debug harness"),
         )
 
     def test_production_packaging_has_no_bridge_dependency(self) -> None:

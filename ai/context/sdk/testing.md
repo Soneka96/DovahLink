@@ -77,13 +77,6 @@ transport framing or platform networking changes, mirroring `ai/context/integrat
 end-to-end boundary. Do not depend on a running Skyrim process, and do not depend on the Bridge
 harness, for behavior that can be proven deterministically without either.
 
-## The independent validator stays independent
-
-The .NET validation client (`integration/DovahLinkValidationClient/`) must remain a separate,
-hand-written implementation of the canonical contract. It must not consume, wrap, generate from, or
-otherwise reuse the Dart SDK; its value is precisely that it can catch a Bridge bug, an SDK bug, or
-an assumption accidentally shared only by the official Dart implementation.
-
 ## Service test boundaries
 
 Contract migrations and consumer-test migrations land together. Consumer tests remain black-box
