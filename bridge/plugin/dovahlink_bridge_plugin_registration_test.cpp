@@ -164,18 +164,28 @@ TEST_CASE("SKSEPluginLoad wires the callback registry to the runtime sink",
                       "levelIncreaseSink);") != std::string::npos);
 }
 
-TEST_CASE("SKSEPluginLoad passes trust administration through service contracts",
-          "[plugin][composition]") {
+//  The replacement adapter/host process registers the same "DovahLinkAdmin"
+//  Papyrus class and native function names (see
+//  adapter/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp);
+//  Skyrim's Papyrus VM cannot hold two competing registrations for the same
+//  class if both plugins are ever loaded together. This proves the frozen
+//  Bridge reference's own registration and its exclusive service types are
+//  no longer wired into the composition root -- trust_device_admin_service.cpp
+//  and trust_reset_service.cpp remain valid, tested application code; they
+//  are simply unreferenced here.
+TEST_CASE(
+    "SKSEPluginLoad does not register the trust-administration console "
+    "adapter",
+    "[plugin][composition]") {
     std::string source = ReadPluginSource();
 
-    CHECK(source.find(
-              "ITrustDeviceAdminService&\n        trustDeviceAdminServiceContract") !=
-          std::string::npos);
-    CHECK(source.find("ITrustResetService& trustResetServiceContract") !=
-          std::string::npos);
-    CHECK(source.find(
-              "trustDeviceAdminServiceContract, trustResetServiceContract") !=
-          std::string::npos);
+    CHECK(source.find("InstallTrustAdminPapyrusAdapter(") == std::string::npos);
+    CHECK(source.find("TrustDeviceAdminService") == std::string::npos);
+    CHECK(source.find("TrustResetService") == std::string::npos);
+    CHECK(source.find("ActiveSessionController") == std::string::npos);
+    CHECK(source.find("TrustDeviceStore") == std::string::npos);
+    CHECK(source.find("TrustResetStore") == std::string::npos);
+    CHECK(source.find("FactoryResetChallenge") == std::string::npos);
 }
 
 //  Stage 5's production capture and lifecycle composition

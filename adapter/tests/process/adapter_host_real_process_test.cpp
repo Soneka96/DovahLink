@@ -7,6 +7,7 @@
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/settable_adapter_ipc_peer_proof_provider.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
+#include "process/adapter_host_constants.hpp"
 #include "process/adapter_host_endpoint.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
@@ -38,6 +39,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -67,6 +69,7 @@ using dovahlink::adapter::process::AdapterHostEndpoint;
 using dovahlink::adapter::process::AdapterHostSupervisor;
 using dovahlink::adapter::process::DeriveOwnerLifetimeId;
 using dovahlink::adapter::process::FileAdapterHostRendezvousReader;
+using dovahlink::adapter::process::kAdapterHostExecutableRelativePath;
 using dovahlink::adapter::process::ResolveDefaultRendezvousFilePath;
 using dovahlink::adapter::process::Win32AdapterHostProcessLauncher;
 using dovahlink::adapter::process::WindowsEventAdapterHostShutdownRequester;
@@ -557,6 +560,52 @@ public:
   operator=(const ScopedTestPublicListenerPortEnvironmentVariable &) = delete;
 };
 
+///  A fresh, unique temporary trust-store file path per real Host launch, so
+///  parallel and repeated test runs never collide -- mirrors
+///  adapter_host_rendezvous_reader_test.cpp's own UniqueTempFilePath.
+std::filesystem::path UniqueTempTrustStorePath() {
+  std::mt19937_64 engine{std::random_device{}()};
+  return std::filesystem::temp_directory_path() /
+         ("dovahlink-trust-store-test-" + std::to_string(engine()) + ".dat");
+}
+
+///  RAII guard that sets `DOVAHLINK_TEST_TRUST_STORE_PATH` to a unique
+///  per-test file for the scope of a single real Host launch, then clears it
+///  and deletes the file -- so every real Host `RealHostFixture` launches
+///  persists trust to a private file instead of the real per-Windows-user
+///  DPAPI-backed store, and no other test sharing this process's environment
+///  block ever observes it set.
+class ScopedTestTrustStorePathEnvironmentVariable {
+public:
+  ScopedTestTrustStorePathEnvironmentVariable()
+      : path_(UniqueTempTrustStorePath()) {
+    if (_putenv_s("DOVAHLINK_TEST_TRUST_STORE_PATH", path_.string().c_str()) !=
+        0) {
+      throw std::runtime_error(
+          "Unable to set the trust-store-path environment variable.");
+    }
+  }
+
+  ~ScopedTestTrustStorePathEnvironmentVariable() {
+    _putenv_s("DOVAHLINK_TEST_TRUST_STORE_PATH", "");
+    std::error_code error;
+    std::filesystem::remove(path_, error);
+  }
+
+  ScopedTestTrustStorePathEnvironmentVariable(
+      const ScopedTestTrustStorePathEnvironmentVariable &) = delete;
+  ScopedTestTrustStorePathEnvironmentVariable &
+  operator=(const ScopedTestTrustStorePathEnvironmentVariable &) = delete;
+
+  ///  The isolated trust-store file this scope's real Host was launched
+  ///  with, for a test to assert against.
+  const std::filesystem::path &Path() const { return path_; }
+
+private:
+  ///  The unique per-test trust-store file this guard set and will clean up.
+  std::filesystem::path path_;
+};
+
 ///  A real loopback listener that occupies a port without speaking the
 ///  private IPC protocol, representing stale rendezvous data naming an
 ///  unrelated process.
@@ -807,12 +856,33 @@ TEST_CASE("real hosts remain isolated by owner lifetime and shutdown signals",
   std::filesystem::remove(*firstPath, firstRemoveError);
   std::filesystem::remove(*secondPath, secondRemoveError);
 
+  //  Each real host's production Main entry point always composes a public
+  //  WebSocket listener, defaulting to the fixed production port unless
+  //  DOVAHLINK_TEST_PUBLIC_LISTENER_PORT overrides it -- so two real hosts
+  //  launched without distinct overrides collide on that fixed port, and the
+  //  second one's listener bind fails before it ever reports its endpoint.
+  //  Each launch below gets its own override, scoped narrowly around the
+  //  Launch() call: the child only ever reads the environment once, at
+  //  CreateProcessW, so the guard can clear before the next launch begins.
+  constexpr std::uint16_t kFirstPublicListenerPort = 58429;
+  constexpr std::uint16_t kSecondPublicListenerPort = 58430;
+
   Win32AdapterHostProcessLauncher firstLauncher(hostExecutable, firstOwner,
                                                 std::chrono::seconds(10));
   Win32AdapterHostProcessLauncher secondLauncher(hostExecutable, secondOwner,
                                                  std::chrono::seconds(10));
-  auto firstEndpoint = firstLauncher.Launch();
-  auto secondEndpoint = secondLauncher.Launch();
+  std::optional<AdapterHostEndpoint> firstEndpoint;
+  {
+    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+        kFirstPublicListenerPort);
+    firstEndpoint = firstLauncher.Launch();
+  }
+  std::optional<AdapterHostEndpoint> secondEndpoint;
+  {
+    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+        kSecondPublicListenerPort);
+    secondEndpoint = secondLauncher.Launch();
+  }
   REQUIRE(firstEndpoint.has_value());
   REQUIRE(secondEndpoint.has_value());
   CHECK(firstEndpoint->port != secondEndpoint->port);
@@ -954,11 +1024,17 @@ public:
   ///  @param pairingSink Optional pairing-display sink override; when null,
   ///  falls back to a no-op sink, for tests not concerned with pairing
   ///  display.
+  ///  @param hostExecutable The host executable to launch; defaults to the
+  ///  framework-dependent DOVAHLINK_HOST_EXECUTABLE build every other test in
+  ///  this file uses. A test proving behavior against the production-packaged
+  ///  artifact shape passes DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED instead.
   explicit RealHostFixture(
       std::byte ownerLifetimeMarker,
       dovahlink::adapter::ipc::IAdapterPairingNotificationSink *pairingSink =
-          nullptr)
-      : hostExecutable_(DOVAHLINK_HOST_EXECUTABLE),
+          nullptr,
+      std::filesystem::path hostExecutable =
+          std::filesystem::path(DOVAHLINK_HOST_EXECUTABLE))
+      : hostExecutable_(std::move(hostExecutable)),
         ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
         launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
         session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
@@ -1021,7 +1097,18 @@ public:
   ///  The authenticated session under test.
   AdapterIpcSession &Session() { return session_; }
 
+  ///  The isolated trust-store file this fixture's real Host was launched
+  ///  with, so a test can assert the Host actually persisted through it.
+  const std::filesystem::path &TrustStorePath() const {
+    return trustStorePath_.Path();
+  }
+
 private:
+  //  Declared first so it sets DOVAHLINK_TEST_TRUST_STORE_PATH before
+  //  launcher_.Launch() runs in the constructor body below -- every real
+  //  Host this fixture launches persists trust to this private file instead
+  //  of the real per-Windows-user DPAPI-backed store.
+  ScopedTestTrustStorePathEnvironmentVariable trustStorePath_;
   std::filesystem::path hostExecutable_;
   std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
       ownerLifetimeId_;
@@ -1043,11 +1130,11 @@ TEST_CASE("a real native adapter completes a trust-admin List request "
   //  wire encodings agree, and that IpcTrustAdminRequestMessage's
   //  correlation id round-trips through a real Host's real handler and back
   //  into IpcTrustAdminResultMessage -- the cross-language ABI proof gap a
-  //  same-process fake Host peer cannot close. The real Host's own trust
-  //  store is a real DPAPI-backed store, not test-isolated per owner-lifetime
-  //  id (that identity is only this test's process-launch/rendezvous
-  //  scope), so this deliberately does not assert its content -- only that a
-  //  well-formed, correctly correlated result decodes back.
+  //  same-process fake Host peer cannot close. RealHostFixture isolates the
+  //  real Host's trust store to a private per-test file (see
+  //  ScopedTestTrustStorePathEnvironmentVariable), which starts empty on
+  //  every run, so this deliberately does not assert specific content --
+  //  only that a well-formed, correctly correlated result decodes back.
   RealHostFixture fixture(std::byte{0xE5});
 
   auto resultPromise =
@@ -1066,6 +1153,186 @@ TEST_CASE("a real native adapter completes a trust-admin List request "
   REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
   REQUIRE(result.resultText.has_value());
   CHECK_FALSE(result.resultText->empty());
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(R"(^(No known devices\.|\d+ known devices?:))")));
+}
+
+TEST_CASE("a real native adapter completes a trust-admin Revoke request "
+          "against a real launched Host, decoding its typed result",
+          "[process][integration]") {
+  //  Extends the trust-admin List E2E above to a short-id-targeted mutation:
+  //  proves TrustAdminOperation::kRevoke and its shortId argument round-trip
+  //  through the real cross-language wire encoding and a real Host's real
+  //  handler -- closing the roadmap's "revoke" real end-to-end requirement,
+  //  previously only proven against a raw IPC stream stand-in for the
+  //  adapter (host/DovahLink.Host.Tests), never the real native adapter
+  //  binary. As with the List test above, this test's real Host runs against
+  //  RealHostFixture's isolated per-test trust store, so no client with this
+  //  short id is ever actually trusted here -- this asserts only that the
+  //  result is well-formed and echoes the short id back, not a specific
+  //  outcome.
+  RealHostFixture fixture(std::byte{0xE8});
+
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kRevoke, std::nullopt, std::string("99999"),
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  //  Matches every possible Revoke outcome (found-and-changed, not-found, or
+  //  ineligible), never a Block/Unblock/Forget outcome that also happened to
+  //  echo this short id -- a substring check alone could pass even if the
+  //  real Host dispatched the wrong operation.
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(
+          R"(^(Revoked client 99999 \(.*\)\.|No trusted client with id 99999\.|Client 99999 cannot be revoked \(not currently trusted\)\.)$)")));
+}
+
+TEST_CASE("a real native adapter completes a trust-admin Block request "
+          "against a real launched Host, decoding its typed result",
+          "[process][integration]") {
+  //  Mirrors the Revoke E2E above for TrustAdminOperation::kBlock, closing
+  //  the roadmap's "block" real end-to-end requirement the same way.
+  RealHostFixture fixture(std::byte{0xE9});
+
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kBlock, std::nullopt, std::string("99999"),
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  //  Matches every possible Block outcome, never a Revoke/Unblock/Forget
+  //  outcome that also happened to echo this short id -- see the Revoke E2E
+  //  above for why a substring check alone is not dispatch-proof.
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(
+          R"(^(Blocked device 99999 \(.*\)\.|Device 99999 is already blocked\.|No known device with id 99999\.|Device 99999 cannot be blocked \(not currently trusted or revoked\)\.)$)")));
+}
+
+TEST_CASE("a real native adapter completes a trust-admin ResetTrust request "
+          "against a real launched Host, decoding its typed result",
+          "[process][integration]") {
+  //  Mirrors the Revoke/Block E2Es above for the no-argument, bulk
+  //  TrustAdminOperation::kResetTrust, closing the roadmap's "reset" real
+  //  end-to-end requirement. Unlike Revoke/Block, ResetTrust's result text is
+  //  deterministic regardless of the real trust store's content -- it always
+  //  reports how many devices it revoked, including zero -- so this asserts
+  //  the exact shape rather than merely a substring. Against RealHostFixture's
+  //  isolated, empty-on-start per-test store, zero devices are ever trusted
+  //  to revoke, so -- per TrustStore.ResetTrustAsync's own documented
+  //  no-currently-trusted-record short circuit -- this real Host never writes
+  //  its isolated trust-store file at all; the full-pairing/trusted-reconnect
+  //  E2E below is where a real write through that isolated path is proven,
+  //  since it is the one real Host operation in this file guaranteed to
+  //  durably trust a device.
+  RealHostFixture fixture(std::byte{0xEA});
+
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kResetTrust, std::nullopt, std::nullopt,
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(R"(^Reset Trust complete \(\d+ devices? revoked\)\.$)")));
+}
+
+TEST_CASE("a real native adapter launches, authenticates against, and "
+          "completes a real trust-admin request through the real Host "
+          "resolved from the real assembled Vortex package layout",
+          "[process][integration][package]") {
+  //  Extends the List E2E above from a manually-built framework-dependent
+  //  Host executable to the real installable artifact shape: CMakeLists.txt's
+  //  AssembleRealAdapterHostPackage CTest fixture assembles the real
+  //  Data/SKSE/Plugins/... layout via the real production packager
+  //  (tooling/adapter_host_packager.py), and this resolves the Host
+  //  executable from it the same way the real adapter plugin's own
+  //  ResolveAdapterHostExecutablePath does -- combining
+  //  kAdapterHostExecutableRelativePath with the plugin's own directory --
+  //  rather than a path a test invented independently. A packager that puts
+  //  the Host in the wrong directory, or a kAdapterHostExecutableRelativePath
+  //  change the packager's real layout no longer matches, fails the
+  //  REQUIRE below rather than silently launching the wrong file.
+  std::filesystem::path pluginsDirectory{
+      DOVAHLINK_ASSEMBLED_PACKAGE_PLUGINS_DIR};
+  //  CTest's FIXTURES_REQUIRED only blocks this test when
+  //  AssembleRealAdapterHostPackage genuinely fails, not when it uses
+  //  SKIP_RETURN_CODE to skip -- so this test still runs even when the
+  //  fixture skipped against a Debug build, and must tell that apart from a
+  //  real layout bug itself: the plugins directory existing at all is proof
+  //  the fixture actually ran and assembled something (it is created only
+  //  once assemble_package's own input guards already passed), so its
+  //  absence means "fixture skipped" (expected in Debug -- SKIP, not FAIL),
+  //  while its presence without the resolved Host executable inside it means
+  //  a genuine packaging/resolution bug (FAIL).
+  if (!std::filesystem::exists(pluginsDirectory)) {
+    SKIP("AssembleRealAdapterHostPackage's fixture did not assemble a "
+         "package (no plugins directory at " +
+         pluginsDirectory.string() +
+         "), which is expected when this build's runtime DLLs are not "
+         "Release-named -- see assemble_adapter_host_package_for_ctest.py.");
+  }
+  std::filesystem::path hostExecutable =
+      pluginsDirectory / kAdapterHostExecutableRelativePath;
+  REQUIRE(std::filesystem::exists(hostExecutable));
+
+  //  RealHostFixture's constructor already proves the real Hello/HelloAck
+  //  handshake completes (WaitUntil(IsHostAvailable)), under this same
+  //  isolated per-test trust store every other real-process test in this
+  //  file uses, and its destructor already proves graceful shutdown
+  //  (AwaitExitOrTerminate) the same way every other fixture instance does.
+  RealHostFixture fixture(std::byte{0xED}, /*pairingSink=*/nullptr,
+                          hostExecutable);
+
+  //  One real trust-admin round trip, proving the packaged binary actually
+  //  serves real IPC requests -- not merely that a process started and
+  //  produced a valid Hello/HelloAck.
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kList, TrustAdminListScope::kAll, std::nullopt,
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
   CHECK(std::regex_search(
       *result.resultText,
       std::regex(R"(^(No known devices\.|\d+ known devices?:))")));
@@ -1206,6 +1473,147 @@ TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
   CHECK(pairingStatus.find(R"("state":"unavailable")") != std::string::npos);
 }
 
+TEST_CASE("a real native adapter completes full pairing and a fresh "
+          "connection reconnects trusted with the issued credential, "
+          "without repeating pairing",
+          "[process][integration]") {
+  //  Extends the pairing-display E2E above past the code display this file
+  //  already proves, through the rest of the real cross-language pairing
+  //  contract: the code the real native adapter displayed is submitted back
+  //  as a real pairing_confirm, the real Host's real PairingCoordinator
+  //  issues a real credential, a real pairing_ack durably trusts it, and a
+  //  second, independent public connection presenting that exact credential
+  //  is admitted as `clientIdentityKind: "paired"` with no adapter
+  //  involvement at all -- proving trusted reconnect never depends on the
+  //  adapter being present. Closes the roadmap's "trusted reconnect" real
+  //  end-to-end requirement, previously only proven against a raw IPC stream
+  //  stand-in for the adapter (host/DovahLink.Host.Tests), never the real
+  //  native adapter binary that produces the displayed code here.
+  constexpr std::uint16_t kPublicListenerPort = 58431;
+  ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+      kPublicListenerPort);
+  RecordingPairingNotificationSink pairingSink;
+  RealHostFixture fixture(std::byte{0xEB}, &pairingSink);
+  const std::string clientId = "ebebebeb-ebeb-ebeb-ebeb-ebebebebebeb";
+
+  std::string sessionId;
+  std::string code;
+  std::string credential;
+  {
+    //  Scoped so the first client's socket -- and its admitted session --
+    //  closes before the reconnect below opens a second, independent
+    //  connection, proving reconnect never resumes or reuses this one.
+    MinimalPublicWebSocketClient client(kPublicListenerPort);
+    client.SendText(
+        R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+        R"("correlationId":null,"payload":{"endpoint":"client",)"
+        R"("clientId":")" +
+        clientId +
+        R"(","auth":{"method":"unpaired"}},"bridgeInstanceId":null,)"
+        R"("playContextId":null,"clientId":null})");
+    std::string helloAck = client.ReceiveText();
+    REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+    sessionId = ExtractJsonStringField(helloAck, "sessionId");
+    REQUIRE_FALSE(sessionId.empty());
+    std::string capabilities = client.ReceiveText();
+    REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+            std::string::npos);
+
+    client.SendText(
+        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{},)" +
+        R"("bridgeInstanceId":null,"playContextId":null,"clientId":")" +
+        clientId + R"("})");
+
+    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                      std::chrono::seconds(10)));
+    auto displayed = pairingSink.Displayed();
+    REQUIRE(displayed.size() == 1);
+    code = displayed.front().first;
+    REQUIRE_FALSE(code.empty());
+
+    std::string pairingStatus = client.ReceiveText();
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+
+    //  The code a human would read off their Skyrim screen -- never sent
+    //  over the public wire -- is exactly what the real native adapter was
+    //  just told to display.
+    client.SendText(
+        R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"code":")" + code +
+        R"(","displayName":"Native E2E PC"},"bridgeInstanceId":null,)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    std::string confirmOutcome = client.ReceiveText();
+    REQUIRE(confirmOutcome.find(R"("messageType":"pairing_outcome")") !=
+            std::string::npos);
+    REQUIRE(confirmOutcome.find(R"("outcome":"credential_issued")") !=
+            std::string::npos);
+    credential = ExtractJsonStringField(confirmOutcome, "credential");
+    REQUIRE_FALSE(credential.empty());
+
+    client.SendText(
+        R"({"messageType":"pairing_ack","messageId":"m4","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"credential":")" +
+        credential + R"("},"bridgeInstanceId":null,"playContextId":null,)" +
+        R"("clientId":")" + clientId + R"("})");
+    std::string ackOutcome = client.ReceiveText();
+    REQUIRE(ackOutcome.find(R"("messageType":"pairing_outcome")") !=
+            std::string::npos);
+    REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
+    REQUIRE(ExtractJsonStringField(ackOutcome, "credential") == credential);
+    //  This first-time pairing durably trusts a device that was previously
+    //  unknown, so -- unlike ResetTrust/Revoke/Block above against this same
+    //  fixture's isolated, empty-on-start store -- it unconditionally writes
+    //  through persistence. Proves the real Host actually wrote through
+    //  RealHostFixture's isolated per-test file, not merely that
+    //  DOVAHLINK_TEST_TRUST_STORE_PATH was set: closes the loop on the trust-
+    //  store isolation this whole file depends on.
+    CHECK(std::filesystem::exists(fixture.TrustStorePath()));
+  }
+
+  //  A fresh connection presenting the exact credential just issued must be
+  //  admitted directly as trusted -- proving reconnect never requires
+  //  repeating the pairing flow above, or the adapter's own display/ack
+  //  round-trip -- opened only now that the first client (and its own
+  //  admitted session) has already gone out of scope above. A raw TCP
+  //  connect immediately following that first client's abrupt closesocket()
+  //  (no graceful WebSocket close handshake, unlike a real SDK client) can
+  //  briefly race the real Host's own accept-loop cleanup for the closed
+  //  connection; retried bounded rather than treated as a hard failure,
+  //  mirroring this file's own WaitUntil idiom for other bounded async
+  //  waits.
+  std::unique_ptr<MinimalPublicWebSocketClient> reconnectedClientPtr;
+  for (int attempt = 0; attempt < 20 && reconnectedClientPtr == nullptr;
+       ++attempt) {
+    try {
+      reconnectedClientPtr =
+          std::make_unique<MinimalPublicWebSocketClient>(kPublicListenerPort);
+    } catch (const std::exception &) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+  }
+  REQUIRE(reconnectedClientPtr != nullptr);
+  MinimalPublicWebSocketClient &reconnectedClient = *reconnectedClientPtr;
+  reconnectedClient.SendText(
+      R"({"messageType":"hello","messageId":"hello-reconnect-1",)"
+      R"("sessionId":null,"correlationId":null,"payload":{"endpoint":)"
+      R"("client","clientId":")" +
+      clientId + R"(","auth":{"method":"trusted_device_credential","token":")" +
+      credential +
+      R"("}},"bridgeInstanceId":null,"playContextId":null,"clientId":)"
+      R"(null})");
+  std::string reconnectHelloAck = reconnectedClient.ReceiveText();
+  REQUIRE(reconnectHelloAck.find(R"("messageType":"hello_ack")") !=
+          std::string::npos);
+  CHECK(reconnectHelloAck.find(R"("clientIdentityKind":"paired")") !=
+        std::string::npos);
+  //  A trusted reconnect is a fresh session, not a resumed one.
+  CHECK(ExtractJsonStringField(reconnectHelloAck, "sessionId") != sessionId);
+  std::string reconnectCapabilities = reconnectedClient.ReceiveText();
+  CHECK(reconnectCapabilities.find(R"("messageType":"capabilities")") !=
+        std::string::npos);
+}
+
 TEST_CASE("a rendezvous port occupied by another process falls back to a "
           "fresh host after the connection attempt fails",
           "[process][integration]") {
@@ -1261,4 +1669,23 @@ TEST_CASE("a rendezvous port occupied by another process falls back to a "
   supervisor.RequestStop();
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
   CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
+}
+
+TEST_CASE("a real native adapter completes Hello/HelloAck against a real "
+          "self-contained published Host executable",
+          "[process][integration][packaging]") {
+  //  Proves the adapter's real launch, private-IPC connect, and Hello/HelloAck
+  //  authentication path against the actual production-packaged artifact
+  //  shape -- self-contained, single-file, published via `dotnet publish`
+  //  (the same production publishing strategy tooling/package_adapter_host.py
+  //  uses) -- rather than only the framework-dependent `dotnet build` output
+  //  every other real-process test in this file launches against. This is
+  //  the same full proof RealHostFixture already gives every other test in
+  //  this file, just pointed at the packaged executable shape; a real
+  //  Skyrim/SKSE session remains a separate manual verification step.
+  RealHostFixture fixture(
+      std::byte{0xF8}, /*pairingSink=*/nullptr,
+      std::filesystem::path(DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED));
+
+  CHECK(fixture.Session().IsHostAvailable());
 }

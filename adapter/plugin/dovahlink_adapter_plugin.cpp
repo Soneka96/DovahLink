@@ -23,6 +23,11 @@
 #include "process/adapter_host_shutdown_requester.hpp"
 #include "process/adapter_host_supervisor.hpp"
 #include "process/adapter_owner_lifetime_id.hpp"
+#include "runtime/adapter_game_behavior_config.hpp"
+#include "runtime/adapter_game_behavior_config_file_reader.hpp"
+#include "runtime/adapter_runtime_constants.hpp"
+#include "runtime/adapter_runtime_guard.hpp"
+#include "runtime/commonlib_adapter_game_behavior_compatibility.hpp"
 #include "runtime/commonlib_adapter_task_marshaller.hpp"
 
 #ifndef NOMINMAX
@@ -116,6 +121,40 @@ SKSEPluginInfo(
   //  Must run before any SKSE::Get*Interface()-based registration below.
   SKSE::Init(skse);
 
+  if (!dovahlink::adapter::runtime::IsCurrentWindowsVersionSupported()) {
+    SKSE::log::error("Unsupported Windows runtime. DovahLink Adapter "
+                     "requires Windows 10 or later.");
+    return false;
+  }
+
+  //  Reject unsupported runtime combinations before any version-sensitive
+  //  compatibility work (the achievement/always-active patches below) or any
+  //  process-lifetime object construction.
+  REL::Version skyrimVersionRel = skse->RuntimeVersion();
+  REL::Version skseVersionRel = REL::Version::unpack(skse->SKSEVersion());
+  dovahlink::adapter::runtime::RuntimeVersion skyrimVersion{
+      skyrimVersionRel[0], skyrimVersionRel[1], skyrimVersionRel[2],
+      skyrimVersionRel[3]};
+  dovahlink::adapter::runtime::RuntimeVersion skseVersion{
+      skseVersionRel[0], skseVersionRel[1], skseVersionRel[2],
+      skseVersionRel[3]};
+  if (!dovahlink::adapter::runtime::IsSupportedSkyrimVersion(skyrimVersion) ||
+      !dovahlink::adapter::runtime::IsSupportedSkseVersion(skseVersion)) {
+    SKSE::log::error(
+        "Unsupported runtime: Skyrim {}.{}.{}.{}, SKSE {}.{}.{}.{}. "
+        "DovahLink Adapter requires exactly Skyrim {}.{}.{}, SKSE {}.{}.{}.",
+        skyrimVersion.major, skyrimVersion.minor, skyrimVersion.build,
+        skyrimVersion.revision, skseVersion.major, skseVersion.minor,
+        skseVersion.build, skseVersion.revision,
+        dovahlink::adapter::runtime::kSupportedSkyrimVersion.major,
+        dovahlink::adapter::runtime::kSupportedSkyrimVersion.minor,
+        dovahlink::adapter::runtime::kSupportedSkyrimVersion.build,
+        dovahlink::adapter::runtime::kSupportedSkseVersion.major,
+        dovahlink::adapter::runtime::kSupportedSkseVersion.minor,
+        dovahlink::adapter::runtime::kSupportedSkseVersion.build);
+    return false;
+  }
+
   //  Resolve every failure-prone startup dependency before constructing any
   //  process-lifetime worker. If SKSE rejects this load and immediately
   //  unloads the DLL, there must be no thread-owning object whose destructor
@@ -155,6 +194,29 @@ SKSEPluginInfo(
   //  has passed. A rejected load can then be unloaded without first creating
   //  the logger's background infrastructure.
   SetupLogging();
+
+  //  Runtime compatibility toggles (both default enabled): keeping Skyrim
+  //  active while unfocused so the pairing code stays visible while the
+  //  player is in the DovahLink app, and patching achievement eligibility
+  //  back on for a modded load order. Read once, early, so both outcomes are
+  //  logged before any other setup and can be disabled independently through
+  //  Data/SKSE/Plugins/DovahLinkAdapter.ini.
+  static dovahlink::adapter::runtime::
+      FilesystemAdapterGameBehaviorConfigFileReader gameBehaviorConfigReader;
+  dovahlink::adapter::runtime::AdapterGameBehaviorConfig behaviorConfig =
+      dovahlink::adapter::runtime::ReadAdapterGameBehaviorConfig(
+          gameBehaviorConfigReader,
+          dovahlink::adapter::runtime::kAdapterGameBehaviorConfigPath);
+  SKSE::log::info("Always-active mode: {}",
+                  behaviorConfig.alwaysActive ? "enabled" : "disabled");
+  SKSE::log::info("Achievement compatibility: {}",
+                  behaviorConfig.achievementCompat ? "enabled" : "disabled");
+  if (behaviorConfig.alwaysActive) {
+    dovahlink::adapter::runtime::ApplyAlwaysActiveSetting();
+  }
+  if (behaviorConfig.achievementCompat) {
+    dovahlink::adapter::runtime::InstallAchievementCompatibilityPatch();
+  }
 
   //  Plugin-lifetime adapter state, declared as function-local statics in
   //  the exact order they depend on each other. The pointed-to objects are

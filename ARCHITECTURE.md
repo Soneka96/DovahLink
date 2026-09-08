@@ -96,6 +96,16 @@ compatibility becomes mandatory again. `bridge-ci.yml` and `integration-ci.yml` 
 `bridge/` itself against `protocol/` regressions until 3A.2 removes them; neither gates unrelated
 App/SDK development.
 
+Host and Adapter configuration surfaces -- the trust-store file, the runtime-compatibility INI, and
+every other on-disk or environment-variable name -- are new, Host/Adapter-owned names, not reused
+from Bridge's own configuration or trust-store paths. This is an explicit decision, not an oversight:
+Bridge's persistent trust data is not read or migrated by the Host, and a client that was only ever
+paired against Bridge is not automatically recognized by the Host after cutover. A documented
+one-time re-pair against the Host is the accepted outcome, consistent with `ai/context/common.md`'s
+pre-release compatibility policy -- no supported public DovahLink release has ever shipped, so
+preserving Bridge's own unreleased configuration and trust-store layout is not a compatibility
+obligation.
+
 ## Target shape
 
 ```text

@@ -77,6 +77,126 @@ public class ProgramCompositionTests
         Assert.Equal(58426, result);
     }
 
+    /// <summary>Verifies that <c>0</c> (the OS-assigned ephemeral port request test composition relies on) is preserved rather than rejected.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_ZeroValue_ReturnsParsedPort()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("0");
+
+        Assert.Equal(0, result);
+    }
+
+    /// <summary>Verifies that the maximum valid TCP port is accepted, not rejected as out of range.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_MaxValidPort_ReturnsParsedPort()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("65535");
+
+        Assert.Equal(65535, result);
+    }
+
+    /// <summary>Verifies that a negative value leaves the public listener disabled rather than reaching the listener.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_NegativeValue_ReturnsNull()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("-1");
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that a value one above the maximum valid TCP port leaves the public listener disabled.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_PortOutOfRange_ReturnsNull()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("65536");
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that an unset environment variable value falls back to the production public listener port.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_NullValue_ReturnsProductionPort()
+    {
+        int result = global::Program.ResolvePublicListenerPort(null);
+
+        Assert.Equal(Constants.PublicWebSocketPort, result);
+    }
+
+    /// <summary>Verifies that an unparseable environment variable value falls back to the production public listener port.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_Unparseable_ReturnsProductionPort()
+    {
+        int result = global::Program.ResolvePublicListenerPort("not-a-port");
+
+        Assert.Equal(Constants.PublicWebSocketPort, result);
+    }
+
+    /// <summary>Verifies that an out-of-range environment variable value falls back to the production public listener port rather than reaching the listener.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_PortOutOfRange_ReturnsProductionPort()
+    {
+        int result = global::Program.ResolvePublicListenerPort("65536");
+
+        Assert.Equal(Constants.PublicWebSocketPort, result);
+    }
+
+    /// <summary>Verifies that a valid environment variable value overrides the production public listener port.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_ValidValue_ReturnsOverridePort()
+    {
+        int result = global::Program.ResolvePublicListenerPort("58426");
+
+        Assert.Equal(58426, result);
+    }
+
+    /// <summary>Verifies that an unset environment variable value leaves the real production trust store untouched.</summary>
+    [Fact]
+    public void ResolveTestTrustStorePersistence_NullValue_ReturnsNull()
+    {
+        ITrustStorePersistence? result = global::Program.ResolveTestTrustStorePersistence(null);
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that an all-whitespace environment variable value leaves the real production trust store untouched.</summary>
+    [Fact]
+    public void ResolveTestTrustStorePersistence_WhitespaceValue_ReturnsNull()
+    {
+        ITrustStorePersistence? result = global::Program.ResolveTestTrustStorePersistence("   ");
+
+        Assert.Null(result);
+    }
+
+    /// <summary>
+    /// Verifies that a valid environment variable value resolves to persistence backed by that exact
+    /// path, proving a real cross-process test launch's trust state lands in its own private file
+    /// rather than the real per-Windows-user DPAPI store.
+    /// </summary>
+    [Fact]
+    public async Task ResolveTestTrustStorePersistence_ValidValue_ReturnsPersistenceBackedByThatExactPath()
+    {
+        string overridePath = Path.Combine(Path.GetTempPath(), $"dovahlink-trust-store-test-{Guid.NewGuid():N}.dat");
+        try
+        {
+            ITrustStorePersistence? result = global::Program.ResolveTestTrustStorePersistence(overridePath);
+            Assert.NotNull(result);
+            var record = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+
+            await result!.SaveAsync([record]);
+
+            Assert.True(File.Exists(overridePath));
+            IReadOnlyList<TrustRecord> loaded = await result.LoadAsync();
+            Assert.Equal([record], loaded);
+        }
+        finally
+        {
+            if (File.Exists(overridePath))
+            {
+                File.Delete(overridePath);
+            }
+        }
+    }
+
     /// <summary>
     /// Verifies that composing and running reports the bound port, peer-proof token, and HostProof
     /// key over the rendezvous output.
@@ -381,6 +501,66 @@ public class ProgramCompositionTests
                 snapshot.Kind is PairingStatusKind.Idle or PairingStatusKind.UncommittedDisplayReservation,
                 $"Expected no active pairing challenge to survive shutdown, but observed {snapshot.Kind}.");
         }
+    }
+
+    /// <summary>
+    /// Verifies that shutdown cleanly closes an already-admitted, steady-state (idle, not
+    /// mid-handshake) client connection and still returns a successful exit code -- the one shutdown
+    /// scenario <see cref="ComposeAndRunAsync_ShutdownRacingPublicHelloAdmission_NeverDeadlocksAndClientNeverHangs"/>
+    /// does not cover, since it always shuts down mid-connect/hello/pairing rather than after a
+    /// connection has settled into steady state.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_ShutdownWithSteadyStateAdmittedClient_ClosesConnectionAndReturnsCleanly()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var output = new SynchronizedTextCapture();
+
+        Task<int> runTask = global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+        await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
+        string rendezvous = output.Snapshot();
+        int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
+
+        var codec = new PublicEnvelopeCodec();
+        using var clientWebSocket = new ClientWebSocket();
+        await clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{publicPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        byte[] hello = codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = Guid.NewGuid().ToString(), Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+        await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+
+        var buffer = new byte[4096];
+        WebSocketReceiveResult helloAckResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, helloAckResult.Count), out PublicEnvelope? helloAckEnvelope));
+        Assert.Equal(PublicMessageType.HelloAck, helloAckEnvelope!.MessageType);
+
+        // Every admission sends hello_ack followed by an unsolicited, empty capabilities
+        // advertisement, drained here so the connection is fully idle -- steady state -- before
+        // shutdown fires below.
+        WebSocketReceiveResult capabilitiesResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, capabilitiesResult.Count), out PublicEnvelope? capabilitiesEnvelope));
+        Assert.Equal(PublicMessageType.Capabilities, capabilitiesEnvelope!.MessageType);
+
+        shutdown.Cancel();
+
+        // Shutdown must close the connection in a well-defined way: an orderly close handshake or an
+        // abort (surfacing as a WebSocketException here) are both valid outcomes, matching the same
+        // force-close contract the administrative-invalidation tests already prove for their own
+        // trigger.
+        try
+        {
+            WebSocketReceiveResult closeResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(WebSocketMessageType.Close, closeResult.MessageType);
+        }
+        catch (WebSocketException)
+        {
+            // The connection was aborted rather than gracefully closed -- also a valid close.
+        }
+
+        Assert.NotEqual(WebSocketState.Open, clientWebSocket.State);
+        Assert.Equal(0, await runTask.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     /// <summary>
