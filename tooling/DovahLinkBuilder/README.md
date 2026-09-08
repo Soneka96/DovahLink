@@ -56,8 +56,8 @@ locally generated ZIP; choosing source **Other** dismisses it.
 From the repository root:
 
 ```powershell
-dotnet test tooling/DovahLinkBuilder.Tests/DovahLinkBuilder.Tests.csproj
-dotnet publish tooling/DovahLinkBuilder/DovahLinkBuilder.csproj `
+dotnet test tooling/DovahLinkBuilder/DovahLinkBuilder.slnx
+dotnet publish tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj `
   --configuration Release `
   --runtime win-x64 `
   --self-contained true `
