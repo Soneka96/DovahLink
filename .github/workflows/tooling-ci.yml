@@ -16,7 +16,6 @@ on:
       - ".vscode/**"
       - "ai/context/**"
       - "app/**"
-      - "bridge/**"
       - "integration/**"
       - "protocol/**"
       - "sdk/**"

@@ -244,30 +244,13 @@ Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -Argumen
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("build", "windows", "--debug")
 
-Write-Host "=== bridge-ci ==="
-$bridgeDirectory = Join-Path $repoRoot "bridge"
-# Pass the pinned Ninja path explicitly rather than letting CMake auto-detect it from PATH: CMake
-# caches whatever it finds for CMAKE_MAKE_PROGRAM in CMakeCache.txt on first configure and does not
-# reliably re-search once that variable exists in the cache, so a build directory left over from a
-# different environment (or a prior configure that aborted before writing a value) can otherwise
-# fail with "CMAKE_MAKE_PROGRAM is not set" even though the pinned Ninja above resolved and
-# verified correctly. The -D here always wins over the cache and stays consistent every run.
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @(
-    "--test-dir", "build/windows-x64-release", "--output-on-failure"
-)
-
 Write-Host "=== adapter-ci ==="
 # The real Host<->Adapter process test launches the built headless host executable; it must exist
 # before the Debug native test run below. Only the buildable project, not DovahLink.Host.Tests:
 # host-ci's section above already covers the host's own test suite.
-# -p:Platform=AnyCPU is required here: this script's own bridge-ci section above already imported
-# the MSVC developer environment, which exports a Platform=x64 environment variable (from
-# vcvarsall.bat) that MSBuild otherwise silently adopts, redirecting the build to
+# -p:Platform=AnyCPU is required here: this script's top-of-file Import-VisualStudioEnvironment call
+# already imported the MSVC developer environment, which exports a Platform=x64 environment variable
+# (from vcvarsall.bat) that MSBuild otherwise silently adopts, redirecting the build to
 # bin\x64\Debug\... instead of the bin\Debug\... path adapter/CMakeLists.txt's
 # DOVAHLINK_HOST_EXECUTABLE and the real-process test both expect.
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
