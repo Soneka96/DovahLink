@@ -52,7 +52,6 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 - C# conventions are defined in `ai/context/dotnet/csharp-style.md`.
 - Python conventions are defined in `ai/context/python/python-style.md`.
 - No area may place its implementation types, private fixtures, or infrastructure in another area's directory.
-- `protocol/fixtures/` contains canonical cross-side fixtures; `integration/` contains scenarios and harnesses that consume them.
 - `adapter-host-ipc/` is reserved for shared fixtures for the private, local IPC channel between the native Adapter and the C# Host; it is not part of the public client protocol owned by `protocol/`.
 
 ## Behavioral boundaries and test isolation
