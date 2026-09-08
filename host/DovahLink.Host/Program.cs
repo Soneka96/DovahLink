@@ -25,6 +25,8 @@ internal static class Program
         OwnerLifetimeId ownerLifetimeId = ParseOwnerLifetimeIdArgument(args);
         int publicListenerPort = ResolvePublicListenerPort(
             Environment.GetEnvironmentVariable(Constants.TestPublicListenerPortEnvironmentVariableName));
+        ITrustStorePersistence? trustStorePersistence = ResolveTestTrustStorePersistence(
+            Environment.GetEnvironmentVariable(Constants.TestTrustStorePathEnvironmentVariableName));
 
         using var shutdown = new CancellationTokenSource();
         EventHandler processExitHandler = (_, _) => shutdown.Cancel();
@@ -33,7 +35,8 @@ internal static class Program
         try
         {
             return await ComposeAndRunAsync(
-                ownerLifetimeId, Constants.AdapterIpcLoopbackPort, Console.Out, new HostProcessLifetime(), shutdown, publicListenerPort);
+                ownerLifetimeId, Constants.AdapterIpcLoopbackPort, Console.Out, new HostProcessLifetime(), shutdown, publicListenerPort,
+                trustStorePersistence);
         }
         finally
         {
@@ -73,8 +76,12 @@ internal static class Program
     /// </param>
     /// <param name="trustStorePersistence">
     /// The trust-store persistence adapter to load from and write through to. Defaults to the real
-    /// per-Windows-user DPAPI-protected file; overridable only so a test can exercise startup
-    /// ordering and fail-closed behavior without touching a real encrypted file.
+    /// per-Windows-user DPAPI-protected file. A test that calls this method directly may override it
+    /// to exercise startup ordering and fail-closed behavior without touching a real encrypted file;
+    /// the production <see cref="Main"/> entry point instead redirects it to a private, per-test file
+    /// only when <see cref="ResolveTestTrustStorePersistence"/> resolves an override from
+    /// <see cref="Constants.TestTrustStorePathEnvironmentVariableName"/>, so a real cross-process test
+    /// launch never touches the real store.
     /// </param>
     /// <param name="onComposed">
     /// Invoked once, immediately after composition, with the composed session registry and pairing
@@ -218,6 +225,21 @@ internal static class Program
     /// </param>
     internal static int ResolvePublicListenerPort(string? testPublicListenerPortEnvironmentVariableValue) =>
         ParseTestPublicListenerPort(testPublicListenerPortEnvironmentVariableValue) ?? Constants.PublicWebSocketPort;
+
+    /// <summary>
+    /// Resolves <see cref="Constants.TestTrustStorePathEnvironmentVariableName"/>'s value into an
+    /// explicit trust-store persistence override. A real cross-process test launch sets this to
+    /// redirect trust persistence to a private, per-test file instead of the real per-Windows-user
+    /// DPAPI store. An unset or all-whitespace value returns <see langword="null"/>, so
+    /// <see cref="ComposeAndRunAsync"/> falls back to its own default -- the real store -- exactly as
+    /// it always has.
+    /// </summary>
+    /// <param name="value">
+    /// <see cref="Constants.TestTrustStorePathEnvironmentVariableName"/>'s raw value, or
+    /// <see langword="null"/> if unset.
+    /// </param>
+    internal static ITrustStorePersistence? ResolveTestTrustStorePersistence(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : new WindowsDpapiTrustStorePersistence(value);
 
     /// <summary>Cancels <paramref name="shutdown"/> once the adapter's named shutdown-request signal is set.</summary>
     /// <param name="signal">The shutdown signal to wait on.</param>

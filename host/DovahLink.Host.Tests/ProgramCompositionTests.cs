@@ -104,6 +104,54 @@ public class ProgramCompositionTests
         Assert.Equal(58426, result);
     }
 
+    /// <summary>Verifies that an unset environment variable value leaves the real production trust store untouched.</summary>
+    [Fact]
+    public void ResolveTestTrustStorePersistence_NullValue_ReturnsNull()
+    {
+        ITrustStorePersistence? result = global::Program.ResolveTestTrustStorePersistence(null);
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that an all-whitespace environment variable value leaves the real production trust store untouched.</summary>
+    [Fact]
+    public void ResolveTestTrustStorePersistence_WhitespaceValue_ReturnsNull()
+    {
+        ITrustStorePersistence? result = global::Program.ResolveTestTrustStorePersistence("   ");
+
+        Assert.Null(result);
+    }
+
+    /// <summary>
+    /// Verifies that a valid environment variable value resolves to persistence backed by that exact
+    /// path, proving a real cross-process test launch's trust state lands in its own private file
+    /// rather than the real per-Windows-user DPAPI store.
+    /// </summary>
+    [Fact]
+    public async Task ResolveTestTrustStorePersistence_ValidValue_ReturnsPersistenceBackedByThatExactPath()
+    {
+        string overridePath = Path.Combine(Path.GetTempPath(), $"dovahlink-trust-store-test-{Guid.NewGuid():N}.dat");
+        try
+        {
+            ITrustStorePersistence? result = global::Program.ResolveTestTrustStorePersistence(overridePath);
+            Assert.NotNull(result);
+            var record = new TrustRecord(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow) { Incarnation = KnownDeviceIncarnationId.NewId() };
+
+            await result!.SaveAsync([record]);
+
+            Assert.True(File.Exists(overridePath));
+            IReadOnlyList<TrustRecord> loaded = await result.LoadAsync();
+            Assert.Equal([record], loaded);
+        }
+        finally
+        {
+            if (File.Exists(overridePath))
+            {
+                File.Delete(overridePath);
+            }
+        }
+    }
+
     /// <summary>
     /// Verifies that composing and running reports the bound port, peer-proof token, and HostProof
     /// key over the rendezvous output.

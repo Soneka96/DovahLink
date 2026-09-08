@@ -28,6 +28,14 @@ public static class Constants
     /// <summary>How long a factory-reset challenge remains confirmable after it is issued.</summary>
     public static readonly TimeSpan FactoryResetChallengeLifetime = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// The name of the environment variable a real cross-process test launch sets to redirect trust
+    /// persistence to a private, per-test file instead of the production per-Windows-user DPAPI
+    /// store, per <see cref="global::Program.ResolveTestTrustStorePersistence"/>. The production
+    /// launch path leaves this unset, so trust persists at <see cref="TrustStoreFilePath"/> there.
+    /// </summary>
+    public const string TestTrustStorePathEnvironmentVariableName = "DOVAHLINK_TEST_TRUST_STORE_PATH";
+
     // ---- Pairing ----
 
     /// <summary>The number of digits in a generated pairing challenge code.</summary>
