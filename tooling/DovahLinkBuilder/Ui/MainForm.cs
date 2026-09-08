@@ -1,16 +1,15 @@
 using DovahLink.DovahLinkBuilder.Build;
-using DovahLink.DovahLinkBuilder.Packaging;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
 
-/// <summary>Displays bridge build controls, progress, and results.</summary>
+/// <summary>Displays Adapter+Host build controls, progress, and results.</summary>
 public sealed class MainForm : Form
 {
     /// <summary>The repository being built.</summary>
     private readonly string repositoryRoot;
 
-    /// <summary>Coordinates bridge compilation and packaging.</summary>
-    private readonly BridgeBuildCoordinator coordinator;
+    /// <summary>Coordinates Adapter compilation and Adapter+Host packaging.</summary>
+    private readonly AdapterHostBuildCoordinator coordinator;
 
     /// <summary>Tracks the build state shown by the form.</summary>
     private readonly BuildViewModel viewModel = new();
@@ -18,11 +17,8 @@ public sealed class MainForm : Form
     /// <summary>Cancels a build when the form closes.</summary>
     private readonly CancellationTokenSource buildCancellation = new();
 
-    /// <summary>Starts a beta build.</summary>
-    private readonly Button betaButton = new() { Text = "Build Beta", AutoSize = true };
-
-    /// <summary>Starts a release build.</summary>
-    private readonly Button releaseButton = new() { Text = "Build Release", AutoSize = true };
+    /// <summary>Starts a build.</summary>
+    private readonly Button buildButton = new() { Text = "Build", AutoSize = true };
 
     /// <summary>Opens the output directory after a successful build.</summary>
     private readonly Button openOutputButton = new() { Text = "Open Output Folder", AutoSize = true, Enabled = false };
@@ -41,25 +37,24 @@ public sealed class MainForm : Form
     };
 
     /// <summary>
-    /// Initializes the Bridge Builder window for the specified repository.
+    /// Initializes the DovahLink Builder window for the specified repository.
     /// </summary>
     /// <param name="repositoryRoot">The root directory of the repository to build.</param>
     public MainForm(string repositoryRoot)
     {
         this.repositoryRoot = repositoryRoot;
-        coordinator = new BridgeBuildCoordinator(
+        coordinator = new AdapterHostBuildCoordinator(
             new ProcessCommandRunner(),
             VisualStudioToolchainLocator.Find,
             PapyrusToolchainLocator.Find);
 
-        Text = "DovahLink Bridge Builder";
+        Text = "DovahLink Builder";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(720, 460);
         Size = new Size(900, 600);
         FormClosing += (_, _) => buildCancellation.Cancel();
 
-        betaButton.Click += async (_, _) => await RunBuildAsync(PackageChannel.Beta);
-        releaseButton.Click += async (_, _) => await RunBuildAsync(PackageChannel.Release);
+        buildButton.Click += async (_, _) => await RunBuildAsync();
         openOutputButton.Click += (_, _) => OpenOutputFolder();
 
         var buttons = new FlowLayoutPanel
@@ -69,8 +64,7 @@ public sealed class MainForm : Form
             FlowDirection = FlowDirection.LeftToRight,
             Padding = new Padding(8),
         };
-        buttons.Controls.Add(betaButton);
-        buttons.Controls.Add(releaseButton);
+        buttons.Controls.Add(buildButton);
         buttons.Controls.Add(openOutputButton);
 
         var statusPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
@@ -92,10 +86,9 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Runs a Bridge package build for the specified channel and updates the build state and output log.
+    /// Runs an Adapter+Host build and updates the build state and output log.
     /// </summary>
-    /// <param name="channel">The package channel to build.</param>
-    private async Task RunBuildAsync(PackageChannel channel)
+    private async Task RunBuildAsync()
     {
         if (!viewModel.TryBeginBuild())
         {
@@ -103,11 +96,11 @@ public sealed class MainForm : Form
         }
 
         UpdateControls();
-        AppendOutput($"> Starting {channel} build");
+        AppendOutput("> Starting build");
         try
         {
-            BridgeBuildResult result = await coordinator.BuildAsync(
-                new BridgeBuildRequest(repositoryRoot, channel),
+            AdapterHostBuildResult result = await coordinator.BuildAsync(
+                new AdapterHostBuildRequest(repositoryRoot),
                 AppendOutput,
                 buildCancellation.Token);
             viewModel.Complete(result.ArchivePath);
@@ -127,7 +120,7 @@ public sealed class MainForm : Form
             {
                 viewModel.Fail(exception.Message);
                 AppendOutput($"> ERROR: {exception.Message}");
-                MessageBox.Show(this, exception.Message, "Bridge build failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, exception.Message, "Build failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -143,8 +136,7 @@ public sealed class MainForm : Form
     private void UpdateControls()
     {
         bool canBuild = viewModel.State.CanBuild;
-        betaButton.Enabled = canBuild;
-        releaseButton.Enabled = canBuild;
+        buildButton.Enabled = canBuild;
         openOutputButton.Enabled = viewModel.State.ArchivePath is not null;
         statusLabel.Text = viewModel.State.Message;
     }
