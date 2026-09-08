@@ -67,8 +67,8 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 - **Current phase:** Phase 4.1 — Typed Protocol Contract Redesign and Migration (**Complete**)
   delivered the typed per-message protocol contract (connection, pairing, state, error,
   invalidation, and control families), canonical cross-side fixtures, and the matching Bridge/SDK/
-  .NET adapter updates, retiring the old aggregate `character` state area. **3A.1 — Host/Adapter
-  Production Cutover is the next implementation work**, not Phase 4.2: Phase 4.2 — Bridge Live
+  .NET adapter updates, retiring the old aggregate `character` state area. **3A.3 — Repository
+  Normalization is the next implementation work**, not Phase 4.2: Phase 4.2 — Bridge Live
   Publication and Bounded Transport, and the remaining Bridge-authored Stage 4 phases after it, are
   paused pending 3A. Their specifications remain in
   [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md)
@@ -93,7 +93,7 @@ per the current position above, Phase 4.2 is paused rather than in progress. Onc
 | 1 | Complete | [Stage 1 — Skyrim Bridge Foundation](roadmap/01-skyrim-bridge-foundation.md) |
 | 2 | Complete | [Stage 2 — Bridge Identity and Authoritative State](roadmap/02-bridge-identity-and-authoritative-state.md) |
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
-| 3A | Active. Current interstitial stage between the released Stage 3 baseline and further Stage 4 product development; does not renumber Stage 4. 3A.1 (Production Cutover) is the next implementation work. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
+| 3A | Active. Current interstitial stage between the released Stage 3 baseline and further Stage 4 product development; does not renumber Stage 4. 3A.3 (Repository Normalization) is the next implementation work. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Active, paused after Phase 4.1. Phase 4.2 (Bridge live publication and bounded transport) and the remaining Bridge-authored phases are paused pending Stage 3A, not next; Stage 4 resumes on Host + Adapter once 3A completes. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
 | 5 | Planned. The package scaffold, protocol/transport layer, and persistence boundary are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |

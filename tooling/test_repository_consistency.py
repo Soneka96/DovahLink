@@ -650,6 +650,67 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("choco install", script)
         self.assertIn("All local CI command payloads passed.", script)
 
+    def test_published_release_and_roadmap_status_agree(self) -> None:
+        """Keep the published version and completed roadmap phase synchronized."""
+        version = self._read("VERSION").strip()
+        phase_zero = self._roadmap_section("0. Documentation baseline")
+        phase_zero_five = self._roadmap_section("0.5 Client and Protocol Foundation")
+        phase_one = self._roadmap_section("1. Skyrim Bridge Foundation")
+        phase_two = self._roadmap_section(
+            "2. Bridge Identity and Authoritative State Foundation"
+        )
+        phase_three = self._roadmap_section("3. Local Device Pairing and Reconnection")
+        phase_three_one = self._roadmap_section("3.1 Live Pairing Challenge UX")
+
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        for completed_phase in (
+            phase_zero,
+            phase_zero_five,
+            phase_one,
+            phase_two,
+            phase_three,
+            phase_three_one,
+        ):
+            self.assertEqual(
+                re.findall(r"(?m)^\*\*Status:\*\* .+$", completed_phase),
+                ["**Status:** Complete"],
+            )
+
+    def test_version_literals_match_the_published_release(self) -> None:
+        """Guard every hand-maintained version literal against drift from VERSION."""
+        version = self._read("VERSION").strip()
+
+        self.assertEqual(
+            json.loads(self._read("adapter/vcpkg.json"))["version-string"], version
+        )
+
+        for current_example in (
+            "protocol/schema/README.md",
+            "protocol/fixtures/connection/hello-ack.json",
+            "protocol/fixtures/connection/hello-ack-active-context.json",
+        ):
+            self.assertIn(
+                f'"bridgeVersion": "{version}"',
+                self._read(current_example),
+                current_example,
+            )
+
+    def test_changelog_matches_the_published_version(self) -> None:
+        """Keep CHANGELOG.md's newest entry synchronized with the published version."""
+        version = self._read("VERSION").strip()
+        changelog = self._read("CHANGELOG.md")
+        entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
+
+        self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
+        self.assertEqual(entry_versions[0], version)
+        for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2", "0.3.3"):
+            self.assertIn(known_version, entry_versions)
+        self.assertEqual(
+            len(set(entry_versions)),
+            len(entry_versions),
+            "CHANGELOG.md has duplicate versions.",
+        )
+
     def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
         """Guard the datasource file-count exception and one shared term for the compatibility
         bootstrap step and its failure case, across the docs that reference them."""
@@ -737,7 +798,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         # other undone phase uses.
         phase_3a_status = (
             "**Status:** Active. This is the current interstitial architectural migration gate "
-            "between the released Stage 3 baseline and further Stage 4 product development; 3A.1 "
+            "between the released Stage 3 baseline and further Stage 4 product development; 3A.3 "
             "is the next implementation work. See 3A.1-3A.3 below."
         )
         self.assertEqual(roadmap.count(phase_3a_status), 1)

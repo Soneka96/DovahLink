@@ -14,8 +14,8 @@ pull request workflow belongs to `CONTRIBUTING.md`.
   (`tooling/test_repository_consistency.py`) that a hardcoded expectation now needs updating for as
   part of that same PR.
 - The version bump, its `CHANGELOG.md` entry, and syncing every hand-maintained version literal
-  (`bridge/vcpkg.json`, the Bridge/.NET/Dart literals and fixtures `tooling/test_repository_consistency.py`'s
-  `test_bridge_version_literals_match_the_published_release` enumerates, and that same file's
+  (`VERSION`, the literals and fixtures `tooling/test_repository_consistency.py`'s
+  `test_version_literals_match_the_published_release` enumerates, and that same file's
   `CHANGELOG.md`-version bookkeeping) are their own dedicated release branch and release-only pull
   request, never bundled into a feature/phase branch: that sync already touches over a dozen files
   across every language in the repo on its own, and folding it into an already-large feature PR
