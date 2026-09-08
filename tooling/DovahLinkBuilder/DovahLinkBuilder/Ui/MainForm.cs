@@ -9,7 +9,7 @@ public sealed class MainForm : Form
     private readonly string repositoryRoot;
 
     /// <summary>Coordinates Adapter compilation and Adapter+Host packaging.</summary>
-    private readonly AdapterHostBuildCoordinator coordinator;
+    private readonly IAdapterHostBuildCoordinator coordinator;
 
     /// <summary>Tracks the build state shown by the form.</summary>
     private readonly BuildViewModel viewModel = new();
@@ -40,13 +40,11 @@ public sealed class MainForm : Form
     /// Initializes the DovahLink Builder window for the specified repository.
     /// </summary>
     /// <param name="repositoryRoot">The root directory of the repository to build.</param>
-    public MainForm(string repositoryRoot)
+    /// <param name="coordinator">Coordinates Adapter compilation and Adapter+Host packaging.</param>
+    public MainForm(string repositoryRoot, IAdapterHostBuildCoordinator coordinator)
     {
         this.repositoryRoot = repositoryRoot;
-        coordinator = new AdapterHostBuildCoordinator(
-            new ProcessCommandRunner(),
-            VisualStudioToolchainLocator.Find,
-            PapyrusToolchainLocator.Find);
+        this.coordinator = coordinator;
 
         Text = "DovahLink Builder";
         StartPosition = FormStartPosition.CenterScreen;

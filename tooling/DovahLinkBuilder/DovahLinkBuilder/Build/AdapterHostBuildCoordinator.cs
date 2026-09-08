@@ -1,7 +1,31 @@
 namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Coordinates building the production Adapter and packaging it with the Host.</summary>
-public sealed class AdapterHostBuildCoordinator
+public interface IAdapterHostBuildCoordinator
+{
+    /// <summary>
+    /// Builds the production Adapter and packages it with the published Host into a Vortex-ready archive.
+    /// </summary>
+    /// <param name="request">The repository to build.</param>
+    /// <param name="onOutput">An optional callback for build and packaging progress messages.</param>
+    /// <param name="cancellationToken">A token that can cancel the build or packaging commands.</param>
+    /// <returns>The path to the created archive.</returns>
+    /// <exception cref="FileNotFoundException">
+    /// Thrown when the adapter manifest, the repository VERSION file, the packaging script, or the
+    /// console-admin script or YAML configuration is missing.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the Visual Studio or Papyrus toolchain cannot be validated, the Adapter build
+    /// fails, or the packaging script fails or does not report a written archive path.
+    /// </exception>
+    Task<AdapterHostBuildResult> BuildAsync(
+        AdapterHostBuildRequest request,
+        Action<string>? onOutput = null,
+        CancellationToken cancellationToken = default);
+}
+
+/// <inheritdoc cref="IAdapterHostBuildCoordinator"/>
+public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
 {
     /// <summary>The configured Release build output directory name.</summary>
     private const string ReleaseBuildDirectory = "windows-x64-release";
@@ -37,21 +61,7 @@ public sealed class AdapterHostBuildCoordinator
         this.papyrusToolchainProvider = papyrusToolchainProvider;
     }
 
-    /// <summary>
-    /// Builds the production Adapter and packages it with the published Host into a Vortex-ready archive.
-    /// </summary>
-    /// <param name="request">The repository to build.</param>
-    /// <param name="onOutput">An optional callback for build and packaging progress messages.</param>
-    /// <param name="cancellationToken">A token that can cancel the build or packaging commands.</param>
-    /// <returns>The path to the created archive.</returns>
-    /// <exception cref="FileNotFoundException">
-    /// Thrown when the adapter manifest, the repository VERSION file, the packaging script, or the
-    /// console-admin script or YAML configuration is missing.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the Visual Studio or Papyrus toolchain cannot be validated, the Adapter build
-    /// fails, or the packaging script fails or does not report a written archive path.
-    /// </exception>
+    /// <inheritdoc/>
     public async Task<AdapterHostBuildResult> BuildAsync(
         AdapterHostBuildRequest request,
         Action<string>? onOutput = null,

@@ -1,3 +1,4 @@
+using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Ui;
 
 // Initializes the WinForms application and opens the builder window.
@@ -6,7 +7,11 @@ ApplicationConfiguration.Initialize();
 try
 {
     string repositoryRoot = RepositoryRootLocator.Find(AppContext.BaseDirectory);
-    Application.Run(new MainForm(repositoryRoot));
+    IAdapterHostBuildCoordinator coordinator = new AdapterHostBuildCoordinator(
+        new ProcessCommandRunner(),
+        VisualStudioToolchainLocator.Find,
+        PapyrusToolchainLocator.Find);
+    Application.Run(new MainForm(repositoryRoot, coordinator));
 }
 catch (Exception exception)
 {
