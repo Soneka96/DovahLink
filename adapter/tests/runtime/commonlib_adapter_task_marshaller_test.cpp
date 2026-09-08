@@ -27,8 +27,12 @@ TEST_CASE("no adapter/runtime header includes a Skyrim or SKSE runtime "
 
     std::string text = ReadSource(entry.path());
     INFO("checking " << entry.path().filename().string());
-    CHECK(text.find("RE/") == std::string::npos);
-    CHECK(text.find("SKSE/") == std::string::npos);
+    //  Checks for the actual include directive, not a bare "RE/"/"SKSE/"
+    //  substring: a header may legitimately hold an unrelated string
+    //  constant that happens to contain that substring (for example an INI
+    //  path under "Data/SKSE/Plugins/"), which is not a runtime dependency.
+    CHECK(text.find("#include \"RE/") == std::string::npos);
+    CHECK(text.find("#include \"SKSE/") == std::string::npos);
   }
 
   CHECK(headerCount > 0);

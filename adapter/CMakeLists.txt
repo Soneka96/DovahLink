@@ -27,6 +27,7 @@ add_library(dovahlink_adapter_core STATIC
     ipc/settable_adapter_ipc_peer_proof_provider.cpp
     ipc/trust_admin_completion_dispatch.cpp
     runtime/game_thread_completion.cpp
+    runtime/adapter_game_behavior_config_file_reader.cpp
     capture/adapter_capture_handoff_queue.cpp
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
@@ -56,6 +57,7 @@ endif()
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_adapter_runtime STATIC
     runtime/commonlib_adapter_task_marshaller.cpp
+    runtime/commonlib_adapter_game_behavior_compatibility.cpp
     papyrus/commonlib_adapter_status_papyrus_adapter.cpp
     papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp
     ipc/commonlib_adapter_pairing_notification_sink.cpp
@@ -144,9 +146,11 @@ add_executable(dovahlink_adapter_tests
     tests/identity/adapter_instance_id_generator_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
     tests/runtime/game_thread_completion_test.cpp
+    tests/runtime/adapter_game_behavior_config_file_reader_test.cpp
     tests/papyrus/commonlib_adapter_status_papyrus_adapter_test.cpp
     tests/papyrus/commonlib_adapter_trust_admin_papyrus_adapter_test.cpp
     tests/plugin/dovahlink_adapter_plugin_test.cpp
+    tests/plugin/dovahlink_adapter_plugin_compatibility_test.cpp
 )
 target_include_directories(dovahlink_adapter_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(dovahlink_adapter_tests PRIVATE
