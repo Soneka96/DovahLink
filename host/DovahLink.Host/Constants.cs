@@ -242,20 +242,22 @@ public static class Constants
         $@"Local\DovahLink.Host.Shutdown.{ownerLifetimeId.Format()}";
 
     /// <summary>
-    /// The name of the environment variable a real cross-process test launch sets to open the
-    /// public listener on a specific port, per <see cref="global::Program.ParseTestPublicListenerPort"/>.
-    /// The production launch path never sets this, so the public listener stays disabled there,
-    /// matching the approved "isolated development/test execution only" scope for Stage 4.
+    /// The name of the environment variable a real cross-process test launch sets to pin the public
+    /// listener to a specific known port instead of the production default, per
+    /// <see cref="global::Program.ParseTestPublicListenerPort"/> and
+    /// <see cref="global::Program.ResolvePublicListenerPort"/>. The production launch path leaves
+    /// this unset, so the public listener binds <see cref="PublicWebSocketPort"/> there.
     /// </summary>
     public const string TestPublicListenerPortEnvironmentVariableName = "DOVAHLINK_TEST_PUBLIC_LISTENER_PORT";
 
     // ---- Client transport ----
 
     /// <summary>
-    /// The approved public loopback port reserved for the eventual production public WebSocket
-    /// listener composition, per <c>ai/context/host/migration-audit.md</c>'s "Default loopback port
-    /// 58231". Not activated by Stage 4; an isolated development/test composition injects a
-    /// different explicit loopback port instead of this value.
+    /// The public loopback port the production launch path binds its public WebSocket listener to,
+    /// per <c>ai/context/host/migration-audit.md</c>'s "Default loopback port 58231". A real
+    /// cross-process test launch overrides it with
+    /// <see cref="TestPublicListenerPortEnvironmentVariableName"/> instead, and test code that
+    /// composes directly through <c>Program.ComposeAndRunAsync</c> injects its own explicit port.
     /// </summary>
     public const int PublicWebSocketPort = 58231;
 

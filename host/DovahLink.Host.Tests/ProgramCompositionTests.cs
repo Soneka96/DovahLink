@@ -77,6 +77,33 @@ public class ProgramCompositionTests
         Assert.Equal(58426, result);
     }
 
+    /// <summary>Verifies that an unset environment variable value falls back to the production public listener port.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_NullValue_ReturnsProductionPort()
+    {
+        int result = global::Program.ResolvePublicListenerPort(null);
+
+        Assert.Equal(Constants.PublicWebSocketPort, result);
+    }
+
+    /// <summary>Verifies that an unparseable environment variable value falls back to the production public listener port.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_Unparseable_ReturnsProductionPort()
+    {
+        int result = global::Program.ResolvePublicListenerPort("not-a-port");
+
+        Assert.Equal(Constants.PublicWebSocketPort, result);
+    }
+
+    /// <summary>Verifies that a valid environment variable value overrides the production public listener port.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_ValidValue_ReturnsOverridePort()
+    {
+        int result = global::Program.ResolvePublicListenerPort("58426");
+
+        Assert.Equal(58426, result);
+    }
+
     /// <summary>
     /// Verifies that composing and running reports the bound port, peer-proof token, and HostProof
     /// key over the rendezvous output.
