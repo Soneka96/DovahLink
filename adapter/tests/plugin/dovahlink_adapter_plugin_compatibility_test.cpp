@@ -174,6 +174,92 @@ TEST_CASE("the adapter plugin's two compatibility guards and calls are not "
   CHECK(alwaysActiveClose < achievementOpen);
 }
 
+TEST_CASE("the adapter plugin rejects an unsupported runtime before "
+          "installing either compatibility patch or constructing any "
+          "worker-owning object",
+          "[plugin][compatibility]") {
+  //  InstallAchievementCompatibilityPatch resolves an Address-Library ID
+  //  that can fail process startup on an unrecognized runtime (see
+  //  adapter/runtime/commonlib_adapter_game_behavior_compatibility.hpp); the
+  //  supported-runtime guard must reject that runtime first so this
+  //  version-sensitive work, and the always-active patch, are never reached.
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t windowsCheck = source.find("if (!dovahlink::adapter::runtime::"
+                                         "IsCurrentWindowsVersionSupported())");
+  std::size_t windowsReturnFalse = source.find("return false;", windowsCheck);
+  std::size_t runtimeVersionCheck =
+      source.find("if (!dovahlink::adapter::runtime::"
+                  "IsSupportedSkyrimVersion(skyrimVersion) ||");
+  std::size_t skseVersionCheck = source.find(
+      "!dovahlink::adapter::runtime::IsSupportedSkseVersion(skseVersion))",
+      runtimeVersionCheck);
+  std::size_t runtimeVersionReturnFalse =
+      source.find("return false;", runtimeVersionCheck);
+  std::size_t alwaysActiveCall = source.find("ApplyAlwaysActiveSetting(");
+  std::size_t achievementCall =
+      source.find("InstallAchievementCompatibilityPatch(");
+  std::size_t workerConstruction = source.find(
+      "new dovahlink::adapter::capture::AdapterCaptureHandoffQueue");
+
+  REQUIRE(windowsCheck != std::string::npos);
+  REQUIRE(windowsReturnFalse != std::string::npos);
+  REQUIRE(runtimeVersionCheck != std::string::npos);
+  REQUIRE(skseVersionCheck != std::string::npos);
+  REQUIRE(runtimeVersionReturnFalse != std::string::npos);
+  REQUIRE(alwaysActiveCall != std::string::npos);
+  REQUIRE(achievementCall != std::string::npos);
+  REQUIRE(workerConstruction != std::string::npos);
+  CHECK(windowsCheck < windowsReturnFalse);
+  CHECK(windowsReturnFalse < runtimeVersionCheck);
+  //  Both the Skyrim and SKSE version checks belong to the same OR
+  //  condition, so either one being unsupported independently rejects the
+  //  load -- proves the SKSE check was not dropped or moved out of that
+  //  condition.
+  CHECK(runtimeVersionCheck < skseVersionCheck);
+  CHECK(skseVersionCheck < runtimeVersionReturnFalse);
+  CHECK(runtimeVersionReturnFalse < alwaysActiveCall);
+  CHECK(runtimeVersionReturnFalse < achievementCall);
+  CHECK(runtimeVersionReturnFalse < workerConstruction);
+
+  //  Pins the REL::Version -> RuntimeVersion field order: a swapped index
+  //  would silently compare the wrong component (for example build against
+  //  minor) without any test-visible failure other than this text order.
+  //  Tolerant of exact whitespace/line-wrapping so a formatter pass cannot
+  //  spuriously break it.
+  std::size_t skyrimVersionInit = source.find("skyrimVersion{");
+  REQUIRE(skyrimVersionInit != std::string::npos);
+  std::size_t skyrimIndex0 =
+      source.find("skyrimVersionRel[0]", skyrimVersionInit);
+  std::size_t skyrimIndex1 =
+      source.find("skyrimVersionRel[1]", skyrimVersionInit);
+  std::size_t skyrimIndex2 =
+      source.find("skyrimVersionRel[2]", skyrimVersionInit);
+  std::size_t skyrimIndex3 =
+      source.find("skyrimVersionRel[3]", skyrimVersionInit);
+  REQUIRE(skyrimIndex0 != std::string::npos);
+  REQUIRE(skyrimIndex1 != std::string::npos);
+  REQUIRE(skyrimIndex2 != std::string::npos);
+  REQUIRE(skyrimIndex3 != std::string::npos);
+  CHECK(skyrimIndex0 < skyrimIndex1);
+  CHECK(skyrimIndex1 < skyrimIndex2);
+  CHECK(skyrimIndex2 < skyrimIndex3);
+
+  std::size_t skseVersionInit = source.find("skseVersion{");
+  REQUIRE(skseVersionInit != std::string::npos);
+  std::size_t skseIndex0 = source.find("skseVersionRel[0]", skseVersionInit);
+  std::size_t skseIndex1 = source.find("skseVersionRel[1]", skseVersionInit);
+  std::size_t skseIndex2 = source.find("skseVersionRel[2]", skseVersionInit);
+  std::size_t skseIndex3 = source.find("skseVersionRel[3]", skseVersionInit);
+  REQUIRE(skseIndex0 != std::string::npos);
+  REQUIRE(skseIndex1 != std::string::npos);
+  REQUIRE(skseIndex2 != std::string::npos);
+  REQUIRE(skseIndex3 != std::string::npos);
+  CHECK(skseIndex0 < skseIndex1);
+  CHECK(skseIndex1 < skseIndex2);
+  CHECK(skseIndex2 < skseIndex3);
+}
+
 TEST_CASE("the adapter plugin logs both compatibility flags unconditionally",
           "[plugin][compatibility]") {
   std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);

@@ -26,6 +26,7 @@
 #include "runtime/adapter_game_behavior_config.hpp"
 #include "runtime/adapter_game_behavior_config_file_reader.hpp"
 #include "runtime/adapter_runtime_constants.hpp"
+#include "runtime/adapter_runtime_guard.hpp"
 #include "runtime/commonlib_adapter_game_behavior_compatibility.hpp"
 #include "runtime/commonlib_adapter_task_marshaller.hpp"
 
@@ -119,6 +120,40 @@ SKSEPluginInfo(
   //  ai/context/skse/runtime-quirks.md#skseinit-must-run-before-any-interface-registration
   //  Must run before any SKSE::Get*Interface()-based registration below.
   SKSE::Init(skse);
+
+  if (!dovahlink::adapter::runtime::IsCurrentWindowsVersionSupported()) {
+    SKSE::log::error("Unsupported Windows runtime. DovahLink Adapter "
+                     "requires Windows 10 or later.");
+    return false;
+  }
+
+  //  Reject unsupported runtime combinations before any version-sensitive
+  //  compatibility work (the achievement/always-active patches below) or any
+  //  process-lifetime object construction.
+  REL::Version skyrimVersionRel = skse->RuntimeVersion();
+  REL::Version skseVersionRel = REL::Version::unpack(skse->SKSEVersion());
+  dovahlink::adapter::runtime::RuntimeVersion skyrimVersion{
+      skyrimVersionRel[0], skyrimVersionRel[1], skyrimVersionRel[2],
+      skyrimVersionRel[3]};
+  dovahlink::adapter::runtime::RuntimeVersion skseVersion{
+      skseVersionRel[0], skseVersionRel[1], skseVersionRel[2],
+      skseVersionRel[3]};
+  if (!dovahlink::adapter::runtime::IsSupportedSkyrimVersion(skyrimVersion) ||
+      !dovahlink::adapter::runtime::IsSupportedSkseVersion(skseVersion)) {
+    SKSE::log::error(
+        "Unsupported runtime: Skyrim {}.{}.{}.{}, SKSE {}.{}.{}.{}. "
+        "DovahLink Adapter requires exactly Skyrim {}.{}.{}, SKSE {}.{}.{}.",
+        skyrimVersion.major, skyrimVersion.minor, skyrimVersion.build,
+        skyrimVersion.revision, skseVersion.major, skseVersion.minor,
+        skseVersion.build, skseVersion.revision,
+        dovahlink::adapter::runtime::kSupportedSkyrimVersion.major,
+        dovahlink::adapter::runtime::kSupportedSkyrimVersion.minor,
+        dovahlink::adapter::runtime::kSupportedSkyrimVersion.build,
+        dovahlink::adapter::runtime::kSupportedSkseVersion.major,
+        dovahlink::adapter::runtime::kSupportedSkseVersion.minor,
+        dovahlink::adapter::runtime::kSupportedSkseVersion.build);
+    return false;
+  }
 
   //  Resolve every failure-prone startup dependency before constructing any
   //  process-lifetime worker. If SKSE rejects this load and immediately

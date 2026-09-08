@@ -170,6 +170,7 @@ add_executable(dovahlink_adapter_tests
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
     tests/runtime/game_thread_completion_test.cpp
     tests/runtime/adapter_game_behavior_config_file_reader_test.cpp
+    tests/runtime/adapter_runtime_guard_test.cpp
     tests/papyrus/commonlib_adapter_status_papyrus_adapter_test.cpp
     tests/papyrus/commonlib_adapter_trust_admin_papyrus_adapter_test.cpp
     tests/plugin/dovahlink_adapter_plugin_test.cpp
