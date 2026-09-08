@@ -1,4 +1,4 @@
-namespace DovahLink.BridgeBuilder.Ui;
+namespace DovahLink.DovahLinkBuilder.Ui;
 
 /// <summary>Describes the current state of a Bridge Builder operation.</summary>
 public enum BuildUiStatus

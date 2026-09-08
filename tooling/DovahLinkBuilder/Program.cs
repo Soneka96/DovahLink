@@ -1,4 +1,4 @@
-using DovahLink.BridgeBuilder.Ui;
+using DovahLink.DovahLinkBuilder.Ui;
 
 // Initializes the WinForms application and opens the builder window.
 ApplicationConfiguration.Initialize();

@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace DovahLink.BridgeBuilder.Packaging;
+namespace DovahLink.DovahLinkBuilder.Packaging;
 
 /// <summary>Represents a non-negative semantic bridge version.</summary>
 /// <param name="Major">The major version.</param>

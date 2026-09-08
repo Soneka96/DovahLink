@@ -1,6 +1,6 @@
-using DovahLink.BridgeBuilder.Build;
+using DovahLink.DovahLinkBuilder.Build;
 
-namespace DovahLink.BridgeBuilder.Tests;
+namespace DovahLink.DovahLinkBuilder.Tests;
 
 /// <summary>Verifies Papyrus compiler toolchain discovery.</summary>
 public sealed class PapyrusToolchainTests
@@ -142,7 +142,7 @@ public sealed class PapyrusToolchainTests
         {
             Path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
-                "DovahLinkBridgeBuilderTests",
+                "DovahLinkBuilderTests",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }

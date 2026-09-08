@@ -1,7 +1,7 @@
 using System.IO.Compression;
-using DovahLink.BridgeBuilder.Packaging;
+using DovahLink.DovahLinkBuilder.Packaging;
 
-namespace DovahLink.BridgeBuilder.Build;
+namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Describes the repository and channel for one bridge build.</summary>
 /// <param name="RepositoryRoot">The repository root containing the bridge sources.</param>

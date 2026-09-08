@@ -1,6 +1,6 @@
-using DovahLink.BridgeBuilder.Build;
+using DovahLink.DovahLinkBuilder.Build;
 
-namespace DovahLink.BridgeBuilder.Tests;
+namespace DovahLink.DovahLinkBuilder.Tests;
 
 /// <summary>Verifies Visual Studio toolchain discovery.</summary>
 public sealed class VisualStudioToolchainTests
@@ -79,7 +79,7 @@ public sealed class VisualStudioToolchainTests
         {
             Path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
-                "DovahLinkBridgeBuilderTests",
+                "DovahLinkBuilderTests",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }

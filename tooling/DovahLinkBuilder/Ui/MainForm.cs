@@ -1,7 +1,7 @@
-using DovahLink.BridgeBuilder.Build;
-using DovahLink.BridgeBuilder.Packaging;
+using DovahLink.DovahLinkBuilder.Build;
+using DovahLink.DovahLinkBuilder.Packaging;
 
-namespace DovahLink.BridgeBuilder.Ui;
+namespace DovahLink.DovahLinkBuilder.Ui;
 
 /// <summary>Displays bridge build controls, progress, and results.</summary>
 public sealed class MainForm : Form

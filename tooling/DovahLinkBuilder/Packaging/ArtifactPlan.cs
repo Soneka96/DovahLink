@@ -1,4 +1,4 @@
-namespace DovahLink.BridgeBuilder.Packaging;
+namespace DovahLink.DovahLinkBuilder.Packaging;
 
 /// <summary>Maps one build output file to its path inside the package.</summary>
 /// <param name="SourceName">The file name in the build output directory.</param>

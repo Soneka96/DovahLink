@@ -12,11 +12,11 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <OutputPath>../../out/BridgeBuilder/</OutputPath>
+    <OutputPath>../../out/DovahLinkBuilder/</OutputPath>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="BridgeBuilder.Tests" />
+    <InternalsVisibleTo Include="DovahLinkBuilder.Tests" />
   </ItemGroup>
 
 </Project>

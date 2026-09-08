@@ -1,9 +1,4 @@
-namespace DovahLink.BridgeBuilder.Build;
-
-/// <summary>Describes the Visual Studio and vcpkg paths required by a build.</summary>
-/// <param name="VcvarsallPath">The path to the Visual Studio environment script.</param>
-/// <param name="VcpkgRoot">The bundled vcpkg root.</param>
-public sealed record VisualStudioToolchain(string VcvarsallPath, string VcpkgRoot);
+namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Describes one external process without shell-interpolating its executable, arguments, directory, or environment.</summary>
 /// <param name="ExecutablePath">The executable launched directly by the process runner.</param>
@@ -30,15 +25,15 @@ public sealed record BuildCommand(
             new Dictionary<string, string>());
     }
 
-    /// <summary>Creates a fresh CMake configure and build command sequence for the Release bridge target.</summary>
-    /// <param name="bridgeRoot">The bridge source directory containing the CMake presets.</param>
+    /// <summary>Creates a fresh CMake configure and build command sequence for the Release adapter target.</summary>
+    /// <param name="adapterRoot">The adapter source directory containing the CMake presets.</param>
     /// <param name="environmentVariables">The imported Visual Studio environment, including vcpkg configuration.</param>
     /// <returns>The ordered configure and build commands.</returns>
     public static IReadOnlyList<BuildCommand> CreateReleaseBuild(
-        string bridgeRoot,
+        string adapterRoot,
         IReadOnlyDictionary<string, string> environmentVariables)
     {
-        string workingDirectory = Path.GetFullPath(bridgeRoot);
+        string workingDirectory = Path.GetFullPath(adapterRoot);
         return
         [
             new BuildCommand(
@@ -48,7 +43,7 @@ public sealed record BuildCommand(
                 environmentVariables),
             new BuildCommand(
                 "cmake",
-                ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_bridge_plugin"],
+                ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_adapter_plugin"],
                 workingDirectory,
                 environmentVariables),
         ];

@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BridgeBuilder\BridgeBuilder.csproj" />
+    <ProjectReference Include="..\DovahLinkBuilder\DovahLinkBuilder.csproj" />
   </ItemGroup>
 
   <ItemGroup>

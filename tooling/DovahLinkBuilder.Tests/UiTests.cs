@@ -1,6 +1,6 @@
-using DovahLink.BridgeBuilder.Ui;
+using DovahLink.DovahLinkBuilder.Ui;
 
-namespace DovahLink.BridgeBuilder.Tests;
+namespace DovahLink.DovahLinkBuilder.Tests;
 
 /// <summary>Verifies builder state transitions and repository discovery.</summary>
 public sealed class UiTests
@@ -79,7 +79,7 @@ public sealed class UiTests
         {
             Path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
-                "DovahLinkBridgeBuilderTests",
+                "DovahLinkBuilderTests",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }

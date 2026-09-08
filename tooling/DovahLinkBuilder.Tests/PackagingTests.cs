@@ -1,6 +1,6 @@
-using DovahLink.BridgeBuilder.Packaging;
+using DovahLink.DovahLinkBuilder.Packaging;
 
-namespace DovahLink.BridgeBuilder.Tests;
+namespace DovahLink.DovahLinkBuilder.Tests;
 
 /// <summary>Verifies bridge version parsing and artifact planning.</summary>
 public sealed class PackagingTests

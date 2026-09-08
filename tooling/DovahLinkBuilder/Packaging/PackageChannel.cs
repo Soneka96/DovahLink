@@ -1,4 +1,4 @@
-namespace DovahLink.BridgeBuilder.Packaging;
+namespace DovahLink.DovahLinkBuilder.Packaging;
 
 /// <summary>Identifies the release channel for a bridge package.</summary>
 public enum PackageChannel

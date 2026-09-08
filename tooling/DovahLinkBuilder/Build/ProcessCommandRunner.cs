@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace DovahLink.BridgeBuilder.Build;
+namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Runs structured external commands and forwards their output.</summary>
 public interface ICommandRunner
