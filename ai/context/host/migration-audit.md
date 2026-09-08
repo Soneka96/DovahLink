@@ -98,6 +98,16 @@ design, future multi-contract support).
   cutover and must re-pair once against the host -- an accepted outcome per
   `ai/context/common.md`'s pre-release compatibility policy, since no supported public DovahLink
   release has ever shipped.
+- **Bridge distributable upgrade path** -- **Decided explicitly.** An existing installed
+  `DovahLinkBridge.dll` is not automatically detected, removed, or replaced by installing the
+  Adapter + Host package; neither the packager (`tooling/adapter_host_packager.py`) nor Bridge's own
+  build/package tooling performs any cross-package cleanup, and none is added for 3A.1. No automated
+  or documented user-facing migration path is needed yet: per `ai/context/common.md`'s pre-release
+  compatibility policy, no supported public DovahLink release has ever shipped, so the only existing
+  installation is the maintainer's own development machine, not an external user's. How an upgrade
+  from a real prior release should behave -- relying on Vortex/Nexus mod-replacement semantics,
+  bundling an in-package cleanup note, or requiring a documented clean reinstall -- is release-prep
+  work to decide once a first public release is actually being prepared, not a 3A.1 concern.
 
 ## Session and connection security
 
