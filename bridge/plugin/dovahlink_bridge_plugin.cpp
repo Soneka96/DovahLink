@@ -28,8 +28,6 @@
 #include "application/session_manager.hpp"
 #include "application/session_publication_factory.hpp"
 #include "application/state_publisher.hpp"
-#include "application/trust_device_admin_service.hpp"
-#include "application/trust_reset_service.hpp"
 #include "game_state/commonlib_capture_queue_diagnostics.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
@@ -37,14 +35,12 @@
 #include "game_state/commonlib_pairing_notification_sink.hpp"
 #include "game_state/commonlib_publication_diagnostics.hpp"
 #include "game_state/commonlib_task_marshaller.hpp"
-#include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/player_level_accessor.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/constants.hpp"
 #include "security/csprng.hpp"
 #include "security/environment_reader.hpp"
-#include "security/factory_reset_challenge.hpp"
 #include "security/failed_token_throttle.hpp"
 #include "security/pairing_session.hpp"
 #include "security/token_store.hpp"
@@ -272,8 +268,6 @@ SKSEPluginInfo(
         trustStorePersistence(*trustStorePath);
     static dovahlink::security::TrustStore trustStore =
         dovahlink::security::TrustStore::Load(trustStorePersistence);
-    static dovahlink::security::TrustDeviceStore deviceStore(trustStore);
-    static dovahlink::security::TrustResetStore resetStore(trustStore);
 
     static dovahlink::security::FailedTokenThrottle credentialThrottle;
     static dovahlink::security::PairingSession pairingSession;
@@ -301,9 +295,6 @@ SKSEPluginInfo(
     static dovahlink::application::ActivePlayContextProvider
         activePlayContextProvider(playContextLifecycle);
     static dovahlink::application::ActiveSessionSocket activeSessionSocket;
-    static dovahlink::application::ActiveSessionController
-        activeSessionController(sessionManager, activeSessionSocket,
-                                activePlayContextReader, bridgeInstanceId);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);
@@ -325,30 +316,15 @@ SKSEPluginInfo(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);
 
-    //  Registers the optional trust-administration console adapter
-    //  (ai/context/protocol/security.md's "Trust administration surface").
-    //  Registration is attempted unconditionally; a failure is logged and remains
-    //  isolated to this optional adapter, while the native functions simply go
-    //  unused if ConsoleUtil Extended and its Papyrus glue script are not
-    //  installed. Constructed after bridgeWorkerPool, which is also wired to
-    //  the same active-session controller -- the capability that enforces
-    //  "Revocation is immediate" (security.md's "Persistent local trust") against
-    //  an already-connected session, not just the persisted trust record.
-    static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
-    static dovahlink::application::ActiveSessionDisconnector
-        trustSessionDisconnector(activeSessionController);
-    static dovahlink::application::TrustDeviceAdminService
-        trustDeviceAdminService(deviceStore, trustSessionDisconnector,
-                                trustMutationCoordinator);
-    static dovahlink::application::ITrustDeviceAdminService&
-        trustDeviceAdminServiceContract = trustDeviceAdminService;
-    static dovahlink::application::TrustResetService trustResetService(
-        resetStore, trustSessionDisconnector, trustMutationCoordinator,
-        factoryResetChallenge);
-    static dovahlink::application::ITrustResetService& trustResetServiceContract =
-        trustResetService;
-    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
-        trustDeviceAdminServiceContract, trustResetServiceContract);
+    //  The optional trust-administration console adapter
+    //  (ai/context/protocol/security.md's "Trust administration surface") is
+    //  intentionally not registered here: the replacement adapter/host
+    //  process registers the same "DovahLinkAdmin" Papyrus class and the same
+    //  nine native function names, and Skyrim's Papyrus VM cannot hold two
+    //  competing registrations for the same class if both plugins are ever
+    //  loaded together. Trust administration itself remains fully available
+    //  through the replacement's own registration; only this frozen
+    //  reference's console glue is disabled.
 
     //  Production capture and lifecycle composition: constructs and injects
     //  the capture, worker-handoff, and publication-routing chain.
