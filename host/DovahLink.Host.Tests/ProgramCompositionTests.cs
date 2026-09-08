@@ -77,6 +77,42 @@ public class ProgramCompositionTests
         Assert.Equal(58426, result);
     }
 
+    /// <summary>Verifies that <c>0</c> (the OS-assigned ephemeral port request test composition relies on) is preserved rather than rejected.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_ZeroValue_ReturnsParsedPort()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("0");
+
+        Assert.Equal(0, result);
+    }
+
+    /// <summary>Verifies that the maximum valid TCP port is accepted, not rejected as out of range.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_MaxValidPort_ReturnsParsedPort()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("65535");
+
+        Assert.Equal(65535, result);
+    }
+
+    /// <summary>Verifies that a negative value leaves the public listener disabled rather than reaching the listener.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_NegativeValue_ReturnsNull()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("-1");
+
+        Assert.Null(result);
+    }
+
+    /// <summary>Verifies that a value one above the maximum valid TCP port leaves the public listener disabled.</summary>
+    [Fact]
+    public void ParseTestPublicListenerPort_PortOutOfRange_ReturnsNull()
+    {
+        int? result = global::Program.ParseTestPublicListenerPort("65536");
+
+        Assert.Null(result);
+    }
+
     /// <summary>Verifies that an unset environment variable value falls back to the production public listener port.</summary>
     [Fact]
     public void ResolvePublicListenerPort_NullValue_ReturnsProductionPort()
@@ -91,6 +127,15 @@ public class ProgramCompositionTests
     public void ResolvePublicListenerPort_Unparseable_ReturnsProductionPort()
     {
         int result = global::Program.ResolvePublicListenerPort("not-a-port");
+
+        Assert.Equal(Constants.PublicWebSocketPort, result);
+    }
+
+    /// <summary>Verifies that an out-of-range environment variable value falls back to the production public listener port rather than reaching the listener.</summary>
+    [Fact]
+    public void ResolvePublicListenerPort_PortOutOfRange_ReturnsProductionPort()
+    {
+        int result = global::Program.ResolvePublicListenerPort("65536");
 
         Assert.Equal(Constants.PublicWebSocketPort, result);
     }

@@ -203,13 +203,15 @@ internal static class Program
     /// <summary>
     /// Parses <see cref="Constants.TestPublicListenerPortEnvironmentVariableName"/>'s value into an
     /// explicit public listener port override. A real cross-process test launch sets this to pin the
-    /// public listener to a specific known port instead of the production default. An unset or
-    /// unparseable value returns <see langword="null"/>, so <see cref="ResolvePublicListenerPort"/>
-    /// falls back to <see cref="Constants.PublicWebSocketPort"/>.
+    /// public listener to a specific known port instead of the production default, or to <c>0</c> to
+    /// request an OS-assigned ephemeral port. An unset, unparseable, or out-of-range value returns
+    /// <see langword="null"/>, so <see cref="ResolvePublicListenerPort"/> falls back to
+    /// <see cref="Constants.PublicWebSocketPort"/> rather than passing an invalid port to the
+    /// listener.
     /// </summary>
     /// <param name="value">The environment variable's raw value, or <see langword="null"/> if unset.</param>
     internal static int? ParseTestPublicListenerPort(string? value) =>
-        int.TryParse(value, out int port) ? port : null;
+        int.TryParse(value, out int port) && port is >= 0 and <= 65535 ? port : null;
 
     /// <summary>
     /// Resolves the public listener port the production <see cref="Main"/> entry point composes:
