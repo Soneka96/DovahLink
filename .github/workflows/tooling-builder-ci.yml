@@ -48,3 +48,13 @@ jobs:
 
       - name: Test DovahLinkBuilder
         run: dotnet test tooling/DovahLinkBuilder/DovahLinkBuilder.slnx --configuration Release --no-restore --no-build
+
+      - name: Publish DovahLinkBuilder
+        run: dotnet publish tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj -p:PublishProfile=FolderProfile --no-restore
+
+      - name: Check published DovahLinkBuilder executable
+        run: |
+          $exe = "tooling/out/DovahLinkBuilder/DovahLinkBuilder.exe"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw "Expected published DovahLinkBuilder executable was not built: $exe"
+          }

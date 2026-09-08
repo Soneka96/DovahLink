@@ -11,6 +11,8 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>None</DebugType>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <OutputPath>../../out/DovahLinkBuilder/</OutputPath>
   </PropertyGroup>

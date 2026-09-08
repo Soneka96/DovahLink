@@ -234,6 +234,14 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList
     "test", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release",
     "--no-restore", "--no-build"
 )
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "publish", "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj",
+    "-p:PublishProfile=FolderProfile", "--no-restore"
+)
+$builderExecutablePath = Join-Path $repoRoot "tooling\out\DovahLinkBuilder\DovahLinkBuilder.exe"
+if (-not (Test-Path -LiteralPath $builderExecutablePath -PathType Leaf)) {
+    throw "Expected published DovahLinkBuilder executable was not built: $builderExecutablePath"
+}
 
 Write-Host "=== app-ci ==="
 $sdkDirectory = Join-Path $repoRoot "sdk\dart\dovahlink_client"

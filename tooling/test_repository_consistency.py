@@ -271,7 +271,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("continue-on-error:", workflow)
 
     def test_builder_ci_covers_build_and_tests(self) -> None:
-        """Require the DovahLinkBuilder solution to restore, build, and test on Windows CI."""
+        """Require the DovahLinkBuilder solution to restore, build, test, and publish on Windows CI."""
         workflow = self._read(".github/workflows/tooling-builder-ci.yml")
         expected_paths = {
             '- "tooling/DovahLinkBuilder/**"',
@@ -316,9 +316,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "dotnet restore tooling/DovahLinkBuilder/DovahLinkBuilder.slnx -p:Configuration=Release",
             "dotnet build tooling/DovahLinkBuilder/DovahLinkBuilder.slnx --configuration Release --no-restore",
             "dotnet test tooling/DovahLinkBuilder/DovahLinkBuilder.slnx --configuration Release --no-restore --no-build",
+            "dotnet publish tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj -p:PublishProfile=FolderProfile --no-restore",
+            "tooling/out/DovahLinkBuilder/DovahLinkBuilder.exe",
+            "Expected published DovahLinkBuilder executable was not built",
         ):
             self.assertIn(fragment, workflow)
         self.assertNotIn("continue-on-error:", workflow)
+
+        # These publish properties must live in the project file itself, not only in a manual
+        # command: that is what keeps CI, Visual Studio's Publish button, the .pubxml, and the
+        # README's documented command all producing the same artifact.
+        csproj = self._read(
+            "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj"
+        )
+        for fragment in (
+            "<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>",
+            "<DebugType>None</DebugType>",
+        ):
+            self.assertIn(fragment, csproj)
 
     def test_tooling_ci_covers_repository_consistency_surfaces(self) -> None:
         """Require repository checks to run when their inspected files change."""
@@ -643,6 +658,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"restore", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "-p:Configuration=Release"',
             '"build", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release", "--no-restore"',
             '"test", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release",',
+            '"publish", "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj",',
+            '"-p:PublishProfile=FolderProfile", "--no-restore"',
+            '$builderExecutablePath = Join-Path $repoRoot "tooling\\out\\DovahLinkBuilder\\DovahLinkBuilder.exe"',
+            "Test-Path -LiteralPath $builderExecutablePath -PathType Leaf",
         )
         for fragment in required_fragments:
             self.assertIn(fragment, script)
@@ -682,6 +701,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ),
             script.index(
                 '"test", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release",'
+            ),
+            script.index(
+                '"publish", "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj",'
+            ),
+            script.index('"-p:PublishProfile=FolderProfile", "--no-restore"'),
+            script.index(
+                "Test-Path -LiteralPath $builderExecutablePath -PathType Leaf"
             ),
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("pub", "get")'
