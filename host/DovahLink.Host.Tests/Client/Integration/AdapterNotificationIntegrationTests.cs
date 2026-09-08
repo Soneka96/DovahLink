@@ -153,6 +153,91 @@ public class AdapterNotificationIntegrationTests
     }
 
     /// <summary>
+    /// Full pairing completion, real end-to-end: a real client's <c>pairing_request</c>/
+    /// <c>pairing_confirm</c>/<c>pairing_ack</c> exchange -- driven by the code the real adapter
+    /// actually displayed, exactly as <see cref="PairingRequest_AdapterAcceptsDisplay_ReportsAvailableWithoutLeakingCodeOnTheWire"/>
+    /// already proves never reaches the public wire -- issues a real trust credential, and a fresh
+    /// connection presenting that exact credential is admitted as trusted without repeating pairing.
+    /// Proves the released Stage 3 pairing and trusted-reconnect behavior end-to-end against the
+    /// real production graph.
+    /// </summary>
+    [Fact]
+    public async Task FullPairing_ThenReconnectWithIssuedCredential_AdmitsAsTrustedWithoutRePairing()
+    {
+        var codec = new PublicEnvelopeCodec();
+        var ipcCodec = new IpcFrameCodec();
+        (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
+        (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
+        using ClientWebSocket ownedClient = client;
+        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+
+        Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
+        var displayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadIpcFrameAsync(adapterStream, ipcCodec));
+        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPairingDisplayAckMessage(displayRequest.CorrelationId, Accepted: true)));
+        PairingStatusPayload status = await statusTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(PairingStatusWireState.Available, status.State);
+
+        var buffer = new byte[8192];
+
+        // The code a human would read off their Skyrim screen -- never sent over the public wire --
+        // is exactly what the real adapter was just told to display.
+        byte[] confirm = codec.Encode(
+            PublicMessageType.PairingConfirm, "pairing-confirm-1", sessionId, null, null, clientId,
+            new PairingConfirmPayload { Code = displayRequest.Code, DisplayName = "My PC" });
+        await client.SendAsync(confirm, WebSocketMessageType.Text, true, CancellationToken.None);
+        WebSocketReceiveResult confirmResult = await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, confirmResult.Count), out PublicEnvelope? confirmEnvelope));
+        Assert.Equal(PublicMessageType.PairingOutcome, confirmEnvelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(confirmEnvelope, out PairingOutcomePayload? confirmOutcome));
+        Assert.Equal(PairingOutcomeWireValue.CredentialIssued, confirmOutcome!.Outcome);
+        string credential = confirmOutcome.Credential!;
+
+        byte[] ack = codec.Encode(
+            PublicMessageType.PairingAck, "pairing-ack-1", sessionId, null, null, clientId,
+            new PairingAckPayload { Credential = credential });
+        await client.SendAsync(ack, WebSocketMessageType.Text, true, CancellationToken.None);
+        WebSocketReceiveResult ackResult = await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, ackResult.Count), out PublicEnvelope? ackEnvelope));
+        Assert.Equal(PublicMessageType.PairingOutcome, ackEnvelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(ackEnvelope, out PairingOutcomePayload? ackOutcome));
+        Assert.Equal(PairingOutcomeWireValue.Trusted, ackOutcome!.Outcome);
+        Assert.Equal(credential, ackOutcome.Credential);
+
+        await client.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        // A fresh connection presenting the exact credential just issued must be admitted directly as
+        // trusted -- proving reconnect never requires repeating the pairing flow above.
+        using var reconnectedClient = new ClientWebSocket();
+        await reconnectedClient.ConnectAsync(new Uri($"ws://127.0.0.1:{publicPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        byte[] reconnectHello = codec.Encode(
+            PublicMessageType.Hello, "hello-reconnect-1", null, null, null, null,
+            new HelloPayload
+            {
+                Endpoint = "client",
+                ClientId = clientId,
+                Auth = new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = credential },
+            });
+        await reconnectedClient.SendAsync(reconnectHello, WebSocketMessageType.Text, true, CancellationToken.None);
+        WebSocketReceiveResult reconnectHelloAckResult = await reconnectedClient.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, reconnectHelloAckResult.Count), out PublicEnvelope? reconnectHelloAckEnvelope));
+        Assert.Equal(PublicMessageType.HelloAck, reconnectHelloAckEnvelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(reconnectHelloAckEnvelope, out HelloAckPayload? reconnectHelloAck));
+        Assert.Equal(ClientIdentityKind.Paired, reconnectHelloAck!.ClientIdentityKind);
+        Assert.NotEqual(sessionId, reconnectHelloAckEnvelope.SessionId);
+
+        // Every admission sends hello_ack followed by an unsolicited, empty capabilities
+        // advertisement -- drained here so it is never mistaken for a later message by any future
+        // read this test adds.
+        WebSocketReceiveResult reconnectCapabilitiesResult = await reconnectedClient.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, reconnectCapabilitiesResult.Count), out PublicEnvelope? reconnectCapabilitiesEnvelope));
+        Assert.Equal(PublicMessageType.Capabilities, reconnectCapabilitiesEnvelope!.MessageType);
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Composes the real production graph with both listeners bound to OS-assigned loopback ports and
     /// returns the values a raw adapter/public client stand-in needs to connect to it.
     /// </summary>
