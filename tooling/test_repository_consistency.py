@@ -2334,6 +2334,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Configure bridge debug harness"),
         )
 
+    def test_production_packaging_has_no_bridge_dependency(self) -> None:
+        """Guard that the real Host+Adapter packaging path never links, builds, or reads bridge/."""
+        for production_file in (
+            "host/DovahLink.Host/DovahLink.Host.csproj",
+            "tooling/package_adapter_host.py",
+            "tooling/adapter_host_packager.py",
+            "tooling/adapter_host_process_runner.py",
+        ):
+            text = self._read(production_file)
+            self.assertNotIn("bridge", text.lower(), production_file)
+
     @classmethod
     def _roadmap_corpus(cls) -> str:
         """Read the ordered roadmap stage documents as one validation corpus."""
