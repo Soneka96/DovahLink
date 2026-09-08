@@ -20,6 +20,8 @@ on:
       - "protocol/**"
       - "sdk/**"
       - "tooling/**"
+      - "VERSION"
+      - "adapter-host-ipc/**"
   pull_request:
   workflow_dispatch:
 

@@ -228,6 +228,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "ai/context/common.md"',
             '- "ai/context/dotnet/**"',
             '- ".github/workflows/host-ci.yml"',
+            '- "adapter-host-ipc/**"',
         }
 
         push_block = self._yaml_block(workflow, "  push:")
@@ -289,6 +290,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "protocol/**"',
             '- "sdk/**"',
             '- "tooling/**"',
+            '- "VERSION"',
+            '- "adapter-host-ipc/**"',
         }
 
         push_block = self._yaml_block(workflow, "  push:")

@@ -9,6 +9,7 @@ on:
       - "protocol/**"
       - "tooling/vcpkg-ports/**"
       - ".github/workflows/adapter-ci.yml"
+      - "adapter-host-ipc/**"
   pull_request:
   workflow_dispatch:
 
@@ -29,8 +30,7 @@ jobs:
         shell: pwsh
     env:
       # Single source of truth for the pinned vcpkg tooling commit -- referenced by both the
-      # checkout step and the tooling cache key below so they can never drift apart. Matches
-      # bridge-ci.yml's own pin: the adapter and bridge vcpkg manifests share one builtin-baseline.
+      # checkout step and the tooling cache key below so they can never drift apart.
       VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

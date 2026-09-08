@@ -154,7 +154,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "The .NET SDK version check failed with exit code $LASTEXITCODE."
 }
 if (-not ($dotnetSdks -match "^9\.")) {
-    throw "A .NET 9 SDK is required for the integration scenarios."
+    throw "A .NET 9 SDK is required for the Host build and test steps below."
 }
 
 if ($null -eq (Get-Command flutter -ErrorAction SilentlyContinue)) {
