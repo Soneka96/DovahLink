@@ -807,12 +807,33 @@ TEST_CASE("real hosts remain isolated by owner lifetime and shutdown signals",
   std::filesystem::remove(*firstPath, firstRemoveError);
   std::filesystem::remove(*secondPath, secondRemoveError);
 
+  //  Each real host's production Main entry point always composes a public
+  //  WebSocket listener, defaulting to the fixed production port unless
+  //  DOVAHLINK_TEST_PUBLIC_LISTENER_PORT overrides it -- so two real hosts
+  //  launched without distinct overrides collide on that fixed port, and the
+  //  second one's listener bind fails before it ever reports its endpoint.
+  //  Each launch below gets its own override, scoped narrowly around the
+  //  Launch() call: the child only ever reads the environment once, at
+  //  CreateProcessW, so the guard can clear before the next launch begins.
+  constexpr std::uint16_t kFirstPublicListenerPort = 58429;
+  constexpr std::uint16_t kSecondPublicListenerPort = 58430;
+
   Win32AdapterHostProcessLauncher firstLauncher(hostExecutable, firstOwner,
                                                 std::chrono::seconds(10));
   Win32AdapterHostProcessLauncher secondLauncher(hostExecutable, secondOwner,
                                                  std::chrono::seconds(10));
-  auto firstEndpoint = firstLauncher.Launch();
-  auto secondEndpoint = secondLauncher.Launch();
+  std::optional<AdapterHostEndpoint> firstEndpoint;
+  {
+    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+        kFirstPublicListenerPort);
+    firstEndpoint = firstLauncher.Launch();
+  }
+  std::optional<AdapterHostEndpoint> secondEndpoint;
+  {
+    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
+        kSecondPublicListenerPort);
+    secondEndpoint = secondLauncher.Launch();
+  }
   REQUIRE(firstEndpoint.has_value());
   REQUIRE(secondEndpoint.has_value());
   CHECK(firstEndpoint->port != secondEndpoint->port);
