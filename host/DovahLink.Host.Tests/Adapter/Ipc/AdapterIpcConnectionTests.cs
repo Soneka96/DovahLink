@@ -14,7 +14,7 @@ public class AdapterIpcConnectionTests
     /// <summary>Reads the shared native/host private-IPC rate-limit fixture.</summary>
     private static (int MaxMessagesPerSecond, TimeSpan MessageRateWindow) ReadPrivateIpcLimitsFixture()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "integration", "private-ipc-limits.json");
+        string path = Path.Combine(AppContext.BaseDirectory, "adapter-host-ipc", "fixtures", "private-ipc-limits.json");
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
         int maxMessages = document.RootElement.GetProperty("maxMessagesPerSecond").GetInt32();
         int windowMilliseconds = document.RootElement.GetProperty("messageRateWindowMilliseconds").GetInt32();

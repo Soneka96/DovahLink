@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +12,7 @@ from adapter_host_packager import (
     ADAPTER_RUNTIME_DLL_NAMES,
     HOST_EXECUTABLE_NAME,
 )
-from package_adapter_host import main, parse_args, read_adapter_version
+from package_adapter_host import main, parse_args, read_product_version
 
 
 def _write_file(path: Path, content: str = "") -> None:
@@ -22,19 +21,16 @@ def _write_file(path: Path, content: str = "") -> None:
     path.write_text(content, encoding="utf-8")
 
 
-class ReadAdapterVersionTests(unittest.TestCase):
-    """Tests for read_adapter_version."""
+class ReadProductVersionTests(unittest.TestCase):
+    """Tests for read_product_version."""
 
-    def test_read_adapter_version_returns_the_version_string_field(self) -> None:
-        """Verifies the manifest's version-string field is returned as-is."""
+    def test_read_product_version_returns_the_stripped_file_contents(self) -> None:
+        """Verifies the VERSION file's contents come back with surrounding whitespace stripped."""
         with tempfile.TemporaryDirectory() as temp_dir_str:
-            manifest_path = Path(temp_dir_str) / "vcpkg.json"
-            manifest_path.write_text(
-                json.dumps({"name": "dovahlink-adapter", "version-string": "0.3.3"}),
-                encoding="utf-8",
-            )
+            version_path = Path(temp_dir_str) / "VERSION"
+            version_path.write_text("0.3.3\n", encoding="utf-8")
 
-            self.assertEqual(read_adapter_version(manifest_path), "0.3.3")
+            self.assertEqual(read_product_version(version_path), "0.3.3")
 
 
 class ParseArgsTests(unittest.TestCase):

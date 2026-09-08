@@ -1,24 +1,24 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/bridge",
+    "cmake.sourceDirectory": "${workspaceFolder}/adapter",
     "cmake.useCMakePresets": "always",
     "cmake.exportCompileCommandsFile": true,
     "files.exclude": {
-        "**/bridge/build/**": true,
-        "**/bridge/vcpkg_installed/**": true,
+        "**/adapter/build/**": true,
+        "**/adapter/vcpkg_installed/**": true,
         "**/app/build/**": true,
         "**/app/.dart_tool/**": true,
         "**/app/**/ephemeral/**": true
     },
     "search.exclude": {
-        "**/bridge/build/**": true,
-        "**/bridge/vcpkg_installed/**": true,
+        "**/adapter/build/**": true,
+        "**/adapter/vcpkg_installed/**": true,
         "**/app/build/**": true,
         "**/app/.dart_tool/**": true,
         "**/app/**/ephemeral/**": true
     },
     "files.watcherExclude": {
-        "**/bridge/build/**": true,
-        "**/bridge/vcpkg_installed/**": true,
+        "**/adapter/build/**": true,
+        "**/adapter/vcpkg_installed/**": true,
         "**/app/build/**": true,
         "**/app/.dart_tool/**": true,
         "**/app/**/ephemeral/**": true

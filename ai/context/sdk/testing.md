@@ -42,17 +42,6 @@ recovery, reconnect, late-message handling, pairing client recovery, SDK persist
 correctness. This list is unconditional: it runs in every SDK/App CI pass, regardless of what
 backend it will eventually run against.
 
-Legacy Bridge compatibility checks (proving the SDK's own wire code round-trips against a real,
-running `dovahlink_bridge_harness`) remain SDK-owned, but are not part of that unconditional set:
-per `ARCHITECTURE.md`'s "Bridge migration and cutover", `bridge/` is a frozen production reference,
-not an ongoing App/SDK development target. That coverage lives in files tagged `legacy_bridge`
-(`dart_test.yaml` skips them by default); run it explicitly with `dart test --tags legacy_bridge
---run-skipped` against a locally built harness. It stays available for a developer doing manual
-Bridge/SDK verification, but is not required to pass for default SDK/App CI, and a change that
-breaks it is not by itself a defect. As `roadmap/03a-host-adapter-production-migration.md`'s 3A.1
-production-cutover work lands, Host compatibility becomes the SDK's authoritative live-integration
-target in its place.
-
 Phase 3.3 also requires SDK/client coverage for continuous observation of long-lived connection
 loss, distinction between ordinary transport failure and `session_invalidated(reason)`, typed
 `revoked`/`blocked`/`trustReset`/`factoryReset` state, reason-specific credential cleanup,
@@ -76,13 +65,6 @@ recovery tests; a real local socket check -- against a fake local WebSocket serv
 transport framing or platform networking changes, mirroring `ai/context/integration/testing.md`'s
 end-to-end boundary. Do not depend on a running Skyrim process, and do not depend on the Bridge
 harness, for behavior that can be proven deterministically without either.
-
-## The independent validator stays independent
-
-The .NET validation client (`integration/DovahLinkValidationClient/`) must remain a separate,
-hand-written implementation of the canonical contract. It must not consume, wrap, generate from, or
-otherwise reuse the Dart SDK; its value is precisely that it can catch a Bridge bug, an SDK bug, or
-an assumption accidentally shared only by the official Dart implementation.
 
 ## Service test boundaries
 

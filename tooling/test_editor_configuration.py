@@ -17,13 +17,15 @@ class EditorConfigurationTests(unittest.TestCase):
         """Require portable CMake settings and exclusions for generated directories."""
         settings = self._load_json(".vscode/settings.json")
 
-        self.assertEqual(settings["cmake.sourceDirectory"], "${workspaceFolder}/bridge")
+        self.assertEqual(
+            settings["cmake.sourceDirectory"], "${workspaceFolder}/adapter"
+        )
         self.assertEqual(settings["cmake.useCMakePresets"], "always")
         self.assertTrue(settings["cmake.exportCompileCommandsFile"])
 
         excluded_paths = {
-            "**/bridge/build/**",
-            "**/bridge/vcpkg_installed/**",
+            "**/adapter/build/**",
+            "**/adapter/vcpkg_installed/**",
             "**/app/build/**",
             "**/app/.dart_tool/**",
             "**/app/**/ephemeral/**",
@@ -64,19 +66,19 @@ class EditorConfigurationTests(unittest.TestCase):
             self.assertEqual(
                 configuration["compileCommands"],
                 [
-                    "${workspaceFolder}/bridge/build/windows-x64-debug/compile_commands.json",
-                    "${workspaceFolder}/bridge/build/windows-x64-release/compile_commands.json",
+                    "${workspaceFolder}/adapter/build/windows-x64-debug/compile_commands.json",
+                    "${workspaceFolder}/adapter/build/windows-x64-release/compile_commands.json",
                 ],
             )
 
     def test_cmake_exports_compile_commands_for_all_presets(self) -> None:
         """Require direct CMake and shared presets to produce compile databases."""
-        cmake_lists = (REPOSITORY_ROOT / "bridge" / "CMakeLists.txt").read_text(
+        cmake_lists = (REPOSITORY_ROOT / "adapter" / "CMakeLists.txt").read_text(
             encoding="utf-8"
         )
         self.assertIn("set(CMAKE_EXPORT_COMPILE_COMMANDS ON)", cmake_lists)
 
-        presets = self._load_json("bridge/CMakePresets.json")
+        presets = self._load_json("adapter/CMakePresets.json")
         base_preset = next(
             preset
             for preset in presets["configurePresets"]
@@ -99,52 +101,6 @@ class EditorConfigurationTests(unittest.TestCase):
             # Neither preset may override the shared install directory -- doing so would silently
             # defeat the sharing and reintroduce a separate vcpkg install per preset.
             self.assertNotIn("VCPKG_INSTALLED_DIR", preset["cacheVariables"])
-
-    def test_cmake_scopes_windows_sdk_definitions_away_from_commonlib(
-        self,
-    ) -> None:
-        """Keep CommonLibSSE's runtime compile definitions authoritative."""
-        cmake_lists = (REPOSITORY_ROOT / "bridge" / "CMakeLists.txt").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertNotIn(
-            "add_compile_definitions(_WIN32_WINNT=0x0A00)",
-            cmake_lists,
-        )
-        for target_name in (
-            "dovahlink_bridge_core",
-            "dovahlink_bridge_harness",
-            "dovahlink_bridge_tests",
-        ):
-            definition = (
-                f"target_compile_definitions({target_name} PRIVATE _WIN32_WINNT=0x0A00)"
-            )
-            definition_position = cmake_lists.index(definition)
-            guard_position = cmake_lists.rfind("if(WIN32)", 0, definition_position)
-            guard_end = cmake_lists.index("endif()", definition_position)
-            self.assertGreaterEqual(guard_position, 0)
-            self.assertLess(guard_position, definition_position)
-            self.assertGreater(definition_position, guard_position)
-            self.assertGreater(guard_end, definition_position)
-
-        game_state_start = cmake_lists.index("add_library(dovahlink_bridge_game_state")
-        plugin_start = cmake_lists.index(
-            "add_library(dovahlink_bridge_plugin",
-            game_state_start,
-        )
-        harness_start = cmake_lists.index(
-            "add_executable(dovahlink_bridge_harness",
-            plugin_start,
-        )
-        self.assertNotIn(
-            "_WIN32_WINNT=0x0A00",
-            cmake_lists[game_state_start:plugin_start],
-        )
-        self.assertNotIn(
-            "_WIN32_WINNT=0x0A00",
-            cmake_lists[plugin_start:harness_start],
-        )
 
     def test_workspace_recommends_language_servers_for_repository_languages(
         self,

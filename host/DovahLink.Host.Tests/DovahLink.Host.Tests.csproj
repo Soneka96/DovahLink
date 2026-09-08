@@ -22,8 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\integration\private-ipc-limits.json"
-          Link="integration\private-ipc-limits.json"
+    <None Include="..\..\adapter-host-ipc\fixtures\private-ipc-limits.json"
+          Link="adapter-host-ipc\fixtures\private-ipc-limits.json"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

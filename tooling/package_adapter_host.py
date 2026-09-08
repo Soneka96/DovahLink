@@ -6,7 +6,6 @@ See `adapter_host_packager.py` for the publishing strategy and package layout th
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -17,20 +16,19 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 HOST_PROJECT_PATH = (
     REPOSITORY_ROOT / "host" / "DovahLink.Host" / "DovahLink.Host.csproj"
 )
-ADAPTER_VCPKG_MANIFEST_PATH = REPOSITORY_ROOT / "adapter" / "vcpkg.json"
+VERSION_PATH = REPOSITORY_ROOT / "VERSION"
 
 
-def read_adapter_version(vcpkg_manifest_path: Path) -> str:
-    """Reads the `version-string` field from an adapter-style vcpkg.json manifest.
+def read_product_version(version_path: Path) -> str:
+    """Reads the published product version from the repository-root VERSION file.
 
     Args:
-        vcpkg_manifest_path: Path to `adapter/vcpkg.json`.
+        version_path: Path to the repository-root `VERSION` file.
 
     Returns:
-        The manifest's `version-string` value.
+        The version string, with surrounding whitespace stripped.
     """
-    manifest = json.loads(vcpkg_manifest_path.read_text(encoding="utf-8"))
-    return manifest["version-string"]
+    return version_path.read_text(encoding="utf-8").strip()
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -94,7 +92,7 @@ def main(argv: list[str]) -> int:
         console_admin_yaml=args.console_admin_yaml,
     )
 
-    version = read_adapter_version(ADAPTER_VCPKG_MANIFEST_PATH)
+    version = read_product_version(VERSION_PATH)
     archive_path = packager.zip_package(
         package_dir, args.output_dir / f"DovahLink-Adapter-{version}"
     )

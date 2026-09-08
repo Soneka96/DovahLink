@@ -1,68 +1,11 @@
 # DovahLink integration tests
 
-This directory holds the independent validation client and the deterministic end-to-end scenarios
-that exercise the Skyrim bridge's real protocol behavior. Everything here is a separate protocol
-consumer, hand-written with `System.Text.Json`; nothing links against or shares code with the
-bridge's own C++ codec. It also does not consume, wrap, or generate from the future Dart Client SDK
-(`sdk/`, see `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5) once one exists; its value depends on staying an independent
-implementation of the canonical contract.
+This directory is reserved for tests and scenarios that exercise boundaries between areas, per
+`ai/context/common.md`'s "Repository boundaries". Its previous contents -- an independent .NET
+validation client and end-to-end scenarios driving a real `dovahlink_bridge_harness` process --
+were removed in `roadmap/03a-host-adapter-production-migration.md`'s 3A.2 ("Legacy Bridge
+Removal") once `bridge/` itself was deleted; they had no way to run against anything once their
+only target was gone.
 
-## Contents
-
-- `DovahLinkValidationClient/` — a .NET 9 console app: `Envelope.cs` (encode/decode), `BridgeConnection.cs`
-  (a `ClientWebSocket` wrapper), and `Program.cs`, a small interactive client for manual verification
-  against a real, running Skyrim plugin.
-- `DovahLinkValidationClient.Tests/` — xUnit scenarios that launch `bridge/harness/dovahlink_bridge_harness.cpp`
-  (a Skyrim-independent process running the real bridge stack against a fake character level; see
-  `bridge/README.md`) as a subprocess and drive it over a real socket. Every scenario launches its
-  own harness instance; test-class parallelization is disabled (`AssemblyInfo.cs`) since every
-  instance binds the same fixed, documented port.
-- `run-scenarios.ps1` — builds the harness, then runs the full test suite in one command.
-
-## Running the automated scenarios
-
-Requires the .NET 9 SDK and the bridge's own pinned toolchain (`bridge/README.md`'s "Toolchain"
-section) to build the harness.
-
-```bash
-powershell -File integration/run-scenarios.ps1
-```
-
-or, if the harness is already built:
-
-```bash
-cd integration
-dotnet test DovahLinkValidation.sln
-```
-
-The suite takes roughly 8-10 seconds; a few scenarios deliberately wait out real timeouts (the
-5-second handshake timeout, a shortened token-expiry window) to prove OS-level enforcement over an
-actual socket rather than only at the unit level. Two scenario groups are deliberately *not*
-covered by real, full-duration waits — the exact 10,000-message session cap and the 60-second idle
-timeout — each documented inline in `LimitsScenarioTests.cs` / `ReconnectScenarioTests.cs` with why:
-both are already proven exactly by a C++ unit test with an injected clock or pre-filled state, and a
-genuine live proof would cost minutes of suite time for no additional confidence in the same logic.
-
-## Running the manual validation client
-
-For manual verification against a real, running Skyrim + SKSE + DovahLink Bridge plugin, use the
-record template in `bridge/README.md`:
-
-```powershell
-cd integration/DovahLinkValidationClient
-$env:DOVAHLINK_BRIDGE_TOKEN = "<the same hex token the plugin was launched with>"
-dotnet run
-```
-
-It connects, negotiates `hello`/`hello_ack`, exchanges the currently empty capabilities, and can
-probe the unsupported state-area contract. No state area is currently registered, so the Bridge
-does not produce a state snapshot. `DOVAHLINK_BRIDGE_HOST` / `DOVAHLINK_BRIDGE_PORT` override
-the defaults (`127.0.0.1` / `58231`, the documented Phase 1 port) if needed.
-
-## Known Phase 1 boundary
-
-The current transitional contract has no registered state area, so the scenarios prove explicit
-capability absence, rejected `subscribe`/`snapshot_request` behavior, and the transport/security/
-session machinery around it. Live, unprompted `state_event` push and registered progression domains
-remain Stage 4 work — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and
-the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries.
+No integration coverage currently lives here. Future Host/Adapter integration or end-to-end
+coverage belongs in this directory when it is added.

@@ -4,7 +4,7 @@
 
 ## 3A. Host/Adapter Production Migration
 
-**Status:** Active. This is the current interstitial architectural migration gate between the released Stage 3 baseline and further Stage 4 product development; 3A.1 is the next implementation work. See 3A.1-3A.3 below.
+**Status:** Active. This is the current interstitial architectural migration gate between the released Stage 3 baseline and further Stage 4 product development; 3A.3 is the next implementation work. See 3A.1-3A.3 below.
 
 ### Outcome
 
