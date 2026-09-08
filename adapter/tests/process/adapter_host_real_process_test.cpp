@@ -38,6 +38,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -557,6 +558,52 @@ public:
   operator=(const ScopedTestPublicListenerPortEnvironmentVariable &) = delete;
 };
 
+///  A fresh, unique temporary trust-store file path per real Host launch, so
+///  parallel and repeated test runs never collide -- mirrors
+///  adapter_host_rendezvous_reader_test.cpp's own UniqueTempFilePath.
+std::filesystem::path UniqueTempTrustStorePath() {
+  std::mt19937_64 engine{std::random_device{}()};
+  return std::filesystem::temp_directory_path() /
+         ("dovahlink-trust-store-test-" + std::to_string(engine()) + ".dat");
+}
+
+///  RAII guard that sets `DOVAHLINK_TEST_TRUST_STORE_PATH` to a unique
+///  per-test file for the scope of a single real Host launch, then clears it
+///  and deletes the file -- so every real Host `RealHostFixture` launches
+///  persists trust to a private file instead of the real per-Windows-user
+///  DPAPI-backed store, and no other test sharing this process's environment
+///  block ever observes it set.
+class ScopedTestTrustStorePathEnvironmentVariable {
+public:
+  ScopedTestTrustStorePathEnvironmentVariable()
+      : path_(UniqueTempTrustStorePath()) {
+    if (_putenv_s("DOVAHLINK_TEST_TRUST_STORE_PATH", path_.string().c_str()) !=
+        0) {
+      throw std::runtime_error(
+          "Unable to set the trust-store-path environment variable.");
+    }
+  }
+
+  ~ScopedTestTrustStorePathEnvironmentVariable() {
+    _putenv_s("DOVAHLINK_TEST_TRUST_STORE_PATH", "");
+    std::error_code error;
+    std::filesystem::remove(path_, error);
+  }
+
+  ScopedTestTrustStorePathEnvironmentVariable(
+      const ScopedTestTrustStorePathEnvironmentVariable &) = delete;
+  ScopedTestTrustStorePathEnvironmentVariable &
+  operator=(const ScopedTestTrustStorePathEnvironmentVariable &) = delete;
+
+  ///  The isolated trust-store file this scope's real Host was launched
+  ///  with, for a test to assert against.
+  const std::filesystem::path &Path() const { return path_; }
+
+private:
+  ///  The unique per-test trust-store file this guard set and will clean up.
+  std::filesystem::path path_;
+};
+
 ///  A real loopback listener that occupies a port without speaking the
 ///  private IPC protocol, representing stale rendezvous data naming an
 ///  unrelated process.
@@ -1048,7 +1095,18 @@ public:
   ///  The authenticated session under test.
   AdapterIpcSession &Session() { return session_; }
 
+  ///  The isolated trust-store file this fixture's real Host was launched
+  ///  with, so a test can assert the Host actually persisted through it.
+  const std::filesystem::path &TrustStorePath() const {
+    return trustStorePath_.Path();
+  }
+
 private:
+  //  Declared first so it sets DOVAHLINK_TEST_TRUST_STORE_PATH before
+  //  launcher_.Launch() runs in the constructor body below -- every real
+  //  Host this fixture launches persists trust to this private file instead
+  //  of the real per-Windows-user DPAPI-backed store.
+  ScopedTestTrustStorePathEnvironmentVariable trustStorePath_;
   std::filesystem::path hostExecutable_;
   std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
       ownerLifetimeId_;
@@ -1070,11 +1128,11 @@ TEST_CASE("a real native adapter completes a trust-admin List request "
   //  wire encodings agree, and that IpcTrustAdminRequestMessage's
   //  correlation id round-trips through a real Host's real handler and back
   //  into IpcTrustAdminResultMessage -- the cross-language ABI proof gap a
-  //  same-process fake Host peer cannot close. The real Host's own trust
-  //  store is a real DPAPI-backed store, not test-isolated per owner-lifetime
-  //  id (that identity is only this test's process-launch/rendezvous
-  //  scope), so this deliberately does not assert its content -- only that a
-  //  well-formed, correctly correlated result decodes back.
+  //  same-process fake Host peer cannot close. RealHostFixture isolates the
+  //  real Host's trust store to a private per-test file (see
+  //  ScopedTestTrustStorePathEnvironmentVariable), which starts empty on
+  //  every run, so this deliberately does not assert specific content --
+  //  only that a well-formed, correctly correlated result decodes back.
   RealHostFixture fixture(std::byte{0xE5});
 
   auto resultPromise =
@@ -1107,9 +1165,11 @@ TEST_CASE("a real native adapter completes a trust-admin Revoke request "
   //  handler -- closing the roadmap's "revoke" real end-to-end requirement,
   //  previously only proven against a raw IPC stream stand-in for the
   //  adapter (host/DovahLink.Host.Tests), never the real native adapter
-  //  binary. As with the List test above, the real Host's own DPAPI-backed
-  //  trust store is not test-isolated, so this asserts only that the result
-  //  is well-formed and echoes the short id back, not a specific outcome.
+  //  binary. As with the List test above, this test's real Host runs against
+  //  RealHostFixture's isolated per-test trust store, so no client with this
+  //  short id is ever actually trusted here -- this asserts only that the
+  //  result is well-formed and echoes the short id back, not a specific
+  //  outcome.
   RealHostFixture fixture(std::byte{0xE8});
 
   auto resultPromise =
@@ -1176,7 +1236,14 @@ TEST_CASE("a real native adapter completes a trust-admin ResetTrust request "
   //  end-to-end requirement. Unlike Revoke/Block, ResetTrust's result text is
   //  deterministic regardless of the real trust store's content -- it always
   //  reports how many devices it revoked, including zero -- so this asserts
-  //  the exact shape rather than merely a substring.
+  //  the exact shape rather than merely a substring. Against RealHostFixture's
+  //  isolated, empty-on-start per-test store, zero devices are ever trusted
+  //  to revoke, so -- per TrustStore.ResetTrustAsync's own documented
+  //  no-currently-trusted-record short circuit -- this real Host never writes
+  //  its isolated trust-store file at all; the full-pairing/trusted-reconnect
+  //  E2E below is where a real write through that isolated path is proven,
+  //  since it is the one real Host operation in this file guaranteed to
+  //  durably trust a device.
   RealHostFixture fixture(std::byte{0xEA});
 
   auto resultPromise =
@@ -1422,6 +1489,14 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
             std::string::npos);
     REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
     REQUIRE(ExtractJsonStringField(ackOutcome, "credential") == credential);
+    //  This first-time pairing durably trusts a device that was previously
+    //  unknown, so -- unlike ResetTrust/Revoke/Block above against this same
+    //  fixture's isolated, empty-on-start store -- it unconditionally writes
+    //  through persistence. Proves the real Host actually wrote through
+    //  RealHostFixture's isolated per-test file, not merely that
+    //  DOVAHLINK_TEST_TRUST_STORE_PATH was set: closes the loop on the trust-
+    //  store isolation this whole file depends on.
+    CHECK(std::filesystem::exists(fixture.TrustStorePath()));
   }
 
   //  A fresh connection presenting the exact credential just issued must be
