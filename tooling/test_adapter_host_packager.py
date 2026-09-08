@@ -283,6 +283,125 @@ class AssemblePackageTests(unittest.TestCase):
 
             self.assertFalse((package_dir / "Data" / "Scripts").exists())
 
+    def test_assemble_package_raises_when_a_supplied_console_admin_pex_is_missing(
+        self,
+    ) -> None:
+        """Verifies a supplied but missing console-admin PEX fails clearly."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with self.assertRaises(FileNotFoundError):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=temp_dir / "package",
+                    console_admin_pex=temp_dir / "missing.pex",
+                )
+
+    def test_assemble_package_raises_when_a_supplied_console_admin_yaml_is_missing(
+        self,
+    ) -> None:
+        """Verifies a supplied but missing console-admin YAML fails clearly."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with self.assertRaises(FileNotFoundError):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=temp_dir / "package",
+                    console_admin_yaml=temp_dir / "missing.yaml",
+                )
+
+    def test_assemble_package_leaves_an_existing_package_untouched_when_a_runtime_dll_is_missing(
+        self,
+    ) -> None:
+        """Verifies a valid existing package survives a failed re-assembly rather than being deleted first."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
+
+            (adapter_build_dir / ADAPTER_RUNTIME_DLL_NAMES[0]).unlink()
+            with self.assertRaises(FileNotFoundError):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                self.assertTrue((plugins_dir / dll_name).is_file())
+            self.assertTrue(
+                (plugins_dir / "DovahLink.Host" / HOST_EXECUTABLE_NAME).is_file()
+            )
+
+    def test_assemble_package_leaves_an_existing_package_untouched_when_the_adapter_plugin_is_missing(
+        self,
+    ) -> None:
+        """Verifies a valid existing package survives a failed re-assembly caused by the first-checked source."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
+
+            (adapter_build_dir / ADAPTER_PLUGIN_NAME).unlink()
+            with self.assertRaises(FileNotFoundError):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
+
+    def test_assemble_package_leaves_an_existing_package_untouched_when_a_console_admin_file_is_missing(
+        self,
+    ) -> None:
+        """Verifies a valid existing package survives a failed re-assembly caused by a missing optional file."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+
+            with self.assertRaises(FileNotFoundError):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                    console_admin_pex=temp_dir / "missing.pex",
+                )
+
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
+
 
 class ZipPackageTests(unittest.TestCase):
     """Tests for AdapterHostPackager.zip_package."""

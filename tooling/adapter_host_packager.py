@@ -93,8 +93,10 @@ class AdapterHostPackager:
             console_admin_yaml: Path to `dovahlink.yaml`, or `None` to omit it.
 
         Raises:
-            FileNotFoundError: The adapter plugin DLL, one of its runtime dependency DLLs, or the
-                published Host executable is missing.
+            FileNotFoundError: The adapter plugin DLL, one of its runtime dependency DLLs, the
+                published Host executable, or a supplied console-admin file is missing. Every
+                source is validated before any existing `package_dir` content is removed, so a
+                valid previous package is never destroyed by a run that then fails.
         """
         adapter_plugin = adapter_build_dir / ADAPTER_PLUGIN_NAME
         host_executable = host_publish_dir / HOST_EXECUTABLE_NAME
@@ -104,23 +106,34 @@ class AdapterHostPackager:
             raise FileNotFoundError(
                 f"Published Host executable not found: {host_executable}"
             )
-
-        # A stale package_dir from a previous run could otherwise leave behind a file this run
-        # never wrote -- for example a console-admin file omitted this time -- so every run starts
-        # from a clean directory rather than accreting on top of whatever is already there.
-        if package_dir.exists():
-            shutil.rmtree(package_dir)
-
-        plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
-        plugins_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(adapter_plugin, plugins_dir / ADAPTER_PLUGIN_NAME)
+        runtime_dll_sources = []
         for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
             source = adapter_build_dir / dll_name
             if not source.is_file():
                 raise FileNotFoundError(
                     f"Adapter runtime dependency not found: {source}"
                 )
-            shutil.copy2(source, plugins_dir / dll_name)
+            runtime_dll_sources.append(source)
+        if console_admin_pex is not None and not console_admin_pex.is_file():
+            raise FileNotFoundError(f"Console-admin PEX not found: {console_admin_pex}")
+        if console_admin_yaml is not None and not console_admin_yaml.is_file():
+            raise FileNotFoundError(
+                f"Console-admin YAML not found: {console_admin_yaml}"
+            )
+
+        # A stale package_dir from a previous run could otherwise leave behind a file this run
+        # never wrote -- for example a console-admin file omitted this time -- so every run starts
+        # from a clean directory rather than accreting on top of whatever is already there. Every
+        # source above is validated first, so this never destroys a valid previous package only to
+        # fail partway through reassembling it.
+        if package_dir.exists():
+            shutil.rmtree(package_dir)
+
+        plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(adapter_plugin, plugins_dir / ADAPTER_PLUGIN_NAME)
+        for source in runtime_dll_sources:
+            shutil.copy2(source, plugins_dir / source.name)
 
         host_dir = plugins_dir / HOST_EXECUTABLE_RELATIVE_DIR
         host_dir.mkdir(parents=True, exist_ok=True)
