@@ -7,6 +7,7 @@
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/settable_adapter_ipc_peer_proof_provider.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
+#include "process/adapter_host_constants.hpp"
 #include "process/adapter_host_endpoint.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
@@ -68,6 +69,7 @@ using dovahlink::adapter::process::AdapterHostEndpoint;
 using dovahlink::adapter::process::AdapterHostSupervisor;
 using dovahlink::adapter::process::DeriveOwnerLifetimeId;
 using dovahlink::adapter::process::FileAdapterHostRendezvousReader;
+using dovahlink::adapter::process::kAdapterHostExecutableRelativePath;
 using dovahlink::adapter::process::ResolveDefaultRendezvousFilePath;
 using dovahlink::adapter::process::Win32AdapterHostProcessLauncher;
 using dovahlink::adapter::process::WindowsEventAdapterHostShutdownRequester;
@@ -1264,6 +1266,76 @@ TEST_CASE("a real native adapter completes a trust-admin ResetTrust request "
   CHECK(std::regex_search(
       *result.resultText,
       std::regex(R"(^Reset Trust complete \(\d+ devices? revoked\)\.$)")));
+}
+
+TEST_CASE("a real native adapter launches, authenticates against, and "
+          "completes a real trust-admin request through the real Host "
+          "resolved from the real assembled Vortex package layout",
+          "[process][integration][package]") {
+  //  Extends the List E2E above from a manually-built framework-dependent
+  //  Host executable to the real installable artifact shape: CMakeLists.txt's
+  //  AssembleRealAdapterHostPackage CTest fixture assembles the real
+  //  Data/SKSE/Plugins/... layout via the real production packager
+  //  (tooling/adapter_host_packager.py), and this resolves the Host
+  //  executable from it the same way the real adapter plugin's own
+  //  ResolveAdapterHostExecutablePath does -- combining
+  //  kAdapterHostExecutableRelativePath with the plugin's own directory --
+  //  rather than a path a test invented independently. A packager that puts
+  //  the Host in the wrong directory, or a kAdapterHostExecutableRelativePath
+  //  change the packager's real layout no longer matches, fails the
+  //  REQUIRE below rather than silently launching the wrong file.
+  std::filesystem::path pluginsDirectory{
+      DOVAHLINK_ASSEMBLED_PACKAGE_PLUGINS_DIR};
+  //  CTest's FIXTURES_REQUIRED only blocks this test when
+  //  AssembleRealAdapterHostPackage genuinely fails, not when it uses
+  //  SKIP_RETURN_CODE to skip -- so this test still runs even when the
+  //  fixture skipped against a Debug build, and must tell that apart from a
+  //  real layout bug itself: the plugins directory existing at all is proof
+  //  the fixture actually ran and assembled something (it is created only
+  //  once assemble_package's own input guards already passed), so its
+  //  absence means "fixture skipped" (expected in Debug -- SKIP, not FAIL),
+  //  while its presence without the resolved Host executable inside it means
+  //  a genuine packaging/resolution bug (FAIL).
+  if (!std::filesystem::exists(pluginsDirectory)) {
+    SKIP("AssembleRealAdapterHostPackage's fixture did not assemble a "
+         "package (no plugins directory at " +
+         pluginsDirectory.string() +
+         "), which is expected when this build's runtime DLLs are not "
+         "Release-named -- see assemble_adapter_host_package_for_ctest.py.");
+  }
+  std::filesystem::path hostExecutable =
+      pluginsDirectory / kAdapterHostExecutableRelativePath;
+  REQUIRE(std::filesystem::exists(hostExecutable));
+
+  //  RealHostFixture's constructor already proves the real Hello/HelloAck
+  //  handshake completes (WaitUntil(IsHostAvailable)), under this same
+  //  isolated per-test trust store every other real-process test in this
+  //  file uses, and its destructor already proves graceful shutdown
+  //  (AwaitExitOrTerminate) the same way every other fixture instance does.
+  RealHostFixture fixture(std::byte{0xED}, /*pairingSink=*/nullptr,
+                          hostExecutable);
+
+  //  One real trust-admin round trip, proving the packaged binary actually
+  //  serves real IPC requests -- not merely that a process started and
+  //  produced a valid Hello/HelloAck.
+  auto resultPromise =
+      std::make_shared<std::promise<TrustAdminRequestResult>>();
+  std::future<TrustAdminRequestResult> resultFuture =
+      resultPromise->get_future();
+  fixture.Session().SendTrustAdminRequest(
+      TrustAdminOperation::kList, TrustAdminListScope::kAll, std::nullopt,
+      std::nullopt, [resultPromise](TrustAdminRequestResult result) {
+        resultPromise->set_value(std::move(result));
+      });
+
+  REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+          std::future_status::ready);
+  TrustAdminRequestResult result = resultFuture.get();
+  REQUIRE(result.outcome == TrustAdminRequestOutcome::kCompleted);
+  REQUIRE(result.resultText.has_value());
+  CHECK(std::regex_search(
+      *result.resultText,
+      std::regex(R"(^(No known devices\.|\d+ known devices?:))")));
 }
 
 TEST_CASE("a real native adapter observes a real Host's pairing-display "

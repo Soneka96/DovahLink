@@ -273,16 +273,37 @@ Write-Host "=== adapter-ci ==="
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
     "build", "host/DovahLink.Host/DovahLink.Host.csproj", "--configuration", "Debug", "-p:Platform=AnyCPU"
 )
+# The real production publishing strategy (tooling/package_adapter_host.py uses the same flags):
+# proves the adapter's real launch/supervise path against the actual packaged artifact shape, and
+# is reused by AssembleRealAdapterHostPackage's CTest fixture below instead of publishing twice.
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "publish", "host/DovahLink.Host/DovahLink.Host.csproj",
+    "--configuration", "Release", "--runtime", "win-x64", "--self-contained", "true",
+    "-p:PublishSingleFile=true", "-p:IncludeNativeLibrariesForSelfExtract=true", "-p:DebugType=None",
+    "--output", "host/DovahLink.Host/bin/publish/win-x64"
+)
 $adapterDirectory = Join-Path $repoRoot "adapter"
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")
 # Runs the complete native Adapter suite -- IPC, pairing notification, trust-admin, Papyrus
 # registration, plugin, and the real Host<->Adapter process integration tests -- in one pass.
+# AssembleRealAdapterHostPackage and its dependent [package]-labeled test are discovered here too,
+# but self-skip against this Debug build; the ctest -L package invocation below is where they
+# actually run.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")
-# Release is compile-only here too, mirroring adapter-ci.yml: adapter's own CMakePresets.json
+# Otherwise compile-only here too, mirroring adapter-ci.yml: adapter's own CMakePresets.json
 # defines a ctest testPreset only for windows-x64-debug, matching bridge's identical convention.
+# Release also provides the Release-named runtime DLLs (fmt.dll/spdlog.dll, unlike Debug's
+# debug-suffixed names) the real-package-layout test below requires.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")
+# The one test genuinely tied to Release: AssembleRealAdapterHostPackage's CTest fixture requires
+# Release-named runtime DLLs, so it self-skips against Debug's build instead of failing there.
+# -L package runs only the tests adapter/CMakeLists.txt labeled "package", not the full suite the
+# windows-x64-debug ctest run above already ran.
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -ArgumentList @(
+    "--test-dir", "build/windows-x64-release", "-L", "package", "--output-on-failure"
+)
 
 Write-Host "=== integration-ci ==="
 # dovahlink_bridge_harness has no EXCLUDE_FROM_ALL, so bridge-ci's plain Debug build above already

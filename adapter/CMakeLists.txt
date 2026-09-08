@@ -15,6 +15,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Catch2 3.0 CONFIG REQUIRED)
 
+# Used only to assemble the real Vortex-installable package for the
+# real-package-layout test's CTest fixture; adapter production code has no
+# Python dependency.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 # Independent of bridge/: no CommonLib/Skyrim dependency, per
 # ai/context/adapter/architecture.md's "Technology boundary".
 add_library(dovahlink_adapter_core STATIC
@@ -119,6 +124,16 @@ set(DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED
     CACHE FILEPATH
     "Self-contained, single-file published DovahLink.Host.exe used to prove the adapter launches the real packaged artifact")
 
+get_filename_component(DOVAHLINK_HOST_PUBLISH_DIR "${DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED}" DIRECTORY)
+
+# Where AssembleRealAdapterHostPackage's CTest fixture (below) assembles the real Vortex Data/
+# layout, reusing the already-published DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED above rather than
+# publishing a second copy.
+set(DOVAHLINK_ASSEMBLED_PACKAGE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/real-package-test"
+    CACHE PATH
+    "Directory the real assembled-package-layout test's CTest fixture assembles the real Data/ layout under")
+
 add_executable(dovahlink_adapter_owner_lifetime_test_fixture
     tests/process/adapter_host_owner_lifetime_test_fixture.cpp
 )
@@ -180,8 +195,40 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"
     DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED="${DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED}"
     DOVAHLINK_ADAPTER_OWNER_LIFETIME_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_owner_lifetime_test_fixture>"
+    DOVAHLINK_ASSEMBLED_PACKAGE_PLUGINS_DIR="${DOVAHLINK_ASSEMBLED_PACKAGE_DIR}/Data/SKSE/Plugins"
 )
 
 include(CTest)
 include(Catch)
-catch_discover_tests(dovahlink_adapter_tests)
+
+# Assembles the real Vortex Data/ layout using the real production packager (see
+# tooling/adapter_host_packager.py), so the [package]-tagged test below launches the Host from the
+# actual installable package shape rather than a raw publish output. Skips (SKIP_RETURN_CODE, not a
+# failure) when this build's runtime DLLs are not Release-named -- see
+# assemble_adapter_host_package_for_ctest.py's own documentation for why only a Release
+# configuration can satisfy this.
+add_test(NAME AssembleRealAdapterHostPackage
+    COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/../tooling/assemble_adapter_host_package_for_ctest.py"
+        --adapter-build-dir $<TARGET_FILE_DIR:dovahlink_adapter_plugin>
+        --host-publish-dir "${DOVAHLINK_HOST_PUBLISH_DIR}"
+        --package-dir "${DOVAHLINK_ASSEMBLED_PACKAGE_DIR}"
+)
+set_tests_properties(AssembleRealAdapterHostPackage PROPERTIES
+    FIXTURES_SETUP RealAdapterHostPackage
+    SKIP_RETURN_CODE 125
+)
+
+# Every test except the real-package-layout one: unaffected by the fixture above.
+catch_discover_tests(dovahlink_adapter_tests
+    TEST_SPEC "~[package]"
+)
+# The real-package-layout test: requires AssembleRealAdapterHostPackage to have assembled the real
+# package first, and is labeled "package" so adapter-ci.yml can run it directly against a Release
+# build, since only Release satisfies AssembleRealAdapterHostPackage's own runtime-DLL-name check.
+catch_discover_tests(dovahlink_adapter_tests
+    TEST_SPEC "[package]"
+    PROPERTIES
+        FIXTURES_REQUIRED RealAdapterHostPackage
+        LABELS package
+)
