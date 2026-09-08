@@ -111,6 +111,14 @@ set(DOVAHLINK_HOST_EXECUTABLE
     CACHE FILEPATH
     "Built DovahLink.Host.exe used by the native cross-process lifecycle test")
 
+# The self-contained, single-file, win-x64 published Host -- the same production publishing
+# strategy tooling/package_adapter_host.py uses -- proving the adapter's real launch/supervise
+# path works against the actual packaged artifact shape, not only a framework-dependent build.
+set(DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED
+    "${CMAKE_CURRENT_SOURCE_DIR}/../host/DovahLink.Host/bin/publish/win-x64/DovahLink.Host.exe"
+    CACHE FILEPATH
+    "Self-contained, single-file published DovahLink.Host.exe used to prove the adapter launches the real packaged artifact")
+
 add_executable(dovahlink_adapter_owner_lifetime_test_fixture
     tests/process/adapter_host_owner_lifetime_test_fixture.cpp
 )
@@ -170,6 +178,7 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     DOVAHLINK_ADAPTER_LAUNCHER_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_launcher_test_fixture>"
     DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"
+    DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED="${DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED}"
     DOVAHLINK_ADAPTER_OWNER_LIFETIME_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_owner_lifetime_test_fixture>"
 )
 

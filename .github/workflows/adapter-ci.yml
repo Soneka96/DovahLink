@@ -114,6 +114,16 @@ jobs:
         # adapter/CMakeLists.txt's DOVAHLINK_HOST_EXECUTABLE and the real-process test both expect.
         run: dotnet build host/DovahLink.Host/DovahLink.Host.csproj --configuration Debug -p:Platform=AnyCPU
 
+      - name: Publish self-contained host executable (Release)
+        # The real production publishing strategy (tooling/package_adapter_host.py uses the same
+        # flags): proves the adapter's real launch/supervise path in the Debug test run below
+        # against the actual packaged artifact shape, not only a framework-dependent build.
+        run: >
+          dotnet publish host/DovahLink.Host/DovahLink.Host.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None
+          --output host/DovahLink.Host/bin/publish/win-x64
+
       - name: Configure Debug
         working-directory: adapter
         env:

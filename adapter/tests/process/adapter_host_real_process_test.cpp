@@ -954,11 +954,17 @@ public:
   ///  @param pairingSink Optional pairing-display sink override; when null,
   ///  falls back to a no-op sink, for tests not concerned with pairing
   ///  display.
+  ///  @param hostExecutable The host executable to launch; defaults to the
+  ///  framework-dependent DOVAHLINK_HOST_EXECUTABLE build every other test in
+  ///  this file uses. A test proving behavior against the production-packaged
+  ///  artifact shape passes DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED instead.
   explicit RealHostFixture(
       std::byte ownerLifetimeMarker,
       dovahlink::adapter::ipc::IAdapterPairingNotificationSink *pairingSink =
-          nullptr)
-      : hostExecutable_(DOVAHLINK_HOST_EXECUTABLE),
+          nullptr,
+      std::filesystem::path hostExecutable =
+          std::filesystem::path(DOVAHLINK_HOST_EXECUTABLE))
+      : hostExecutable_(std::move(hostExecutable)),
         ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
         launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
         session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
@@ -1261,4 +1267,23 @@ TEST_CASE("a rendezvous port occupied by another process falls back to a "
   supervisor.RequestStop();
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
   CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
+}
+
+TEST_CASE("a real native adapter completes Hello/HelloAck against a real "
+          "self-contained published Host executable",
+          "[process][integration][packaging]") {
+  //  Proves the adapter's real launch, private-IPC connect, and Hello/HelloAck
+  //  authentication path against the actual production-packaged artifact
+  //  shape -- self-contained, single-file, published via `dotnet publish`
+  //  (the same production publishing strategy tooling/package_adapter_host.py
+  //  uses) -- rather than only the framework-dependent `dotnet build` output
+  //  every other real-process test in this file launches against. This is
+  //  the same full proof RealHostFixture already gives every other test in
+  //  this file, just pointed at the packaged executable shape; a real
+  //  Skyrim/SKSE session remains a separate manual verification step.
+  RealHostFixture fixture(
+      std::byte{0xF8}, /*pairingSink=*/nullptr,
+      std::filesystem::path(DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED));
+
+  CHECK(fixture.Session().IsHostAvailable());
 }
