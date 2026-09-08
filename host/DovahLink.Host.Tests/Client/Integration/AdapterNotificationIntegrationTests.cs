@@ -238,6 +238,118 @@ public class AdapterNotificationIntegrationTests
     }
 
     /// <summary>
+    /// Verifies that an adapter-originated <c>block</c> trust-admin request, sent over the real
+    /// private IPC channel, invalidates the matching real connected known device's session --
+    /// sending <c>session_invalidated</c> before force-closing its socket -- mirroring
+    /// <see cref="AdapterRevokeRequest_MatchingTrustedPublicClient_SendsSessionInvalidatedThenForceCloses"/>
+    /// for the <c>block</c> operation.
+    /// </summary>
+    [Fact]
+    public async Task AdapterBlockRequest_MatchingKnownPublicClient_SendsSessionInvalidatedThenForceCloses()
+    {
+        var codec = new PublicEnvelopeCodec();
+        var ipcCodec = new IpcFrameCodec();
+        string clientId = Guid.NewGuid().ToString();
+        var persistence = new FakeTrustStorePersistence();
+        await persistence.SaveAsync([
+            new TrustRecord(new ClientId(Guid.Parse(clientId)), "54321", "My PC", KnownDeviceState.Trusted, CredentialHasher.Hash(TrustedCredential), DateTimeOffset.UtcNow),
+        ]);
+        (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) =
+            await StartComposedHostAsync(persistence);
+        (ClientWebSocket client, _, _) = await ConnectAndAdmitPublicClientAsync(
+            publicPort, codec, clientId, new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = TrustedCredential });
+        using ClientWebSocket ownedClient = client;
+        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+
+        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Block, ShortId: "54321")));
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadIpcFrameAsync(adapterStream, ipcCodec));
+        Assert.Contains("Blocked", result.ResultText);
+
+        var buffer = new byte[8192];
+        WebSocketReceiveResult invalidatedResult = await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, invalidatedResult.Count), out PublicEnvelope? invalidatedEnvelope));
+        Assert.Equal(PublicMessageType.SessionInvalidated, invalidatedEnvelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(invalidatedEnvelope, out SessionInvalidatedPayload? invalidatedPayload));
+        Assert.Equal(SessionInvalidationReason.Blocked, invalidatedPayload!.Reason);
+
+        // Administrative invalidation force-closes the connection after the best-effort notification
+        // above; the transport may complete an orderly close handshake or abort the connection
+        // outright (surfacing as a WebSocketException here), so either outcome proves the same
+        // force-close contract rather than only the graceful one.
+        try
+        {
+            WebSocketReceiveResult closeResult = await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(WebSocketMessageType.Close, closeResult.MessageType);
+        }
+        catch (WebSocketException)
+        {
+            // The connection was aborted rather than gracefully closed -- also a valid force-close.
+        }
+
+        Assert.NotEqual(WebSocketState.Open, client.State);
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that an adapter-originated <c>reset-trust</c> trust-admin request, sent over the real
+    /// private IPC channel, invalidates a real connected trusted public client's session -- sending
+    /// <c>session_invalidated</c> before force-closing its socket -- mirroring
+    /// <see cref="AdapterRevokeRequest_MatchingTrustedPublicClient_SendsSessionInvalidatedThenForceCloses"/>
+    /// for the no-argument, bulk <c>reset-trust</c> operation.
+    /// </summary>
+    [Fact]
+    public async Task AdapterResetTrustRequest_MatchingTrustedPublicClient_SendsSessionInvalidatedThenForceCloses()
+    {
+        var codec = new PublicEnvelopeCodec();
+        var ipcCodec = new IpcFrameCodec();
+        string clientId = Guid.NewGuid().ToString();
+        var persistence = new FakeTrustStorePersistence();
+        await persistence.SaveAsync([
+            new TrustRecord(new ClientId(Guid.Parse(clientId)), "54321", "My PC", KnownDeviceState.Trusted, CredentialHasher.Hash(TrustedCredential), DateTimeOffset.UtcNow),
+        ]);
+        (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) =
+            await StartComposedHostAsync(persistence);
+        (ClientWebSocket client, _, _) = await ConnectAndAdmitPublicClientAsync(
+            publicPort, codec, clientId, new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = TrustedCredential });
+        using ClientWebSocket ownedClient = client;
+        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+
+        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.ResetTrust)));
+        var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadIpcFrameAsync(adapterStream, ipcCodec));
+        Assert.Contains("Reset Trust complete", result.ResultText);
+
+        var buffer = new byte[8192];
+        WebSocketReceiveResult invalidatedResult = await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, invalidatedResult.Count), out PublicEnvelope? invalidatedEnvelope));
+        Assert.Equal(PublicMessageType.SessionInvalidated, invalidatedEnvelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(invalidatedEnvelope, out SessionInvalidatedPayload? invalidatedPayload));
+        Assert.Equal(SessionInvalidationReason.TrustReset, invalidatedPayload!.Reason);
+
+        // Administrative invalidation force-closes the connection after the best-effort notification
+        // above; the transport may complete an orderly close handshake or abort the connection
+        // outright (surfacing as a WebSocketException here), so either outcome proves the same
+        // force-close contract rather than only the graceful one.
+        try
+        {
+            WebSocketReceiveResult closeResult = await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(WebSocketMessageType.Close, closeResult.MessageType);
+        }
+        catch (WebSocketException)
+        {
+            // The connection was aborted rather than gracefully closed -- also a valid force-close.
+        }
+
+        Assert.NotEqual(WebSocketState.Open, client.State);
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Composes the real production graph with both listeners bound to OS-assigned loopback ports and
     /// returns the values a raw adapter/public client stand-in needs to connect to it.
     /// </summary>
