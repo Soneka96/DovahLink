@@ -263,6 +263,9 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <summary>The shared repository root this page checks and builds.</summary>
     private readonly IRepositoryContext repositoryContext;
 
+    /// <summary>The shared build output path override this page checks and builds.</summary>
+    private readonly IOutputPathContext outputPathContext;
+
     /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
     private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
 
@@ -332,6 +335,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="openOutputFolder">Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</param>
     /// <param name="setClipboardText">Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</param>
     /// <param name="repositoryContext">The shared repository root this page checks and builds.</param>
+    /// <param name="outputPathContext">The shared build output path override this page checks and builds.</param>
     public BuildPageViewModel(
         IEnvironmentStore environmentStore,
         IGitStatusStore gitStatusStore,
@@ -340,7 +344,8 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         ISettingsStore settingsStore,
         Action<string> openOutputFolder,
         Action<string> setClipboardText,
-        IRepositoryContext repositoryContext)
+        IRepositoryContext repositoryContext,
+        IOutputPathContext outputPathContext)
     {
         this.environmentStore = environmentStore;
         this.gitStatusStore = gitStatusStore;
@@ -350,6 +355,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         this.openOutputFolder = openOutputFolder;
         this.setClipboardText = setClipboardText;
         this.repositoryContext = repositoryContext;
+        this.outputPathContext = outputPathContext;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         environmentStore.PropertyChanged += OnEnvironmentStoreChanged;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
@@ -399,7 +405,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     public string HostSummaryText => $"self-contained win-x64 ({SelectedProfile.ToDotnetConfiguration()})";
 
     /// <inheritdoc/>
-    public string RepositoryVersion => TryReadRepositoryVersion();
+    public string RepositoryVersion => TryReadRepositoryVersion(repositoryContext.RepositoryRoot);
 
     /// <inheritdoc/>
     public string? BuildNote
@@ -700,10 +706,38 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         return RunBuildAsync();
     }
 
+    /// <summary>
+    /// Immutable identity of one build run, captured synchronously at the very start of
+    /// <see cref="RunBuildAsync"/> before its first <c>await</c>. Everything that describes this run --
+    /// cleaning previous outputs, the coordinator request, and the recorded history entry -- reads only
+    /// from this snapshot rather than the live <see cref="repositoryContext"/>, <see cref="SelectedProfile"/>,
+    /// or <see cref="outputPathContext"/>: once a build has started, a Settings or repository change made
+    /// while it is still running must affect only the next build, never the one already in flight.
+    /// </summary>
+    /// <param name="RepositoryRoot">The repository root this build targets.</param>
+    /// <param name="RepositoryVersion">The repository's product version at the moment this build started.</param>
+    /// <param name="Profile">The build profile this build targets.</param>
+    /// <param name="OutputPath">The build output path override in effect for this build, or <see langword="null"/> to use <see cref="Profile"/>'s default.</param>
+    /// <param name="IsCleanBuild">Whether this build clears generated Adapter and Host build outputs before building.</param>
+    /// <param name="Note">The optional local note attached to this build.</param>
+    private sealed record BuildRunSnapshot(
+        string RepositoryRoot,
+        string RepositoryVersion,
+        BuildProfile Profile,
+        string? OutputPath,
+        bool IsCleanBuild,
+        string? Note);
+
     /// <summary>Runs the Adapter+Host build, recording its outcome.</summary>
     private async Task RunBuildAsync()
     {
-        string? noteForThisBuild = string.IsNullOrWhiteSpace(BuildNote) ? null : BuildNote.Trim();
+        var snapshot = new BuildRunSnapshot(
+            RepositoryRoot: repositoryContext.RepositoryRoot,
+            RepositoryVersion: TryReadRepositoryVersion(repositoryContext.RepositoryRoot),
+            Profile: SelectedProfile,
+            OutputPath: outputPathContext.OutputPath,
+            IsCleanBuild: IsCleanBuild,
+            Note: string.IsNullOrWhiteSpace(BuildNote) ? null : BuildNote.Trim());
         BuildNote = null;
         IsBuilding = true;
         ResetBuildResultState();
@@ -712,14 +746,14 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            if (IsCleanBuild)
+            if (snapshot.IsCleanBuild)
             {
                 Log.AppendLine("Clean build: clearing generated Adapter and Host build outputs...");
-                await Task.Run(CleanBuildOutputs, buildCancellation.Token);
+                await Task.Run(() => CleanBuildOutputs(snapshot), buildCancellation.Token);
             }
 
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
-                new AdapterHostBuildRequest(repositoryContext.RepositoryRoot, SelectedProfile, settingsStore.Load().OutputPath),
+                new AdapterHostBuildRequest(snapshot.RepositoryRoot, snapshot.Profile, snapshot.OutputPath),
                 onOutput: Log.AppendLine,
                 onStage: OnBuildStageEvent,
                 buildCancellation.Token);
@@ -751,7 +785,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
             // "in progress" just because history persistence failed.
             IsBuilding = false;
             IsCancelling = false;
-            TryRecordBuildHistory(startedAt, stopwatch.Elapsed, noteForThisBuild);
+            TryRecordBuildHistory(snapshot, startedAt, stopwatch.Elapsed);
         }
     }
 
@@ -786,14 +820,14 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// bookkeeping, and a failure to write or reload it must never change the build's own already-
     /// finished outcome or propagate out of <see cref="RunBuildAsync"/>'s teardown.
     /// </summary>
+    /// <param name="snapshot">The just-finished build's immutable identity, captured at its start.</param>
     /// <param name="startedAt">When this build started.</param>
     /// <param name="duration">How long this build ran before reaching its final outcome.</param>
-    /// <param name="note">The optional local note the user attached to this build.</param>
-    private void TryRecordBuildHistory(DateTimeOffset startedAt, TimeSpan duration, string? note)
+    private void TryRecordBuildHistory(BuildRunSnapshot snapshot, DateTimeOffset startedAt, TimeSpan duration)
     {
         try
         {
-            RecordBuildHistory(startedAt, duration, note);
+            RecordBuildHistory(snapshot, startedAt, duration);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -804,10 +838,10 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     }
 
     /// <summary>Records the just-finished build and refreshes <see cref="RecentBuilds"/> from the store.</summary>
+    /// <param name="snapshot">The just-finished build's immutable identity, captured at its start.</param>
     /// <param name="startedAt">When this build started.</param>
     /// <param name="duration">How long this build ran before reaching its final outcome.</param>
-    /// <param name="note">The optional local note the user attached to this build.</param>
-    private void RecordBuildHistory(DateTimeOffset startedAt, TimeSpan duration, string? note)
+    private void RecordBuildHistory(BuildRunSnapshot snapshot, DateTimeOffset startedAt, TimeSpan duration)
     {
         string? failedStage = LastOutcome == BuildHistoryResult.Failed
             ? Stages.FirstOrDefault(stage => stage.Status == BuildStageStatus.Failed)?.DisplayName
@@ -816,23 +850,24 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         buildHistoryStore.Add(new BuildHistoryEntry(
             startedAt,
             LastOutcome!.Value,
-            TryReadRepositoryVersion(),
-            Profile,
+            snapshot.RepositoryVersion,
+            snapshot.Profile.ToString(),
             duration,
             ArchivePath,
             failedStage,
             ArchiveSha256,
-            note));
+            snapshot.Note));
 
         RecentBuilds = buildHistoryStore.GetRecent();
     }
 
     /// <summary>Reads the repository's VERSION file, reporting "unknown" instead of throwing when it cannot be read.</summary>
-    private string TryReadRepositoryVersion()
+    /// <param name="repositoryRoot">The repository root to read the VERSION file from.</param>
+    private static string TryReadRepositoryVersion(string repositoryRoot)
     {
         try
         {
-            return File.ReadAllText(Path.Combine(repositoryContext.RepositoryRoot, "VERSION")).Trim();
+            return File.ReadAllText(Path.Combine(repositoryRoot, "VERSION")).Trim();
         }
         catch (IOException)
         {
@@ -1212,13 +1247,16 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// subfolders are deleted -- confirmed against the real repository layout when the output root is
     /// the default <c>tooling/out</c>, or the folder the user explicitly chose through
     /// <see cref="SettingsPageViewModel.BrowseOutputPathCommand"/> when an override is set -- never
-    /// vcpkg's shared package cache.
+    /// vcpkg's shared package cache. Takes the build's own immutable <paramref name="snapshot"/> rather
+    /// than reading <see cref="repositoryContext"/>/<see cref="SelectedProfile"/>/<see cref="outputPathContext"/>
+    /// directly, so a repository or Settings change made while this runs on a background thread cannot
+    /// clean a different repository than the one this same build then compiles.
     /// </summary>
-    private void CleanBuildOutputs()
+    /// <param name="snapshot">The running build's immutable identity, captured at its start.</param>
+    private static void CleanBuildOutputs(BuildRunSnapshot snapshot)
     {
-        string repositoryRoot = repositoryContext.RepositoryRoot;
-        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "adapter", "build", SelectedProfile.ToCMakePreset()));
-        string outputRoot = settingsStore.Load().OutputPath ?? SelectedProfile.ToOutputRoot(repositoryRoot);
+        DeleteDirectoryIfExists(Path.Combine(snapshot.RepositoryRoot, "adapter", "build", snapshot.Profile.ToCMakePreset()));
+        string outputRoot = snapshot.OutputPath ?? snapshot.Profile.ToOutputRoot(snapshot.RepositoryRoot);
         DeleteDirectoryIfExists(Path.Combine(outputRoot, "publish"));
         DeleteDirectoryIfExists(Path.Combine(outputRoot, "package"));
     }

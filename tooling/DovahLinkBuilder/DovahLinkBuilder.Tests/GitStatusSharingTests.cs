@@ -30,7 +30,8 @@ public sealed class GitStatusSharingTests
             new StubSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -59,7 +60,8 @@ public sealed class GitStatusSharingTests
             new StubSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -90,7 +92,8 @@ public sealed class GitStatusSharingTests
             new StubSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -105,29 +108,31 @@ public sealed class GitStatusSharingTests
     }
 
     /// <summary>
-    /// A settings output path override reaches both the Environment/Build pages' shared preflight
-    /// check (through the shared <see cref="IOutputPathContext"/>) and the actual build request a
-    /// subsequent build sends the coordinator (through <see cref="ISettingsStore"/>) -- so preflight
-    /// can never report a destination as usable while the real build targets a different one.
+    /// A configured output path override reaches both the Environment/Build pages' shared preflight
+    /// check and the actual build request a subsequent build sends the coordinator -- through the same
+    /// <see cref="IOutputPathContext"/> instance both <see cref="EnvironmentStore"/> and
+    /// <see cref="BuildPageViewModel"/> read -- so preflight can never report a destination as usable
+    /// while the real build targets a different one.
     /// </summary>
     [Fact]
     public async Task ASettingsOutputPathOverrideReachesBothThePreflightCheckAndTheBuildRequest()
     {
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
+        var outputPathContext = new OutputPathContext(@"D:\custom-out");
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(@"D:\custom-out"));
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
         var buildCoordinator = new FakeAdapterHostBuildCoordinatorThatRecordsRequests();
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
             buildCoordinator,
             new StubBuildHistoryStore(),
-            settingsStore,
+            new StubSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            outputPathContext);
 
         await buildPage.InitializeAsync();
         Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
@@ -160,7 +165,8 @@ public sealed class GitStatusSharingTests
             new StubSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -252,19 +258,6 @@ public sealed class GitStatusSharingTests
         public void Save(BuilderSettings settings)
         {
         }
-    }
-
-    /// <summary>An in-memory <see cref="ISettingsStore"/>, for a test that needs a configured, mutable output path override.</summary>
-    private sealed class FakeSettingsStore : ISettingsStore
-    {
-        /// <summary>Gets or sets the currently persisted settings; defaults to <see cref="BuilderSettings"/>'s own defaults.</summary>
-        public BuilderSettings Settings { get; set; } = new();
-
-        /// <inheritdoc/>
-        public BuilderSettings Load() => Settings;
-
-        /// <inheritdoc/>
-        public void Save(BuilderSettings settings) => Settings = settings;
     }
 
     /// <summary>Succeeds using the test assembly's own DLL as a real, always-present archive; records the request it was given.</summary>

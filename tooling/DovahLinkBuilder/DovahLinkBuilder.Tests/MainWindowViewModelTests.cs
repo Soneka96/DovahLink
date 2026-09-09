@@ -43,7 +43,8 @@ public sealed class MainWindowViewModelTests
         new StubSettingsStore(),
         _ => { },
         _ => { },
-        repositoryContext);
+        repositoryContext,
+        new OutputPathContext(null));
 
     /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>
     private EnvironmentPageViewModel BuildStubEnvironmentPage() => new(environmentStore, gitStatusStore);

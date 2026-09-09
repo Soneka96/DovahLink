@@ -23,13 +23,15 @@ public sealed class BuildPageViewModelTests
         Action<string>? openOutputFolder = null,
         Action<string>? setClipboardText = null,
         string? repositoryRoot = null,
-        IRepositoryContext? repositoryContext = null)
+        IRepositoryContext? repositoryContext = null,
+        IOutputPathContext? outputPathContext = null)
     {
         string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
+        IOutputPathContext resolvedOutputPathContext = outputPathContext ?? new OutputPathContext(null);
         FakeSettingsStore resolvedSettingsStore = settingsStore ?? new FakeSettingsStore();
         var gitStatusStore = new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext, resolvedOutputPathContext);
         return new(
             environmentStore,
             gitStatusStore,
@@ -38,7 +40,8 @@ public sealed class BuildPageViewModelTests
             resolvedSettingsStore,
             openOutputFolder ?? (_ => { }),
             setClipboardText ?? (_ => { }),
-            resolvedRepositoryContext);
+            resolvedRepositoryContext,
+            resolvedOutputPathContext);
     }
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -91,7 +94,8 @@ public sealed class BuildPageViewModelTests
             new FakeSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         await viewModel.InitializeAsync();
         Assert.True(viewModel.CanBuild);
 
@@ -175,7 +179,8 @@ public sealed class BuildPageViewModelTests
             new FakeSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         await viewModel.InitializeAsync();
         Assert.False(viewModel.GitNeedsAttention);
 
@@ -212,7 +217,8 @@ public sealed class BuildPageViewModelTests
             new FakeSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         await viewModel.InitializeAsync();
         Assert.Equal("1.0.0", viewModel.RepositoryVersion);
 
@@ -959,6 +965,38 @@ public sealed class BuildPageViewModelTests
         Assert.Equal("unknown", Assert.Single(buildHistoryStore.GetRecent()).Version);
     }
 
+    /// <summary>
+    /// Records the repository version and profile the build actually started with, even when the
+    /// active repository and selected profile both change while that build is still running --
+    /// proving <see cref="BuildPageViewModel.RunBuildAsync"/>'s snapshot, not the live
+    /// <c>repositoryContext</c>/<c>SelectedProfile</c>, is what history is drawn from.
+    /// </summary>
+    [Fact]
+    public async Task BuildCommandRecordsTheStartingRepositoryVersionAndProfileEvenWhenBothChangeMidBuild()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryARoot = Path.Combine(temporaryDirectory.Path, "repo-a");
+        string repositoryBRoot = Path.Combine(temporaryDirectory.Path, "repo-b");
+        Directory.CreateDirectory(repositoryARoot);
+        Directory.CreateDirectory(repositoryBRoot);
+        File.WriteAllText(Path.Combine(repositoryARoot, "VERSION"), "1.0.0");
+        File.WriteAllText(Path.Combine(repositoryBRoot, "VERSION"), "2.0.0");
+        var repositoryContext = new RepositoryContext(repositoryARoot);
+        var buildHistoryStore = new FakeBuildHistoryStore();
+        var viewModel = BuildViewModel(repositoryContext: repositoryContext, buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedProfile = BuildProfile.Release;
+
+        viewModel.BuildCommand.Execute(null);
+        repositoryContext.SetRepositoryRoot(repositoryBRoot);
+        viewModel.SelectedProfile = BuildProfile.Debug;
+        await viewModel.RunningBuildTask!;
+
+        BuildHistoryEntry recorded = Assert.Single(buildHistoryStore.GetRecent());
+        Assert.Equal("1.0.0", recorded.Version);
+        Assert.Equal("Release", recorded.Profile);
+    }
+
     /// <summary>Records a failed build with the stage that was running when it failed.</summary>
     [Fact]
     public async Task BuildCommandRecordsAFailedBuildWithItsFailedStage()
@@ -1032,7 +1070,8 @@ public sealed class BuildPageViewModelTests
             new FakeSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -1430,7 +1469,8 @@ public sealed class BuildPageViewModelTests
             new FakeSettingsStore(),
             _ => { },
             _ => { },
-            repositoryContext);
+            repositoryContext,
+            new OutputPathContext(null));
         await viewModel.InitializeAsync();
         var pauseSignal = new TaskCompletionSource();
         preflightService.PauseSignal = pauseSignal;
@@ -1609,8 +1649,8 @@ public sealed class BuildPageViewModelTests
         using var temporaryDirectory = new TemporaryDirectory();
         string outputOverride = Path.Combine(temporaryDirectory.Path, "custom-output");
         var buildCoordinator = new FakeAdapterHostBuildCoordinator();
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: outputOverride) };
-        var viewModel = BuildViewModel(repositoryRoot: temporaryDirectory.Path, buildCoordinator: buildCoordinator, settingsStore: settingsStore);
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var viewModel = BuildViewModel(repositoryRoot: temporaryDirectory.Path, buildCoordinator: buildCoordinator, outputPathContext: outputPathContext);
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -1693,8 +1733,8 @@ public sealed class BuildPageViewModelTests
         string defaultPublishDir = Path.Combine(repositoryRoot, "tooling", "out", "publish");
         CreateDirectoryWithMarkerFile(overridePublishDir);
         CreateDirectoryWithMarkerFile(defaultPublishDir);
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: outputOverride) };
-        var viewModel = BuildViewModel(repositoryRoot: repositoryRoot, settingsStore: settingsStore);
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var viewModel = BuildViewModel(repositoryRoot: repositoryRoot, outputPathContext: outputPathContext);
         await viewModel.InitializeAsync();
         viewModel.IsCleanBuild = true;
 
@@ -1703,6 +1743,121 @@ public sealed class BuildPageViewModelTests
 
         Assert.False(Directory.Exists(overridePublishDir));
         Assert.True(Directory.Exists(defaultPublishDir));
+    }
+
+    /// <summary>
+    /// The core state-coherence invariant this build's snapshot exists to guarantee: once a clean build
+    /// has started against repo A / Release / no output override, changing the active repository,
+    /// selected profile, and output path override before that build finishes must not affect it in any
+    /// way -- not the directories Clean deletes, not the coordinator request, not the recorded history --
+    /// and the very next build must pick up exactly those changed values. Repo A carries a real Release
+    /// adapter-build directory and default publish output that clean-build must delete; repo B carries
+    /// its own Debug adapter-build directory that must survive untouched, since this run never targets it.
+    /// </summary>
+    [Fact]
+    public async Task ChangingRepositoryProfileAndOutputPathMidBuildDoesNotAffectTheAlreadyStartedBuild()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryARoot = Path.Combine(temporaryDirectory.Path, "repo-a");
+        string repositoryBRoot = Path.Combine(temporaryDirectory.Path, "repo-b");
+        Directory.CreateDirectory(repositoryARoot);
+        Directory.CreateDirectory(repositoryBRoot);
+        File.WriteAllText(Path.Combine(repositoryARoot, "VERSION"), "1.0.0");
+        File.WriteAllText(Path.Combine(repositoryBRoot, "VERSION"), "2.0.0");
+        string repositoryAReleaseAdapterDir = Path.Combine(repositoryARoot, "adapter", "build", "windows-x64-release");
+        string repositoryADefaultPublishDir = Path.Combine(repositoryARoot, "tooling", "out", "publish");
+        string repositoryBDebugAdapterDir = Path.Combine(repositoryBRoot, "adapter", "build", "windows-x64-debug");
+        CreateDirectoryWithMarkerFile(repositoryAReleaseAdapterDir);
+        CreateDirectoryWithMarkerFile(repositoryADefaultPublishDir);
+        CreateDirectoryWithMarkerFile(repositoryBDebugAdapterDir);
+        var repositoryContext = new RepositoryContext(repositoryARoot);
+        var outputPathContext = new OutputPathContext(null);
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var buildHistoryStore = new FakeBuildHistoryStore();
+        var viewModel = BuildViewModel(
+            repositoryContext: repositoryContext,
+            outputPathContext: outputPathContext,
+            buildCoordinator: buildCoordinator,
+            buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedProfile = BuildProfile.Release;
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        // Mutates every piece of mutable state this build's snapshot must be immune to, immediately
+        // after starting it and before awaiting its completion below.
+        repositoryContext.SetRepositoryRoot(repositoryBRoot);
+        viewModel.SelectedProfile = BuildProfile.Debug;
+        outputPathContext.SetOutputPath(@"D:\should-not-be-used");
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(Directory.Exists(repositoryAReleaseAdapterDir));
+        Assert.False(Directory.Exists(repositoryADefaultPublishDir));
+        Assert.True(Directory.Exists(repositoryBDebugAdapterDir));
+
+        Assert.Equal(repositoryARoot, buildCoordinator.LastRequest?.RepositoryRoot);
+        Assert.Equal(BuildProfile.Release, buildCoordinator.LastRequest?.Profile);
+        Assert.Null(buildCoordinator.LastRequest?.OutputRootOverride);
+
+        BuildHistoryEntry recorded = Assert.Single(buildHistoryStore.GetRecent());
+        Assert.Equal("1.0.0", recorded.Version);
+        Assert.Equal("Release", recorded.Profile);
+
+        // The mid-build repository change above triggered its own environment refresh in the
+        // background; waits for it here so CanBuild reflects repo B before starting the next build,
+        // exactly as the real UI would after a repository change settles.
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(repositoryBRoot, buildCoordinator.LastRequest?.RepositoryRoot);
+        Assert.Equal(BuildProfile.Debug, buildCoordinator.LastRequest?.Profile);
+        Assert.Equal(@"D:\should-not-be-used", buildCoordinator.LastRequest?.OutputRootOverride);
+    }
+
+    /// <summary>
+    /// Keeps using a configured output path override for an already-started build even when it is
+    /// cleared back to the profile's default mid-build -- the mirror of the override being set
+    /// mid-build, which <see cref="ChangingRepositoryProfileAndOutputPathMidBuildDoesNotAffectTheAlreadyStartedBuild"/>
+    /// already covers in the other direction.
+    /// </summary>
+    [Fact]
+    public async Task ClearingTheOutputPathOverrideMidBuildDoesNotAffectTheAlreadyStartedBuild()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "custom-output");
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(repositoryRoot: temporaryDirectory.Path, outputPathContext: outputPathContext, buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        outputPathContext.SetOutputPath(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(outputOverride, buildCoordinator.LastRequest?.OutputRootOverride);
+    }
+
+    /// <summary>
+    /// Keeps cleaning generated outputs for a build that already started as a clean build, even when
+    /// Clean build is turned off before it finishes -- the toggle only ever affects the next build.
+    /// </summary>
+    [Fact]
+    public async Task TogglingCleanBuildOffMidBuildDoesNotAffectTheAlreadyStartedCleanBuild()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string releaseAdapterDir = Path.Combine(repositoryRoot, "adapter", "build", "windows-x64-release");
+        CreateDirectoryWithMarkerFile(releaseAdapterDir);
+        var viewModel = BuildViewModel(repositoryRoot: repositoryRoot);
+        await viewModel.InitializeAsync();
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        viewModel.IsCleanBuild = false;
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(Directory.Exists(releaseAdapterDir));
     }
 
     /// <summary>Creates a directory containing a marker file, so an empty-directory quirk can't hide a real deletion bug.</summary>
