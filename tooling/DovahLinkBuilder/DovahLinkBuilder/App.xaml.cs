@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using DovahLink.DovahLinkBuilder.Build;
@@ -24,10 +25,13 @@ public partial class App : Application
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
+        var settingsStore = new SettingsStore(appDataDirectory);
 
-        var buildPage = new BuildPageViewModel(preflightService, gitStatusService, buildCoordinator, buildHistoryStore, repositoryRoot);
+        var buildPage = new BuildPageViewModel(
+            preflightService, gitStatusService, buildCoordinator, buildHistoryStore, settingsStore, OpenFolderInExplorer, repositoryRoot);
         var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusService, repositoryRoot);
-        var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, new SettingsPageViewModel());
+        var settingsPage = new SettingsPageViewModel(settingsStore);
+        var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         new MainWindow(mainWindowViewModel).Show();
 
         _ = buildPage.InitializeAsync();
@@ -37,4 +41,16 @@ public partial class App : Application
     /// <summary>Gets the local application-data directory the Builder persists its settings and build history under.</summary>
     private static string GetAppDataDirectory() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DovahLinkBuilder");
+
+    /// <summary>Opens <paramref name="folderPath"/> in the system file explorer.</summary>
+    /// <param name="folderPath">The folder to open.</param>
+    private static void OpenFolderInExplorer(string folderPath)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            ArgumentList = { folderPath },
+            UseShellExecute = false,
+        });
+    }
 }

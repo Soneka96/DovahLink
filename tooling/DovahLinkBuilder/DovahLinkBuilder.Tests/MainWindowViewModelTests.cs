@@ -10,11 +10,18 @@ namespace DovahLink.DovahLinkBuilder.Tests;
 public sealed class MainWindowViewModelTests
 {
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
-    private static MainWindowViewModel BuildViewModel() => new(BuildStubBuildPage(), BuildStubEnvironmentPage(), new SettingsPageViewModel());
+    private static MainWindowViewModel BuildViewModel() =>
+        new(BuildStubBuildPage(), BuildStubEnvironmentPage(), new SettingsPageViewModel(new StubSettingsStore()));
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
     private static BuildPageViewModel BuildStubBuildPage() => new(
-        new StubPreflightService(), new StubGitStatusService(), new StubAdapterHostBuildCoordinator(), new StubBuildHistoryStore(), @"C:\repo");
+        new StubPreflightService(),
+        new StubGitStatusService(),
+        new StubAdapterHostBuildCoordinator(),
+        new StubBuildHistoryStore(),
+        new StubSettingsStore(),
+        _ => { },
+        @"C:\repo");
 
     /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>
     private static EnvironmentPageViewModel BuildStubEnvironmentPage() =>
@@ -120,6 +127,18 @@ public sealed class MainWindowViewModelTests
 
         /// <inheritdoc/>
         public void Add(BuildHistoryEntry entry)
+        {
+        }
+    }
+
+    /// <summary>Reports <see cref="BuilderSettings"/>'s own defaults and discards writes; a stub for tests that never inspect settings.</summary>
+    private sealed class StubSettingsStore : ISettingsStore
+    {
+        /// <inheritdoc/>
+        public BuilderSettings Load() => new();
+
+        /// <inheritdoc/>
+        public void Save(BuilderSettings settings)
         {
         }
     }

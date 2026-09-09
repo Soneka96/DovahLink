@@ -30,6 +30,12 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>Persists and retrieves the Builder's recent build history.</summary>
     private readonly IBuildHistoryStore buildHistoryStore;
 
+    /// <summary>Loads the Builder's persisted settings.</summary>
+    private readonly ISettingsStore settingsStore;
+
+    /// <summary>Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</summary>
+    private readonly Action<string> openOutputFolder;
+
     /// <summary>The repository root this page checks and builds.</summary>
     private readonly string repositoryRoot;
 
@@ -77,18 +83,24 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="gitStatusService">Reports the repository's branch, working tree, and remote sync state.</param>
     /// <param name="buildCoordinator">Builds and packages the production Adapter and Host.</param>
     /// <param name="buildHistoryStore">Persists and retrieves the Builder's recent build history.</param>
+    /// <param name="settingsStore">Loads the Builder's persisted settings.</param>
+    /// <param name="openOutputFolder">Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</param>
     /// <param name="repositoryRoot">The repository root this page checks and builds.</param>
     public BuildPageViewModel(
         IPreflightService preflightService,
         IGitStatusService gitStatusService,
         IAdapterHostBuildCoordinator buildCoordinator,
         IBuildHistoryStore buildHistoryStore,
+        ISettingsStore settingsStore,
+        Action<string> openOutputFolder,
         string repositoryRoot)
     {
         this.preflightService = preflightService;
         this.gitStatusService = gitStatusService;
         this.buildCoordinator = buildCoordinator;
         this.buildHistoryStore = buildHistoryStore;
+        this.settingsStore = settingsStore;
+        this.openOutputFolder = openOutputFolder;
         this.repositoryRoot = repositoryRoot;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
@@ -97,7 +109,7 @@ public sealed class BuildPageViewModel : ObservableObject
         ViewArchiveContentsCommand = new RelayCommand(OnViewArchiveContents, () => ArchivePath is not null);
         RebuildCommand = new RelayCommand(OnRebuild, () => !IsBuilding && !IsAwaitingConfirmation);
         Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
-        Log = new LogViewModel();
+        Log = new LogViewModel { AutoScroll = settingsStore.Load().AutoScrollLogs };
         recentBuilds = buildHistoryStore.GetRecent();
     }
 
@@ -366,6 +378,7 @@ public sealed class BuildPageViewModel : ObservableObject
             LastOutcome = BuildHistoryResult.Succeeded;
             ArchivePath = result.ArchivePath;
             ArchiveSha256 = sha256;
+            TryOpenOutputFolder(result.ArchivePath);
         }
         catch (OperationCanceledException)
         {
@@ -565,4 +578,35 @@ public sealed class BuildPageViewModel : ObservableObject
     /// (correction #9).
     /// </summary>
     public RelayCommand RebuildCommand { get; }
+
+    /// <summary>
+    /// Opens the archive's containing folder when <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>
+    /// is enabled, only ever on a successful build (correction #12 -- never on failure or cancellation).
+    /// A failure here is a convenience-action failure, not a build failure, and never changes
+    /// <see cref="LastOutcome"/>.
+    /// </summary>
+    /// <param name="archivePath">The successful build's produced archive path.</param>
+    private void TryOpenOutputFolder(string archivePath)
+    {
+        if (!settingsStore.Load().OpenOutputFolderAfterSuccessfulBuild)
+        {
+            return;
+        }
+
+        string? folderPath = Path.GetDirectoryName(archivePath);
+        if (folderPath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            openOutputFolder(folderPath);
+        }
+        catch (Exception)
+        {
+            // Opening the output folder is a convenience action; a failure here must not affect the
+            // build's own reported outcome.
+        }
+    }
 }

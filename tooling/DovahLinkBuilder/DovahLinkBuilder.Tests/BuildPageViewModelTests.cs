@@ -16,11 +16,15 @@ public sealed class BuildPageViewModelTests
         FakePreflightService? preflightService = null,
         FakeGitStatusService? gitStatusService = null,
         FakeAdapterHostBuildCoordinator? buildCoordinator = null,
-        FakeBuildHistoryStore? buildHistoryStore = null) => new(
+        FakeBuildHistoryStore? buildHistoryStore = null,
+        FakeSettingsStore? settingsStore = null,
+        Action<string>? openOutputFolder = null) => new(
         preflightService ?? new FakePreflightService(),
         gitStatusService ?? new FakeGitStatusService(),
         buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
         buildHistoryStore ?? new FakeBuildHistoryStore(),
+        settingsStore ?? new FakeSettingsStore(),
+        openOutputFolder ?? (_ => { }),
         @"C:\repo");
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -597,6 +601,107 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
     }
 
+    /// <summary>Seeds the log panel's auto-scroll from the persisted setting at construction.</summary>
+    [Fact]
+    public void ConstructorSeedsLogAutoScrollFromSettings()
+    {
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: false) };
+
+        var viewModel = BuildViewModel(settingsStore: settingsStore);
+
+        Assert.False(viewModel.Log.AutoScroll);
+    }
+
+    /// <summary>Opens the archive's containing folder after a successful build when the setting is enabled (correction #12).</summary>
+    [Fact]
+    public async Task BuildCommandOpensTheOutputFolderOnSuccessWhenEnabled()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var openedFolders = new List<string>();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal([Path.GetDirectoryName(archivePath)], openedFolders);
+    }
+
+    /// <summary>Does not open the output folder after a successful build when the setting is disabled.</summary>
+    [Fact]
+    public async Task BuildCommandDoesNotOpenTheOutputFolderOnSuccessWhenDisabled()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: false) };
+        var openedFolders = new List<string>();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Empty(openedFolders);
+    }
+
+    /// <summary>Never opens the output folder for a failed build, even when the setting is enabled (correction #12).</summary>
+    [Fact]
+    public async Task BuildCommandDoesNotOpenTheOutputFolderOnFailure()
+    {
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var openedFolders = new List<string>();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("the adapter build failed") };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Empty(openedFolders);
+    }
+
+    /// <summary>Never opens the output folder for a cancelled build, even when the setting is enabled (correction #12).</summary>
+    [Fact]
+    public async Task CancelCommandDoesNotOpenTheOutputFolder()
+    {
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var openedFolders = new List<string>();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Empty(openedFolders);
+    }
+
+    /// <summary>A convenience-action failure opening the output folder does not change the build's own reported outcome.</summary>
+    [Fact]
+    public async Task BuildCommandStillReportsSuccessWhenOpeningTheOutputFolderFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(
+            buildCoordinator: buildCoordinator,
+            settingsStore: settingsStore,
+            openOutputFolder: _ => throw new InvalidOperationException("explorer.exe could not be started"));
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+        Assert.True(viewModel.HasArchivePath);
+    }
+
     /// <summary>Loads the store's existing entries as <see cref="BuildPageViewModel.RecentBuilds"/> on construction.</summary>
     [Fact]
     public void ConstructorLoadsRecentBuildsFromTheStore()
@@ -910,5 +1015,18 @@ public sealed class BuildPageViewModelTests
 
         /// <inheritdoc/>
         public void Add(BuildHistoryEntry entry) => entries.Insert(0, entry);
+    }
+
+    /// <summary>An in-memory <see cref="ISettingsStore"/>, avoiding real disk I/O for tests over Builder settings.</summary>
+    private sealed class FakeSettingsStore : ISettingsStore
+    {
+        /// <summary>Gets or sets the currently persisted settings; defaults to <see cref="BuilderSettings"/>'s own defaults.</summary>
+        public BuilderSettings Settings { get; set; } = new();
+
+        /// <inheritdoc/>
+        public BuilderSettings Load() => Settings;
+
+        /// <inheritdoc/>
+        public void Save(BuilderSettings settings) => Settings = settings;
     }
 }
