@@ -2,181 +2,186 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:app="clr-namespace:DovahLink.DovahLinkBuilder">
-    <StackPanel Margin="24">
-        <TextBlock Text="{Binding BuildSummaryText}" FontSize="16" FontWeight="Bold" />
-        <CheckBox Content="Clean build" IsChecked="{Binding IsCleanBuild}" IsEnabled="{Binding CanBuild}" Margin="0,12,0,0"
-                  ToolTip="Clears generated Adapter and Host build outputs before building. Slower." />
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24">
+            <TextBlock Text="{Binding BuildSummaryText}" FontSize="16" FontWeight="Bold" />
+            <CheckBox Content="Clean build" IsChecked="{Binding IsCleanBuild}" IsEnabled="{Binding CanBuild}" Margin="0,12,0,0"
+                      ToolTip="Clears generated Adapter and Host build outputs before building. Slower." />
 
-        <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasGitBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Background" Value="#DFF5E1" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsGitReady}" Value="False">
-                            <Setter Property="Background" Value="#FFF4D6" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-            <StackPanel>
-                <TextBlock Text="{Binding GitBannerLine1}" />
-                <TextBlock Text="{Binding GitBannerLine2}"
-                           Margin="0,2,0,0"
-                           Visibility="{Binding HasGitBannerLine2, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                <Expander Header="See details" Margin="0,4,0,0">
-                    <StackPanel Margin="0,4,0,0">
-                        <TextBlock Text="{Binding GitBranch, StringFormat='Branch: {0}'}" />
-                        <TextBlock Text="{Binding GitCommitSha, StringFormat='Commit: {0}'}" Margin="0,2,0,0" />
-                    </StackPanel>
-                </Expander>
+            <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasGitBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="#DFF5E1" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsGitReady}" Value="False">
+                                <Setter Property="Background" Value="#FFF4D6" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <TextBlock Text="{Binding GitBannerLine1}" />
+                    <TextBlock Text="{Binding GitBannerLine2}"
+                               Margin="0,2,0,0"
+                               Visibility="{Binding HasGitBannerLine2, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Expander Header="See details" Margin="0,4,0,0">
+                        <StackPanel Margin="0,4,0,0">
+                            <TextBlock Text="{Binding GitBranch, StringFormat='Branch: {0}'}" />
+                            <TextBlock Text="{Binding GitCommitSha, StringFormat='Commit: {0}'}" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="{Binding BuildBlockedReason}"
+                       Foreground="DarkOrange"
+                       Margin="0,12,0,0"
+                       Visibility="{Binding HasBuildBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
+                        Visibility="{Binding IsAwaitingConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="This build contains changes that are not committed or pushed."
+                           VerticalAlignment="Center" Margin="0,0,12,0" />
+                <Button Content="Cancel" Command="{Binding CancelConfirmationCommand}" Margin="0,0,8,0" />
+                <Button Content="Build anyway" Command="{Binding ConfirmBuildCommand}" />
             </StackPanel>
-        </Border>
 
-        <TextBlock Text="{Binding BuildBlockedReason}"
-                   Foreground="DarkOrange"
-                   Margin="0,12,0,0"
-                   Visibility="{Binding HasBuildBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
+                        Visibility="{Binding CanShowBuildActions, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Button Content="Build" Command="{Binding BuildCommand}" Margin="0,0,8,0" />
+                <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding CancellingMessage}" VerticalAlignment="Center" Foreground="DarkOrange"
+                           Visibility="{Binding IsCancelling, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            </StackPanel>
 
-        <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
-                    Visibility="{Binding IsAwaitingConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <TextBlock Text="This build contains changes that are not committed or pushed."
-                       VerticalAlignment="Center" Margin="0,0,12,0" />
-            <Button Content="Cancel" Command="{Binding CancelConfirmationCommand}" Margin="0,0,8,0" />
-            <Button Content="Build anyway" Command="{Binding ConfirmBuildCommand}" />
-        </StackPanel>
+            <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasResult, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="LightGray" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
+                                <Setter Property="Background" Value="#DFF5E1" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
+                                <Setter Property="Background" Value="#FCE1E1" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
+                                <Setter Property="Background" Value="#FFF4D6" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <TextBlock Text="{Binding ResultBannerText}" FontWeight="Bold" />
+                    <TextBlock Text="{Binding LastOutcomeMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
 
-        <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
-                    Visibility="{Binding CanShowBuildActions, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <Button Content="Build" Command="{Binding BuildCommand}" Margin="0,0,8,0" />
-            <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,0,8,0" />
-            <TextBlock Text="{Binding CancellingMessage}" VerticalAlignment="Center" Foreground="DarkOrange"
-                       Visibility="{Binding IsCancelling, Converter={StaticResource BooleanToVisibilityConverter}}" />
-        </StackPanel>
+                    <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left"
+                            Visibility="{Binding IsFailed, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
-        <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasResult, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Background" Value="LightGray" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
-                            <Setter Property="Background" Value="#DFF5E1" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
-                            <Setter Property="Background" Value="#FCE1E1" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
-                            <Setter Property="Background" Value="#FFF4D6" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-            <StackPanel>
-                <TextBlock Text="{Binding ResultBannerText}" FontWeight="Bold" />
-                <TextBlock Text="{Binding LastOutcomeMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    <StackPanel Visibility="{Binding HasArchivePath, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding ArchivePath}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ArchiveSha256, StringFormat='SHA-256: {0}'}" Margin="0,4,0,0" />
+                        <Button Content="View contents" Command="{Binding ViewArchiveContentsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left" />
+                        <ItemsControl ItemsSource="{Binding ArchiveEntries}" Margin="0,8,0,0"
+                                      Visibility="{Binding IsShowingArchiveContents, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" FontFamily="Consolas" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
 
-                <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left"
-                        Visibility="{Binding IsFailed, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            <ItemsControl ItemsSource="{Binding Stages}" Margin="0,16,0,0">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="1" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Height="8" Margin="2,0" ToolTip="{Binding DisplayName}">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="LightGray" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
+                                            <Setter Property="Background" Value="DodgerBlue" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Succeeded}">
+                                            <Setter Property="Background" Value="ForestGreen" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}">
+                                            <Setter Property="Background" Value="Crimson" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding StageProgressText}" Margin="0,4,0,0" />
 
-                <StackPanel Visibility="{Binding HasArchivePath, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
-                    <TextBlock Text="{Binding ArchivePath}" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding ArchiveSha256, StringFormat='SHA-256: {0}'}" Margin="0,4,0,0" />
-                    <Button Content="View contents" Command="{Binding ViewArchiveContentsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left" />
-                    <ItemsControl ItemsSource="{Binding ArchiveEntries}" Margin="0,8,0,0"
-                                  Visibility="{Binding IsShowingArchiveContents, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Expander Header="Log" IsExpanded="{Binding Log.IsExpanded}" Margin="0,16,0,0">
+                <StackPanel Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <CheckBox Content="Auto-scroll" IsChecked="{Binding Log.AutoScroll}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <Button Content="Copy all" Command="{Binding Log.CopyAllCommand}" Margin="0,0,8,0" />
+                        <Button Content="Clear" Command="{Binding Log.ClearCommand}" />
+                    </StackPanel>
+                    <ListBox x:Name="LogListBox" ItemsSource="{Binding Log.Lines}" Height="160" FontFamily="Consolas" />
+                </StackPanel>
+            </Expander>
+
+            <Expander Header="Recent builds" Margin="0,16,0,0">
+                <StackPanel Margin="0,8,0,0">
+                    <Button Content="Rebuild last build" Command="{Binding RebuildCommand}" HorizontalAlignment="Left" Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding RecentBuilds}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding}" FontFamily="Consolas" />
+                                <TextBlock Margin="0,2,0,2">
+                                    <Run Text="{Binding Timestamp, Mode=OneWay, StringFormat='{}{0:g}'}" />
+                                    <Run Text=" — " />
+                                    <Run Text="{Binding Result, Mode=OneWay}" />
+                                    <Run Text=" — " />
+                                    <Run Text="{Binding Version, Mode=OneWay}" />
+                                </TextBlock>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
-            </StackPanel>
-        </Border>
+            </Expander>
 
-        <ItemsControl ItemsSource="{Binding Stages}" Margin="0,16,0,0">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <UniformGrid Rows="1" />
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Border Height="8" Margin="2,0" ToolTip="{Binding DisplayName}">
-                        <Border.Style>
-                            <Style TargetType="Border">
-                                <Setter Property="Background" Value="LightGray" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
-                                        <Setter Property="Background" Value="DodgerBlue" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Succeeded}">
-                                        <Setter Property="Background" Value="ForestGreen" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}">
-                                        <Setter Property="Background" Value="Crimson" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                    </Border>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <TextBlock Text="{Binding StageProgressText}" Margin="0,4,0,0" />
-
-        <Expander Header="Log" IsExpanded="{Binding Log.IsExpanded}" Margin="0,16,0,0">
-            <StackPanel Margin="0,8,0,0">
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <CheckBox Content="Auto-scroll" IsChecked="{Binding Log.AutoScroll}" VerticalAlignment="Center" Margin="0,0,12,0" />
-                    <Button Content="Copy all" Command="{Binding Log.CopyAllCommand}" Margin="0,0,8,0" />
-                    <Button Content="Clear" Command="{Binding Log.ClearCommand}" />
-                </StackPanel>
-                <ListBox x:Name="LogListBox" ItemsSource="{Binding Log.Lines}" Height="160" FontFamily="Consolas" />
-            </StackPanel>
-        </Expander>
-
-        <Expander Header="Recent builds" Margin="0,16,0,0">
-            <StackPanel Margin="0,8,0,0">
-                <Button Content="Rebuild last build" Command="{Binding RebuildCommand}" HorizontalAlignment="Left" Margin="0,0,0,8" />
-                <ItemsControl ItemsSource="{Binding RecentBuilds}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Margin="0,2,0,2">
-                                <Run Text="{Binding Timestamp, Mode=OneWay, StringFormat='{}{0:g}'}" />
-                                <Run Text=" — " />
-                                <Run Text="{Binding Result, Mode=OneWay}" />
-                                <Run Text=" — " />
-                                <Run Text="{Binding Version, Mode=OneWay}" />
-                            </TextBlock>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
-        </Expander>
-
-        <TextBlock Text="{Binding FooterStatusText}" FontWeight="Bold" Margin="0,16,0,0">
-            <TextBlock.Style>
-                <Style TargetType="TextBlock">
-                    <Setter Property="Foreground" Value="ForestGreen" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding HasBuildBlockedReason}" Value="True">
-                            <Setter Property="Foreground" Value="DarkOrange" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
-                            <Setter Property="Foreground" Value="DarkOrange" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
-                            <Setter Property="Foreground" Value="Crimson" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
-                            <Setter Property="Foreground" Value="ForestGreen" />
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding IsBuilding}" Value="True">
-                            <Setter Property="Foreground" Value="DodgerBlue" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </TextBlock.Style>
-        </TextBlock>
-    </StackPanel>
+            <TextBlock Text="{Binding FooterStatusText}" FontWeight="Bold" Margin="0,16,0,0">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="ForestGreen" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasBuildBlockedReason}" Value="True">
+                                <Setter Property="Foreground" Value="DarkOrange" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
+                                <Setter Property="Foreground" Value="DarkOrange" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
+                                <Setter Property="Foreground" Value="Crimson" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
+                                <Setter Property="Foreground" Value="ForestGreen" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsBuilding}" Value="True">
+                                <Setter Property="Foreground" Value="DodgerBlue" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsCancelling}" Value="True">
+                                <Setter Property="Foreground" Value="DarkOrange" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

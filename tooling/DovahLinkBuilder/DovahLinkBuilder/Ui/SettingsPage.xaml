@@ -1,31 +1,37 @@
 <UserControl x:Class="DovahLink.DovahLinkBuilder.Ui.SettingsPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <StackPanel Margin="24">
-        <TextBlock Text="Paths" FontWeight="Bold" Margin="0,0,0,8" />
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24">
+            <TextBlock Text="Paths" FontWeight="Bold" Margin="0,0,0,8" />
 
-        <TextBlock Text="Repository path override" Margin="0,8,0,2" />
-        <DockPanel>
-            <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Command="{Binding ResetRepositoryPathCommand}" Margin="8,0,0,0" />
-            <TextBox Text="{Binding RepositoryPath, UpdateSourceTrigger=LostFocus}" />
-        </DockPanel>
+            <TextBlock Text="Repository path override" Margin="0,8,0,2" />
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Command="{Binding ResetRepositoryPathCommand}" Margin="8,0,0,0"
+                        AutomationProperties.Name="Reset repository path to auto-detect" />
+                <TextBox Text="{Binding RepositoryPath, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Repository path override" />
+            </DockPanel>
 
-        <TextBlock Text="Skyrim / Creation Kit install path override" Margin="0,12,0,2" />
-        <DockPanel>
-            <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Command="{Binding ResetSkyrimInstallPathCommand}" Margin="8,0,0,0" />
-            <TextBox Text="{Binding SkyrimInstallPath, UpdateSourceTrigger=LostFocus}" />
-        </DockPanel>
+            <TextBlock Text="Skyrim / Creation Kit install path override" Margin="0,12,0,2" />
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Command="{Binding ResetSkyrimInstallPathCommand}" Margin="8,0,0,0"
+                        AutomationProperties.Name="Reset Skyrim install path to auto-detect" />
+                <TextBox Text="{Binding SkyrimInstallPath, UpdateSourceTrigger=LostFocus}"
+                         AutomationProperties.Name="Skyrim / Creation Kit install path override" />
+            </DockPanel>
 
-        <TextBlock Text="Build output path override" Margin="0,12,0,2" />
-        <DockPanel>
-            <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Command="{Binding ResetOutputPathCommand}" Margin="8,0,0,0" />
-            <TextBox Text="{Binding OutputPath, UpdateSourceTrigger=LostFocus}" />
-        </DockPanel>
+            <TextBlock Text="Build output path override" Margin="0,12,0,2" />
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Command="{Binding ResetOutputPathCommand}" Margin="8,0,0,0"
+                        AutomationProperties.Name="Reset build output path to auto-detect" />
+                <TextBox Text="{Binding OutputPath, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Build output path override" />
+            </DockPanel>
 
-        <TextBlock Text="Behavior" FontWeight="Bold" Margin="0,24,0,8" />
-        <CheckBox Content="Open output folder after a successful build" IsChecked="{Binding OpenOutputFolderAfterSuccessfulBuild}" Margin="0,4,0,0" />
-        <CheckBox Content="Auto-scroll the log panel" IsChecked="{Binding AutoScrollLogs}" Margin="0,4,0,0" />
-        <CheckBox Content="Verbose command output" IsChecked="{Binding VerboseCommandOutput}" Margin="0,4,0,0" />
-        <CheckBox Content="Notify when a build completes" IsChecked="{Binding NotifyWhenBuildCompletes}" Margin="0,4,0,0" />
-    </StackPanel>
+            <TextBlock Text="Behavior" FontWeight="Bold" Margin="0,24,0,8" />
+            <CheckBox Content="Open output folder after a successful build" IsChecked="{Binding OpenOutputFolderAfterSuccessfulBuild}" Margin="0,4,0,0" />
+            <CheckBox Content="Auto-scroll the log panel" IsChecked="{Binding AutoScrollLogs}" Margin="0,4,0,0" />
+            <CheckBox Content="Verbose command output" IsChecked="{Binding VerboseCommandOutput}" Margin="0,4,0,0" />
+            <CheckBox Content="Notify when a build completes" IsChecked="{Binding NotifyWhenBuildCompletes}" Margin="0,4,0,0" />
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>
