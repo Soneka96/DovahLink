@@ -148,7 +148,10 @@
                                         <Setter Property="Background" Value="{StaticResource OkBgBrush}" />
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding GitStatus.RemoteSyncState}" Value="{x:Static app:RemoteSyncState.NotPushed}">
-                                        <Setter Property="Background" Value="{StaticResource OkBgBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource WarnBgBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding GitStatus.WorkingTreeState}" Value="{x:Static app:WorkingTreeState.Dirty}">
+                                        <Setter Property="Background" Value="{StaticResource WarnBgBrush}" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -160,12 +163,20 @@
                                     <Setter Property="Foreground" Value="{StaticResource TextSecBrush}" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding GitStatus.RemoteSyncState}" Value="{x:Static app:RemoteSyncState.Pushed}">
-                                            <Setter Property="Text" Value="Verified" />
+                                            <Setter Property="Text" Value="Pushed" />
                                             <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding GitStatus.RemoteSyncState}" Value="{x:Static app:RemoteSyncState.NotPushed}">
-                                            <Setter Property="Text" Value="Verified" />
-                                            <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
+                                            <Setter Property="Text" Value="Not pushed" />
+                                            <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding GitStatus.RemoteSyncState}" Value="{x:Static app:RemoteSyncState.CouldNotVerify}">
+                                            <Setter Property="Text" Value="Committed, unverified" />
+                                            <Setter Property="Foreground" Value="{StaticResource TextSecBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding GitStatus.WorkingTreeState}" Value="{x:Static app:WorkingTreeState.Dirty}">
+                                            <Setter Property="Text" Value="Local changes" />
+                                            <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
