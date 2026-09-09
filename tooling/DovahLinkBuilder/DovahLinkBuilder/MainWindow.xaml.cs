@@ -49,6 +49,11 @@ public partial class MainWindow : Window
     /// <see cref="boundsOnClosing"/> as its very first statement, before anything else runs: closing a
     /// maximized window makes Windows restore it as part of the close sequence, so <see cref="WindowState"/>
     /// already reads back as <see cref="WindowState.Normal"/> by the time <see cref="OnClosed"/> fires.
+    /// Blocks a re-entrant call (for example a second Alt+F4 while the dialog is already showing)
+    /// without replacing <see cref="closeConfirmation"/>: doing so would strand the first call's await
+    /// on a <see cref="TaskCompletionSource{TResult}"/> nothing can ever complete again, since
+    /// <see cref="OnKeepBuildingClick"/> and <see cref="OnCancelBuildAndCloseClick"/> only ever resolve
+    /// whichever instance this field currently holds.
     /// </summary>
     /// <param name="sender">The unused event source.</param>
     /// <param name="e">Carries the cancel flag this handler sets to block the close.</param>
@@ -56,6 +61,12 @@ public partial class MainWindow : Window
     {
         wasMaximizedOnClosing = WindowState == WindowState.Maximized;
         boundsOnClosing = wasMaximizedOnClosing ? RestoreBounds : new Rect(Left, Top, Width, Height);
+
+        if (closeConfirmation is not null)
+        {
+            e.Cancel = true;
+            return;
+        }
 
         if (DataContext is not MainWindowViewModel viewModel || !viewModel.BuildPage.IsBuilding)
         {
@@ -66,12 +77,24 @@ public partial class MainWindow : Window
 
         IInputElement? previouslyFocused = Keyboard.FocusedElement;
         closeConfirmation = new TaskCompletionSource<bool>();
-        CloseOverlay.Visibility = Visibility.Visible;
-        KeepBuildingButton.Focus();
-        bool shouldClose = await closeConfirmation.Task;
-        CloseOverlay.Visibility = Visibility.Collapsed;
-        previouslyFocused?.Focus();
-        closeConfirmation = null;
+        bool shouldClose;
+        try
+        {
+            CloseOverlay.Visibility = Visibility.Visible;
+            KeepBuildingButton.Focus();
+            shouldClose = await closeConfirmation.Task;
+        }
+        finally
+        {
+            // Guarantees the overlay is hidden, focus is restored, and closeConfirmation is cleared
+            // even if something above throws -- without this, a failure here would leave
+            // closeConfirmation non-null forever, permanently blocking every future close attempt
+            // through the re-entrancy guard above.
+            CloseOverlay.Visibility = Visibility.Collapsed;
+            previouslyFocused?.Focus();
+            closeConfirmation = null;
+        }
+
         if (!shouldClose)
         {
             return;
