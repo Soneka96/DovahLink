@@ -10,11 +10,15 @@ namespace DovahLink.DovahLinkBuilder.Tests;
 public sealed class MainWindowViewModelTests
 {
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
-    private static MainWindowViewModel BuildViewModel() => new(BuildStubBuildPage(), new EnvironmentPageViewModel(), new SettingsPageViewModel());
+    private static MainWindowViewModel BuildViewModel() => new(BuildStubBuildPage(), BuildStubEnvironmentPage(), new SettingsPageViewModel());
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
     private static BuildPageViewModel BuildStubBuildPage() => new(
         new StubPreflightService(), new StubGitStatusService(), new StubAdapterHostBuildCoordinator(), new StubBuildHistoryStore(), @"C:\repo");
+
+    /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>
+    private static EnvironmentPageViewModel BuildStubEnvironmentPage() =>
+        new(new StubPreflightService(), new StubGitStatusService(), @"C:\repo");
 
     /// <summary>Starts with the Build page selected.</summary>
     [Fact]

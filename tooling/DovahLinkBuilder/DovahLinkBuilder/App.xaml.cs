@@ -26,10 +26,12 @@ public partial class App : Application
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
 
         var buildPage = new BuildPageViewModel(preflightService, gitStatusService, buildCoordinator, buildHistoryStore, repositoryRoot);
-        var mainWindowViewModel = new MainWindowViewModel(buildPage, new EnvironmentPageViewModel(), new SettingsPageViewModel());
+        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusService, repositoryRoot);
+        var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, new SettingsPageViewModel());
         new MainWindow(mainWindowViewModel).Show();
 
         _ = buildPage.InitializeAsync();
+        _ = environmentPage.InitializeAsync();
     }
 
     /// <summary>Gets the local application-data directory the Builder persists its settings and build history under.</summary>
