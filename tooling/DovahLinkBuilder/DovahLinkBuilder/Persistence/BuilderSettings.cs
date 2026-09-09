@@ -2,7 +2,7 @@ namespace DovahLink.DovahLinkBuilder.Persistence;
 
 /// <summary>The Builder's persisted local preferences.</summary>
 /// <param name="RepositoryPath">The repository path override, or <see langword="null"/> to use the auto-detected repository.</param>
-/// <param name="SkyrimInstallPath">The Skyrim / Creation Kit install path override, or <see langword="null"/> to use auto-detection.</param>
+/// <param name="SkyrimInstallPath">The Skyrim / Creation Kit install path, set only through a folder picker, or <see langword="null"/> when not configured. No part of the Builder detects this path automatically; nothing currently reads this value.</param>
 /// <param name="OutputPath">The build output path override, or <see langword="null"/> to use the repository's default <c>tooling/out</c>.</param>
 /// <param name="OpenOutputFolderAfterSuccessfulBuild">Whether to open the output folder after a build succeeds. Never applies to a failed or cancelled build.</param>
 /// <param name="AutoScrollLogs">Whether the log panel scrolls to the newest line automatically.</param>

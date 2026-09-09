@@ -27,13 +27,20 @@
                                Visibility="{Binding RepositoryPathError, Converter={StaticResource NullToVisibilityConverter}}" />
 
                     <StackPanel Margin="0,0,0,6">
-                        <TextBlock Text="Skyrim / Creation Kit install path override" FontSize="13" />
-                        <TextBlock Text="Auto-detected" Style="{StaticResource MutedTextStyle}" Margin="0,1,0,0" />
+                        <TextBlock Text="Skyrim / Creation Kit install path" FontSize="13" />
+                        <TextBlock Text="Not read by any check or build yet -- set it here for your own reference" Style="{StaticResource MutedTextStyle}" Margin="0,1,0,0" TextWrapping="Wrap" />
                     </StackPanel>
-                    <DockPanel Margin="0,0,0,14">
-                        <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Margin="8,0,0,0" Command="{Binding ResetSkyrimInstallPathCommand}"
-                                AutomationProperties.Name="Reset Skyrim install path to auto-detect" />
-                        <TextBox Text="{Binding SkyrimInstallPath, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Skyrim / Creation Kit install path override" />
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Browse&#8230;" Margin="8,0,0,0" Command="{Binding BrowseSkyrimInstallPathCommand}"
+                                    AutomationProperties.Name="Browse for Skyrim install path" />
+                            <Button Content="Open folder" Margin="8,0,0,0" Command="{Binding OpenSkyrimInstallFolderCommand}"
+                                    AutomationProperties.Name="Open Skyrim install folder" />
+                            <Button Content="Clear" Margin="8,0,0,0" Command="{Binding ResetSkyrimInstallPathCommand}"
+                                    AutomationProperties.Name="Clear Skyrim install path" />
+                        </StackPanel>
+                        <TextBox Text="{Binding SkyrimInstallPathDisplayText, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                                 AutomationProperties.Name="Skyrim install path" />
                     </DockPanel>
 
                     <StackPanel Margin="0,0,0,6">

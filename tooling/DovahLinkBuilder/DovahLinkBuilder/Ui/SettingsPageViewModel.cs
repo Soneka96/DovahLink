@@ -3,11 +3,12 @@ using DovahLink.DovahLinkBuilder.Persistence;
 namespace DovahLink.DovahLinkBuilder.Ui;
 
 /// <summary>
-/// Owns the Settings page's state: path overrides -- set only through a folder-picker Browse
-/// command, never typed, with reset-to-auto-detect and (where a resolved value exists to open)
-/// an Open-folder command -- and the Builder's behavior toggles. Every change saves immediately
-/// through <see cref="ISettingsStore"/>; there is no "remember last profile" setting, since there
-/// is only one real profile (correction #11).
+/// Owns the Settings page's state: paths -- set only through a folder-picker Browse command, never
+/// typed, each with a command to clear it (back to auto-detection for Repository and Output, which
+/// have a real resolved default; back to simply unset for Skyrim, which has none) and, where a
+/// resolved value exists to open, an Open-folder command -- and the Builder's behavior toggles.
+/// Every change saves immediately through <see cref="ISettingsStore"/>; there is no "remember last
+/// profile" setting, since there is only one real profile (correction #11).
 /// </summary>
 public sealed class SettingsPageViewModel : ObservableObject
 {
@@ -73,6 +74,8 @@ public sealed class SettingsPageViewModel : ObservableObject
         OpenRepositoryFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveRepositoryPath));
         BrowseOutputPathCommand = new RelayCommand(OnBrowseOutputPath);
         OpenOutputFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveOutputPath));
+        BrowseSkyrimInstallPathCommand = new RelayCommand(OnBrowseSkyrimInstallPath);
+        OpenSkyrimInstallFolderCommand = new RelayCommand(() => OpenFolderSafely(SkyrimInstallPath!), () => SkyrimInstallPath is not null);
     }
 
     /// <summary>Gets or sets the repository path override, or <see langword="null"/> to use the auto-detected repository.</summary>
@@ -90,7 +93,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets or sets the Skyrim / Creation Kit install path override, or <see langword="null"/> to use auto-detection.</summary>
+    /// <summary>Gets or sets the Skyrim / Creation Kit install path, set only through a folder picker, or <see langword="null"/> when not configured.</summary>
     public string? SkyrimInstallPath
     {
         get => skyrimInstallPath;
@@ -98,7 +101,9 @@ public sealed class SettingsPageViewModel : ObservableObject
         {
             if (SetProperty(ref skyrimInstallPath, value))
             {
+                OnPropertyChanged(nameof(SkyrimInstallPathDisplayText));
                 ResetSkyrimInstallPathCommand.RaiseCanExecuteChanged();
+                OpenSkyrimInstallFolderCommand.RaiseCanExecuteChanged();
                 Save();
             }
         }
@@ -174,7 +179,7 @@ public sealed class SettingsPageViewModel : ObservableObject
     /// <summary>Gets the command that clears <see cref="RepositoryPath"/> back to auto-detection.</summary>
     public RelayCommand ResetRepositoryPathCommand { get; }
 
-    /// <summary>Gets the command that clears <see cref="SkyrimInstallPath"/> back to auto-detection.</summary>
+    /// <summary>Gets the command that clears <see cref="SkyrimInstallPath"/> back to unset.</summary>
     public RelayCommand ResetSkyrimInstallPathCommand { get; }
 
     /// <summary>Gets the command that clears <see cref="OutputPath"/> back to auto-detection.</summary>
@@ -269,4 +274,22 @@ public sealed class SettingsPageViewModel : ObservableObject
             OutputPath = picked;
         }
     }
+
+    /// <summary>Gets the command that opens a folder picker and sets the chosen folder as <see cref="SkyrimInstallPath"/>. Nothing in the Builder reads this value yet, so any folder is accepted.</summary>
+    public RelayCommand BrowseSkyrimInstallPathCommand { get; }
+
+    /// <summary>Gets the command that opens <see cref="SkyrimInstallPath"/> in the system file explorer; disabled while it is unset, since there is no resolved fallback to open.</summary>
+    public RelayCommand OpenSkyrimInstallFolderCommand { get; }
+
+    /// <summary>Prompts for a folder and, when one is chosen, sets it as <see cref="SkyrimInstallPath"/>. Does nothing when the picker is cancelled.</summary>
+    private void OnBrowseSkyrimInstallPath()
+    {
+        if (folderPicker.PickFolder("Select the Skyrim / Creation Kit install folder", SkyrimInstallPath) is { } picked)
+        {
+            SkyrimInstallPath = picked;
+        }
+    }
+
+    /// <summary>Gets <see cref="SkyrimInstallPath"/> for display, or "Not set" in its place -- never a false claim of auto-detection, since none exists.</summary>
+    public string SkyrimInstallPathDisplayText => SkyrimInstallPath ?? "Not set";
 }

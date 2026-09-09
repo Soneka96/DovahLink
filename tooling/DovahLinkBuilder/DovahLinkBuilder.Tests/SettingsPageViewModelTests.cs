@@ -83,9 +83,9 @@ public sealed class SettingsPageViewModelTests
         Assert.False(viewModel.ResetRepositoryPathCommand.CanExecute(null));
     }
 
-    /// <summary>Clears the Skyrim install path override back to auto-detection and saves immediately.</summary>
+    /// <summary>Clears the Skyrim install path back to unset, saves immediately, and disables Open again.</summary>
     [Fact]
-    public void ResetSkyrimInstallPathCommandClearsTheOverride()
+    public void ResetSkyrimInstallPathCommandClearsTheValue()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(SkyrimInstallPath: @"D:\Skyrim") };
         var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
@@ -94,6 +94,7 @@ public sealed class SettingsPageViewModelTests
 
         Assert.Null(viewModel.SkyrimInstallPath);
         Assert.Null(store.Settings.SkyrimInstallPath);
+        Assert.False(viewModel.OpenSkyrimInstallFolderCommand.CanExecute(null));
     }
 
     /// <summary>Clears the output path override back to auto-detection and saves immediately.</summary>
@@ -377,6 +378,77 @@ public sealed class SettingsPageViewModelTests
         viewModel.OpenOutputFolderCommand.Execute(null);
 
         Assert.Equal([BuildProfile.Release.ToOutputRoot(@"D:\resolved-repo")], openedPaths);
+    }
+
+    /// <summary>Shows "Not set" rather than a false claim of auto-detection, since none exists.</summary>
+    [Fact]
+    public void SkyrimInstallPathDisplayTextShowsNotSetWithoutAValue()
+    {
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.Equal("Not set", viewModel.SkyrimInstallPathDisplayText);
+    }
+
+    /// <summary>Shows the configured value once one is set.</summary>
+    [Fact]
+    public void SkyrimInstallPathDisplayTextShowsTheValueWhenSet()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(SkyrimInstallPath: @"D:\Skyrim") };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.Equal(@"D:\Skyrim", viewModel.SkyrimInstallPathDisplayText);
+    }
+
+    /// <summary>Sets the Skyrim install path unconditionally to whatever folder the picker returns.</summary>
+    [Fact]
+    public void BrowseSkyrimInstallPathCommandSetsTheValue()
+    {
+        var store = new FakeSettingsStore();
+        var picker = new FakeFolderPicker { NextPick = @"D:\Skyrim" };
+        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo");
+
+        viewModel.BrowseSkyrimInstallPathCommand.Execute(null);
+
+        Assert.Equal(@"D:\Skyrim", viewModel.SkyrimInstallPath);
+        Assert.Equal(@"D:\Skyrim", store.Settings.SkyrimInstallPath);
+    }
+
+    /// <summary>Does nothing when the folder picker is cancelled.</summary>
+    [Fact]
+    public void BrowseSkyrimInstallPathCommandDoesNothingWhenCancelled()
+    {
+        var picker = new FakeFolderPicker { NextPick = null };
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo");
+
+        viewModel.BrowseSkyrimInstallPathCommand.Execute(null);
+
+        Assert.Null(viewModel.SkyrimInstallPath);
+    }
+
+    /// <summary>Disables Open until a Skyrim install path is set, since there is no resolved fallback to open.</summary>
+    [Fact]
+    public void OpenSkyrimInstallFolderCommandIsDisabledUntilSet()
+    {
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.False(viewModel.OpenSkyrimInstallFolderCommand.CanExecute(null));
+
+        viewModel.SkyrimInstallPath = @"D:\Skyrim";
+
+        Assert.True(viewModel.OpenSkyrimInstallFolderCommand.CanExecute(null));
+    }
+
+    /// <summary>Opens the configured Skyrim install path.</summary>
+    [Fact]
+    public void OpenSkyrimInstallFolderCommandOpensTheConfiguredPath()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(SkyrimInstallPath: @"D:\Skyrim") };
+        var openedPaths = new List<string>();
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo");
+
+        viewModel.OpenSkyrimInstallFolderCommand.Execute(null);
+
+        Assert.Equal([@"D:\Skyrim"], openedPaths);
     }
 
     /// <summary>An in-memory <see cref="ISettingsStore"/>, avoiding real disk I/O for tests over Builder settings.</summary>
