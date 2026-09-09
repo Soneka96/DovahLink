@@ -125,6 +125,56 @@ public sealed class SettingsPageViewModelTests
         Assert.True(viewModel.ResetRepositoryPathCommand.CanExecute(null));
     }
 
+    /// <summary>Disables Reset when the override already matches the resolved repository root, since resetting would not change anything.</summary>
+    [Fact]
+    public void ResetRepositoryPathCommandIsDisabledWhenTheOverrideMatchesTheResolvedRoot()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\resolved-repo") };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.False(viewModel.ResetRepositoryPathCommand.CanExecute(null));
+    }
+
+    /// <summary>Treats a case difference and a trailing separator as equal, matching how Windows itself compares paths.</summary>
+    [Fact]
+    public void ResetRepositoryPathCommandIsDisabledForACaseOrTrailingSeparatorDifferenceOnly()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\RESOLVED-REPO\") };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.False(viewModel.ResetRepositoryPathCommand.CanExecute(null));
+    }
+
+    /// <summary>Stays enabled when the override genuinely differs from the resolved repository root.</summary>
+    [Fact]
+    public void ResetRepositoryPathCommandIsEnabledWhenTheOverrideDiffersFromTheResolvedRoot()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\other-repo") };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.True(viewModel.ResetRepositoryPathCommand.CanExecute(null));
+    }
+
+    /// <summary>Disables Reset when the override already matches the Release profile's default output root.</summary>
+    [Fact]
+    public void ResetOutputPathCommandIsDisabledWhenTheOverrideMatchesTheDefault()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: BuildProfile.Release.ToOutputRoot(@"D:\resolved-repo")) };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.False(viewModel.ResetOutputPathCommand.CanExecute(null));
+    }
+
+    /// <summary>Stays enabled when the override genuinely differs from the default output root.</summary>
+    [Fact]
+    public void ResetOutputPathCommandIsEnabledWhenTheOverrideDiffersFromTheDefault()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.True(viewModel.ResetOutputPathCommand.CanExecute(null));
+    }
+
     /// <summary>Saves the updated settings immediately when the open-output-folder toggle changes.</summary>
     [Fact]
     public void SettingOpenOutputFolderAfterSuccessfulBuildSavesImmediately()

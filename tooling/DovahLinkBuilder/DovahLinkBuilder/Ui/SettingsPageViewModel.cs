@@ -1,3 +1,4 @@
+using System.IO;
 using DovahLink.DovahLinkBuilder.Persistence;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
@@ -67,9 +68,11 @@ public sealed class SettingsPageViewModel : ObservableObject
         autoScrollLogs = settings.AutoScrollLogs;
         verboseCommandOutput = settings.VerboseCommandOutput;
         notifyWhenBuildCompletes = settings.NotifyWhenBuildCompletes;
-        ResetRepositoryPathCommand = new RelayCommand(() => RepositoryPath = null, () => RepositoryPath is not null);
+        ResetRepositoryPathCommand = new RelayCommand(
+            () => RepositoryPath = null, () => RepositoryPath is { } path && !PathsAreEqual(path, repositoryRoot));
         ResetSkyrimInstallPathCommand = new RelayCommand(() => SkyrimInstallPath = null, () => SkyrimInstallPath is not null);
-        ResetOutputPathCommand = new RelayCommand(() => OutputPath = null, () => OutputPath is not null);
+        ResetOutputPathCommand = new RelayCommand(
+            () => OutputPath = null, () => OutputPath is { } path && !PathsAreEqual(path, BuildProfile.Release.ToOutputRoot(repositoryRoot)));
         BrowseRepositoryPathCommand = new RelayCommand(OnBrowseRepositoryPath);
         OpenRepositoryFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveRepositoryPath));
         BrowseOutputPathCommand = new RelayCommand(OnBrowseOutputPath);
@@ -292,4 +295,15 @@ public sealed class SettingsPageViewModel : ObservableObject
 
     /// <summary>Gets <see cref="SkyrimInstallPath"/> for display, or "Not set" in its place -- never a false claim of auto-detection, since none exists.</summary>
     public string SkyrimInstallPathDisplayText => SkyrimInstallPath ?? "Not set";
+
+    /// <summary>
+    /// Compares two folder paths the way Windows itself does: case-insensitively, and ignoring a
+    /// trailing separator difference between a user-picked folder and a computed default. Used to
+    /// disable a Reset command when the current override already matches what it would reset to,
+    /// since resetting it would not actually change anything.
+    /// </summary>
+    /// <param name="first">The first path to compare.</param>
+    /// <param name="second">The second path to compare.</param>
+    private static bool PathsAreEqual(string first, string second) =>
+        string.Equals(Path.TrimEndingDirectorySeparator(first), Path.TrimEndingDirectorySeparator(second), StringComparison.OrdinalIgnoreCase);
 }
