@@ -251,6 +251,9 @@ public sealed class EnvironmentStoreTests
         /// <summary>Gets or sets a signal <see cref="CheckAllAsync"/> awaits before completing, or <see langword="null"/> to complete immediately.</summary>
         public TaskCompletionSource? PauseSignal { get; set; }
 
+        /// <summary>Gets or sets the exception <see cref="CheckAllAsync"/> throws instead of returning results, or <see langword="null"/> to succeed normally.</summary>
+        public Exception? ExceptionToThrow { get; set; }
+
         /// <summary>Gets the number of times <see cref="CheckAllAsync"/> was called.</summary>
         public int CallCount { get; private set; }
 
@@ -272,6 +275,11 @@ public sealed class EnvironmentStoreTests
             if (PauseSignal is not null)
             {
                 await PauseSignal.Task;
+            }
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
             }
 
             return
@@ -302,5 +310,70 @@ public sealed class EnvironmentStoreTests
         /// <inheritdoc/>
         public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
             Task.FromResult(new GitSourceStatus("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123"));
+    }
+
+    /// <summary>Records the failure and clears preflight results, rather than propagating, when preflight throws.</summary>
+    [Fact]
+    public async Task RefreshAsyncRecordsTheFailureAndClearsPreflightResultsWhenPreflightThrows()
+    {
+        var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+
+        await store.RefreshAsync();
+
+        Assert.Equal("disk full", store.RefreshError);
+        Assert.Empty(store.PreflightResults);
+        Assert.False(store.IsRefreshing);
+    }
+
+    /// <summary>Clears a previously recorded refresh error once a later refresh succeeds.</summary>
+    [Fact]
+    public async Task RefreshAsyncClearsARefreshErrorOnASubsequentSuccessfulRefresh()
+    {
+        var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        await store.RefreshAsync();
+        Assert.NotNull(store.RefreshError);
+
+        preflightService.ExceptionToThrow = null;
+        await store.RefreshAsync();
+
+        Assert.Null(store.RefreshError);
+        Assert.NotEmpty(store.PreflightResults);
+    }
+
+    /// <summary>Propagates cancellation rather than misreporting it as a refresh error.</summary>
+    [Fact]
+    public async Task RefreshAsyncPropagatesCancellationWithoutRecordingItAsARefreshError()
+    {
+        var preflightService = new FakePreflightService { ExceptionToThrow = new OperationCanceledException() };
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.RefreshAsync());
+
+        Assert.Null(store.RefreshError);
+        Assert.False(store.IsRefreshing);
+    }
+
+    /// <summary>Raises PropertyChanged for RefreshError when a refresh fails.</summary>
+    [Fact]
+    public async Task RefreshAsyncRaisesPropertyChangedForRefreshErrorWhenARefreshFails()
+    {
+        var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var raisedProperties = new List<string?>();
+        store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
+
+        await store.RefreshAsync();
+
+        Assert.Contains(nameof(EnvironmentStore.RefreshError), raisedProperties);
     }
 }

@@ -19,6 +19,9 @@ public interface IEnvironmentStore : INotifyPropertyChanged
     /// <summary>Gets whether a refresh is currently in progress.</summary>
     bool IsRefreshing { get; }
 
+    /// <summary>Gets the most recent refresh failure message, or <see langword="null"/> when the last refresh succeeded.</summary>
+    string? RefreshError { get; }
+
     /// <summary>
     /// Refreshes preflight results and the shared git status for the repository currently active on
     /// the shared <see cref="IRepositoryContext"/>. A refresh already in progress is returned to every
@@ -51,6 +54,9 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
 
     /// <summary>The backing field for <see cref="IsRefreshing"/>.</summary>
     private bool isRefreshing;
+
+    /// <summary>The backing field for <see cref="RefreshError"/>.</summary>
+    private string? refreshError;
 
     /// <summary>
     /// The most recently started refresh, shared with every concurrent <see cref="RefreshAsync"/>
@@ -92,6 +98,13 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     }
 
     /// <inheritdoc/>
+    public string? RefreshError
+    {
+        get => refreshError;
+        private set => SetProperty(ref refreshError, value);
+    }
+
+    /// <inheritdoc/>
     public Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         if (inFlightRefresh is { IsCompleted: false } runningRefresh)
@@ -111,7 +124,9 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// <see cref="OnOutputPathContextChanged"/> patch made after that change coalesces onto this same
     /// running refresh rather than starting its own -- without this loop, a rapid second change could
     /// leave the store permanently reporting stale results for whichever one changed, since nothing else
-    /// would ever check the newer value once this refresh's own result overwrites it.
+    /// would ever check the newer value once this refresh's own result overwrites it. A failure other
+    /// than cancellation is recorded in <see cref="RefreshError"/> and clears <see cref="PreflightResults"/>
+    /// rather than propagating, so a build never gates on stale results left over from before the failure.
     /// </summary>
     /// <param name="cancellationToken">The token used to cancel the refresh.</param>
     private async Task RunRefreshAsync(CancellationToken cancellationToken)
@@ -129,6 +144,16 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
                 await gitStatusStore.RefreshAsync(cancellationToken);
             }
             while (rootCheckedThisPass != repositoryContext.RepositoryRoot || outputPathCheckedThisPass != outputPathContext.OutputPath);
+            RefreshError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            PreflightResults = [];
+            RefreshError = exception.Message;
         }
         finally
         {
