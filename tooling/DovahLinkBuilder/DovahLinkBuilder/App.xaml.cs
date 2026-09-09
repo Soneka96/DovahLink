@@ -17,15 +17,15 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        string repositoryRoot = RepositoryRootLocator.Find(AppContext.BaseDirectory);
         string appDataDirectory = GetAppDataDirectory();
+        var settingsStore = new SettingsStore(appDataDirectory);
+        string repositoryRoot = settingsStore.Load().RepositoryPath ?? RepositoryRootLocator.Find(AppContext.BaseDirectory);
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
-        var settingsStore = new SettingsStore(appDataDirectory);
 
         var buildPage = new BuildPageViewModel(
             preflightService,
@@ -37,7 +37,7 @@ public partial class App : Application
             Clipboard.SetText,
             repositoryRoot);
         var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusService, repositoryRoot);
-        var settingsPage = new SettingsPageViewModel(settingsStore);
+        var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, repositoryRoot);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         new MainWindow(mainWindowViewModel).Show();
 

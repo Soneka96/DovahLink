@@ -12,10 +12,19 @@
 
                     <TextBlock Text="Repository path override" FontSize="13" Margin="0,0,0,6" />
                     <DockPanel Margin="0,0,0,14">
-                        <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Margin="8,0,0,0" Command="{Binding ResetRepositoryPathCommand}"
-                                AutomationProperties.Name="Reset repository path to auto-detect" />
-                        <TextBox Text="{Binding RepositoryPath, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Repository path override" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Browse&#8230;" Margin="8,0,0,0" Command="{Binding BrowseRepositoryPathCommand}"
+                                    AutomationProperties.Name="Browse for repository path" />
+                            <Button Content="Open folder" Margin="8,0,0,0" Command="{Binding OpenRepositoryFolderCommand}"
+                                    AutomationProperties.Name="Open repository folder" />
+                            <Button Content="Reset to auto-detect" Margin="8,0,0,0" Command="{Binding ResetRepositoryPathCommand}"
+                                    AutomationProperties.Name="Reset repository path to auto-detect" />
+                        </StackPanel>
+                        <TextBox Text="{Binding EffectiveRepositoryPath, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                                 AutomationProperties.Name="Repository path" />
                     </DockPanel>
+                    <TextBlock Text="{Binding RepositoryPathError}" Foreground="{StaticResource BadBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,-8,0,14"
+                               Visibility="{Binding RepositoryPathError, Converter={StaticResource NullToVisibilityConverter}}" />
 
                     <StackPanel Margin="0,0,0,6">
                         <TextBlock Text="Skyrim / Creation Kit install path override" FontSize="13" />

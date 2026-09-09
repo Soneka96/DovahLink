@@ -11,7 +11,8 @@ public sealed class MainWindowViewModelTests
 {
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
     private static MainWindowViewModel BuildViewModel() =>
-        new(BuildStubBuildPage(), BuildStubEnvironmentPage(), new SettingsPageViewModel(new StubSettingsStore()));
+        new(BuildStubBuildPage(), BuildStubEnvironmentPage(),
+            new SettingsPageViewModel(new StubSettingsStore(), new StubFolderPickerService(), _ => { }, @"C:\repo"));
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
     private static BuildPageViewModel BuildStubBuildPage() => new(
@@ -152,5 +153,13 @@ public sealed class MainWindowViewModelTests
         public void Save(BuilderSettings settings)
         {
         }
+    }
+
+    /// <summary>Never invoked by these tests; throws if it ever is.</summary>
+    private sealed class StubFolderPickerService : IFolderPickerService
+    {
+        /// <inheritdoc/>
+        public string? PickFolder(string title, string? initialDirectory) =>
+            throw new InvalidOperationException("Navigation tests should never open a folder picker.");
     }
 }
