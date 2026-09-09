@@ -124,7 +124,7 @@
             </DockPanel>
         </DockPanel>
 
-        <Border x:Name="CloseOverlay" Background="#9E06070C" Visibility="Collapsed">
+        <Border x:Name="CloseOverlay" Background="#9E06070C" Visibility="Collapsed" KeyboardNavigation.TabNavigation="Cycle">
             <Border Background="{StaticResource Surface2Brush}" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1"
                     CornerRadius="14" Padding="22" Width="320" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel>

@@ -129,7 +129,7 @@
                                            Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,1,0,0" />
                             </StackPanel>
                             <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsCleanBuild}"
-                                      IsEnabled="{Binding CanBuild}" VerticalAlignment="Center" />
+                                      IsEnabled="{Binding CanBuild}" VerticalAlignment="Center" AutomationProperties.Name="Clean build" />
                         </Grid>
 
                         <TextBlock Text="Build note (optional)" Style="{StaticResource MutedTextStyle}" Margin="0,14,0,5" />
@@ -532,7 +532,7 @@
                                            VerticalAlignment="Center" />
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <TextBlock Text="Auto-scroll" Style="{StaticResource SubtleTextStyle}" Margin="0,0,8,0" VerticalAlignment="Center" />
-                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding Log.AutoScroll}" Margin="0,0,14,0" />
+                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding Log.AutoScroll}" Margin="0,0,14,0" AutomationProperties.Name="Auto-scroll logs" />
                                     <Button Content="Copy" Command="{Binding Log.CopyAllCommand}" Style="{StaticResource LinkButtonStyle}" Margin="0,0,14,0" />
                                     <Button Content="Clear" Command="{Binding Log.ClearCommand}" Style="{StaticResource LinkButtonStyle}" Margin="0,0,14,0" />
                                     <ToggleButton IsChecked="{Binding Log.IsExpanded}" Style="{StaticResource IconToggleStyle}" AutomationProperties.Name="Expand or collapse logs">

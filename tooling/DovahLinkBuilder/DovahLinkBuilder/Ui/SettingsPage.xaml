@@ -42,22 +42,26 @@
 
                     <Grid Margin="0,0,0,14">
                         <TextBlock Text="Open output folder after a successful build" FontSize="13" VerticalAlignment="Center" HorizontalAlignment="Left" />
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding OpenOutputFolderAfterSuccessfulBuild}" HorizontalAlignment="Right" />
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding OpenOutputFolderAfterSuccessfulBuild}" HorizontalAlignment="Right"
+                                  AutomationProperties.Name="Open output folder after a successful build" />
                     </Grid>
                     <Grid Margin="0,0,0,14">
                         <TextBlock Text="Auto-scroll logs" FontSize="13" VerticalAlignment="Center" HorizontalAlignment="Left" />
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding AutoScrollLogs}" HorizontalAlignment="Right" />
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding AutoScrollLogs}" HorizontalAlignment="Right"
+                                  AutomationProperties.Name="Auto-scroll logs" />
                     </Grid>
                     <Grid Margin="0,0,0,14">
                         <TextBlock Text="Verbose command output" FontSize="13" VerticalAlignment="Center" HorizontalAlignment="Left" />
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding VerboseCommandOutput}" HorizontalAlignment="Right" />
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding VerboseCommandOutput}" HorizontalAlignment="Right"
+                                  AutomationProperties.Name="Verbose command output" />
                     </Grid>
                     <Grid>
                         <StackPanel HorizontalAlignment="Left">
                             <TextBlock Text="Notify when build completes" FontSize="13" />
                             <TextBlock Text="Optional, useful for longer builds" Style="{StaticResource MutedTextStyle}" Margin="0,1,0,0" />
                         </StackPanel>
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding NotifyWhenBuildCompletes}" HorizontalAlignment="Right" />
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding NotifyWhenBuildCompletes}" HorizontalAlignment="Right"
+                                  AutomationProperties.Name="Notify when build completes" />
                     </Grid>
                 </StackPanel>
             </Border>

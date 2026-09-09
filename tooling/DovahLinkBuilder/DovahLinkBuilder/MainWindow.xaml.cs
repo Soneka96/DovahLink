@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Input;
 using DovahLink.DovahLinkBuilder.Ui;
 
 namespace DovahLink.DovahLinkBuilder;
@@ -27,7 +28,10 @@ public partial class MainWindow : Window
     /// Blocks closing while a build is running until the user confirms through the in-app close
     /// dialog, then cancels the build and waits for it to actually finish terminating before letting
     /// the window close -- regardless of which page is currently displayed, since a build can keep
-    /// running in the background while the user has navigated away from the Build page.
+    /// running in the background while the user has navigated away from the Build page. While the
+    /// dialog is showing, keyboard focus moves onto it (kept there by <c>CloseOverlay</c>'s
+    /// <c>KeyboardNavigation.TabNavigation="Cycle"</c> in the markup) and is restored to whatever had
+    /// focus beforehand once the dialog closes.
     /// </summary>
     /// <param name="sender">The unused event source.</param>
     /// <param name="e">Carries the cancel flag this handler sets to block the close.</param>
@@ -40,10 +44,13 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
 
+        IInputElement? previouslyFocused = Keyboard.FocusedElement;
         closeConfirmation = new TaskCompletionSource<bool>();
         CloseOverlay.Visibility = Visibility.Visible;
+        KeepBuildingButton.Focus();
         bool shouldClose = await closeConfirmation.Task;
         CloseOverlay.Visibility = Visibility.Collapsed;
+        previouslyFocused?.Focus();
         closeConfirmation = null;
         if (!shouldClose)
         {
