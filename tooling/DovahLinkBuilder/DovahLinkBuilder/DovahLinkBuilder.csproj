@@ -6,6 +6,7 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>DovahLinkBuilder.ico</ApplicationIcon>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -19,6 +20,11 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DovahLinkBuilder.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embeds the icon so MainWindow.xaml's relative Icon="DovahLinkBuilder.ico" resolves at runtime, in addition to ApplicationIcon above (which only sets the exe's own icon, not the in-window title bar icon). -->
+    <Resource Include="DovahLinkBuilder.ico" />
   </ItemGroup>
 
 </Project>

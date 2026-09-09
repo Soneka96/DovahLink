@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="clr-namespace:DovahLink.DovahLinkBuilder.Ui"
         xmlns:app="clr-namespace:DovahLink.DovahLinkBuilder"
-        Title="DovahLink Builder"
+        Title="DovahLink Builder" Icon="DovahLinkBuilder.ico"
         Height="700" Width="980" MinHeight="500" MinWidth="900">
     <Window.Resources>
         <DataTemplate DataType="{x:Type ui:BuildPageViewModel}">

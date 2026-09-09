@@ -48,6 +48,11 @@
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
     </Style>
 
+    <!-- AccessText (used for mnemonic labels) does not inherit Foreground the way TextBlock does; set it explicitly here instead of at every usage. -->
+    <Style TargetType="AccessText">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+
     <Style x:Key="SubtleTextStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource TextSecBrush}" />
         <Setter Property="FontSize" Value="12.5" />
@@ -315,9 +320,16 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
                     <Grid>
+                        <!--
+                            The selected value and the chevron are both this ToggleButton's own Content,
+                            in one Grid with Padding applied once, rather than a separate overlaid
+                            ContentPresenter measured independently of the pill's own chrome, which
+                            left the text and chevron unevenly spaced inside the pill.
+                        -->
                         <ToggleButton Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                                       BorderThickness="{TemplateBinding BorderThickness}"
                                       IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                      Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                       ClickMode="Press" Cursor="Hand">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
@@ -325,9 +337,11 @@
                                             BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="999">
                                         <Grid Margin="{TemplateBinding Padding}">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
+                                            <ContentPresenter Grid.Column="0" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                               VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1" Text="&#x25BE;" Style="{StaticResource GlyphStyle}" FontSize="10"
                                                        Foreground="{StaticResource TextMutedBrush}" Margin="10,0,0,0" />
                                         </Grid>
@@ -335,9 +349,6 @@
                                 </ControlTemplate>
                             </ToggleButton.Template>
                         </ToggleButton>
-                        <ContentPresenter IsHitTestVisible="False" Content="{TemplateBinding SelectionBoxItem}"
-                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                          Margin="{TemplateBinding Padding}" HorizontalAlignment="Left" VerticalAlignment="Center" />
                         <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
                             <Border Background="{StaticResource Surface2Brush}" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1"
                                     CornerRadius="8" Margin="0,4,0,0" MinWidth="90">
