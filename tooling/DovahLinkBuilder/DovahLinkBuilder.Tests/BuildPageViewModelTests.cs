@@ -893,64 +893,6 @@ public sealed class BuildPageViewModelTests
         await originalBuildTask;
     }
 
-    /// <summary>Reports no git banner before any check has loaded.</summary>
-    [Fact]
-    public void HasGitBannerIsFalseBeforeInitialization()
-    {
-        var viewModel = BuildViewModel();
-
-        Assert.False(viewModel.HasGitBanner);
-        Assert.Null(viewModel.GitBannerLine1);
-        Assert.False(viewModel.IsGitReady);
-        Assert.False(viewModel.HasGitBannerLine2);
-    }
-
-    /// <summary>Reports no git banner when git status cannot be determined, since that failure is already surfaced via <see cref="BuildPageViewModel.BuildBlockedReason"/>.</summary>
-    [Fact]
-    public async Task HasGitBannerIsFalseWhenGitStatusCannotBeDetermined()
-    {
-        var gitStatusService = new FakeGitStatusService { ThrownException = new InvalidOperationException("not a git repository") };
-        var viewModel = BuildViewModel(gitStatusService: gitStatusService);
-
-        await viewModel.InitializeAsync();
-
-        Assert.False(viewModel.HasGitBanner);
-        Assert.Null(viewModel.GitBannerLine1);
-        Assert.False(viewModel.IsGitReady);
-        Assert.False(viewModel.HasGitBannerLine2);
-    }
-
-    /// <summary>Reports the correct one- or two-line git banner and readiness for every working-tree/remote-sync combination (correction #1).</summary>
-    /// <param name="workingTreeState">The reported working tree state.</param>
-    /// <param name="remoteSyncState">The reported remote sync state.</param>
-    /// <param name="expectedLine1">The expected first banner line.</param>
-    /// <param name="expectedLine2">The expected second banner line, or <see langword="null"/> when the banner is one line.</param>
-    /// <param name="expectedIsReady">Whether this combination represents the fully-ready state.</param>
-    [Theory]
-    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.Pushed, "⚠ Uncommitted changes", null, false)]
-    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.NotPushed, "⚠ Uncommitted changes", null, false)]
-    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.CouldNotVerify, "⚠ Uncommitted changes", null, false)]
-    [InlineData(WorkingTreeState.Clean, RemoteSyncState.NotPushed, "⚠ Unpushed commits", null, false)]
-    [InlineData(WorkingTreeState.Clean, RemoteSyncState.CouldNotVerify, "✓ All local changes are committed", "⚠ Remote status could not be confirmed", false)]
-    [InlineData(WorkingTreeState.Clean, RemoteSyncState.Pushed, "✓ Ready to build", null, true)]
-    public async Task InitializeAsyncReportsTheGitBannerForEachStateCombination(
-        WorkingTreeState workingTreeState, RemoteSyncState remoteSyncState, string expectedLine1, string? expectedLine2, bool expectedIsReady)
-    {
-        var gitStatusService = new FakeGitStatusService
-        {
-            Status = new GitSourceStatus("main", workingTreeState, remoteSyncState, "abc123"),
-        };
-        var viewModel = BuildViewModel(gitStatusService: gitStatusService);
-
-        await viewModel.InitializeAsync();
-
-        Assert.True(viewModel.HasGitBanner);
-        Assert.Equal(expectedLine1, viewModel.GitBannerLine1);
-        Assert.Equal(expectedLine2, viewModel.GitBannerLine2);
-        Assert.Equal(expectedLine2 is not null, viewModel.HasGitBannerLine2);
-        Assert.Equal(expectedIsReady, viewModel.IsGitReady);
-    }
-
     /// <summary>Reports no attention needed before any check has loaded.</summary>
     [Fact]
     public void GitNeedsAttentionIsFalseBeforeInitialization()
@@ -997,9 +939,9 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(expectedNeedsAttention, viewModel.GitNeedsAttention);
     }
 
-    /// <summary>Exposes the branch and full commit SHA for "See details" -- never shown in the main banner (correction #1).</summary>
+    /// <summary>Exposes the current branch for the footer status strip.</summary>
     [Fact]
-    public async Task InitializeAsyncExposesBranchAndCommitShaForSeeDetails()
+    public async Task InitializeAsyncExposesBranchForTheFooter()
     {
         var gitStatusService = new FakeGitStatusService
         {
@@ -1010,8 +952,6 @@ public sealed class BuildPageViewModelTests
         await viewModel.InitializeAsync();
 
         Assert.Equal("feature/x", viewModel.GitBranch);
-        Assert.Equal("abcdef1234567890", viewModel.GitCommitSha);
-        Assert.DoesNotContain("abcdef1234567890", viewModel.GitBannerLine1!);
     }
 
     /// <summary>Reports "Environment incomplete" before preflight and git status have finished loading.</summary>
