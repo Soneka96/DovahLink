@@ -331,7 +331,7 @@ public sealed class AdapterHostBuildCoordinatorTests
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
     }
 
-    /// <summary>Reports an ordered Running/Succeeded sequence for every stage it owns directly.</summary>
+    /// <summary>Reports an ordered Running/Succeeded sequence for every stage the coordinator owns directly.</summary>
     [Fact]
     public async Task ReportsStageProgressThroughTheStageCallback()
     {
@@ -475,6 +475,92 @@ public sealed class AdapterHostBuildCoordinatorTests
                 (BuildStage.ValidateRepository, BuildStageStatus.Failed),
             ],
             stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
+    /// <summary>Reports an ordered Running/Succeeded sequence for every packaging stage the canonical script marks.</summary>
+    [Fact]
+    public async Task ReportsPackagingStagesThroughTheStageCallback()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner
+        {
+            AdditionalPackagingOutputLines =
+            [
+                "##stage host_publish start",
+                "##stage host_publish done",
+                "##stage package_assembly start",
+                "##stage package_assembly done",
+                "##stage package_validation start",
+                "##stage package_validation done",
+                "##stage archive start",
+                "##stage archive done",
+            ],
+        };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add);
+
+        IEnumerable<(BuildStage Stage, BuildStageStatus Status)> packagingEvents = stageEvents
+            .Where(stageEvent => stageEvent.Stage
+                is BuildStage.PublishHost or BuildStage.AssemblePackage or BuildStage.ValidatePackage or BuildStage.CreateZip)
+            .Select(stageEvent => (stageEvent.Stage, stageEvent.Status));
+        Assert.Equal(
+            [
+                (BuildStage.PublishHost, BuildStageStatus.Running),
+                (BuildStage.PublishHost, BuildStageStatus.Succeeded),
+                (BuildStage.AssemblePackage, BuildStageStatus.Running),
+                (BuildStage.AssemblePackage, BuildStageStatus.Succeeded),
+                (BuildStage.ValidatePackage, BuildStageStatus.Running),
+                (BuildStage.ValidatePackage, BuildStageStatus.Succeeded),
+                (BuildStage.CreateZip, BuildStageStatus.Running),
+                (BuildStage.CreateZip, BuildStageStatus.Succeeded),
+            ],
+            packagingEvents);
+        Assert.All(
+            stageEvents.Where(stageEvent =>
+                stageEvent.Status == BuildStageStatus.Succeeded &&
+                stageEvent.Stage is BuildStage.PublishHost or BuildStage.AssemblePackage or BuildStage.ValidatePackage or BuildStage.CreateZip),
+            stageEvent => Assert.NotNull(stageEvent.Duration));
+    }
+
+    /// <summary>Reports a packaging stage as failed when it starts but the packaging script exits before it completes.</summary>
+    [Fact]
+    public async Task ReportsThePackagingStageAsFailedWhenItStartsButNeverCompletes()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner
+        {
+            FailingInvocation = 4,
+            AdditionalPackagingOutputLines = ["##stage host_publish start"],
+        };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        IEnumerable<(BuildStage Stage, BuildStageStatus Status)> packagingEvents = stageEvents
+            .Where(stageEvent => stageEvent.Stage
+                is BuildStage.PublishHost or BuildStage.AssemblePackage or BuildStage.ValidatePackage or BuildStage.CreateZip)
+            .Select(stageEvent => (stageEvent.Stage, stageEvent.Status));
+        Assert.Equal(
+            [
+                (BuildStage.PublishHost, BuildStageStatus.Running),
+                (BuildStage.PublishHost, BuildStageStatus.Failed),
+            ],
+            packagingEvents);
     }
 
     /// <summary>Records command-runner inputs and returns a configured exit code and packaging output.</summary>

@@ -11,10 +11,12 @@ public interface IAdapterHostBuildCoordinator
     /// <param name="request">The repository to build.</param>
     /// <param name="onOutput">An optional callback for build and packaging progress messages.</param>
     /// <param name="onStage">
-    /// An optional callback for structured stage progress. Reports <see cref="BuildStage.ValidateRepository"/>,
-    /// <see cref="BuildStage.ConfigureAdapter"/>, <see cref="BuildStage.BuildAdapter"/>, and
-    /// <see cref="BuildStage.CompilePapyrus"/> transitions; the remaining stages are reported once packaging
-    /// emits its own structured progress.
+    /// An optional callback for structured progress across all eight <see cref="BuildStage"/> values:
+    /// <see cref="BuildStage.ValidateRepository"/>, <see cref="BuildStage.ConfigureAdapter"/>,
+    /// <see cref="BuildStage.BuildAdapter"/>, and <see cref="BuildStage.CompilePapyrus"/> are reported
+    /// directly; <see cref="BuildStage.PublishHost"/>, <see cref="BuildStage.AssemblePackage"/>,
+    /// <see cref="BuildStage.ValidatePackage"/>, and <see cref="BuildStage.CreateZip"/> are reported by
+    /// parsing the canonical packaging script's own progress markers.
     /// </param>
     /// <param name="cancellationToken">A token that can cancel the build or packaging commands.</param>
     /// <returns>The path to the created archive.</returns>
@@ -187,10 +189,17 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
         // Packaging is entirely owned by tooling/package_adapter_host.py (see AdapterHostPackager):
         // this orchestrates it as an external process rather than reimplementing the Vortex package
         // layout, so the layout has exactly one authoritative implementation. Its four stages
-        // (PublishHost, AssemblePackage, ValidatePackage, CreateZip) are not yet reported through
-        // onStage; that requires the packaging script to emit structured progress of its own.
+        // (PublishHost, AssemblePackage, ValidatePackage, CreateZip) are reported through onStage by
+        // parsing the "##stage <name> <start|done>" markers that script prints (BuildStageProgressParser);
+        // a stage that starts but never reports "done" before the process exits nonzero is reported
+        // as Failed here, since the script never emits a "done" marker for a stage that failed.
         onOutput?.Invoke("Packaging the Adapter and Host...");
         var packagingOutputLines = new List<string>();
+        // A single in-flight stage is tracked, not a stack: the packaging script's four stages run
+        // strictly one at a time, each one's "start"/"done" pair fully bracketing before the next
+        // stage's "start" ever prints.
+        BuildStage? runningPackagingStage = null;
+        Stopwatch? runningPackagingStageStopwatch = null;
         var packagingCommand = new BuildCommand(
             "python",
             [
@@ -208,11 +217,29 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
             {
                 packagingOutputLines.Add(line);
                 onOutput?.Invoke(line);
+                switch (BuildStageProgressParser.TryParse(line))
+                {
+                    case { Status: BuildStageStatus.Running } running:
+                        runningPackagingStage = running.Stage;
+                        runningPackagingStageStopwatch = Stopwatch.StartNew();
+                        onStage?.Invoke(new BuildStageEvent(running.Stage, BuildStageStatus.Running));
+                        break;
+                    case { Status: BuildStageStatus.Succeeded } succeeded:
+                        onStage?.Invoke(new BuildStageEvent(succeeded.Stage, BuildStageStatus.Succeeded, runningPackagingStageStopwatch?.Elapsed));
+                        runningPackagingStage = null;
+                        runningPackagingStageStopwatch = null;
+                        break;
+                }
             },
             onOutput,
             cancellationToken);
         if (packagingExitCode != 0)
         {
+            if (runningPackagingStage is { } failedStage)
+            {
+                onStage?.Invoke(new BuildStageEvent(failedStage, BuildStageStatus.Failed, runningPackagingStageStopwatch?.Elapsed));
+            }
+
             throw new InvalidOperationException($"Adapter+Host packaging failed with exit code {packagingExitCode}.");
         }
 
