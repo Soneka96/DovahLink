@@ -19,6 +19,7 @@ from package_adapter_host import (
     STAGE_HOST_PUBLISH,
     STAGE_PACKAGE_ASSEMBLY,
     STAGE_PACKAGE_VALIDATION,
+    _print_stage,
     main,
     parse_args,
     read_product_version,
@@ -86,6 +87,70 @@ class ParseArgsTests(unittest.TestCase):
 
         self.assertEqual(args.console_admin_pex, Path("a.pex"))
         self.assertEqual(args.console_admin_yaml, Path("a.yaml"))
+
+
+class PrintStageTests(unittest.TestCase):
+    """Tests for _print_stage."""
+
+    def test_print_stage_flushes_immediately(self) -> None:
+        """Verifies each marker is flushed rather than left buffered.
+
+        DovahLinkBuilder launches this script with stdout redirected to a pipe, where Python's
+        stdout is fully buffered by default; an unflushed marker can sit in this process's buffer
+        while a later stage's own output (for example `dotnet publish`'s inherited stdout) already
+        reached DovahLinkBuilder, making live stage transitions and durations arrive late or out of
+        order.
+        """
+        with mock.patch("builtins.print") as mock_print:
+            _print_stage(STAGE_HOST_PUBLISH, "start")
+
+        mock_print.assert_called_once_with(
+            f"##stage {STAGE_HOST_PUBLISH} start", flush=True
+        )
+
+    def test_main_flushes_every_stage_marker(self) -> None:
+        """Verifies main() itself, not just _print_stage in isolation, flushes every stage marker.
+
+        Guards against a future stage call site bypassing _print_stage with a raw, unflushed
+        print() -- the concrete failure mode the buffering fix addresses.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                mock.patch("builtins.print") as mock_print,
+            ):
+                main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                    ]
+                )
+
+            stage_marker_calls = [
+                call
+                for call in mock_print.call_args_list
+                if call.args[0].startswith("##stage ")
+            ]
+            self.assertEqual(len(stage_marker_calls), 8)
+            self.assertTrue(
+                all(call.kwargs.get("flush") is True for call in stage_marker_calls)
+            )
 
 
 class MainTests(unittest.TestCase):

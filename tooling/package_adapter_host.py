@@ -134,13 +134,23 @@ def main(argv: list[str]) -> int:
         package_dir, args.output_dir / f"DovahLink-Adapter-{version}{profile_suffix}"
     )
     _print_stage(STAGE_ARCHIVE, "done")
+    # Unlike the stage markers above, DovahLinkBuilder reads this line from the process's
+    # accumulated output only after it exits, not live -- so it needs no explicit flush; Python
+    # flushes stdout on normal interpreter exit regardless.
     print(f"Wrote {archive_path}")
     return 0
 
 
 def _print_stage(name: str, status: str) -> None:
-    """Prints a `##stage <name> <status>` progress marker for DovahLinkBuilder to parse."""
-    print(f"##stage {name} {status}")
+    """Prints a `##stage <name> <status>` progress marker for DovahLinkBuilder to parse.
+
+    Flushed explicitly: DovahLinkBuilder launches this script with stdout redirected to a pipe,
+    where Python's stdout is fully buffered rather than line-buffered, and later stages (`publish_host`
+    in particular) run `dotnet` with stdout inherited straight through. Without an explicit flush a
+    marker can sit in this process's buffer while a later stage's own output already reached
+    DovahLinkBuilder, making live stage transitions and durations arrive late or out of order.
+    """
+    print(f"##stage {name} {status}", flush=True)
 
 
 if __name__ == "__main__":
