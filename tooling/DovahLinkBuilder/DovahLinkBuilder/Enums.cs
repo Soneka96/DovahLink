@@ -74,3 +74,31 @@ public enum BuildHistoryResult
     /// <summary>The build was cancelled before producing a package.</summary>
     Cancelled,
 }
+
+// ---- Git ----
+
+/// <summary>Describes whether the repository working tree has uncommitted changes.</summary>
+public enum WorkingTreeState
+{
+    /// <summary>The working tree has no uncommitted changes.</summary>
+    Clean,
+
+    /// <summary>The working tree has uncommitted changes.</summary>
+    Dirty,
+}
+
+/// <summary>Describes whether the current branch's commits are pushed to its upstream remote.</summary>
+public enum RemoteSyncState
+{
+    /// <summary>Every local commit on the current branch exists on its upstream remote.</summary>
+    Pushed,
+
+    /// <summary>The current branch has local commits not yet on its upstream remote.</summary>
+    NotPushed,
+
+    /// <summary>
+    /// Remote sync status could not be verified, for example because fetching the upstream remote
+    /// failed or no upstream is configured. Never inferred from stale local tracking refs.
+    /// </summary>
+    CouldNotVerify,
+}
