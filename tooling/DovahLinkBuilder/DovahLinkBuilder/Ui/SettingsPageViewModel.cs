@@ -98,6 +98,9 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     /// <summary>The shared repository root every consumer reads, kept in sync with <see cref="EffectiveRepositoryPath"/>.</summary>
     private readonly IRepositoryContext repositoryContext;
 
+    /// <summary>The shared build output path override every consumer reads, kept in sync with <see cref="OutputPath"/>.</summary>
+    private readonly IOutputPathContext outputPathContext;
+
     /// <summary>The backing field for <see cref="RepositoryPath"/>.</summary>
     private string? repositoryPath;
 
@@ -128,18 +131,21 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     /// <param name="openFolder">Opens a folder in the system file explorer.</param>
     /// <param name="autoDetectedRepositoryRoot">The auto-detected repository root, used only when there is no override.</param>
     /// <param name="repositoryContext">The shared repository root every consumer reads.</param>
+    /// <param name="outputPathContext">The shared build output path override every consumer reads.</param>
     public SettingsPageViewModel(
         ISettingsStore settingsStore,
         IFolderPickerService folderPicker,
         Action<string> openFolder,
         string autoDetectedRepositoryRoot,
-        IRepositoryContext repositoryContext)
+        IRepositoryContext repositoryContext,
+        IOutputPathContext outputPathContext)
     {
         this.settingsStore = settingsStore;
         this.folderPicker = folderPicker;
         this.openFolder = openFolder;
         this.autoDetectedRepositoryRoot = autoDetectedRepositoryRoot;
         this.repositoryContext = repositoryContext;
+        this.outputPathContext = outputPathContext;
         BuilderSettings settings = settingsStore.Load();
         repositoryPath = settings.RepositoryPath;
         skyrimInstallPath = settings.SkyrimInstallPath;
@@ -160,6 +166,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         BrowseSkyrimInstallPathCommand = new RelayCommand(OnBrowseSkyrimInstallPath);
         OpenSkyrimInstallFolderCommand = new RelayCommand(() => OpenFolderSafely(SkyrimInstallPath!), () => SkyrimInstallPath is not null);
         repositoryContext.SetRepositoryRoot(EffectiveRepositoryPath);
+        outputPathContext.SetOutputPath(OutputPath);
     }
 
     /// <inheritdoc/>
@@ -208,6 +215,11 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
             {
                 OnPropertyChanged(nameof(EffectiveOutputPath));
                 ResetOutputPathCommand.RaiseCanExecuteChanged();
+                // Shares the new override with every other consumer before the best-effort
+                // persistence below, which can fail: the in-memory output path this page now
+                // displays must never disagree with the one everything else is already using, even
+                // if saving it for next launch does not succeed.
+                outputPathContext.SetOutputPath(value);
                 Save();
             }
         }

@@ -45,7 +45,7 @@ public partial class App : Application
             Clipboard.SetText,
             repositoryContext);
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
-        var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext);
+        var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext, outputPathContext);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         var mainWindow = new MainWindow(mainWindowViewModel, settingsStore);
         var virtualScreenBounds = new Rect(
