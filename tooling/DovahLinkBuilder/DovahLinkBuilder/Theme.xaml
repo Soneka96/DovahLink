@@ -172,14 +172,6 @@
         <Setter Property="HorizontalAlignment" Value="Left" />
     </Style>
 
-    <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
-        <Setter Property="Padding" Value="4" />
-        <Setter Property="FontFamily" Value="Segoe UI Symbol" />
-    </Style>
-
     <!-- ==Toggle switch (styled CheckBox), used for Clean build / Auto-scroll / Settings toggles == -->
 
     <Style x:Key="ToggleSwitchStyle" TargetType="CheckBox">
