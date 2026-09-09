@@ -574,7 +574,7 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(["Building the DovahLink Adapter...", "Packaging..."], viewModel.Log.Lines);
     }
 
-    /// <summary>Keeps the log populated through a Building-to-Cancelling-to-Cancelled transition (correction #6).</summary>
+    /// <summary>Keeps the log populated through a Building-to-Cancelling-to-Cancelled transition.</summary>
     [Fact]
     public async Task LogSurvivesACancellingToCancelledTransition()
     {
@@ -760,7 +760,7 @@ public sealed class BuildPageViewModelTests
         Assert.False(viewModel.Log.AutoScroll);
     }
 
-    /// <summary>Opens the archive's containing folder after a successful build when the setting is enabled (correction #12).</summary>
+    /// <summary>Opens the archive's containing folder after a successful build when the setting is enabled.</summary>
     [Fact]
     public async Task BuildCommandOpensTheOutputFolderOnSuccessWhenEnabled()
     {
@@ -796,7 +796,7 @@ public sealed class BuildPageViewModelTests
         Assert.Empty(openedFolders);
     }
 
-    /// <summary>Never opens the output folder for a failed build, even when the setting is enabled (correction #12).</summary>
+    /// <summary>Never opens the output folder for a failed build, even when the setting is enabled.</summary>
     [Fact]
     public async Task BuildCommandDoesNotOpenTheOutputFolderOnFailure()
     {
@@ -812,7 +812,7 @@ public sealed class BuildPageViewModelTests
         Assert.Empty(openedFolders);
     }
 
-    /// <summary>Never opens the output folder for a cancelled build, even when the setting is enabled (correction #12).</summary>
+    /// <summary>Never opens the output folder for a cancelled build, even when the setting is enabled.</summary>
     [Fact]
     public async Task CancelCommandDoesNotOpenTheOutputFolder()
     {
@@ -1130,7 +1130,7 @@ public sealed class BuildPageViewModelTests
     /// <summary>
     /// Refreshes preflight and git status in the background when returning to the idle form, so a
     /// newly-failing check is reflected before the user presses Build again, without itself starting
-    /// a build (correction #9's freshness intent, now decoupled from auto-building).
+    /// a build.
     /// </summary>
     [Fact]
     public async Task NewBuildCommandRefreshesPreflightAndGitStatusInTheBackground()
@@ -1430,7 +1430,7 @@ public sealed class BuildPageViewModelTests
     /// <summary>
     /// Deletes only the scoped generated output directories for a clean build -- adapter/build/windows-x64-release
     /// and tooling/out/{publish,package} -- leaving a sibling directory (standing in for vcpkg's shared
-    /// package cache) untouched (correction #10).
+    /// package cache) untouched.
     /// </summary>
     [Fact]
     public async Task BuildCommandWithCleanBuildDeletesOnlyTheScopedOutputDirectories()

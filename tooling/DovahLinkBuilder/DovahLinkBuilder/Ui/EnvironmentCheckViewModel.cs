@@ -34,7 +34,7 @@ public sealed class EnvironmentCheckViewModel : ObservableObject
     /// Gets the curated remediation action label for this tool, or <see langword="null"/> when it is
     /// found or has no curated action. Papyrus gets "Find manually" (a real manual-path override
     /// exists for it); CMake is bundled with Visual Studio, so its remediation points at the installer
-    /// rather than implying a manual path override the Settings page does not expose (correction #8).
+    /// rather than implying a manual path override the Settings page does not expose.
     /// </summary>
     public string? RemediationActionLabel => IsAvailable
         ? null

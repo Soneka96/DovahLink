@@ -616,7 +616,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
 
     /// <summary>
     /// Starts a build immediately for a clean, pushed source; otherwise opens the acknowledgement
-    /// prompt instead of starting (correction #5: uncommitted/unpushed source requires acknowledgement).
+    /// prompt instead of starting.
     /// </summary>
     private void OnBuild()
     {
@@ -643,7 +643,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
 
     /// <summary>
     /// Requests cancellation of the currently running build and enters the Cancelling transient state;
-    /// does nothing when no build is running or cancellation was already requested (correction #6).
+    /// does nothing when no build is running or cancellation was already requested.
     /// </summary>
     private void OnCancel()
     {
@@ -1043,7 +1043,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
 
     /// <summary>
     /// Opens the archive's containing folder when <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>
-    /// is enabled, only ever on a successful build (correction #12 -- never on failure or cancellation).
+    /// is enabled, only ever on a successful build -- never on failure or cancellation.
     /// A failure here is a convenience-action failure, not a build failure, and never changes
     /// <see cref="LastOutcome"/>.
     /// </summary>
@@ -1174,7 +1174,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// subfolders are deleted -- confirmed against the real repository layout when the output root is
     /// the default <c>tooling/out</c>, or the folder the user explicitly chose through
     /// <see cref="SettingsPageViewModel.BrowseOutputPathCommand"/> when an override is set -- never
-    /// vcpkg's shared package cache (correction #10).
+    /// vcpkg's shared package cache.
     /// </summary>
     private void CleanBuildOutputs()
     {

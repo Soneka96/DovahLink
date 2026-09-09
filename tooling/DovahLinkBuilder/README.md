@@ -1,10 +1,10 @@
 # DovahLink Builder
 
-This Windows GUI builds the native Adapter with the repository's pinned Release
-CMake preset, compiles the optional trust-administration console script, and
-orchestrates the existing [`tooling/package_adapter_host.py`](../package_adapter_host.py)
-script to publish the Host and assemble a Vortex-ready ZIP. It never copies
-files into Skyrim, and it never reimplements the package layout itself --
+This Windows GUI builds the native Adapter, compiles the optional
+trust-administration console script, and orchestrates the existing
+[`tooling/package_adapter_host.py`](../package_adapter_host.py) script to
+publish the Host and assemble a Vortex-ready ZIP. It never copies files into
+Skyrim, and it never reimplements the package layout itself --
 `package_adapter_host.py` remains the one canonical implementation.
 
 ## Use the published builder
@@ -15,9 +15,29 @@ Run the standalone executable from:
 tooling/out/DovahLinkBuilder/DovahLinkBuilder.exe
 ```
 
-Click **Build**. It creates `tooling/out/DovahLink-Adapter-<version>.zip`, where
-the version is read from the repository-root [`VERSION`](../../VERSION) file, so
-bumping the product version automatically changes the archive name.
+The **Build** page picks a build profile (**Release** for distribution;
+**Debug** or **Beta** for local development and pre-release testing), an
+optional clean-build option, and an optional local note, then starts the build
+from **Build**. A running build can be cancelled; its pipeline of eight stages
+(repository validation, Adapter configure/build, Papyrus compile, Host
+publish, package assembly/validation, and archiving) is shown live, along with
+a scrolling log. The **Environment** page shows the same required-toolchain
+and git-status checks the Build page gates on, with a manual recheck. The
+**Settings** page lets you override the repository, build output, and Skyrim
+install paths (the last is not read by any check or build yet -- it is stored
+only for your own reference) and a few behavior toggles.
+
+A successful build writes `<output>/DovahLink-Adapter-<version>[-<profile>].zip`,
+where the version is read from the repository-root [`VERSION`](../../VERSION)
+file, the `-<profile>` suffix is added for Debug and Beta builds (never for
+Release, so its archive name is unchanged from before profiles existed), and
+`<output>` is `tooling/out` for a Release build (`tooling/out/debug` or
+`tooling/out/beta` for the other profiles, or the path configured on the
+Settings page when an output override is set -- in which case every profile
+shares that same folder, distinguished only by the filename suffix). The
+Build page also keeps a local history of recent builds, and can copy a
+plain-text diagnostics report (environment checks, git status, and the last
+build's outcome) to the clipboard.
 
 The builder uses Visual Studio 2022's bundled x64 toolchain and vcpkg. The
 first build can take longer while vcpkg verifies or installs pinned packages;

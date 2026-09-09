@@ -16,7 +16,7 @@ public sealed class EnvironmentCheckViewModelTests
         Assert.Null(check.RemediationActionLabel);
     }
 
-    /// <summary>Reports a curated "Find manually" action for a missing Papyrus Compiler (correction #8).</summary>
+    /// <summary>Reports a curated "Find manually" action for a missing Papyrus Compiler.</summary>
     [Fact]
     public void ReportsFindManuallyForAMissingPapyrusCompiler()
     {
@@ -29,7 +29,7 @@ public sealed class EnvironmentCheckViewModelTests
 
     /// <summary>
     /// Reports a curated "Open Visual Studio Installer" action for a missing CMake, never implying a
-    /// manual path override the Settings page does not expose (correction #8).
+    /// manual path override the Settings page does not expose.
     /// </summary>
     [Fact]
     public void ReportsOpenVisualStudioInstallerForAMissingCMake()

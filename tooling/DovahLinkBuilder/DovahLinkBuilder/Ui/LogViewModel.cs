@@ -4,8 +4,8 @@ namespace DovahLink.DovahLinkBuilder.Ui;
 
 /// <summary>
 /// Owns the Build page's log panel: accumulated build/packaging output, collapsible display, and
-/// clear/copy-all actions. Never cleared by a build's own status transitions (correction #6) --
-/// only an explicit <see cref="ClearCommand"/> or the start of a new build clears it.
+/// clear/copy-all actions. Never cleared by a build's own status transitions -- only an explicit
+/// <see cref="ClearCommand"/> or the start of a new build clears it.
 /// </summary>
 public sealed class LogViewModel : ObservableObject
 {
