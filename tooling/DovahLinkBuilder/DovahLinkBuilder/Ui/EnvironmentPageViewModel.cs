@@ -48,8 +48,17 @@ public sealed class EnvironmentPageViewModel : ObservableObject
     public IReadOnlyList<EnvironmentCheckViewModel> Checks
     {
         get => checks;
-        private set => SetProperty(ref checks, value);
+        private set
+        {
+            if (SetProperty(ref checks, value))
+            {
+                OnPropertyChanged(nameof(SummaryText));
+            }
+        }
     }
+
+    /// <summary>Gets an honest "N of M ready" summary of <see cref="Checks"/>.</summary>
+    public string SummaryText => $"{Checks.Count(check => check.IsAvailable)} of {Checks.Count} ready";
 
     /// <summary>Gets the repository's git remote status, informational only; <see langword="null"/> when it could not be determined.</summary>
     public GitSourceStatus? GitStatus

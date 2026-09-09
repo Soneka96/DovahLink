@@ -40,7 +40,7 @@ class PublishHostTests(unittest.TestCase):
     def test_publish_host_invokes_dotnet_publish_with_the_self_contained_flags(
         self,
     ) -> None:
-        """Verifies the production .NET publishing strategy's exact flags are passed."""
+        """Verifies the production .NET publishing strategy's exact flags are passed, defaulting to a Release configuration."""
         with tempfile.TemporaryDirectory() as temp_dir:
             runner = FakeProcessRunner()
             packager = AdapterHostPackager(runner)
@@ -56,9 +56,28 @@ class PublishHostTests(unittest.TestCase):
             self.assertEqual(invocation[2], str(host_project))
             for arg in PUBLISH_ARGS:
                 self.assertIn(arg, invocation)
+            self.assertIn("--configuration", invocation)
+            self.assertEqual(
+                invocation[invocation.index("--configuration") + 1], "Release"
+            )
             self.assertIn("--output", invocation)
             self.assertEqual(
                 invocation[invocation.index("--output") + 1], str(publish_dir)
+            )
+
+    def test_publish_host_passes_a_custom_configuration(self) -> None:
+        """Verifies a non-default configuration (for example a Debug build profile) is forwarded to dotnet publish."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner = FakeProcessRunner()
+            packager = AdapterHostPackager(runner)
+            host_project = Path(temp_dir) / "DovahLink.Host.csproj"
+            publish_dir = Path(temp_dir) / "publish"
+
+            packager.publish_host(host_project, publish_dir, configuration="Debug")
+
+            invocation = runner.invocations[0]
+            self.assertEqual(
+                invocation[invocation.index("--configuration") + 1], "Debug"
             )
 
     def test_publish_host_creates_the_output_directory(self) -> None:

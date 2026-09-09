@@ -66,7 +66,10 @@ public sealed class MainWindowViewModelTests
         Assert.Same(initialBuildPage, viewModel.CurrentPage);
     }
 
-    /// <summary>Raises <c>PropertyChanged</c> for <see cref="MainWindowViewModel.CurrentPage"/> on navigation.</summary>
+    /// <summary>
+    /// Raises <c>PropertyChanged</c> for <see cref="MainWindowViewModel.CurrentPage"/> and the three
+    /// per-page "is active" flags that highlight the current page's nav item, on navigation.
+    /// </summary>
     [Fact]
     public void NavigationRaisesPropertyChangedForCurrentPage()
     {
@@ -76,7 +79,14 @@ public sealed class MainWindowViewModelTests
 
         viewModel.NavigateToEnvironmentCommand.Execute(null);
 
-        Assert.Equal([nameof(MainWindowViewModel.CurrentPage)], raisedPropertyNames);
+        Assert.Equal(
+            [
+                nameof(MainWindowViewModel.CurrentPage),
+                nameof(MainWindowViewModel.IsBuildPageActive),
+                nameof(MainWindowViewModel.IsEnvironmentPageActive),
+                nameof(MainWindowViewModel.IsSettingsPageActive),
+            ],
+            raisedPropertyNames);
     }
 
     /// <summary>Does not raise <c>PropertyChanged</c> when navigating to the page that is already current.</summary>

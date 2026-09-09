@@ -1170,6 +1170,50 @@ public sealed class BuildPageViewModelTests
         Assert.True(Directory.Exists(vcpkgCacheDir));
     }
 
+    /// <summary>Passes the picker's selected profile through to the build coordinator's request.</summary>
+    [Fact]
+    public async Task BuildCommandPassesTheSelectedProfileToTheCoordinator()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(repositoryRoot: temporaryDirectory.Path, buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedProfile = BuildProfile.Debug;
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildProfile.Debug, buildCoordinator.LastRequest?.Profile);
+    }
+
+    /// <summary>Deletes only the selected non-Release profile's own scoped output directories for a clean build.</summary>
+    [Fact]
+    public async Task CleanBuildForANonReleaseProfileDeletesThatProfilesOwnOutputDirectories()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string debugAdapterDir = Path.Combine(repositoryRoot, "adapter", "build", "windows-x64-debug");
+        string releaseAdapterDir = Path.Combine(repositoryRoot, "adapter", "build", "windows-x64-release");
+        string debugPublishDir = Path.Combine(repositoryRoot, "tooling", "out", "debug", "publish");
+        string releasePublishDir = Path.Combine(repositoryRoot, "tooling", "out", "publish");
+        CreateDirectoryWithMarkerFile(debugAdapterDir);
+        CreateDirectoryWithMarkerFile(releaseAdapterDir);
+        CreateDirectoryWithMarkerFile(debugPublishDir);
+        CreateDirectoryWithMarkerFile(releasePublishDir);
+        var viewModel = BuildViewModel(repositoryRoot: repositoryRoot);
+        await viewModel.InitializeAsync();
+        viewModel.SelectedProfile = BuildProfile.Debug;
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(Directory.Exists(debugAdapterDir));
+        Assert.False(Directory.Exists(debugPublishDir));
+        Assert.True(Directory.Exists(releaseAdapterDir));
+        Assert.True(Directory.Exists(releasePublishDir));
+    }
+
     /// <summary>Leaves every existing output directory untouched when Clean build is not enabled.</summary>
     [Fact]
     public async Task BuildCommandWithoutCleanBuildLeavesOutputDirectoriesUntouched()
@@ -1336,6 +1380,9 @@ public sealed class BuildPageViewModelTests
         /// <summary>Gets the number of times <see cref="BuildAsync"/> was called.</summary>
         public int CallCount { get; private set; }
 
+        /// <summary>Gets the request passed to the most recent <see cref="BuildAsync"/> call, or <see langword="null"/> before any call.</summary>
+        public AdapterHostBuildRequest? LastRequest { get; private set; }
+
         /// <summary>
         /// Gets or sets the stage transitions <see cref="BuildAsync"/> reports through <c>onStage</c>
         /// before returning or throwing. Mutable so a test can reconfigure it between two calls on the
@@ -1354,6 +1401,7 @@ public sealed class BuildPageViewModelTests
             CancellationToken cancellationToken = default)
         {
             CallCount++;
+            LastRequest = request;
             foreach (BuildStageEvent stageEvent in StageEventsToEmit)
             {
                 onStage?.Invoke(stageEvent);

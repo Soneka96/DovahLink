@@ -40,8 +40,25 @@ public sealed class MainWindowViewModel : ObservableObject
     public object CurrentPage
     {
         get => currentPage;
-        private set => SetProperty(ref currentPage, value);
+        private set
+        {
+            if (SetProperty(ref currentPage, value))
+            {
+                OnPropertyChanged(nameof(IsBuildPageActive));
+                OnPropertyChanged(nameof(IsEnvironmentPageActive));
+                OnPropertyChanged(nameof(IsSettingsPageActive));
+            }
+        }
     }
+
+    /// <summary>Gets whether the Build page is currently displayed, for highlighting its nav item.</summary>
+    public bool IsBuildPageActive => ReferenceEquals(CurrentPage, BuildPage);
+
+    /// <summary>Gets whether the Environment page is currently displayed, for highlighting its nav item.</summary>
+    public bool IsEnvironmentPageActive => ReferenceEquals(CurrentPage, EnvironmentPage);
+
+    /// <summary>Gets whether the Settings page is currently displayed, for highlighting its nav item.</summary>
+    public bool IsSettingsPageActive => ReferenceEquals(CurrentPage, SettingsPage);
 
     /// <summary>Gets the command that navigates to the Build page.</summary>
     public RelayCommand NavigateToBuildCommand { get; }

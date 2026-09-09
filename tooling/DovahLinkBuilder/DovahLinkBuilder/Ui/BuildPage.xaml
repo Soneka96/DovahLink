@@ -3,185 +3,568 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:app="clr-namespace:DovahLink.DovahLinkBuilder">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24">
-            <TextBlock Text="{Binding BuildSummaryText}" FontSize="16" FontWeight="Bold" />
-            <CheckBox Content="Clean build" IsChecked="{Binding IsCleanBuild}" IsEnabled="{Binding CanBuild}" Margin="0,12,0,0"
-                      ToolTip="Clears generated Adapter and Host build outputs before building. Slower." />
+        <StackPanel Margin="24,24,26,20">
 
-            <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasGitBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <!-- ==Header == -->
+            <Grid Margin="0,0,0,18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Build" FontSize="20" FontWeight="Medium" Margin="0,0,0,4" />
+                    <TextBlock Text="Adapter, Host, Papyrus and Vortex packaging" Style="{StaticResource SubtleTextStyle}" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Style="{StaticResource ProfilePickerStyle}" VerticalAlignment="Top"
+                          ItemsSource="{Binding AvailableProfiles}" SelectedItem="{Binding SelectedProfile}"
+                          IsEnabled="{Binding CanBuild}" AutomationProperties.Name="Build profile" />
+            </Grid>
+
+            <!-- ==Git status card == -->
+            <Border BorderThickness="1" CornerRadius="14" Padding="15,17" Margin="0,0,0,14"
+                    Visibility="{Binding HasGitBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border.Style>
                     <Style TargetType="Border">
-                        <Setter Property="Background" Value="#DFF5E1" />
+                        <Setter Property="Background" Value="{StaticResource WarnBgBrush}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource WarnBorderBrush}" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsGitReady}" Value="False">
-                                <Setter Property="Background" Value="#FFF4D6" />
+                            <DataTrigger Binding="{Binding GitBannerLine1}" Value="✓ All local changes are committed">
+                                <Setter Property="Background" Value="{StaticResource Surface1Brush}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource SurfaceBorderBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsGitReady}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource OkBgBrush}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource OkBorderBrush}" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
                 <StackPanel>
-                    <TextBlock Text="{Binding GitBannerLine1}" />
-                    <TextBlock Text="{Binding GitBannerLine2}"
-                               Margin="0,2,0,0"
+                    <TextBlock Text="{Binding GitBannerLine1}" FontWeight="Medium" FontSize="13.5" />
+                    <TextBlock Text="{Binding GitBannerLine2}" Style="{StaticResource SubtleTextStyle}" Margin="0,3,0,0"
                                Visibility="{Binding HasGitBannerLine2, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <Expander Header="See details" Margin="0,4,0,0">
-                        <StackPanel Margin="0,4,0,0">
-                            <TextBlock Text="{Binding GitBranch, StringFormat='Branch: {0}'}" />
-                            <TextBlock Text="{Binding GitCommitSha, StringFormat='Commit: {0}'}" Margin="0,2,0,0" />
+                    <Expander Header="See details" Style="{StaticResource ChevronExpanderStyle}" Margin="0,8,0,0">
+                        <StackPanel Margin="0,8,0,0">
+                            <TextBlock Style="{StaticResource SubtleTextStyle}"><Run Text="Branch: " /><Run Text="{Binding GitBranch, Mode=OneWay}" /></TextBlock>
+                            <TextBlock Style="{StaticResource SubtleTextStyle}" Margin="0,3,0,0" FontFamily="Consolas">
+                                <Run Text="Commit: " FontFamily="Segoe UI" /><Run Text="{Binding GitCommitSha, Mode=OneWay}" />
+                            </TextBlock>
                         </StackPanel>
                     </Expander>
                 </StackPanel>
             </Border>
 
-            <TextBlock Text="{Binding BuildBlockedReason}"
-                       Foreground="DarkOrange"
-                       Margin="0,12,0,0"
-                       Visibility="{Binding HasBuildBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-            <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
-                        Visibility="{Binding IsAwaitingConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <TextBlock Text="This build contains changes that are not committed or pushed."
-                           VerticalAlignment="Center" Margin="0,0,12,0" />
-                <Button Content="Cancel" Command="{Binding CancelConfirmationCommand}" Margin="0,0,8,0" />
-                <Button Content="Build anyway" Command="{Binding ConfirmBuildCommand}" />
-            </StackPanel>
-
-            <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
-                        Visibility="{Binding CanShowBuildActions, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Button Content="Build" Command="{Binding BuildCommand}" Margin="0,0,8,0" />
-                <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,0,8,0" />
-                <TextBlock Text="{Binding CancellingMessage}" VerticalAlignment="Center" Foreground="DarkOrange"
-                           Visibility="{Binding IsCancelling, Converter={StaticResource BooleanToVisibilityConverter}}" />
-            </StackPanel>
-
-            <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasResult, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Border.Style>
-                    <Style TargetType="Border">
-                        <Setter Property="Background" Value="LightGray" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
-                                <Setter Property="Background" Value="#DFF5E1" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
-                                <Setter Property="Background" Value="#FCE1E1" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
-                                <Setter Property="Background" Value="#FFF4D6" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Border.Style>
+            <!-- ==Environment checks card == -->
+            <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel>
-                    <TextBlock Text="{Binding ResultBannerText}" FontWeight="Bold" />
-                    <TextBlock Text="{Binding LastOutcomeMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
-
-                    <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left"
-                            Visibility="{Binding IsFailed, Converter={StaticResource BooleanToVisibilityConverter}}" />
-
-                    <StackPanel Visibility="{Binding HasArchivePath, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
-                        <TextBlock Text="{Binding ArchivePath}" TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding ArchiveSha256, StringFormat='SHA-256: {0}'}" Margin="0,4,0,0" />
-                        <Button Content="View contents" Command="{Binding ViewArchiveContentsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left" />
-                        <ItemsControl ItemsSource="{Binding ArchiveEntries}" Margin="0,8,0,0"
-                                      Visibility="{Binding IsShowingArchiveContents, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding}" FontFamily="Consolas" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <ItemsControl ItemsSource="{Binding Stages}" Margin="0,16,0,0">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <UniformGrid Rows="1" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Height="8" Margin="2,0" ToolTip="{Binding DisplayName}">
-                            <Border.Style>
-                                <Style TargetType="Border">
-                                    <Setter Property="Background" Value="LightGray" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
-                                            <Setter Property="Background" Value="DodgerBlue" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Succeeded}">
-                                            <Setter Property="Background" Value="ForestGreen" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}">
-                                            <Setter Property="Background" Value="Crimson" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Border.Style>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <TextBlock Text="{Binding StageProgressText}" Margin="0,4,0,0" />
-
-            <Expander Header="Log" IsExpanded="{Binding Log.IsExpanded}" Margin="0,16,0,0">
-                <StackPanel Margin="0,8,0,0">
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <CheckBox Content="Auto-scroll" IsChecked="{Binding Log.AutoScroll}" VerticalAlignment="Center" Margin="0,0,12,0" />
-                        <Button Content="Copy all" Command="{Binding Log.CopyAllCommand}" Margin="0,0,8,0" />
-                        <Button Content="Clear" Command="{Binding Log.ClearCommand}" />
-                    </StackPanel>
-                    <ListBox x:Name="LogListBox" ItemsSource="{Binding Log.Lines}" Height="160" FontFamily="Consolas" />
-                </StackPanel>
-            </Expander>
-
-            <Expander Header="Recent builds" Margin="0,16,0,0">
-                <StackPanel Margin="0,8,0,0">
-                    <Button Content="Rebuild last build" Command="{Binding RebuildCommand}" HorizontalAlignment="Left" Margin="0,0,0,8" />
-                    <ItemsControl ItemsSource="{Binding RecentBuilds}">
+                    <TextBlock Text="Environment" Style="{StaticResource CardLabelStyle}" />
+                    <ItemsControl ItemsSource="{Binding PreflightResults}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Margin="0,2,0,2">
-                                    <Run Text="{Binding Timestamp, Mode=OneWay, StringFormat='{}{0:g}'}" />
-                                    <Run Text=" — " />
-                                    <Run Text="{Binding Result, Mode=OneWay}" />
-                                    <Run Text=" — " />
-                                    <Run Text="{Binding Version, Mode=OneWay}" />
-                                </TextBlock>
+                                <Border Style="{StaticResource ChipBorderStyle}" Margin="0,0,9,9">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontSize="12" FontWeight="Bold" Margin="0,0,7,0" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="&#x2715;" />
+                                                    <Setter Property="Foreground" Value="{StaticResource BadBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Availability}" Value="{x:Static app:ToolchainAvailability.Found}">
+                                                            <Setter Property="Text" Value="&#x2713;" />
+                                                            <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding ToolName}" FontSize="12.5" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
-            </Expander>
+            </Border>
 
-            <TextBlock Text="{Binding FooterStatusText}" FontWeight="Bold" Margin="0,16,0,0">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
-                        <Setter Property="Foreground" Value="ForestGreen" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding HasBuildBlockedReason}" Value="True">
-                                <Setter Property="Foreground" Value="DarkOrange" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
-                                <Setter Property="Foreground" Value="DarkOrange" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
-                                <Setter Property="Foreground" Value="Crimson" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
-                                <Setter Property="Foreground" Value="ForestGreen" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding IsBuilding}" Value="True">
-                                <Setter Property="Foreground" Value="DodgerBlue" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding IsCancelling}" Value="True">
-                                <Setter Property="Foreground" Value="DarkOrange" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TextBlock.Style>
-            </TextBlock>
+            <!-- ==================== Idle build form ==================== -->
+            <StackPanel Visibility="{Binding ShowIdleForm, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Style="{StaticResource CardBorderStyle}" Background="{StaticResource Surface2Brush}">
+                    <StackPanel>
+                        <TextBlock Text="Build summary" Style="{StaticResource CardLabelStyle}" />
+
+                        <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,0,0,1" Padding="0,7,0,7">
+                            <Grid><TextBlock Text="Adapter" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
+                                <TextBlock Text="Release x64" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
+                        </Border>
+                        <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,0,0,1" Padding="0,7,0,7">
+                            <Grid><TextBlock Text="Host" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
+                                <TextBlock Text="self-contained win-x64" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
+                        </Border>
+                        <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,0,0,1" Padding="0,7,0,7">
+                            <Grid><TextBlock Text="Papyrus" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
+                                <TextBlock Text="Enabled" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
+                        </Border>
+                        <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,0,0,1" Padding="0,7,0,7">
+                            <Grid><TextBlock Text="Package" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
+                                <TextBlock Text="Vortex ZIP" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
+                        </Border>
+                        <Grid Margin="0,7,0,0">
+                            <TextBlock Text="Version" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
+                            <TextBlock Text="{Binding RepositoryVersion, Mode=OneWay}" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" />
+                        </Grid>
+
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Clean build" FontSize="12.5" />
+                                <TextBlock Text="Clears generated Adapter and Host build outputs before building. Slower."
+                                           Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" Margin="0,1,0,0" />
+                            </StackPanel>
+                            <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsCleanBuild}"
+                                      IsEnabled="{Binding CanBuild}" VerticalAlignment="Center" />
+                        </Grid>
+
+                        <TextBlock Text="Build note (optional)" Style="{StaticResource MutedTextStyle}" Margin="0,14,0,5" />
+                        <TextBox Text="{Binding BuildNote, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanBuild}" />
+
+                        <Button Style="{StaticResource PrimaryButtonStyle}" Command="{Binding BuildCommand}" Margin="0,14,0,0"
+                                Visibility="{Binding CanShowBuildActions, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                AutomationProperties.Name="Build Release">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#x25B6;" Style="{StaticResource GlyphStyle}" Foreground="White" FontSize="13" Margin="0,0,9,0" />
+                                <TextBlock Text="Build Release" Foreground="White" FontWeight="Medium" FontSize="14" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Text="{Binding BuildBlockedReason}" Foreground="{StaticResource BadBrush}" FontSize="11.5"
+                                   TextAlignment="Center" TextWrapping="Wrap" Margin="0,7,0,0"
+                                   Visibility="{Binding HasBuildBlockedReason, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                        <Border Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBorderBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="14,12" Margin="0,14,0,0"
+                                Visibility="{Binding IsAwaitingConfirmation, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock Text="This build contains changes that are not committed or pushed." Foreground="{StaticResource WarnBrush}"
+                                           FontSize="12.5" TextWrapping="Wrap" Margin="0,0,0,10" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Cancel" Command="{Binding CancelConfirmationCommand}" Margin="0,0,8,0" />
+                                    <Button Content="Build anyway" Command="{Binding ConfirmBuildCommand}" Style="{StaticResource WarnButtonStyle}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel>
+                        <Expander Style="{StaticResource ChevronExpanderStyle}">
+                            <Expander.Header>
+                                <TextBlock Text="Recent builds" Style="{StaticResource CardLabelStyle}" Margin="0" />
+                            </Expander.Header>
+                            <StackPanel Margin="0,10,0,0">
+                                <ItemsControl ItemsSource="{Binding VisibleRecentBuilds}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,8,0,0">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="78" />
+                                                        <ColumnDefinition Width="56" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" FontWeight="Bold" FontSize="12" Margin="0,0,10,0">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Text" Value="&#x2715;" />
+                                                                <Setter Property="Foreground" Value="{StaticResource BadBrush}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Result}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
+                                                                        <Setter Property="Text" Value="&#x2713;" />
+                                                                        <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding Result}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
+                                                                        <Setter Property="Text" Value="&#x25A0;" />
+                                                                        <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Profile}" Style="{StaticResource SubtleTextStyle}" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding Version}" Style="{StaticResource SubtleTextStyle}" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding Timestamp, StringFormat='{}{0:g}'}" Style="{StaticResource MutedTextStyle}" />
+                                                    <TextBlock Grid.Column="4" Text="{Binding FailedStage}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock" BasedOn="{StaticResource SubtleTextStyle}">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Result}" Value="{x:Static app:BuildHistoryResult.Failed}">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                    <TextBlock Grid.Column="4" Text="{Binding Duration.TotalSeconds, StringFormat='{}{0:0.0}s'}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock" BasedOn="{StaticResource SubtleTextStyle}">
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Result}" Value="{x:Static app:BuildHistoryResult.Failed}">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Command="{Binding ToggleShowAllRecentBuildsCommand}" Margin="0,8,0,0" HorizontalAlignment="Stretch"
+                                        Visibility="{Binding HasMoreRecentBuilds, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Setter Property="Content" Value="Show all" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsShowingAllRecentBuilds}" Value="True">
+                                                    <Setter Property="Content" Value="Show less" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- ==================== Active build / most recent result ==================== -->
+            <StackPanel Visibility="{Binding ShowActiveOrResult, Converter={StaticResource BooleanToVisibilityConverter}}">
+
+                <Border Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBorderBrush}" BorderThickness="1"
+                        CornerRadius="10" Padding="14,15" Margin="0,0,0,14"
+                        Visibility="{Binding IsCancelling, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#x25D0;" Style="{StaticResource GlyphStyle}" Foreground="{StaticResource WarnBrush}" FontSize="19" Margin="0,0,12,0">
+                            <TextBlock.Triggers>
+                                <EventTrigger RoutedEvent="Loaded">
+                                    <BeginStoryboard Storyboard="{StaticResource SpinStoryboard}" />
+                                </EventTrigger>
+                            </TextBlock.Triggers>
+                        </TextBlock>
+                        <StackPanel>
+                            <TextBlock Text="Stopping build&#8230;" FontWeight="Medium" Foreground="{StaticResource WarnBrush}" />
+                            <TextBlock Text="Terminating active build processes." Style="{StaticResource SubtleTextStyle}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderThickness="1" CornerRadius="10" Padding="14,15" Margin="0,0,0,14">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Setter Property="Background" Value="{StaticResource BadBgBrush}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource BadBorderBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel>
+                        <TextBlock Text="{Binding ResultBannerText}" FontWeight="Medium" FontSize="13.5" Foreground="{StaticResource BadBrush}" />
+                        <TextBlock Text="{Binding LastOutcomeMessage}" Style="{StaticResource SubtleTextStyle}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}" Margin="0,0,8,0" />
+                            <Button Content="Rebuild" Command="{Binding RebuildCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderThickness="1" CornerRadius="10" Padding="14,15" Margin="0,0,0,14">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Setter Property="Background" Value="{StaticResource WarnBgBrush}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource WarnBorderBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel>
+                        <TextBlock Text="{Binding ResultBannerText}" FontWeight="Medium" FontSize="13.5" Foreground="{StaticResource WarnBrush}" />
+                        <TextBlock Text="No release package was produced." Style="{StaticResource SubtleTextStyle}" Margin="0,2,0,10" />
+                        <Button Content="Build again" Command="{Binding RebuildCommand}" />
+                    </StackPanel>
+                </Border>
+
+                <Border BorderThickness="1" CornerRadius="10" Padding="14,15" Margin="0,0,0,14">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Setter Property="Background" Value="{StaticResource OkBgBrush}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource OkBorderBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel>
+                        <TextBlock Text="{Binding ResultBannerText}" FontWeight="Medium" FontSize="13.5" Foreground="{StaticResource OkBrush}" />
+                        <TextBlock Text="{Binding LastBuildDurationText}" Style="{StaticResource SubtleTextStyle}" Margin="0,2,0,10" />
+
+                        <Border Background="{StaticResource Surface2Brush}" BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="12,13" Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding ArchiveFileName}" FontWeight="Medium" FontSize="13" />
+                                <TextBlock Text="{Binding ArchiveSizeText}" Style="{StaticResource MutedTextStyle}" Margin="0,1,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <TextBlock Text="SHA-256" Style="{StaticResource MutedTextStyle}" Margin="0,0,8,0" />
+                            <TextBlock Text="{Binding ArchiveSha256}" Style="{StaticResource MutedTextStyle}" FontFamily="Consolas" />
+                        </StackPanel>
+                        <WrapPanel>
+                            <Button Content="Open folder" Command="{Binding OpenArchiveFolderCommand}" Margin="0,0,8,8" />
+                            <Button Content="Copy path" Command="{Binding CopyArchivePathCommand}" Margin="0,0,8,8" />
+                            <Button Content="Rebuild" Command="{Binding RebuildCommand}" Margin="0,0,8,8" />
+                            <Button Command="{Binding ViewArchiveContentsCommand}" Margin="0,0,8,8">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                        <Setter Property="Content" Value="View contents" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShowingArchiveContents}" Value="True">
+                                                <Setter Property="Content" Value="Hide contents" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </WrapPanel>
+                        <ItemsControl ItemsSource="{Binding ArchiveEntries}" Margin="0,8,0,0"
+                                      Visibility="{Binding IsShowingArchiveContents, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11.5" Style="{StaticResource MutedTextStyle}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- ==Build pipeline == -->
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Build pipeline" Style="{StaticResource CardLabelStyle}" />
+
+                        <StackPanel Margin="0,0,0,12" Visibility="{Binding IsBuilding, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid Margin="0,0,0,8">
+                                <TextBlock Text="{Binding StageProgressText}" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding Stages}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Rows="1" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Height="6" Margin="2,0" CornerRadius="3">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="{StaticResource Surface2Brush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Succeeded}">
+                                                            <Setter Property="Background" Value="{StaticResource OkBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
+                                                            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}">
+                                                            <Setter Property="Background" Value="{StaticResource BadBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <ItemsControl ItemsSource="{Binding Stages}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Width="22" Height="22" CornerRadius="11" BorderThickness="1" Margin="0,0,12,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="{StaticResource Surface2Brush}" />
+                                                    <Setter Property="BorderBrush" Value="{StaticResource SurfaceBorderBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
+                                                            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Succeeded}">
+                                                            <Setter Property="Background" Value="{StaticResource OkBgBrush}" />
+                                                            <Setter Property="BorderBrush" Value="{StaticResource OkBorderBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}">
+                                                            <Setter Property="Background" Value="{StaticResource BadBgBrush}" />
+                                                            <Setter Property="BorderBrush" Value="{StaticResource BadBorderBrush}" />
+                                                        </DataTrigger>
+                                                        <MultiDataTrigger>
+                                                            <MultiDataTrigger.Conditions>
+                                                                <Condition Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}" />
+                                                                <Condition Binding="{Binding DataContext.LastOutcome, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                           Value="{x:Static app:BuildHistoryResult.Cancelled}" />
+                                                            </MultiDataTrigger.Conditions>
+                                                            <Setter Property="Background" Value="{StaticResource WarnBgBrush}" />
+                                                            <Setter Property="BorderBrush" Value="{StaticResource WarnBorderBrush}" />
+                                                        </MultiDataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11" FontWeight="Bold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource GlyphStyle}">
+                                                        <Setter Property="Text" Value="" />
+                                                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
+                                                                <Setter Property="Text" Value="&#x25D0;" />
+                                                                <Setter Property="Foreground" Value="White" />
+                                                                <DataTrigger.EnterActions>
+                                                                    <BeginStoryboard x:Name="StageSpinBeginStoryboard" Storyboard="{StaticResource SpinStoryboard}" />
+                                                                </DataTrigger.EnterActions>
+                                                                <DataTrigger.ExitActions>
+                                                                    <StopStoryboard BeginStoryboardName="StageSpinBeginStoryboard" />
+                                                                </DataTrigger.ExitActions>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Succeeded}">
+                                                                <Setter Property="Text" Value="&#x2713;" />
+                                                                <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}">
+                                                                <Setter Property="Text" Value="&#x2715;" />
+                                                                <Setter Property="Foreground" Value="{StaticResource BadBrush}" />
+                                                            </DataTrigger>
+                                                            <MultiDataTrigger>
+                                                                <MultiDataTrigger.Conditions>
+                                                                    <Condition Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}" />
+                                                                    <Condition Binding="{Binding DataContext.LastOutcome, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                               Value="{x:Static app:BuildHistoryResult.Cancelled}" />
+                                                                </MultiDataTrigger.Conditions>
+                                                                <Setter Property="Text" Value="&#x25A0;" />
+                                                                <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                                            </MultiDataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}" VerticalAlignment="Center" FontSize="13" />
+                                        <TextBlock Grid.Column="2" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource MutedTextStyle}">
+                                                    <Setter Property="Text" Value="{Binding Duration.TotalSeconds, StringFormat='{}{0:0.0}s'}" />
+                                                    <Style.Triggers>
+                                                        <MultiDataTrigger>
+                                                            <MultiDataTrigger.Conditions>
+                                                                <Condition Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}" />
+                                                                <Condition Binding="{Binding DataContext.LastOutcome, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                           Value="{x:Static app:BuildHistoryResult.Cancelled}" />
+                                                            </MultiDataTrigger.Conditions>
+                                                            <Setter Property="Text" Value="cancelled" />
+                                                        </MultiDataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button Style="{StaticResource DangerButtonStyle}" Content="Cancel build" Command="{Binding CancelCommand}"
+                                Margin="0,14,0,0" HorizontalAlignment="Stretch"
+                                Visibility="{Binding IsBuilding, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <Button Style="{StaticResource DangerButtonStyle}" Content="Cancelling&#8230;" IsEnabled="False"
+                                Margin="0,14,0,0" HorizontalAlignment="Stretch"
+                                Visibility="{Binding IsCancelling, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ==Console == -->
+                <Border Background="{StaticResource ConsoleBrush}" BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="1" CornerRadius="14">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Background="{StaticResource Surface1Brush}" BorderBrush="{StaticResource SurfaceBorderBrush}"
+                                BorderThickness="0,0,0,1" Padding="14,11">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Logs" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextSecBrush}"
+                                           VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <TextBlock Text="Auto-scroll" Style="{StaticResource SubtleTextStyle}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding Log.AutoScroll}" Margin="0,0,14,0" />
+                                    <Button Content="Copy" Command="{Binding Log.CopyAllCommand}" Style="{StaticResource LinkButtonStyle}" Margin="0,0,14,0" />
+                                    <Button Content="Clear" Command="{Binding Log.ClearCommand}" Style="{StaticResource LinkButtonStyle}" Margin="0,0,14,0" />
+                                    <ToggleButton IsChecked="{Binding Log.IsExpanded}" Style="{StaticResource IconToggleStyle}" AutomationProperties.Name="Expand or collapse logs">
+                                        <TextBlock Text="&#x25BE;">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource GlyphStyle}">
+                                                    <Setter Property="FontSize" Value="12" />
+                                                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Log.IsExpanded}" Value="True">
+                                                            <Setter Property="Text" Value="&#x25B4;" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </ToggleButton>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <ListBox x:Name="LogListBox" ItemsSource="{Binding Log.Lines}" MaxHeight="160" Margin="14,10"
+                                 Visibility="{Binding Log.IsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Foreground="{Binding Converter={StaticResource LogLineBrushConverter}}" TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+
         </StackPanel>
     </ScrollViewer>
 </UserControl>

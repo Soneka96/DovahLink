@@ -27,25 +27,27 @@ public sealed record BuildCommand(
             new Dictionary<string, string>());
     }
 
-    /// <summary>Creates a fresh CMake configure and build command sequence for the Release adapter target.</summary>
+    /// <summary>Creates a fresh CMake configure and build command sequence for the adapter target.</summary>
     /// <param name="adapterRoot">The adapter source directory containing the CMake presets.</param>
     /// <param name="environmentVariables">The imported Visual Studio environment, including vcpkg configuration.</param>
+    /// <param name="presetName">The CMake preset to configure and build, for example <c>windows-x64-release</c> (see <see cref="BuildProfileExtensions.ToCMakePreset"/>).</param>
     /// <returns>The ordered configure and build commands.</returns>
-    public static IReadOnlyList<BuildCommand> CreateReleaseBuild(
+    public static IReadOnlyList<BuildCommand> CreateBuild(
         string adapterRoot,
-        IReadOnlyDictionary<string, string> environmentVariables)
+        IReadOnlyDictionary<string, string> environmentVariables,
+        string presetName)
     {
         string workingDirectory = Path.GetFullPath(adapterRoot);
         return
         [
             new BuildCommand(
                 "cmake",
-                ["--fresh", "--preset", "windows-x64-release"],
+                ["--fresh", "--preset", presetName],
                 workingDirectory,
                 environmentVariables),
             new BuildCommand(
                 "cmake",
-                ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_adapter_plugin"],
+                ["--build", "--preset", presetName, "--target", "dovahlink_adapter_plugin"],
                 workingDirectory,
                 environmentVariables),
         ];

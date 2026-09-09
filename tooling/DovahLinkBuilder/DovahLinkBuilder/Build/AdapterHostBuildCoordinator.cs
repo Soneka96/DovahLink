@@ -39,9 +39,6 @@ public interface IAdapterHostBuildCoordinator
 /// <inheritdoc cref="IAdapterHostBuildCoordinator"/>
 public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
 {
-    /// <summary>The configured Release build output directory name.</summary>
-    private const string ReleaseBuildDirectory = "windows-x64-release";
-
     /// <summary>The compiled console-admin Papyrus script file name.</summary>
     private const string ConsoleAdminPexFileName = "DovahLinkAdmin.pex";
 
@@ -88,7 +85,8 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
         string consoleAdminRoot = Path.Combine(repositoryRoot, "console-admin");
         string consoleAdminScriptPath = Path.Combine(consoleAdminRoot, "DovahLinkAdmin.psc");
         string consoleAdminYamlPath = Path.Combine(consoleAdminRoot, "dovahlink.yaml");
-        string adapterBuildOutputRoot = Path.Combine(adapterRoot, "build", ReleaseBuildDirectory);
+        string presetName = request.Profile.ToCMakePreset();
+        string adapterBuildOutputRoot = Path.Combine(adapterRoot, "build", presetName);
         string consoleAdminPexPath = Path.Combine(adapterBuildOutputRoot, ConsoleAdminPexFileName);
 
         (VisualStudioToolchain toolchain, PapyrusToolchain papyrusToolchain) = await RunStageAsync(
@@ -113,7 +111,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
 
                 // Every prerequisite this build needs is validated here, before any build command runs --
                 // a missing compiler, script, or config file fails immediately instead of after the
-                // multi-minute Release CMake build below.
+                // multi-minute CMake build below.
                 if (!File.Exists(consoleAdminScriptPath))
                 {
                     throw new FileNotFoundException("Could not find the console-admin Papyrus script.", consoleAdminScriptPath);
@@ -134,7 +132,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
             onStage,
             async () =>
             {
-                onOutput?.Invoke("Building the DovahLink Adapter Release binary...");
+                onOutput?.Invoke($"Building the DovahLink Adapter {request.Profile} binary...");
                 var environmentLines = new List<string>();
                 int environmentExitCode = await commandRunner.RunAsync(
                     BuildCommand.CreateEnvironmentImport(toolchain),
@@ -148,7 +146,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 }
 
                 IReadOnlyDictionary<string, string> buildEnvironment = VisualStudioEnvironment.Create(environmentLines, toolchain);
-                IReadOnlyList<BuildCommand> commands = BuildCommand.CreateReleaseBuild(adapterRoot, buildEnvironment);
+                IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(adapterRoot, buildEnvironment, presetName);
                 int configureExitCode = await commandRunner.RunAsync(commands[0], onOutput, onOutput, cancellationToken);
                 if (configureExitCode != 0)
                 {
@@ -184,7 +182,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 }
             });
 
-        string outputRoot = Path.Combine(repositoryRoot, "tooling", "out");
+        string outputRoot = request.Profile.ToOutputRoot(repositoryRoot);
         Directory.CreateDirectory(outputRoot);
 
         // Packaging is entirely owned by tooling/package_adapter_host.py (see AdapterHostPackager):
@@ -209,6 +207,8 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 "--output-dir", outputRoot,
                 "--console-admin-pex", consoleAdminPexPath,
                 "--console-admin-yaml", consoleAdminYamlPath,
+                "--configuration", request.Profile.ToDotnetConfiguration(),
+                "--profile-label", request.Profile.ToOutputSegment(),
             ],
             repositoryRoot,
             new Dictionary<string, string>());

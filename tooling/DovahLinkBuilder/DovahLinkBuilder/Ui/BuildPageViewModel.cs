@@ -90,6 +90,24 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>The backing field for <see cref="RecentBuilds"/>.</summary>
     private IReadOnlyList<BuildHistoryEntry> recentBuilds;
 
+    /// <summary>The backing field for <see cref="IsShowingAllRecentBuilds"/>.</summary>
+    private bool isShowingAllRecentBuilds;
+
+    /// <summary>The backing field for <see cref="BuildNote"/>.</summary>
+    private string? buildNote;
+
+    /// <summary>The backing field for <see cref="ArchiveSizeText"/>.</summary>
+    private string? archiveSizeText;
+
+    /// <summary>The backing field for <see cref="LastBuildDuration"/>.</summary>
+    private TimeSpan? lastBuildDuration;
+
+    /// <summary>The number of most recent builds shown before "Show all" is used; see <see cref="VisibleRecentBuilds"/>.</summary>
+    private const int RecentBuildsPreviewCount = 3;
+
+    /// <summary>The backing field for <see cref="SelectedProfile"/>.</summary>
+    private BuildProfile selectedProfile = BuildProfile.Release;
+
     /// <summary>Initializes the page over its collaborators, starting in the "checking environment" state.</summary>
     /// <param name="preflightService">Checks the required build tools before a build is allowed to start.</param>
     /// <param name="gitStatusService">Reports the repository's branch, working tree, and remote sync state.</param>
@@ -124,16 +142,46 @@ public sealed class BuildPageViewModel : ObservableObject
         ViewArchiveContentsCommand = new RelayCommand(OnViewArchiveContents, () => ArchivePath is not null);
         RebuildCommand = new RelayCommand(OnRebuild, () => !IsBuilding && !IsAwaitingConfirmation);
         CopyDiagnosticsCommand = new RelayCommand(OnCopyDiagnostics);
+        OpenArchiveFolderCommand = new RelayCommand(OnOpenArchiveFolder, () => ArchivePath is not null);
+        CopyArchivePathCommand = new RelayCommand(OnCopyArchivePath, () => ArchivePath is not null);
+        ToggleShowAllRecentBuildsCommand = new RelayCommand(() => IsShowingAllRecentBuilds = !IsShowingAllRecentBuilds);
         Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
         Log = new LogViewModel { AutoScroll = settingsStore.Load().AutoScrollLogs };
         recentBuilds = buildHistoryStore.GetRecent();
     }
 
-    /// <summary>Gets the build profile the Builder currently supports.</summary>
-    public string Profile => "Release";
+    /// <summary>Gets every build profile the picker offers.</summary>
+    public IReadOnlyList<BuildProfile> AvailableProfiles { get; } = Enum.GetValues<BuildProfile>();
+
+    /// <summary>Gets or sets the build profile the next build targets.</summary>
+    public BuildProfile SelectedProfile
+    {
+        get => selectedProfile;
+        set
+        {
+            if (SetProperty(ref selectedProfile, value))
+            {
+                OnPropertyChanged(nameof(Profile));
+                OnPropertyChanged(nameof(BuildSummaryText));
+            }
+        }
+    }
+
+    /// <summary>Gets <see cref="SelectedProfile"/>'s display name, for the build summary and recorded build history.</summary>
+    public string Profile => SelectedProfile.ToString();
 
     /// <summary>Gets a short summary of the current profile and build options.</summary>
     public string BuildSummaryText => IsCleanBuild ? $"{Profile} · Clean build" : Profile;
+
+    /// <summary>Gets the repository's product version, read fresh from its VERSION file; "unknown" when it cannot be read.</summary>
+    public string RepositoryVersion => TryReadRepositoryVersion();
+
+    /// <summary>Gets or sets an optional local note to attach to the next build that is started.</summary>
+    public string? BuildNote
+    {
+        get => buildNote;
+        set => SetProperty(ref buildNote, value);
+    }
 
     /// <summary>Gets or sets whether generated Adapter and Host build outputs are cleared before building.</summary>
     public bool IsCleanBuild
@@ -157,6 +205,7 @@ public sealed class BuildPageViewModel : ObservableObject
             if (SetProperty(ref isBuilding, value))
             {
                 NotifyCommandStateChanged();
+                NotifyShowIdleFormChanged();
             }
         }
     }
@@ -173,6 +222,7 @@ public sealed class BuildPageViewModel : ObservableObject
             if (SetProperty(ref isCancelling, value))
             {
                 NotifyCommandStateChanged();
+                NotifyShowIdleFormChanged();
             }
         }
     }
@@ -231,12 +281,30 @@ public sealed class BuildPageViewModel : ObservableObject
                 OnPropertyChanged(nameof(ResultBannerText));
                 OnPropertyChanged(nameof(FooterStatusText));
                 OnPropertyChanged(nameof(IsFailed));
+                NotifyShowIdleFormChanged();
             }
         }
     }
 
     /// <summary>Gets whether a build has finished, and a result banner should show.</summary>
     public bool HasResult => LastOutcome is not null;
+
+    /// <summary>
+    /// Gets whether the idle build form (summary, clean-build toggle, note, Build button) should show,
+    /// as opposed to the pipeline/console/outcome view: only before any build has run this session and
+    /// while nothing is currently building or cancelling.
+    /// </summary>
+    public bool ShowIdleForm => !IsBuilding && !IsCancelling && !HasResult;
+
+    /// <summary>Gets whether the pipeline/console/outcome view should show, as the complement of <see cref="ShowIdleForm"/>.</summary>
+    public bool ShowActiveOrResult => !ShowIdleForm;
+
+    /// <summary>Notifies the properties that switch between the idle form and the active/result view.</summary>
+    private void NotifyShowIdleFormChanged()
+    {
+        OnPropertyChanged(nameof(ShowIdleForm));
+        OnPropertyChanged(nameof(ShowActiveOrResult));
+    }
 
     /// <summary>Gets whether the most recently finished build failed, for showing "Copy diagnostics" on the failure banner.</summary>
     public bool IsFailed => LastOutcome == BuildHistoryResult.Failed;
@@ -402,11 +470,15 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>Runs the Adapter+Host build, recording its outcome.</summary>
     private async Task RunBuildAsync()
     {
+        string? noteForThisBuild = string.IsNullOrWhiteSpace(BuildNote) ? null : BuildNote.Trim();
+        BuildNote = null;
         IsBuilding = true;
         LastOutcome = null;
         LastOutcomeMessage = null;
+        LastBuildDuration = null;
         ArchivePath = null;
         ArchiveSha256 = null;
+        ArchiveSizeText = null;
         ArchiveEntries = [];
         IsShowingArchiveContents = false;
         ResetStages();
@@ -423,7 +495,7 @@ public sealed class BuildPageViewModel : ObservableObject
             }
 
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
-                new AdapterHostBuildRequest(repositoryRoot),
+                new AdapterHostBuildRequest(repositoryRoot, SelectedProfile),
                 onOutput: Log.AppendLine,
                 onStage: OnBuildStageEvent,
                 buildCancellation.Token);
@@ -433,6 +505,7 @@ public sealed class BuildPageViewModel : ObservableObject
             LastOutcome = BuildHistoryResult.Succeeded;
             ArchivePath = result.ArchivePath;
             ArchiveSha256 = sha256;
+            ArchiveSizeText = FormatFileSize(new FileInfo(result.ArchivePath).Length);
             TryOpenOutputFolder(result.ArchivePath);
         }
         catch (OperationCanceledException)
@@ -448,16 +521,23 @@ public sealed class BuildPageViewModel : ObservableObject
         {
             buildCancellation.Dispose();
             buildCancellation = null;
-            RecordBuildHistory(startedAt, stopwatch.Elapsed);
+            LastBuildDuration = stopwatch.Elapsed;
+            RecordBuildHistory(startedAt, stopwatch.Elapsed, noteForThisBuild);
             IsBuilding = false;
             IsCancelling = false;
         }
     }
 
+    /// <summary>Formats a byte count as a human-readable KB/MB size.</summary>
+    /// <param name="bytes">The size in bytes.</param>
+    private static string FormatFileSize(long bytes) =>
+        bytes < 1024 * 1024 ? $"{bytes / 1024.0:0.#} KB" : $"{bytes / (1024.0 * 1024.0):0.#} MB";
+
     /// <summary>Records the just-finished build and refreshes <see cref="RecentBuilds"/> from the store.</summary>
     /// <param name="startedAt">When this build started.</param>
     /// <param name="duration">How long this build ran before reaching its final outcome.</param>
-    private void RecordBuildHistory(DateTimeOffset startedAt, TimeSpan duration)
+    /// <param name="note">The optional local note the user attached to this build.</param>
+    private void RecordBuildHistory(DateTimeOffset startedAt, TimeSpan duration, string? note)
     {
         string? failedStage = LastOutcome == BuildHistoryResult.Failed
             ? Stages.FirstOrDefault(stage => stage.Status == BuildStageStatus.Failed)?.DisplayName
@@ -472,7 +552,7 @@ public sealed class BuildPageViewModel : ObservableObject
             ArchivePath,
             failedStage,
             ArchiveSha256,
-            Note: null));
+            note));
 
         RecentBuilds = buildHistoryStore.GetRecent();
     }
@@ -560,13 +640,48 @@ public sealed class BuildPageViewModel : ObservableObject
             if (SetProperty(ref archivePath, value))
             {
                 OnPropertyChanged(nameof(HasArchivePath));
+                OnPropertyChanged(nameof(ArchiveFileName));
                 ViewArchiveContentsCommand.RaiseCanExecuteChanged();
+                OpenArchiveFolderCommand.RaiseCanExecuteChanged();
+                CopyArchivePathCommand.RaiseCanExecuteChanged();
             }
         }
     }
 
     /// <summary>Gets whether <see cref="ArchivePath"/> currently has a value.</summary>
     public bool HasArchivePath => ArchivePath is not null;
+
+    /// <summary>Gets the produced archive's file name on success; <see langword="null"/> otherwise.</summary>
+    public string? ArchiveFileName => ArchivePath is null ? null : Path.GetFileName(ArchivePath);
+
+    /// <summary>Gets the produced archive's human-readable file size on success; <see langword="null"/> otherwise.</summary>
+    public string? ArchiveSizeText
+    {
+        get => archiveSizeText;
+        private set => SetProperty(ref archiveSizeText, value);
+    }
+
+    /// <summary>Gets how long the most recently finished build ran; <see langword="null"/> before any build has finished.</summary>
+    public TimeSpan? LastBuildDuration
+    {
+        get => lastBuildDuration;
+        private set
+        {
+            if (SetProperty(ref lastBuildDuration, value))
+            {
+                OnPropertyChanged(nameof(LastBuildDurationText));
+            }
+        }
+    }
+
+    /// <summary>Gets a "Finished in Ns." summary of <see cref="LastBuildDuration"/>; <see langword="null"/> before any build has finished.</summary>
+    public string? LastBuildDurationText => LastBuildDuration is { } duration ? $"Finished in {duration.TotalSeconds:0.0}s." : null;
+
+    /// <summary>Gets the command that opens the produced archive's containing folder.</summary>
+    public RelayCommand OpenArchiveFolderCommand { get; }
+
+    /// <summary>Gets the command that copies the produced archive's path to the clipboard.</summary>
+    public RelayCommand CopyArchivePathCommand { get; }
 
     /// <summary>Gets the produced archive's SHA-256 hash, as lowercase hex, on success; <see langword="null"/> otherwise.</summary>
     public string? ArchiveSha256
@@ -627,8 +742,38 @@ public sealed class BuildPageViewModel : ObservableObject
     public IReadOnlyList<BuildHistoryEntry> RecentBuilds
     {
         get => recentBuilds;
-        private set => SetProperty(ref recentBuilds, value);
+        private set
+        {
+            if (SetProperty(ref recentBuilds, value))
+            {
+                OnPropertyChanged(nameof(VisibleRecentBuilds));
+                OnPropertyChanged(nameof(HasMoreRecentBuilds));
+            }
+        }
     }
+
+    /// <summary>Gets whether "Show all" has been used to reveal every retained build, rather than just the most recent ones.</summary>
+    public bool IsShowingAllRecentBuilds
+    {
+        get => isShowingAllRecentBuilds;
+        private set
+        {
+            if (SetProperty(ref isShowingAllRecentBuilds, value))
+            {
+                OnPropertyChanged(nameof(VisibleRecentBuilds));
+            }
+        }
+    }
+
+    /// <summary>Gets the recent builds currently shown: the most recent few, or all of them once <see cref="IsShowingAllRecentBuilds"/> is set.</summary>
+    public IReadOnlyList<BuildHistoryEntry> VisibleRecentBuilds =>
+        IsShowingAllRecentBuilds ? RecentBuilds : RecentBuilds.Take(RecentBuildsPreviewCount).ToList();
+
+    /// <summary>Gets whether there are more retained builds than <see cref="VisibleRecentBuilds"/> currently shows.</summary>
+    public bool HasMoreRecentBuilds => RecentBuilds.Count > RecentBuildsPreviewCount;
+
+    /// <summary>Gets the command that toggles between showing the most recent few builds and every retained build.</summary>
+    public RelayCommand ToggleShowAllRecentBuildsCommand { get; }
 
     /// <summary>
     /// Gets the command that re-checks preflight and git status and then builds (or opens the
@@ -646,12 +791,29 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="archivePath">The successful build's produced archive path.</param>
     private void TryOpenOutputFolder(string archivePath)
     {
-        if (!settingsStore.Load().OpenOutputFolderAfterSuccessfulBuild)
+        if (settingsStore.Load().OpenOutputFolderAfterSuccessfulBuild)
         {
-            return;
+            OpenContainingFolderSafely(archivePath);
         }
+    }
 
-        string? folderPath = Path.GetDirectoryName(archivePath);
+    /// <summary>Opens the produced archive's containing folder; does nothing when there is no archive.</summary>
+    private void OnOpenArchiveFolder()
+    {
+        if (ArchivePath is not null)
+        {
+            OpenContainingFolderSafely(ArchivePath);
+        }
+    }
+
+    /// <summary>
+    /// Opens <paramref name="filePath"/>'s containing folder in the system file explorer. A failure
+    /// here is a convenience-action failure, not a build failure, and never changes any reported state.
+    /// </summary>
+    /// <param name="filePath">The file whose containing folder should be opened.</param>
+    private void OpenContainingFolderSafely(string filePath)
+    {
+        string? folderPath = Path.GetDirectoryName(filePath);
         if (folderPath is null)
         {
             return;
@@ -663,8 +825,16 @@ public sealed class BuildPageViewModel : ObservableObject
         }
         catch (Exception)
         {
-            // Opening the output folder is a convenience action; a failure here must not affect the
-            // build's own reported outcome.
+            // Opening the output folder is a convenience action; a failure here must not affect any reported state.
+        }
+    }
+
+    /// <summary>Copies the produced archive's path to the clipboard; does nothing when there is no archive.</summary>
+    private void OnCopyArchivePath()
+    {
+        if (ArchivePath is not null)
+        {
+            setClipboardText(ArchivePath);
         }
     }
 
@@ -707,6 +877,16 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>Gets the full current commit SHA, shown only under "See details" (correction #1).</summary>
     public string? GitCommitSha => gitStatus?.CommitSha;
 
+    /// <summary>Gets a short source-state label for the footer status strip: Pushed, Local changes, Not pushed, Committed (unverified), or Unverified while git status has not loaded.</summary>
+    public string GitFooterStateText => gitStatus switch
+    {
+        { WorkingTreeState: WorkingTreeState.Dirty } => "Local changes",
+        { RemoteSyncState: RemoteSyncState.NotPushed } => "Not pushed",
+        { RemoteSyncState: RemoteSyncState.CouldNotVerify } => "Committed, unverified",
+        { RemoteSyncState: RemoteSyncState.Pushed } => "Pushed",
+        _ => "Unverified",
+    };
+
     /// <summary>
     /// Gets the footer status text reflecting the Build page's real current state (correction #7):
     /// Building while a build runs; Cancelling during the transient shutdown between Building and
@@ -736,14 +916,33 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(IsGitReady));
         OnPropertyChanged(nameof(GitBranch));
         OnPropertyChanged(nameof(GitCommitSha));
+        OnPropertyChanged(nameof(GitFooterStateText));
     }
 
     /// <summary>Gets the most recently loaded preflight results, in preflight order.</summary>
     public IReadOnlyList<ToolchainCheckResult> PreflightResults
     {
         get => preflightResults;
-        private set => SetProperty(ref preflightResults, value);
+        private set
+        {
+            if (SetProperty(ref preflightResults, value))
+            {
+                OnPropertyChanged(nameof(EnvironmentSummaryText));
+                OnPropertyChanged(nameof(HasMissingRequiredTool));
+                OnPropertyChanged(nameof(DotNetVersionDetail));
+            }
+        }
     }
+
+    /// <summary>Gets an honest "N of M checks passed" summary of <see cref="PreflightResults"/>.</summary>
+    public string EnvironmentSummaryText =>
+        $"{PreflightResults.Count(result => result.Availability == ToolchainAvailability.Found)} of {PreflightResults.Count} checks passed";
+
+    /// <summary>Gets whether any required build tool is currently unavailable.</summary>
+    public bool HasMissingRequiredTool => PreflightResults.Any(result => result.Availability != ToolchainAvailability.Found);
+
+    /// <summary>Gets the resolved .NET SDK version detail for the footer status strip, or <see langword="null"/> before preflight has loaded.</summary>
+    public string? DotNetVersionDetail => PreflightResults.FirstOrDefault(result => result.ToolName == ".NET SDK")?.Detail;
 
     /// <summary>Gets the command that copies a plain-text diagnostics report -- environment checks, git status, and the last build -- to the clipboard.</summary>
     public RelayCommand CopyDiagnosticsCommand { get; }
@@ -756,15 +955,16 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>
     /// Clears generated Adapter and Host build outputs before building: only
-    /// <c>adapter/build/windows-x64-release/</c> and <c>tooling/out/{publish,package}</c> are safe to
-    /// delete, confirmed against the real repository layout -- never vcpkg's shared package cache
-    /// (correction #10).
+    /// <c>adapter/build/{preset}/</c> and the selected profile's <c>tooling/out/{publish,package}</c>
+    /// are safe to delete, confirmed against the real repository layout -- never vcpkg's shared
+    /// package cache (correction #10).
     /// </summary>
     private void CleanBuildOutputs()
     {
-        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "adapter", "build", "windows-x64-release"));
-        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "tooling", "out", "publish"));
-        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "tooling", "out", "package"));
+        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "adapter", "build", SelectedProfile.ToCMakePreset()));
+        string outputRoot = SelectedProfile.ToOutputRoot(repositoryRoot);
+        DeleteDirectoryIfExists(Path.Combine(outputRoot, "publish"));
+        DeleteDirectoryIfExists(Path.Combine(outputRoot, "package"));
     }
 
     /// <summary>Deletes a directory and its contents, if it exists.</summary>

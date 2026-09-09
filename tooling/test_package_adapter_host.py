@@ -60,6 +60,15 @@ class ParseArgsTests(unittest.TestCase):
         self.assertIsNone(args.console_admin_pex)
         self.assertIsNone(args.console_admin_yaml)
 
+    def test_parse_args_defaults_configuration_and_profile_label_to_release(
+        self,
+    ) -> None:
+        """Verifies the build-profile arguments default to a Release build when omitted."""
+        args = parse_args(["--adapter-build-dir", "build", "--output-dir", "out"])
+
+        self.assertEqual(args.configuration, "Release")
+        self.assertEqual(args.profile_label, "release")
+
     def test_parse_args_parses_every_supplied_argument(self) -> None:
         """Verifies every argument, including the optional ones, parses into its typed value."""
         args = parse_args(
@@ -143,6 +152,44 @@ class MainTests(unittest.TestCase):
             self.assertEqual(
                 captured_stdout.getvalue(), "\n".join(expected_lines) + "\n"
             )
+
+    def test_main_suffixes_the_archive_name_for_a_non_release_profile(self) -> None:
+        """Verifies a non-release profile label keeps its output from overwriting the release archive."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                        "--configuration",
+                        "Debug",
+                        "--profile-label",
+                        "debug",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            zips = list(output_dir.glob("DovahLink-Adapter-*-debug.zip"))
+            self.assertEqual(len(zips), 1)
 
     def test_main_stops_after_the_start_marker_when_a_stage_fails(self) -> None:
         """Verifies a failing stage reports its start marker but never its done marker."""

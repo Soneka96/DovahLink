@@ -75,6 +75,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Path to dovahlink.yaml, omitted if not supplied.",
     )
+    parser.add_argument(
+        "--configuration",
+        default="Release",
+        help="The dotnet publish --configuration value for the Host, matching the selected build profile.",
+    )
+    parser.add_argument(
+        "--profile-label",
+        default="release",
+        help="Lowercase build profile name (debug/beta/release), appended to the archive name for every "
+        "profile except release, so different profiles' output never overwrites each other's archive.",
+    )
     return parser.parse_args(argv)
 
 
@@ -92,7 +103,9 @@ def main(argv: list[str]) -> int:
     packager = AdapterHostPackager(SubprocessProcessRunner())
     host_publish_dir = args.output_dir / "publish"
     _print_stage(STAGE_HOST_PUBLISH, "start")
-    packager.publish_host(HOST_PROJECT_PATH, host_publish_dir)
+    packager.publish_host(
+        HOST_PROJECT_PATH, host_publish_dir, configuration=args.configuration
+    )
     _print_stage(STAGE_HOST_PUBLISH, "done")
 
     package_dir = args.output_dir / "package"
@@ -115,9 +128,10 @@ def main(argv: list[str]) -> int:
     _print_stage(STAGE_PACKAGE_VALIDATION, "done")
 
     version = read_product_version(VERSION_PATH)
+    profile_suffix = "" if args.profile_label == "release" else f"-{args.profile_label}"
     _print_stage(STAGE_ARCHIVE, "start")
     archive_path = packager.zip_package(
-        package_dir, args.output_dir / f"DovahLink-Adapter-{version}"
+        package_dir, args.output_dir / f"DovahLink-Adapter-{version}{profile_suffix}"
     )
     _print_stage(STAGE_ARCHIVE, "done")
     print(f"Wrote {archive_path}")

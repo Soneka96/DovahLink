@@ -7,6 +7,13 @@ namespace DovahLink.DovahLinkBuilder;
 /// <summary>The Builder's main window: a navigation rail and the currently selected page.</summary>
 public partial class MainWindow : Window
 {
+    /// <summary>
+    /// Resolves to <see langword="true"/> once the user has chosen to cancel the running build and
+    /// close, or <see langword="false"/> once they have chosen to keep building; <see langword="null"/>
+    /// while the in-app close-confirmation dialog is not showing.
+    /// </summary>
+    private TaskCompletionSource<bool>? closeConfirmation;
+
     /// <summary>Initializes the window over the supplied navigation ViewModel.</summary>
     /// <param name="viewModel">Owns navigation between the Build, Environment, and Settings pages.</param>
     public MainWindow(MainWindowViewModel viewModel)
@@ -17,10 +24,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Blocks closing while a build is running until the user confirms, then cancels the build and
-    /// waits for it to actually finish terminating before letting the window close -- regardless of
-    /// which page is currently displayed, since a build can keep running in the background while the
-    /// user has navigated away from the Build page.
+    /// Blocks closing while a build is running until the user confirms through the in-app close
+    /// dialog, then cancels the build and waits for it to actually finish terminating before letting
+    /// the window close -- regardless of which page is currently displayed, since a build can keep
+    /// running in the background while the user has navigated away from the Build page.
     /// </summary>
     /// <param name="sender">The unused event source.</param>
     /// <param name="e">Carries the cancel flag this handler sets to block the close.</param>
@@ -33,12 +40,12 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
 
-        MessageBoxResult result = MessageBox.Show(
-            "A build is currently running. Closing now will terminate it. Close anyway?",
-            "Build in progress",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-        if (result != MessageBoxResult.Yes)
+        closeConfirmation = new TaskCompletionSource<bool>();
+        CloseOverlay.Visibility = Visibility.Visible;
+        bool shouldClose = await closeConfirmation.Task;
+        CloseOverlay.Visibility = Visibility.Collapsed;
+        closeConfirmation = null;
+        if (!shouldClose)
         {
             return;
         }
@@ -50,5 +57,17 @@ public partial class MainWindow : Window
         }
 
         Close();
+    }
+
+    /// <summary>Dismisses the close-confirmation dialog without closing the window.</summary>
+    private void OnKeepBuildingClick(object sender, RoutedEventArgs e)
+    {
+        closeConfirmation?.TrySetResult(false);
+    }
+
+    /// <summary>Confirms cancelling the running build and closing the window.</summary>
+    private void OnCancelBuildAndCloseClick(object sender, RoutedEventArgs e)
+    {
+        closeConfirmation?.TrySetResult(true);
     }
 }

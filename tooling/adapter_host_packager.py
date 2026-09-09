@@ -16,10 +16,9 @@ from adapter_host_process_runner import IProcessRunner
 
 # ---- Publish strategy ----
 
-# Production .NET publishing strategy: self-contained, single-file, win-x64.
+# Production .NET publishing strategy: self-contained, single-file, win-x64. The build configuration
+# (Debug/Release) is passed separately by publish_host, since it varies by build profile.
 PUBLISH_ARGS = (
-    "--configuration",
-    "Release",
     "--runtime",
     "win-x64",
     "--self-contained",
@@ -48,12 +47,20 @@ class AdapterHostPackager:
         """
         self._process_runner = process_runner
 
-    def publish_host(self, host_project: Path, publish_output_dir: Path) -> None:
+    def publish_host(
+        self,
+        host_project: Path,
+        publish_output_dir: Path,
+        *,
+        configuration: str = "Release",
+    ) -> None:
         """Publishes the Host self-contained, single-file, win-x64 to `publish_output_dir`.
 
         Args:
             host_project: Path to `DovahLink.Host.csproj`.
             publish_output_dir: Directory `dotnet publish` writes the published executable into.
+            configuration: The `dotnet publish --configuration` value, for example `"Debug"` or
+                `"Release"`, matching the selected build profile.
         """
         publish_output_dir.mkdir(parents=True, exist_ok=True)
         self._process_runner.run(
@@ -61,6 +68,8 @@ class AdapterHostPackager:
                 "dotnet",
                 "publish",
                 str(host_project),
+                "--configuration",
+                configuration,
                 *PUBLISH_ARGS,
                 "--output",
                 str(publish_output_dir),

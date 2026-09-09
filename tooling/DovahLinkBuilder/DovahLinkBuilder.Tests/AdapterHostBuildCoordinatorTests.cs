@@ -54,6 +54,42 @@ public sealed class AdapterHostBuildCoordinatorTests
                 "--output-dir", Path.Combine(temporaryDirectory.Path, "tooling", "out"),
                 "--console-admin-pex", Path.Combine(adapterBuildOutputRoot, "DovahLinkAdmin.pex"),
                 "--console-admin-yaml", Path.Combine(temporaryDirectory.Path, "console-admin", "dovahlink.yaml"),
+                "--configuration", "Release",
+                "--profile-label", "release",
+            ],
+            runner.Commands[4].Arguments);
+    }
+
+    /// <summary>Builds the Debug preset, uses the Debug adapter build directory, and keeps Debug output separate from Release's.</summary>
+    [Fact]
+    public async Task BuildsTheDebugPresetAndKeepsItsOutputSeparateFromRelease()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var runner = new FakeCommandRunner();
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, BuildProfile.Debug));
+
+        Assert.Equal(["--fresh", "--preset", "windows-x64-debug"], runner.Commands[1].Arguments);
+        Assert.Equal(
+            ["--build", "--preset", "windows-x64-debug", "--target", "dovahlink_adapter_plugin"],
+            runner.Commands[2].Arguments);
+
+        string adapterBuildOutputRoot = Path.Combine(temporaryDirectory.Path, "adapter", "build", "windows-x64-debug");
+        string debugOutputRoot = Path.Combine(temporaryDirectory.Path, "tooling", "out", "debug");
+        Assert.Equal(
+            [
+                "tooling/package_adapter_host.py",
+                "--adapter-build-dir", adapterBuildOutputRoot,
+                "--output-dir", debugOutputRoot,
+                "--console-admin-pex", Path.Combine(adapterBuildOutputRoot, "DovahLinkAdmin.pex"),
+                "--console-admin-yaml", Path.Combine(temporaryDirectory.Path, "console-admin", "dovahlink.yaml"),
+                "--configuration", "Debug",
+                "--profile-label", "debug",
             ],
             runner.Commands[4].Arguments);
     }
