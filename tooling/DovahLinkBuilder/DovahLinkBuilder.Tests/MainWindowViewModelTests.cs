@@ -27,7 +27,7 @@ public sealed class MainWindowViewModelTests
 
     /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>
     private static EnvironmentPageViewModel BuildStubEnvironmentPage() =>
-        new(new StubPreflightService(), new StubGitStatusService(), @"C:\repo");
+        new(new StubPreflightService(), new GitStatusStore(new StubGitStatusService(), @"C:\repo"), @"C:\repo");
 
     /// <summary>Starts with the Build page selected.</summary>
     [Fact]

@@ -38,7 +38,7 @@ public partial class App : Application
             OpenFolderInExplorer,
             Clipboard.SetText,
             repositoryRoot);
-        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusService, repositoryRoot);
+        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusStore, repositoryRoot);
         var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, repositoryRoot);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         var mainWindow = new MainWindow(mainWindowViewModel, settingsStore);

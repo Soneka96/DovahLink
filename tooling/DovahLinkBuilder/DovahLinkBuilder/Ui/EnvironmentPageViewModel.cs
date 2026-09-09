@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
 using DovahLink.DovahLinkBuilder.Preflight;
@@ -14,8 +15,8 @@ public sealed class EnvironmentPageViewModel : ObservableObject
     /// <summary>Checks the required build tools.</summary>
     private readonly IPreflightService preflightService;
 
-    /// <summary>Reports the repository's branch, working tree, and remote sync state.</summary>
-    private readonly IGitStatusService gitStatusService;
+    /// <summary>The shared git status both the Build and Environment pages read and refresh.</summary>
+    private readonly IGitStatusStore gitStatusStore;
 
     /// <summary>The repository root this page checks.</summary>
     private readonly string repositoryRoot;
@@ -23,24 +24,19 @@ public sealed class EnvironmentPageViewModel : ObservableObject
     /// <summary>The backing field for <see cref="Checks"/>.</summary>
     private IReadOnlyList<EnvironmentCheckViewModel> checks = [];
 
-    /// <summary>The backing field for <see cref="GitStatus"/>.</summary>
-    private GitSourceStatus? gitStatus;
-
-    /// <summary>The backing field for <see cref="GitStatusError"/>.</summary>
-    private string? gitStatusError;
-
     /// <summary>The backing field for <see cref="IsChecking"/>.</summary>
     private bool isChecking;
 
     /// <summary>Initializes the page over its collaborators, starting with no checks loaded.</summary>
     /// <param name="preflightService">Checks the required build tools.</param>
-    /// <param name="gitStatusService">Reports the repository's branch, working tree, and remote sync state.</param>
+    /// <param name="gitStatusStore">The shared git status both the Build and Environment pages read and refresh.</param>
     /// <param name="repositoryRoot">The repository root this page checks.</param>
-    public EnvironmentPageViewModel(IPreflightService preflightService, IGitStatusService gitStatusService, string repositoryRoot)
+    public EnvironmentPageViewModel(IPreflightService preflightService, IGitStatusStore gitStatusStore, string repositoryRoot)
     {
         this.preflightService = preflightService;
-        this.gitStatusService = gitStatusService;
+        this.gitStatusStore = gitStatusStore;
         this.repositoryRoot = repositoryRoot;
+        gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         RecheckCommand = new RelayCommand(OnRecheck, () => !IsChecking);
     }
 
@@ -61,17 +57,21 @@ public sealed class EnvironmentPageViewModel : ObservableObject
     public string SummaryText => $"{Checks.Count(check => check.IsAvailable)} of {Checks.Count} ready";
 
     /// <summary>Gets the repository's git remote status, informational only; <see langword="null"/> when it could not be determined.</summary>
-    public GitSourceStatus? GitStatus
-    {
-        get => gitStatus;
-        private set => SetProperty(ref gitStatus, value);
-    }
+    public GitSourceStatus? GitStatus => gitStatusStore.Status;
 
     /// <summary>Gets the git status failure message, or <see langword="null"/> when git status loaded successfully.</summary>
-    public string? GitStatusError
+    public string? GitStatusError => gitStatusStore.StatusError;
+
+    /// <summary>
+    /// Relays a change on the shared <see cref="gitStatusStore"/> to this page's own bound properties,
+    /// since a refresh triggered from the Build page must also be reflected here.
+    /// </summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused change details; either property changing recomputes both.</param>
+    private void OnGitStatusStoreChanged(object? sender, PropertyChangedEventArgs e)
     {
-        get => gitStatusError;
-        private set => SetProperty(ref gitStatusError, value);
+        OnPropertyChanged(nameof(GitStatus));
+        OnPropertyChanged(nameof(GitStatusError));
     }
 
     /// <summary>Gets whether a check is currently in progress.</summary>
@@ -117,17 +117,7 @@ public sealed class EnvironmentPageViewModel : ObservableObject
         {
             IReadOnlyList<ToolchainCheckResult> results = await preflightService.CheckAllAsync(repositoryRoot, cancellationToken);
             Checks = results.Select(result => new EnvironmentCheckViewModel(result)).ToList();
-
-            try
-            {
-                GitStatus = await gitStatusService.GetStatusAsync(repositoryRoot, cancellationToken);
-                GitStatusError = null;
-            }
-            catch (InvalidOperationException exception)
-            {
-                GitStatus = null;
-                GitStatusError = exception.Message;
-            }
+            await gitStatusStore.RefreshAsync(cancellationToken);
         }
         finally
         {

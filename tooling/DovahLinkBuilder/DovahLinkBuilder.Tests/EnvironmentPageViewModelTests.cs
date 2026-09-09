@@ -13,7 +13,7 @@ public sealed class EnvironmentPageViewModelTests
         FakePreflightService? preflightService = null,
         FakeGitStatusService? gitStatusService = null) => new(
         preflightService ?? new FakePreflightService(),
-        gitStatusService ?? new FakeGitStatusService(),
+        new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), @"C:\repo"),
         @"C:\repo");
 
     /// <summary>Starts with no checks loaded and no git status.</summary>
@@ -67,6 +67,7 @@ public sealed class EnvironmentPageViewModelTests
 
         Assert.Null(viewModel.GitStatus);
         Assert.Equal("not a git repository", viewModel.GitStatusError);
+        Assert.False(viewModel.IsChecking);
     }
 
     /// <summary>Re-runs the preflight checks and refreshes them when Recheck executes.</summary>
