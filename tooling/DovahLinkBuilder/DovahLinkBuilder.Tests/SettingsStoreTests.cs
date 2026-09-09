@@ -30,7 +30,12 @@ public sealed class SettingsStoreTests
             OpenOutputFolderAfterSuccessfulBuild: false,
             AutoScrollLogs: false,
             VerboseCommandOutput: true,
-            NotifyWhenBuildCompletes: true);
+            NotifyWhenBuildCompletes: true,
+            WindowLeft: 120,
+            WindowTop: 80,
+            WindowWidth: 1024,
+            WindowHeight: 768,
+            WindowIsMaximized: true);
 
         store.Save(settings);
 
