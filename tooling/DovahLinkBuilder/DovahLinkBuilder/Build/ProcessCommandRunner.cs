@@ -99,6 +99,13 @@ public sealed class ProcessCommandRunner : ICommandRunner
                 // output) it could not actually stop, rather than hanging on one that may never exit.
                 terminated = false;
             }
+            catch (AggregateException)
+            {
+                // Process.Kill(entireProcessTree: true) reports a partial tree-kill failure this way.
+                // Treated exactly like the Win32Exception case above: cancellation still wins, and this
+                // call stops waiting on a tree it could not fully stop.
+                terminated = false;
+            }
 
             if (terminated)
             {

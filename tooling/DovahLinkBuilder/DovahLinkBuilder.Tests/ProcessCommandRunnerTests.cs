@@ -181,4 +181,25 @@ public sealed class ProcessCommandRunnerTests
         Assert.False(File.Exists(sentinelPath));
     }
 
+    /// <summary>Preserves cancellation, without hanging, when tree termination reports a partial failure.</summary>
+    [Fact]
+    public async Task CancellationIsNotMaskedWhenTerminationThrowsAnAggregateException()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var runner = new ProcessCommandRunner(_ => throw new AggregateException(new Win32Exception("access denied")));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        // As in CancellationIsNotMaskedWhenTerminationFails above, the runner gives up on this
+        // un-terminated process rather than waiting for it; wait for it to exit naturally before the
+        // temporary directory is disposed below.
+        await Task.Delay(TimeSpan.FromSeconds(3));
+    }
 }
