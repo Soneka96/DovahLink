@@ -6,12 +6,18 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>The backing field for <see cref="CurrentPage"/>.</summary>
     private object currentPage;
 
-    /// <summary>Initializes navigation with the Build page selected.</summary>
-    public MainWindowViewModel()
+    /// <summary>Initializes navigation over the already-constructed page ViewModels, starting on the Build page.</summary>
+    /// <param name="buildPage">The Build page's ViewModel, kept alive for the application's lifetime.</param>
+    /// <param name="environmentPage">The Environment page's ViewModel, kept alive for the application's lifetime.</param>
+    /// <param name="settingsPage">The Settings page's ViewModel, kept alive for the application's lifetime.</param>
+    public MainWindowViewModel(
+        BuildPageViewModel buildPage,
+        EnvironmentPageViewModel environmentPage,
+        SettingsPageViewModel settingsPage)
     {
-        BuildPage = new BuildPageViewModel();
-        EnvironmentPage = new EnvironmentPageViewModel();
-        SettingsPage = new SettingsPageViewModel();
+        BuildPage = buildPage;
+        EnvironmentPage = environmentPage;
+        SettingsPage = settingsPage;
         currentPage = BuildPage;
         NavigateToBuildCommand = new RelayCommand(() => CurrentPage = BuildPage);
         NavigateToEnvironmentCommand = new RelayCommand(() => CurrentPage = EnvironmentPage);

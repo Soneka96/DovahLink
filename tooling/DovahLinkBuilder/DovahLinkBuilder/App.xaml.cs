@@ -1,4 +1,7 @@
 using System.Windows;
+using DovahLink.DovahLinkBuilder.Build;
+using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Preflight;
 using DovahLink.DovahLinkBuilder.Ui;
 
 namespace DovahLink.DovahLinkBuilder;
@@ -10,6 +13,18 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        new MainWindow(new MainWindowViewModel()).Show();
+
+        string repositoryRoot = RepositoryRootLocator.Find(AppContext.BaseDirectory);
+        ICommandRunner commandRunner = new ProcessCommandRunner();
+        var preflightService = new PreflightService(commandRunner);
+        var gitStatusService = new GitStatusService(commandRunner);
+        var buildCoordinator = new AdapterHostBuildCoordinator(
+            commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
+
+        var buildPage = new BuildPageViewModel(preflightService, gitStatusService, buildCoordinator, repositoryRoot);
+        var mainWindowViewModel = new MainWindowViewModel(buildPage, new EnvironmentPageViewModel(), new SettingsPageViewModel());
+        new MainWindow(mainWindowViewModel).Show();
+
+        _ = buildPage.InitializeAsync();
     }
 }
