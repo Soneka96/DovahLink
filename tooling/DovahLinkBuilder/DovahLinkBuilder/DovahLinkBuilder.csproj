@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>None</DebugType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <OutputPath>../../out/DovahLinkBuilder/</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DovahLinkBuilder.Tests" />
+  </ItemGroup>
+
+</Project>

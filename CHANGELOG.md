@@ -4,8 +4,8 @@ All notable changes to the DovahLink Bridge are documented here, most recent fir
 developer-facing record of what changed and why; the shorter, player-facing summary posted with
 each Nexus Mods file upload is derived from these entries but is not identical to them.
 
-A release is cut by building the versioned ZIP with `tooling/BridgeBuilder` and uploading it to
-Nexus Mods manually; see [`tooling/BridgeBuilder/README.md`](tooling/BridgeBuilder/README.md).
+A release is cut by building the versioned ZIP with `tooling/DovahLinkBuilder` and uploading it to
+Nexus Mods manually; see [`tooling/DovahLinkBuilder/README.md`](tooling/DovahLinkBuilder/README.md).
 This file is updated in the same change that bumps `bridge/vcpkg.json`'s `version-string` and flips
 the corresponding `ROADMAP.md` phase to Complete.
 

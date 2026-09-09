@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="DovahLinkBuilder.Tests/DovahLinkBuilder.Tests.csproj" />
+  <Project Path="DovahLinkBuilder/DovahLinkBuilder.csproj" />
+</Solution>

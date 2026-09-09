@@ -270,6 +270,71 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(fragment, workflow)
         self.assertNotIn("continue-on-error:", workflow)
 
+    def test_builder_ci_covers_build_and_tests(self) -> None:
+        """Require the DovahLinkBuilder solution to restore, build, test, and publish on Windows CI."""
+        workflow = self._read(".github/workflows/tooling-builder-ci.yml")
+        expected_paths = {
+            '- "tooling/DovahLinkBuilder/**"',
+            '- "ai/context/tooling/**"',
+            '- "ai/context/dotnet/**"',
+            '- "ai/context/common.md"',
+            '- ".github/workflows/tooling-builder-ci.yml"',
+        }
+
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this required branch-protection check, leaving
+        # the PR stuck waiting on a status that never arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
+        self.assertEqual(
+            self._yaml_block(workflow, "permissions:"),
+            "permissions:\n  contents: read",
+        )
+        self.assertIn(
+            "uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6",
+            workflow,
+        )
+        self.assertIn(
+            "uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
+            workflow,
+        )
+        self.assertIn("    runs-on: windows-2022", workflow)
+        self.assertIn("    timeout-minutes: 10", workflow)
+        self.assertIn("        shell: pwsh", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn(
+            "  group: builder-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+            workflow,
+        )
+        for fragment in (
+            "dotnet restore tooling/DovahLinkBuilder/DovahLinkBuilder.slnx -p:Configuration=Release",
+            "dotnet build tooling/DovahLinkBuilder/DovahLinkBuilder.slnx --configuration Release --no-restore",
+            "dotnet test tooling/DovahLinkBuilder/DovahLinkBuilder.slnx --configuration Release --no-restore --no-build",
+            "dotnet publish tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj -p:PublishProfile=FolderProfile --no-restore",
+            "tooling/out/DovahLinkBuilder/DovahLinkBuilder.exe",
+            "Expected published DovahLinkBuilder executable was not built",
+        ):
+            self.assertIn(fragment, workflow)
+        self.assertNotIn("continue-on-error:", workflow)
+
+        # These publish properties must live in the project file itself, not only in a manual
+        # command: that is what keeps CI, Visual Studio's Publish button, the .pubxml, and the
+        # README's documented command all producing the same artifact.
+        csproj = self._read(
+            "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj"
+        )
+        for fragment in (
+            "<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>",
+            "<DebugType>None</DebugType>",
+        ):
+            self.assertIn(fragment, csproj)
+
     def test_tooling_ci_covers_repository_consistency_surfaces(self) -> None:
         """Require repository checks to run when their inspected files change."""
         workflow = self._read(".github/workflows/tooling-ci.yml")
@@ -590,6 +655,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"test", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",',
             '"--no-restore", "--no-build"',
             '"-p:GenerateDocumentationFile=true", "-p:TreatWarningsAsErrors=true"',
+            '"restore", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "-p:Configuration=Release"',
+            '"build", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release", "--no-restore"',
+            '"test", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release",',
+            '"publish", "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj",',
+            '"-p:PublishProfile=FolderProfile", "--no-restore"',
+            '$builderExecutablePath = Join-Path $repoRoot "tooling\\out\\DovahLinkBuilder\\DovahLinkBuilder.exe"',
+            "Test-Path -LiteralPath $builderExecutablePath -PathType Leaf",
         )
         for fragment in required_fragments:
             self.assertIn(fragment, script)
@@ -619,6 +691,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ),
             script.index(
                 '"-p:GenerateDocumentationFile=true", "-p:TreatWarningsAsErrors=true"'
+            ),
+            script.index('Write-Host "=== builder-ci ==="'),
+            script.index(
+                '"restore", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "-p:Configuration=Release"'
+            ),
+            script.index(
+                '"build", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release", "--no-restore"'
+            ),
+            script.index(
+                '"test", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release",'
+            ),
+            script.index(
+                '"publish", "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj",'
+            ),
+            script.index('"-p:PublishProfile=FolderProfile", "--no-restore"'),
+            script.index(
+                "Test-Path -LiteralPath $builderExecutablePath -PathType Leaf"
             ),
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("pub", "get")'

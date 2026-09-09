@@ -23,7 +23,7 @@ pull request workflow belongs to `CONTRIBUTING.md`.
   phase(s) it covers are merged; it can cover one phase's completion or several unreleased ones at
   once.
 - Cutting a release is a distinct, later, manual step performed after a version-bumped release
-  branch has merged into `main`: building the versioned Bridge ZIP with `tooling/BridgeBuilder` and
+  branch has merged into `main`: building the versioned Bridge ZIP with `tooling/DovahLinkBuilder` and
   uploading it to Nexus Mods (see that tool's own README). `CHANGELOG.md` entries are written at
   release-branch merge time as described above, independent of when the corresponding release is
   actually cut. A merged, version-bumped change can sit unreleased for an arbitrary time -- for

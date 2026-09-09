@@ -220,6 +220,29 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList
     "--no-restore", "--no-incremental", "-p:GenerateDocumentationFile=true", "-p:TreatWarningsAsErrors=true"
 )
 
+Write-Host "=== builder-ci ==="
+# -p:Configuration=Release: DovahLinkBuilder.csproj only sets RuntimeIdentifier under the Release
+# condition, so a Debug-implied restore leaves the Release build without a net9.0-windows/win-x64
+# target in project.assets.json (NETSDK1047).
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "restore", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "-p:Configuration=Release"
+)
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "build", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release", "--no-restore"
+)
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "test", "tooling/DovahLinkBuilder/DovahLinkBuilder.slnx", "--configuration", "Release",
+    "--no-restore", "--no-build"
+)
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "publish", "tooling/DovahLinkBuilder/DovahLinkBuilder/DovahLinkBuilder.csproj",
+    "-p:PublishProfile=FolderProfile", "--no-restore"
+)
+$builderExecutablePath = Join-Path $repoRoot "tooling\out\DovahLinkBuilder\DovahLinkBuilder.exe"
+if (-not (Test-Path -LiteralPath $builderExecutablePath -PathType Leaf)) {
+    throw "Expected published DovahLinkBuilder executable was not built: $builderExecutablePath"
+}
+
 Write-Host "=== app-ci ==="
 $sdkDirectory = Join-Path $repoRoot "sdk\dart\dovahlink_client"
 Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("pub", "get")

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="DovahLink.Host.Tests/DovahLink.Host.Tests.csproj" />
+  <Project Path="DovahLink.Host/DovahLink.Host.csproj" />
+</Solution>

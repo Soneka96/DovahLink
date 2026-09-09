@@ -9,7 +9,7 @@ One primary public class, record, struct, or interface per file, per `ai/context
 shared file-organization rule. An interface and its one concrete implementation are the paired
 declaration exception: they share the implementation's owning file and no unrelated public type may
 be placed there. Its two additional grouping exceptions apply per project (`DovahLink.Host`,
-`DovahLink.Host.Tests`, and `tooling/BridgeBuilder` each get their own, never shared across a
+`DovahLink.Host.Tests`, and `tooling/DovahLinkBuilder/DovahLinkBuilder` each get their own, never shared across a
 project boundary): every enum for that project belongs in that project's `Enums.cs`, and
 every small cross-cutting constant value (timeouts, limits, and similar) belongs in that project's
 `Constants.cs`. Within either file, group entries by the area they belong to, each preceded by a

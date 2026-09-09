@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -90,8 +92,12 @@ class MainTests(unittest.TestCase):
                 publish_dir = Path(args[output_flag_index + 1])
                 _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
 
-            with mock.patch(
-                "package_adapter_host.SubprocessProcessRunner.run", fake_run
+            captured_stdout = io.StringIO()
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(captured_stdout),
             ):
                 exit_code = main(
                     [
@@ -110,6 +116,10 @@ class MainTests(unittest.TestCase):
             )
             zips = list(output_dir.glob("DovahLink-Adapter-*.zip"))
             self.assertEqual(len(zips), 1)
+            # DovahLinkBuilder's coordinator locates the archive path by scanning this script's
+            # stdout for a line starting with "Wrote " (AdapterHostBuildCoordinator.WrittenArchivePrefix);
+            # this is the only place that cross-language contract is verified.
+            self.assertEqual(captured_stdout.getvalue(), f"Wrote {zips[0]}\n")
 
 
 if __name__ == "__main__":
