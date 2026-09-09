@@ -1,3 +1,6 @@
+using System.IO;
+using System.IO.Compression;
+using System.Security.Cryptography;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
 using DovahLink.DovahLinkBuilder.Preflight;
@@ -49,6 +52,18 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>The cancellation source for the currently running build, or <see langword="null"/> when idle.</summary>
     private CancellationTokenSource? buildCancellation;
 
+    /// <summary>The backing field for <see cref="ArchivePath"/>.</summary>
+    private string? archivePath;
+
+    /// <summary>The backing field for <see cref="ArchiveSha256"/>.</summary>
+    private string? archiveSha256;
+
+    /// <summary>The backing field for <see cref="IsShowingArchiveContents"/>.</summary>
+    private bool isShowingArchiveContents;
+
+    /// <summary>The backing field for <see cref="ArchiveEntries"/>.</summary>
+    private IReadOnlyList<string> archiveEntries = [];
+
     /// <summary>Initializes the page over its collaborators, starting in the "checking environment" state.</summary>
     /// <param name="preflightService">Checks the required build tools before a build is allowed to start.</param>
     /// <param name="gitStatusService">Reports the repository's branch, working tree, and remote sync state.</param>
@@ -68,6 +83,7 @@ public sealed class BuildPageViewModel : ObservableObject
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
         CancelCommand = new RelayCommand(OnCancel, () => IsBuilding);
+        ViewArchiveContentsCommand = new RelayCommand(OnViewArchiveContents, () => ArchivePath is not null);
         Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
         Log = new LogViewModel();
     }
@@ -147,13 +163,29 @@ public sealed class BuildPageViewModel : ObservableObject
     public BuildHistoryResult? LastOutcome
     {
         get => lastOutcome;
-        private set => SetProperty(ref lastOutcome, value);
+        private set
+        {
+            if (SetProperty(ref lastOutcome, value))
+            {
+                OnPropertyChanged(nameof(HasResult));
+                OnPropertyChanged(nameof(ResultBannerText));
+            }
+        }
     }
 
-    /// <summary>
-    /// Gets the archive path on success, or the failure message on failure, for the most recently
-    /// finished build; <see langword="null"/> before any build has finished or after a cancellation.
-    /// </summary>
+    /// <summary>Gets whether a build has finished, and a result banner should show.</summary>
+    public bool HasResult => LastOutcome is not null;
+
+    /// <summary>Gets the result banner text for <see cref="LastOutcome"/>, or <see langword="null"/> before any build has finished.</summary>
+    public string? ResultBannerText => LastOutcome switch
+    {
+        BuildHistoryResult.Succeeded => "Build succeeded.",
+        BuildHistoryResult.Failed => "Build failed.",
+        BuildHistoryResult.Cancelled => "Build cancelled.",
+        _ => null,
+    };
+
+    /// <summary>Gets the failure message for the most recently finished build; <see langword="null"/> unless it failed.</summary>
     public string? LastOutcomeMessage
     {
         get => lastOutcomeMessage;
@@ -269,6 +301,10 @@ public sealed class BuildPageViewModel : ObservableObject
         IsBuilding = true;
         LastOutcome = null;
         LastOutcomeMessage = null;
+        ArchivePath = null;
+        ArchiveSha256 = null;
+        ArchiveEntries = [];
+        IsShowingArchiveContents = false;
         ResetStages();
         Log.Clear();
         buildCancellation = new CancellationTokenSource();
@@ -279,8 +315,12 @@ public sealed class BuildPageViewModel : ObservableObject
                 onOutput: Log.AppendLine,
                 onStage: OnBuildStageEvent,
                 buildCancellation.Token);
+            // Computed before any property is set: if hashing the real archive fails, the build is
+            // reported as Failed with no stale ArchivePath left over from a partially-applied success.
+            string sha256 = ComputeSha256(result.ArchivePath);
             LastOutcome = BuildHistoryResult.Succeeded;
-            LastOutcomeMessage = result.ArchivePath;
+            ArchivePath = result.ArchivePath;
+            ArchiveSha256 = sha256;
         }
         catch (OperationCanceledException)
         {
@@ -352,4 +392,76 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>Gets the Build page's log panel, kept alive for the application's lifetime.</summary>
     public LogViewModel Log { get; }
+
+    /// <summary>Gets the produced archive's path on success; <see langword="null"/> otherwise.</summary>
+    public string? ArchivePath
+    {
+        get => archivePath;
+        private set
+        {
+            if (SetProperty(ref archivePath, value))
+            {
+                OnPropertyChanged(nameof(HasArchivePath));
+                ViewArchiveContentsCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    /// <summary>Gets whether <see cref="ArchivePath"/> currently has a value.</summary>
+    public bool HasArchivePath => ArchivePath is not null;
+
+    /// <summary>Gets the produced archive's SHA-256 hash, as lowercase hex, on success; <see langword="null"/> otherwise.</summary>
+    public string? ArchiveSha256
+    {
+        get => archiveSha256;
+        private set => SetProperty(ref archiveSha256, value);
+    }
+
+    /// <summary>Gets whether the archive's real contents are currently shown.</summary>
+    public bool IsShowingArchiveContents
+    {
+        get => isShowingArchiveContents;
+        private set => SetProperty(ref isShowingArchiveContents, value);
+    }
+
+    /// <summary>Gets the produced archive's real entry names, read directly from the ZIP; empty until <see cref="ViewArchiveContentsCommand"/> runs.</summary>
+    public IReadOnlyList<string> ArchiveEntries
+    {
+        get => archiveEntries;
+        private set => SetProperty(ref archiveEntries, value);
+    }
+
+    /// <summary>Gets the command that toggles showing the produced archive's real contents.</summary>
+    public RelayCommand ViewArchiveContentsCommand { get; }
+
+    /// <summary>Computes a file's SHA-256 hash as lowercase hex.</summary>
+    /// <param name="filePath">The file to hash.</param>
+    private static string ComputeSha256(string filePath)
+    {
+        using FileStream stream = File.OpenRead(filePath);
+        byte[] hash = SHA256.HashData(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Toggles the archive contents display; reads the real ZIP's entries directly (no second
+    /// hardcoded package-layout list) the first time it is shown.
+    /// </summary>
+    private void OnViewArchiveContents()
+    {
+        if (ArchivePath is null)
+        {
+            return;
+        }
+
+        if (IsShowingArchiveContents)
+        {
+            IsShowingArchiveContents = false;
+            return;
+        }
+
+        using ZipArchive archive = ZipFile.OpenRead(ArchivePath);
+        ArchiveEntries = archive.Entries.Select(entry => entry.FullName).ToList();
+        IsShowingArchiveContents = true;
+    }
 }

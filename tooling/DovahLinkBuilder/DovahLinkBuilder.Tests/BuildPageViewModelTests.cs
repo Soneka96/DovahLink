@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Security.Cryptography;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
 using DovahLink.DovahLinkBuilder.Preflight;
@@ -17,6 +19,24 @@ public sealed class BuildPageViewModelTests
         gitStatusService ?? new FakeGitStatusService(),
         buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
         @"C:\repo");
+
+    /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
+    /// <param name="temporaryDirectoryPath">The temporary directory to create the source files and archive under.</param>
+    /// <param name="entries">Each entry's flat file name and text content.</param>
+    /// <returns>The created archive's path.</returns>
+    private static string CreateRealZip(string temporaryDirectoryPath, params (string Name, string Content)[] entries)
+    {
+        string sourceDirectory = Path.Combine(temporaryDirectoryPath, "source");
+        Directory.CreateDirectory(sourceDirectory);
+        foreach ((string name, string content) in entries)
+        {
+            File.WriteAllText(Path.Combine(sourceDirectory, name), content);
+        }
+
+        string archivePath = Path.Combine(temporaryDirectoryPath, "archive.zip");
+        ZipFile.CreateFromDirectory(sourceDirectory, archivePath);
+        return archivePath;
+    }
 
     /// <summary>Disables the Build command with an explanatory reason before preflight and git status have loaded.</summary>
     [Fact]
@@ -338,6 +358,16 @@ public sealed class BuildPageViewModelTests
         Assert.Equal("Stage 0 of 8", viewModel.StageProgressText);
     }
 
+    /// <summary>Reports no result banner before any build has run.</summary>
+    [Fact]
+    public void ResultBannerIsAbsentBeforeAnyBuild()
+    {
+        var viewModel = BuildViewModel();
+
+        Assert.False(viewModel.HasResult);
+        Assert.Null(viewModel.ResultBannerText);
+    }
+
     /// <summary>Reports all 8 stages completed and "Stage 8 of 8" once every stage has succeeded.</summary>
     [Fact]
     public async Task StageProgressReachesEightOfEightWhenEveryStageSucceeds()
@@ -427,6 +457,143 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(["second run"], viewModel.Log.Lines);
     }
 
+    /// <summary>Computes the real archive's SHA-256 and reports its path and a success banner on success.</summary>
+    [Fact]
+    public async Task BuildCommandComputesTheArchiveShaAndBannerOnSuccess()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
+        string expectedSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(archivePath))).ToLowerInvariant();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.True(viewModel.HasResult);
+        Assert.Equal("Build succeeded.", viewModel.ResultBannerText);
+        Assert.True(viewModel.HasArchivePath);
+        Assert.Equal(archivePath, viewModel.ArchivePath);
+        Assert.Equal(expectedSha256, viewModel.ArchiveSha256);
+    }
+
+    /// <summary>Reports no archive path, hash, or entries, and the failure banner, when the build fails.</summary>
+    [Fact]
+    public async Task BuildCommandReportsNoArchiveAndTheFailureBannerOnFailure()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("the adapter build failed") };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal("Build failed.", viewModel.ResultBannerText);
+        Assert.False(viewModel.HasArchivePath);
+        Assert.Null(viewModel.ArchivePath);
+        Assert.Null(viewModel.ArchiveSha256);
+    }
+
+    /// <summary>Reports no archive path or hash, and the cancelled banner, when the build is cancelled.</summary>
+    [Fact]
+    public async Task CancelCommandReportsNoArchiveAndTheCancelledBanner()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal("Build cancelled.", viewModel.ResultBannerText);
+        Assert.False(viewModel.HasArchivePath);
+    }
+
+    /// <summary>Reads the real ZIP's entries and toggles the display on, off, and back on again.</summary>
+    [Fact]
+    public async Task ViewArchiveContentsCommandTogglesTheRealZipEntries()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"), ("DovahLinkAdapter.dll", "binary"));
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        var expectedEntries = new[] { "manifest.json", "DovahLinkAdapter.dll" }.OrderBy(name => name, StringComparer.Ordinal);
+
+        viewModel.ViewArchiveContentsCommand.Execute(null);
+
+        Assert.True(viewModel.IsShowingArchiveContents);
+        Assert.Equal(expectedEntries, viewModel.ArchiveEntries.OrderBy(name => name, StringComparer.Ordinal));
+
+        viewModel.ViewArchiveContentsCommand.Execute(null);
+
+        Assert.False(viewModel.IsShowingArchiveContents);
+
+        viewModel.ViewArchiveContentsCommand.Execute(null);
+
+        Assert.True(viewModel.IsShowingArchiveContents);
+        Assert.Equal(expectedEntries, viewModel.ArchiveEntries.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    /// <summary>Does nothing when View contents is executed directly with no archive produced yet.</summary>
+    [Fact]
+    public void ViewArchiveContentsCommandDoesNothingWithoutAnArchive()
+    {
+        var viewModel = BuildViewModel();
+
+        viewModel.ViewArchiveContentsCommand.Execute(null);
+
+        Assert.False(viewModel.IsShowingArchiveContents);
+        Assert.Empty(viewModel.ArchiveEntries);
+    }
+
+    /// <summary>Clears the previous run's archive path, hash, and entries when a new build starts.</summary>
+    [Fact]
+    public async Task StartingANewBuildClearsThePreviousRunsArchiveState()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        viewModel.ViewArchiveContentsCommand.Execute(null);
+        Assert.True(viewModel.HasArchivePath);
+
+        buildCoordinator.ThrownException = new InvalidOperationException("the adapter build failed");
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.HasArchivePath);
+        Assert.Null(viewModel.ArchiveSha256);
+        Assert.False(viewModel.IsShowingArchiveContents);
+        Assert.Empty(viewModel.ArchiveEntries);
+    }
+
+    /// <summary>Clears the previous run's failure message once a new build succeeds.</summary>
+    [Fact]
+    public async Task StartingANewBuildClearsThePreviousRunsFailureMessage()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("first failure") };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        Assert.Equal("first failure", viewModel.LastOutcomeMessage);
+
+        buildCoordinator.ThrownException = null;
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Null(viewModel.LastOutcomeMessage);
+        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+    }
+
     /// <summary>Reports every required build tool as available, for a fake that does not otherwise override <see cref="FakePreflightService.Results"/>.</summary>
     private sealed class FakePreflightService : IPreflightService
     {
@@ -468,11 +635,20 @@ public sealed class BuildPageViewModelTests
     /// <summary>Returns a successful build result unless configured to throw, hang, or count invocations.</summary>
     private sealed class FakeAdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
     {
-        /// <summary>Gets the result to return on success.</summary>
-        public AdapterHostBuildResult Result { get; init; } = new(@"C:\repo\tooling\out\DovahLink-Adapter-0.1.0.zip");
+        /// <summary>
+        /// Gets the result to return on success. Defaults to the test assembly's own DLL path, a real
+        /// file that always exists (needing no setup or cleanup), for a test that only cares that the
+        /// build succeeded rather than the archive's actual contents; a test that hashes or reads the
+        /// archive overrides this with a real, purpose-built ZIP.
+        /// </summary>
+        public AdapterHostBuildResult Result { get; init; } = new(typeof(BuildPageViewModelTests).Assembly.Location);
 
-        /// <summary>Gets the exception <see cref="BuildAsync"/> throws instead of succeeding, or <see langword="null"/>.</summary>
-        public Exception? ThrownException { get; init; }
+        /// <summary>
+        /// Gets or sets the exception <see cref="BuildAsync"/> throws instead of succeeding, or
+        /// <see langword="null"/>. Mutable so a test can reconfigure it between two calls on the same
+        /// fake instance.
+        /// </summary>
+        public Exception? ThrownException { get; set; }
 
         /// <summary>Gets whether <see cref="BuildAsync"/> waits for cancellation instead of completing immediately.</summary>
         public bool WaitForCancellation { get; init; }

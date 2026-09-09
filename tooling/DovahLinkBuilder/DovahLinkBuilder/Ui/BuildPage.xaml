@@ -25,8 +25,42 @@
             <Button Content="Cancel" Command="{Binding CancelCommand}" />
         </StackPanel>
 
-        <TextBlock Text="{Binding LastOutcome, StringFormat='Last build: {0}'}" Margin="0,12,0,0" />
-        <TextBlock Text="{Binding LastOutcomeMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
+        <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasResult, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="LightGray" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
+                            <Setter Property="Background" Value="#DFF5E1" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
+                            <Setter Property="Background" Value="#FCE1E1" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
+                            <Setter Property="Background" Value="#FFF4D6" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <StackPanel>
+                <TextBlock Text="{Binding ResultBannerText}" FontWeight="Bold" />
+                <TextBlock Text="{Binding LastOutcomeMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
+
+                <StackPanel Visibility="{Binding HasArchivePath, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
+                    <TextBlock Text="{Binding ArchivePath}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding ArchiveSha256, StringFormat='SHA-256: {0}'}" Margin="0,4,0,0" />
+                    <Button Content="View contents" Command="{Binding ViewArchiveContentsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left" />
+                    <ItemsControl ItemsSource="{Binding ArchiveEntries}" Margin="0,8,0,0"
+                                  Visibility="{Binding IsShowingArchiveContents, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" FontFamily="Consolas" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </StackPanel>
+        </Border>
 
         <ItemsControl ItemsSource="{Binding Stages}" Margin="0,16,0,0">
             <ItemsControl.ItemsPanel>
