@@ -80,21 +80,21 @@
                                       Command="{Binding NavigateToBuildCommand}" AutomationProperties.Name="Build">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#x25B6;" Style="{StaticResource GlyphStyle}" Width="18" />
-                                <TextBlock Text="Build" Margin="11,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
+                                <AccessText Text="_Build" Margin="11,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
                             </StackPanel>
                         </ToggleButton>
                         <ToggleButton Style="{StaticResource NavItemStyle}" IsChecked="{Binding IsEnvironmentPageActive, Mode=OneWay}"
                                       Command="{Binding NavigateToEnvironmentCommand}" AutomationProperties.Name="Environment">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#x25C8;" Style="{StaticResource GlyphStyle}" Width="18" />
-                                <TextBlock Text="Environment" Margin="11,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
+                                <AccessText Text="_Environment" Margin="11,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
                             </StackPanel>
                         </ToggleButton>
                         <ToggleButton Style="{StaticResource NavItemStyle}" IsChecked="{Binding IsSettingsPageActive, Mode=OneWay}"
                                       Command="{Binding NavigateToSettingsCommand}" AutomationProperties.Name="Settings">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#x2699;" Style="{StaticResource GlyphStyle}" Width="18" />
-                                <TextBlock Text="Settings" Margin="11,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
+                                <AccessText Text="_Settings" Margin="11,0,0,0" VerticalAlignment="Center" FontSize="13.5" />
                             </StackPanel>
                         </ToggleButton>
                     </StackPanel>

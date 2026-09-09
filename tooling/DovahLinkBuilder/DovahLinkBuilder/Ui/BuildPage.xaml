@@ -140,7 +140,7 @@
                                 AutomationProperties.Name="Build Release">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#x25B6;" Style="{StaticResource GlyphStyle}" Foreground="White" FontSize="13" Margin="0,0,9,0" />
-                                <TextBlock Text="Build Release" Foreground="White" FontWeight="Medium" FontSize="14" />
+                                <AccessText Text="Build _Release" Foreground="White" FontWeight="Medium" FontSize="14" />
                             </StackPanel>
                         </Button>
                         <TextBlock Text="{Binding BuildBlockedReason}" Foreground="{StaticResource BadBrush}" FontSize="11.5"
