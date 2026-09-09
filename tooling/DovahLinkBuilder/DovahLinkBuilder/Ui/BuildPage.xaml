@@ -139,8 +139,8 @@
                                 Visibility="{Binding CanShowBuildActions, Converter={StaticResource BooleanToVisibilityConverter}}"
                                 AutomationProperties.Name="Build Release">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#x25B6;" Style="{StaticResource GlyphStyle}" Foreground="White" FontSize="13" Margin="0,0,9,0" />
-                                <AccessText Text="Build _Release" Foreground="White" FontWeight="Medium" FontSize="14" />
+                                <TextBlock Text="&#x25B6;" Style="{StaticResource GlyphStyle}" Foreground="{StaticResource TextOnAccentBrush}" FontSize="13" Margin="0,0,9,0" />
+                                <AccessText Text="Build _Release" Foreground="{StaticResource TextOnAccentBrush}" FontWeight="Medium" FontSize="14" />
                             </StackPanel>
                         </Button>
                         <TextBlock Text="{Binding BuildBlockedReason}" Foreground="{StaticResource BadBrush}" FontSize="11.5"
@@ -463,7 +463,7 @@
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
                                                                 <Setter Property="Text" Value="&#x25D0;" />
-                                                                <Setter Property="Foreground" Value="White" />
+                                                                <Setter Property="Foreground" Value="{StaticResource TextOnAccentBrush}" />
                                                             </DataTrigger>
                                                             <!-- Spins the Running glyph above only while the OS "Show animations in Windows" setting allows it. -->
                                                             <MultiDataTrigger>

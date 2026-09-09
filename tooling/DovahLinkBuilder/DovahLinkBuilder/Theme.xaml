@@ -12,7 +12,7 @@
     <SolidColorBrush x:Key="BorderStrongBrush" Color="#3A4150" />
     <SolidColorBrush x:Key="TextBrush" Color="#EEF1F5" />
     <SolidColorBrush x:Key="TextSecBrush" Color="#A1A8B5" />
-    <SolidColorBrush x:Key="TextMutedBrush" Color="#7D8592" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#848CA0" />
     <SolidColorBrush x:Key="AccentBrush" Color="#5B93FF" />
     <SolidColorBrush x:Key="AccentHoverBrush" Color="#4A83F2" />
     <SolidColorBrush x:Key="AccentBgBrush" Color="#1F5B93FF" />
@@ -26,6 +26,8 @@
     <SolidColorBrush x:Key="WarnBrush" Color="#F5B942" />
     <SolidColorBrush x:Key="WarnBgBrush" Color="#1AF5B942" />
     <SolidColorBrush x:Key="WarnBorderBrush" Color="#52F5B942" />
+    <!-- Text/glyph color for content placed directly on an accent-colored surface (for example the accent-filled primary button, or a Running stage badge). -->
+    <SolidColorBrush x:Key="TextOnAccentBrush" Color="White" />
 
     <!-- A slow, indefinite rotation applied to "spinner" glyphs while a stage is running. -->
     <Storyboard x:Key="SpinStoryboard">
@@ -126,7 +128,7 @@
     <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Background" Value="{StaticResource AccentBrush}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Foreground" Value="{StaticResource TextOnAccentBrush}" />
         <Setter Property="FontSize" Value="14" />
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="Padding" Value="13" />
