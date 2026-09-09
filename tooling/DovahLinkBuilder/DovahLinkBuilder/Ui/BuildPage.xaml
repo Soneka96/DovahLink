@@ -6,6 +6,31 @@
         <TextBlock Text="{Binding BuildSummaryText}" FontSize="16" FontWeight="Bold" />
         <CheckBox Content="Clean build" IsChecked="{Binding IsCleanBuild}" IsEnabled="{Binding CanBuild}" Margin="0,12,0,0" />
 
+        <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasGitBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="#DFF5E1" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsGitReady}" Value="False">
+                            <Setter Property="Background" Value="#FFF4D6" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <StackPanel>
+                <TextBlock Text="{Binding GitBannerLine1}" />
+                <TextBlock Text="{Binding GitBannerLine2}"
+                           Margin="0,2,0,0"
+                           Visibility="{Binding HasGitBannerLine2, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <Expander Header="See details" Margin="0,4,0,0">
+                    <StackPanel Margin="0,4,0,0">
+                        <TextBlock Text="{Binding GitBranch, StringFormat='Branch: {0}'}" />
+                        <TextBlock Text="{Binding GitCommitSha, StringFormat='Commit: {0}'}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Expander>
+            </StackPanel>
+        </Border>
+
         <TextBlock Text="{Binding BuildBlockedReason}"
                    Foreground="DarkOrange"
                    Margin="0,12,0,0"
@@ -122,5 +147,30 @@
                 </ItemsControl>
             </StackPanel>
         </Expander>
+
+        <TextBlock Text="{Binding FooterStatusText}" FontWeight="Bold" Margin="0,16,0,0">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="ForestGreen" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasBuildBlockedReason}" Value="True">
+                            <Setter Property="Foreground" Value="DarkOrange" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Cancelled}">
+                            <Setter Property="Foreground" Value="DarkOrange" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Failed}">
+                            <Setter Property="Foreground" Value="Crimson" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding LastOutcome}" Value="{x:Static app:BuildHistoryResult.Succeeded}">
+                            <Setter Property="Foreground" Value="ForestGreen" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsBuilding}" Value="True">
+                            <Setter Property="Foreground" Value="DodgerBlue" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
     </StackPanel>
 </UserControl>

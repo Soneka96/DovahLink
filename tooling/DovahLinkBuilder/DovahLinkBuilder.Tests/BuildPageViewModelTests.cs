@@ -890,6 +890,196 @@ public sealed class BuildPageViewModelTests
         await originalBuildTask;
     }
 
+    /// <summary>Reports no git banner before any check has loaded.</summary>
+    [Fact]
+    public void HasGitBannerIsFalseBeforeInitialization()
+    {
+        var viewModel = BuildViewModel();
+
+        Assert.False(viewModel.HasGitBanner);
+        Assert.Null(viewModel.GitBannerLine1);
+        Assert.False(viewModel.IsGitReady);
+        Assert.False(viewModel.HasGitBannerLine2);
+    }
+
+    /// <summary>Reports no git banner when git status cannot be determined, since that failure is already surfaced via <see cref="BuildPageViewModel.BuildBlockedReason"/>.</summary>
+    [Fact]
+    public async Task HasGitBannerIsFalseWhenGitStatusCannotBeDetermined()
+    {
+        var gitStatusService = new FakeGitStatusService { ThrownException = new InvalidOperationException("not a git repository") };
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.False(viewModel.HasGitBanner);
+        Assert.Null(viewModel.GitBannerLine1);
+        Assert.False(viewModel.IsGitReady);
+        Assert.False(viewModel.HasGitBannerLine2);
+    }
+
+    /// <summary>Reports the correct one- or two-line git banner and readiness for every working-tree/remote-sync combination (correction #1).</summary>
+    /// <param name="workingTreeState">The reported working tree state.</param>
+    /// <param name="remoteSyncState">The reported remote sync state.</param>
+    /// <param name="expectedLine1">The expected first banner line.</param>
+    /// <param name="expectedLine2">The expected second banner line, or <see langword="null"/> when the banner is one line.</param>
+    /// <param name="expectedIsReady">Whether this combination represents the fully-ready state.</param>
+    [Theory]
+    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.Pushed, "⚠ Uncommitted changes", null, false)]
+    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.NotPushed, "⚠ Uncommitted changes", null, false)]
+    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.CouldNotVerify, "⚠ Uncommitted changes", null, false)]
+    [InlineData(WorkingTreeState.Clean, RemoteSyncState.NotPushed, "⚠ Unpushed commits", null, false)]
+    [InlineData(WorkingTreeState.Clean, RemoteSyncState.CouldNotVerify, "✓ All local changes are committed", "⚠ Remote status could not be confirmed", false)]
+    [InlineData(WorkingTreeState.Clean, RemoteSyncState.Pushed, "✓ Ready to build", null, true)]
+    public async Task InitializeAsyncReportsTheGitBannerForEachStateCombination(
+        WorkingTreeState workingTreeState, RemoteSyncState remoteSyncState, string expectedLine1, string? expectedLine2, bool expectedIsReady)
+    {
+        var gitStatusService = new FakeGitStatusService
+        {
+            Status = new GitSourceStatus("main", workingTreeState, remoteSyncState, "abc123"),
+        };
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.True(viewModel.HasGitBanner);
+        Assert.Equal(expectedLine1, viewModel.GitBannerLine1);
+        Assert.Equal(expectedLine2, viewModel.GitBannerLine2);
+        Assert.Equal(expectedLine2 is not null, viewModel.HasGitBannerLine2);
+        Assert.Equal(expectedIsReady, viewModel.IsGitReady);
+    }
+
+    /// <summary>Exposes the branch and full commit SHA for "See details" -- never shown in the main banner (correction #1).</summary>
+    [Fact]
+    public async Task InitializeAsyncExposesBranchAndCommitShaForSeeDetails()
+    {
+        var gitStatusService = new FakeGitStatusService
+        {
+            Status = new GitSourceStatus("feature/x", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abcdef1234567890"),
+        };
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal("feature/x", viewModel.GitBranch);
+        Assert.Equal("abcdef1234567890", viewModel.GitCommitSha);
+        Assert.DoesNotContain("abcdef1234567890", viewModel.GitBannerLine1!);
+    }
+
+    /// <summary>Reports "Environment incomplete" before preflight and git status have finished loading.</summary>
+    [Fact]
+    public void FooterStatusTextIsEnvironmentIncompleteBeforeInitialization()
+    {
+        var viewModel = BuildViewModel();
+
+        Assert.Equal("Environment incomplete", viewModel.FooterStatusText);
+    }
+
+    /// <summary>Reports "Ready" once every required check passes and no build has run yet.</summary>
+    [Fact]
+    public async Task FooterStatusTextIsReadyWhenEverythingPasses()
+    {
+        var viewModel = BuildViewModel();
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal("Ready", viewModel.FooterStatusText);
+    }
+
+    /// <summary>Reports "Environment incomplete" when a required check is missing.</summary>
+    [Fact]
+    public async Task FooterStatusTextIsEnvironmentIncompleteWhenARequiredCheckIsMissing()
+    {
+        var preflightService = new FakePreflightService
+        {
+            Results = [new ToolchainCheckResult("CMake", ToolchainAvailability.Missing, null, "not on PATH")],
+        };
+        var viewModel = BuildViewModel(preflightService: preflightService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal("Environment incomplete", viewModel.FooterStatusText);
+    }
+
+    /// <summary>Reports "Building" while a build is running, regardless of the environment or last outcome.</summary>
+    [Fact]
+    public async Task FooterStatusTextIsBuildingDuringABuild()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+
+        Assert.Equal("Building", viewModel.FooterStatusText);
+
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+    }
+
+    /// <summary>Reports "Complete" after a successful build.</summary>
+    [Fact]
+    public async Task FooterStatusTextIsCompleteAfterASuccessfulBuild()
+    {
+        var viewModel = BuildViewModel();
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal("Complete", viewModel.FooterStatusText);
+    }
+
+    /// <summary>Reports "Failed" after a failed build.</summary>
+    [Fact]
+    public async Task FooterStatusTextIsFailedAfterAFailedBuild()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("the adapter build failed") };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal("Failed", viewModel.FooterStatusText);
+    }
+
+    /// <summary>Reports "Cancelled" after a cancelled build.</summary>
+    [Fact]
+    public async Task FooterStatusTextIsCancelledAfterACancelledBuild()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal("Cancelled", viewModel.FooterStatusText);
+    }
+
+    /// <summary>
+    /// Keeps showing the last build's outcome rather than falling back to "Environment incomplete"
+    /// when a required check goes missing only after that build already finished (for example, a tool
+    /// was uninstalled between builds).
+    /// </summary>
+    [Fact]
+    public async Task FooterStatusTextStaysCompleteWhenARequiredCheckBecomesMissingAfterTheBuildFinished()
+    {
+        var preflightService = new FakePreflightService();
+        var viewModel = BuildViewModel(preflightService: preflightService);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        Assert.Equal("Complete", viewModel.FooterStatusText);
+
+        preflightService.Results = [new ToolchainCheckResult("CMake", ToolchainAvailability.Missing, null, "not on PATH")];
+        await viewModel.InitializeAsync();
+
+        Assert.True(viewModel.HasBuildBlockedReason);
+        Assert.Equal("Complete", viewModel.FooterStatusText);
+    }
+
     /// <summary>Reports every required build tool as available, for a fake that does not otherwise override <see cref="FakePreflightService.Results"/>.</summary>
     private sealed class FakePreflightService : IPreflightService
     {

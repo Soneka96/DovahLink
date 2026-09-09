@@ -194,6 +194,7 @@ public sealed class BuildPageViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(HasResult));
                 OnPropertyChanged(nameof(ResultBannerText));
+                OnPropertyChanged(nameof(FooterStatusText));
             }
         }
     }
@@ -256,6 +257,10 @@ public sealed class BuildPageViewModel : ObservableObject
         {
             gitStatus = null;
             return exception.Message;
+        }
+        finally
+        {
+            NotifyGitStatusChanged();
         }
     }
 
@@ -444,6 +449,7 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(CanBuild));
         OnPropertyChanged(nameof(HasBuildBlockedReason));
         OnPropertyChanged(nameof(CanShowBuildActions));
+        OnPropertyChanged(nameof(FooterStatusText));
         BuildCommand.RaiseCanExecuteChanged();
         ConfirmBuildCommand.RaiseCanExecuteChanged();
         CancelConfirmationCommand.RaiseCanExecuteChanged();
@@ -608,5 +614,73 @@ public sealed class BuildPageViewModel : ObservableObject
             // Opening the output folder is a convenience action; a failure here must not affect the
             // build's own reported outcome.
         }
+    }
+
+    /// <summary>Gets whether the git status banner has anything to show; false while git status has not loaded or could not be determined.</summary>
+    public bool HasGitBanner => gitStatus is not null;
+
+    /// <summary>
+    /// Gets the git status banner's first line, reflecting one of the four real states (correction #1):
+    /// dirty working tree, unpushed commits, committed-but-unverified, or fully ready. Never claims
+    /// "pushed" from a stale local tracking ref -- only after <see cref="gitStatusService"/>'s own
+    /// successful remote check.
+    /// </summary>
+    public string? GitBannerLine1 => gitStatus switch
+    {
+        null => null,
+        { WorkingTreeState: WorkingTreeState.Dirty } => "⚠ Uncommitted changes",
+        { RemoteSyncState: RemoteSyncState.NotPushed } => "⚠ Unpushed commits",
+        { RemoteSyncState: RemoteSyncState.CouldNotVerify } => "✓ All local changes are committed",
+        { RemoteSyncState: RemoteSyncState.Pushed } => "✓ Ready to build",
+        _ => null,
+    };
+
+    /// <summary>
+    /// Gets the git status banner's second line, present only for the "committed but remote unverified"
+    /// state -- never collapsed into a single contradictory "pushed" claim (correction #1).
+    /// </summary>
+    public string? GitBannerLine2 => gitStatus is { WorkingTreeState: WorkingTreeState.Clean, RemoteSyncState: RemoteSyncState.CouldNotVerify }
+        ? "⚠ Remote status could not be confirmed"
+        : null;
+
+    /// <summary>Gets whether <see cref="GitBannerLine2"/> currently has a value.</summary>
+    public bool HasGitBannerLine2 => GitBannerLine2 is not null;
+
+    /// <summary>Gets whether the git banner represents the fully-ready state: a clean tree, verified pushed.</summary>
+    public bool IsGitReady => gitStatus is { WorkingTreeState: WorkingTreeState.Clean, RemoteSyncState: RemoteSyncState.Pushed };
+
+    /// <summary>Gets the current branch name, shown only under "See details" -- never a raw commit SHA in the normal UI (correction #1).</summary>
+    public string? GitBranch => gitStatus?.Branch;
+
+    /// <summary>Gets the full current commit SHA, shown only under "See details" (correction #1).</summary>
+    public string? GitCommitSha => gitStatus?.CommitSha;
+
+    /// <summary>
+    /// Gets the footer status text reflecting the Build page's real current state (correction #7):
+    /// Building while a build runs; Failed/Cancelled/Complete for the most recent finished build;
+    /// "Environment incomplete" while idle with a missing required check; Ready only while idle with
+    /// everything passing. Never a static "Ready".
+    /// </summary>
+    public string FooterStatusText => (IsBuilding, LastOutcome, HasBuildBlockedReason) switch
+    {
+        (true, _, _) => "Building",
+        (false, BuildHistoryResult.Failed, _) => "Failed",
+        (false, BuildHistoryResult.Cancelled, _) => "Cancelled",
+        (false, BuildHistoryResult.Succeeded, _) => "Complete",
+        (false, null, true) => "Environment incomplete",
+        (false, null, false) => "Ready",
+        _ => "Ready",
+    };
+
+    /// <summary>Notifies bound properties that summarize the current git status.</summary>
+    private void NotifyGitStatusChanged()
+    {
+        OnPropertyChanged(nameof(HasGitBanner));
+        OnPropertyChanged(nameof(GitBannerLine1));
+        OnPropertyChanged(nameof(GitBannerLine2));
+        OnPropertyChanged(nameof(HasGitBannerLine2));
+        OnPropertyChanged(nameof(IsGitReady));
+        OnPropertyChanged(nameof(GitBranch));
+        OnPropertyChanged(nameof(GitCommitSha));
     }
 }
