@@ -22,6 +22,9 @@ public interface IEnvironmentPageViewModel : INotifyPropertyChanged
     /// <summary>Gets the git status failure message, or <see langword="null"/> when git status loaded successfully.</summary>
     string? GitStatusError { get; }
 
+    /// <summary>Gets the most recent preflight-and-git-status refresh failure message, or <see langword="null"/> when the last refresh succeeded.</summary>
+    string? RefreshError { get; }
+
     /// <summary>Gets whether a check is currently in progress, reflecting the shared environment store's own refresh state.</summary>
     bool IsChecking { get; }
 
@@ -92,6 +95,9 @@ public sealed class EnvironmentPageViewModel : ObservableObject, IEnvironmentPag
     }
 
     /// <inheritdoc/>
+    public string? RefreshError => environmentStore.RefreshError;
+
+    /// <inheritdoc/>
     public bool IsChecking => environmentStore.IsRefreshing;
 
     /// <inheritdoc/>
@@ -126,6 +132,7 @@ public sealed class EnvironmentPageViewModel : ObservableObject, IEnvironmentPag
     private void OnEnvironmentStoreChanged(object? sender, PropertyChangedEventArgs e)
     {
         Checks = environmentStore.PreflightResults.Select(result => new EnvironmentCheckViewModel(result)).ToList();
+        OnPropertyChanged(nameof(RefreshError));
         OnPropertyChanged(nameof(IsChecking));
         RecheckCommand.RaiseCanExecuteChanged();
     }

@@ -184,6 +184,9 @@ public sealed class EnvironmentPageViewModelTests
         /// <summary>Gets or sets a signal <see cref="CheckAllAsync"/> awaits before completing, or <see langword="null"/> to complete immediately.</summary>
         public TaskCompletionSource? PauseSignal { get; set; }
 
+        /// <summary>Gets or sets the exception <see cref="CheckAllAsync"/> throws instead of returning <see cref="Results"/>, or <see langword="null"/> to succeed normally.</summary>
+        public Exception? ExceptionToThrow { get; set; }
+
         /// <summary>Gets the number of times <see cref="CheckAllAsync"/> was called.</summary>
         public int CallCount { get; private set; }
 
@@ -194,6 +197,11 @@ public sealed class EnvironmentPageViewModelTests
             if (PauseSignal is not null)
             {
                 await PauseSignal.Task;
+            }
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
             }
 
             return Results;
@@ -229,5 +237,18 @@ public sealed class EnvironmentPageViewModelTests
         /// <inheritdoc/>
         public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
             ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
+    }
+
+    /// <summary>Reports a refresh failure message instead of throwing when preflight cannot be checked.</summary>
+    [Fact]
+    public async Task InitializeAsyncReportsRefreshErrorInsteadOfThrowing()
+    {
+        var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
+        var viewModel = BuildViewModel(preflightService: preflightService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Empty(viewModel.Checks);
+        Assert.Equal("disk full", viewModel.RefreshError);
     }
 }

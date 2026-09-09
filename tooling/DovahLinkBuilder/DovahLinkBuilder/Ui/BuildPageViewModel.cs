@@ -602,13 +602,21 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// active repository just changed -- this reports the same "checking" reason construction starts
     /// in, regardless of what the last-known results say: those results may still describe the
     /// repository that was active before the refresh started, so a build must not read them as if they
-    /// were already valid for the current one.
+    /// were already valid for the current one. A failed refresh leaves <see cref="PreflightResults"/>
+    /// empty rather than describing any tool as unavailable, so that case is checked explicitly --
+    /// otherwise it would fall through to the checks below as if the environment were simply unchecked.
     /// </summary>
     private void UpdateBuildBlockedReason()
     {
         if (environmentStore.IsRefreshing)
         {
             BuildBlockedReason = CheckingEnvironmentReason;
+            return;
+        }
+
+        if (environmentStore.RefreshError is { } refreshError)
+        {
+            BuildBlockedReason = $"Could not check the environment: {refreshError}";
             return;
         }
 

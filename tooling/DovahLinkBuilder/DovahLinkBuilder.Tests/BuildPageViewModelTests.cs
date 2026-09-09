@@ -1931,6 +1931,9 @@ public sealed class BuildPageViewModelTests
         /// <summary>Gets or sets a signal <see cref="CheckAllAsync"/> awaits before completing, or <see langword="null"/> to complete immediately.</summary>
         public TaskCompletionSource? PauseSignal { get; set; }
 
+        /// <summary>Gets or sets the exception <see cref="CheckAllAsync"/> throws instead of returning <see cref="Results"/>, or <see langword="null"/> to succeed normally.</summary>
+        public Exception? ExceptionToThrow { get; set; }
+
         /// <summary>Gets every <paramref name="startPath"/> a caller has requested a check for, in call order.</summary>
         public List<string> CapturedStartPaths { get; } = [];
 
@@ -1941,6 +1944,11 @@ public sealed class BuildPageViewModelTests
             if (PauseSignal is not null)
             {
                 await PauseSignal.Task;
+            }
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
             }
 
             return Results;
@@ -2102,5 +2110,50 @@ public sealed class BuildPageViewModelTests
 
         /// <inheritdoc/>
         public void Save(BuilderSettings settings) => Settings = settings;
+    }
+
+    /// <summary>
+    /// Blocks building and reports the failure when the environment refresh itself fails, rather than
+    /// falling through as if the environment were simply unchecked -- a failed refresh leaves
+    /// PreflightResults empty, which names no specific tool as unavailable.
+    /// </summary>
+    [Fact]
+    public async Task InitializeAsyncBlocksBuildingWhenTheEnvironmentRefreshFails()
+    {
+        var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
+        var viewModel = BuildViewModel(preflightService: preflightService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.False(viewModel.CanBuild);
+        Assert.Contains("disk full", viewModel.BuildBlockedReason!);
+    }
+
+    /// <summary>Recovers once a subsequent refresh succeeds after an earlier one failed, clearing the reported reason and allowing the build to proceed again.</summary>
+    [Fact]
+    public async Task RecoversOnceARefreshSucceedsAfterAnEarlierOneFailed()
+    {
+        var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var viewModel = new BuildPageViewModel(
+            environmentStore,
+            gitStatusStore,
+            new FakeAdapterHostBuildCoordinator(),
+            new FakeBuildHistoryStore(),
+            new FakeSettingsStore(),
+            _ => { },
+            _ => { },
+            repositoryContext,
+            new OutputPathContext(null));
+        await viewModel.InitializeAsync();
+        Assert.False(viewModel.CanBuild);
+
+        preflightService.ExceptionToThrow = null;
+        await environmentStore.RefreshAsync();
+
+        Assert.True(viewModel.CanBuild);
+        Assert.Null(viewModel.BuildBlockedReason);
     }
 }
