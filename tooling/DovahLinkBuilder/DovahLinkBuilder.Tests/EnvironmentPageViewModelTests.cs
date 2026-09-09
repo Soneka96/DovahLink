@@ -129,6 +129,30 @@ public sealed class EnvironmentPageViewModelTests
         Assert.True(viewModel.RecheckCommand.CanExecute(null));
     }
 
+    /// <summary>
+    /// Disables Recheck during a refresh the shared environment store started on its own -- because
+    /// the active repository changed -- not just one this page's own Recheck command triggered.
+    /// </summary>
+    [Fact]
+    public async Task RecheckCommandIsDisabledDuringARepositoryChangeTriggeredRefresh()
+    {
+        var pauseSignal = new TaskCompletionSource();
+        var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
+        var repositoryContext = new RepositoryContext(@"C:\repo-a");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var viewModel = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
+
+        repositoryContext.SetRepositoryRoot(@"C:\repo-b");
+
+        Assert.False(viewModel.RecheckCommand.CanExecute(null));
+
+        pauseSignal.SetResult();
+        await environmentStore.RefreshAsync();
+
+        Assert.True(viewModel.RecheckCommand.CanExecute(null));
+    }
+
     /// <summary>Does nothing when Recheck is executed directly while already checking, bypassing the bound command's own CanExecute gate.</summary>
     [Fact]
     public async Task RecheckCommandDoesNothingWhileAlreadyChecking()

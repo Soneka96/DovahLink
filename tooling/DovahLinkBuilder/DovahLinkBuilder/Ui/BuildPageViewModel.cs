@@ -379,9 +379,22 @@ public sealed class BuildPageViewModel : ObservableObject
         UpdateBuildBlockedReason();
     }
 
-    /// <summary>Recomputes <see cref="BuildBlockedReason"/> from the latest <see cref="PreflightResults"/> and git status.</summary>
+    /// <summary>
+    /// Recomputes <see cref="BuildBlockedReason"/> from the latest <see cref="PreflightResults"/> and
+    /// git status. While <see cref="environmentStore"/> is mid-refresh -- for example because the
+    /// active repository just changed -- this reports the same "checking" reason construction starts
+    /// in, regardless of what the last-known results say: those results may still describe the
+    /// repository that was active before the refresh started, so a build must not read them as if they
+    /// were already valid for the current one.
+    /// </summary>
     private void UpdateBuildBlockedReason()
     {
+        if (environmentStore.IsRefreshing)
+        {
+            BuildBlockedReason = CheckingEnvironmentReason;
+            return;
+        }
+
         List<string> unavailableTools = preflightResults
             .Where(result => result.Availability != ToolchainAvailability.Found)
             .Select(result => result.ToolName)

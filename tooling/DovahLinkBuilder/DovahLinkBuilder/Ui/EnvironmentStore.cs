@@ -68,6 +68,7 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
         this.preflightService = preflightService;
         this.gitStatusStore = gitStatusStore;
         this.repositoryContext = repositoryContext;
+        repositoryContext.PropertyChanged += OnRepositoryContextChanged;
     }
 
     /// <inheritdoc/>
@@ -96,19 +97,47 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
         return inFlightRefresh;
     }
 
-    /// <summary>Runs the actual preflight-and-git-status refresh, shared by every concurrent <see cref="RefreshAsync"/> caller.</summary>
+    /// <summary>
+    /// Runs the actual preflight-and-git-status refresh, shared by every concurrent
+    /// <see cref="RefreshAsync"/> caller. Loops until a full check completes for whichever repository
+    /// root was current when that check started: the repository can change again while a check is
+    /// already running, and a concurrent <see cref="RefreshAsync"/> call made after that change
+    /// coalesces onto this same running refresh rather than starting its own -- without this loop, a
+    /// rapid second change could leave the store permanently reporting a stale root's results, since
+    /// nothing else would ever check the newer one.
+    /// </summary>
     /// <param name="cancellationToken">The token used to cancel the refresh.</param>
     private async Task RunRefreshAsync(CancellationToken cancellationToken)
     {
         IsRefreshing = true;
         try
         {
-            PreflightResults = await preflightService.CheckAllAsync(repositoryContext.RepositoryRoot, cancellationToken);
-            await gitStatusStore.RefreshAsync(cancellationToken);
+            string rootCheckedThisPass;
+            do
+            {
+                rootCheckedThisPass = repositoryContext.RepositoryRoot;
+                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, cancellationToken);
+                await gitStatusStore.RefreshAsync(cancellationToken);
+            }
+            while (rootCheckedThisPass != repositoryContext.RepositoryRoot);
         }
         finally
         {
             IsRefreshing = false;
         }
+    }
+
+    /// <summary>
+    /// Starts a fresh refresh whenever the active repository changes, so preflight and git status
+    /// become valid for the new repository instead of continuing to reflect the one that was active
+    /// when they were last checked. Discarded the same way the application's own startup refresh is:
+    /// every failure mode this refresh can reach is already handled inside <see cref="RunRefreshAsync"/>,
+    /// so nothing here would be silently lost.
+    /// </summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused change details; the context reports only one property.</param>
+    private void OnRepositoryContextChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        _ = RefreshAsync();
     }
 }

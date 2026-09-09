@@ -66,6 +66,51 @@ public sealed class BuildPageViewModelTests
         Assert.NotNull(viewModel.BuildBlockedReason);
     }
 
+    /// <summary>
+    /// Blocks building for the entire duration of the refresh a repository change triggers, and never
+    /// lets a build attempt made during that window reach the coordinator with the previous root --
+    /// even though the last-known preflight and git results (still describing the old repository)
+    /// have not been overwritten yet when the change first happens.
+    /// </summary>
+    [Fact]
+    public async Task ChangingTheRepositoryBlocksBuildingUntilTheRefreshForTheNewRootCompletes()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo-a");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = new BuildPageViewModel(
+            environmentStore,
+            gitStatusStore,
+            buildCoordinator,
+            new FakeBuildHistoryStore(),
+            new FakeSettingsStore(),
+            _ => { },
+            _ => { },
+            repositoryContext);
+        await viewModel.InitializeAsync();
+        Assert.True(viewModel.CanBuild);
+
+        var pauseSignal = new TaskCompletionSource();
+        preflightService.PauseSignal = pauseSignal;
+        repositoryContext.SetRepositoryRoot(@"C:\repo-b");
+
+        Assert.False(viewModel.CanBuild);
+        viewModel.BuildCommand.Execute(null);
+        Assert.Null(viewModel.RunningBuildTask);
+        Assert.Null(buildCoordinator.LastRequest);
+
+        // Coalesces onto the same in-flight refresh the repository change itself already started,
+        // giving the test a handle to await it without EnvironmentStore exposing one of its own.
+        Task pendingRefresh = environmentStore.RefreshAsync();
+        pauseSignal.SetResult();
+        await pendingRefresh;
+
+        Assert.True(viewModel.CanBuild);
+        Assert.Equal(@"C:\repo-b", preflightService.CapturedStartPaths[^1]);
+    }
+
     /// <summary>Allows building once every required check passes and git status is clean and pushed.</summary>
     [Fact]
     public async Task InitializeAsyncAllowsBuildingWhenEverythingPasses()
@@ -1458,9 +1503,23 @@ public sealed class BuildPageViewModelTests
         /// </summary>
         public IReadOnlyList<ToolchainCheckResult> Results { get; set; } = BuildAllFoundResults();
 
+        /// <summary>Gets or sets a signal <see cref="CheckAllAsync"/> awaits before completing, or <see langword="null"/> to complete immediately.</summary>
+        public TaskCompletionSource? PauseSignal { get; set; }
+
+        /// <summary>Gets every <paramref name="startPath"/> a caller has requested a check for, in call order.</summary>
+        public List<string> CapturedStartPaths { get; } = [];
+
         /// <inheritdoc/>
-        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Results);
+        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
+        {
+            CapturedStartPaths.Add(startPath);
+            if (PauseSignal is not null)
+            {
+                await PauseSignal.Task;
+            }
+
+            return Results;
+        }
 
         /// <summary>Builds one Found result per required tool name.</summary>
         private static IReadOnlyList<ToolchainCheckResult> BuildAllFoundResults() =>

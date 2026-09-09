@@ -83,6 +83,49 @@ public sealed class EnvironmentStoreTests
         Assert.False(store.IsRefreshing);
     }
 
+    /// <summary>Starts a fresh refresh whenever the shared repository context's root changes.</summary>
+    [Fact]
+    public void ChangingTheRepositoryContextStartsAFreshRefresh()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo-a");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        _ = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+
+        repositoryContext.SetRepositoryRoot(@"C:\repo-b");
+
+        Assert.Equal(@"C:\repo-b", Assert.Single(preflightService.CapturedStartPaths));
+    }
+
+    /// <summary>
+    /// Eventually settles on the latest repository root even when it changes again while a refresh for
+    /// an earlier change is still running: the second change's own RefreshAsync call coalesces onto
+    /// that already-running refresh rather than starting a second one, so nothing else would ever check
+    /// the newer root unless the running refresh itself catches up before reporting done.
+    /// </summary>
+    [Fact]
+    public async Task RefreshEventuallyChecksTheLatestRootWhenTheRepositoryChangesAgainWhileARefreshIsInProgress()
+    {
+        var pauseSignal = new TaskCompletionSource();
+        var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
+        var repositoryContext = new RepositoryContext(@"C:\repo-a");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+
+        repositoryContext.SetRepositoryRoot(@"C:\repo-b");
+        Assert.True(store.IsRefreshing);
+
+        // Changes again while the repo-b refresh above is still paused mid-flight; this RefreshAsync
+        // call coalesces onto that same in-flight refresh rather than starting an independent one.
+        repositoryContext.SetRepositoryRoot(@"C:\repo-c");
+
+        pauseSignal.SetResult();
+        await store.RefreshAsync();
+
+        Assert.False(store.IsRefreshing);
+        Assert.Equal(@"C:\repo-c", preflightService.CapturedStartPaths[^1]);
+    }
+
     /// <summary>Raises PropertyChanged for PreflightResults and IsRefreshing as a refresh starts and finishes.</summary>
     [Fact]
     public async Task RefreshAsyncRaisesPropertyChangedForPreflightResultsAndIsRefreshing()
@@ -108,10 +151,14 @@ public sealed class EnvironmentStoreTests
         /// <summary>Gets the number of times <see cref="CheckAllAsync"/> was called.</summary>
         public int CallCount { get; private set; }
 
+        /// <summary>Gets every <paramref name="startPath"/> a caller has requested a check for, in call order.</summary>
+        public List<string> CapturedStartPaths { get; } = [];
+
         /// <inheritdoc/>
         public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
         {
             CallCount++;
+            CapturedStartPaths.Add(startPath);
             if (PauseSignal is not null)
             {
                 await PauseSignal.Task;
