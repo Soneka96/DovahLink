@@ -68,6 +68,7 @@ public sealed class BuildPageViewModel : ObservableObject
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
         CancelCommand = new RelayCommand(OnCancel, () => IsBuilding);
+        Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
     }
 
     /// <summary>Gets the build profile the Builder currently supports.</summary>
@@ -267,13 +268,14 @@ public sealed class BuildPageViewModel : ObservableObject
         IsBuilding = true;
         LastOutcome = null;
         LastOutcomeMessage = null;
+        ResetStages();
         buildCancellation = new CancellationTokenSource();
         try
         {
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
                 new AdapterHostBuildRequest(repositoryRoot),
                 onOutput: null,
-                onStage: null,
+                onStage: OnBuildStageEvent,
                 buildCancellation.Token);
             LastOutcome = BuildHistoryResult.Succeeded;
             LastOutcomeMessage = result.ArchivePath;
@@ -305,5 +307,44 @@ public sealed class BuildPageViewModel : ObservableObject
         ConfirmBuildCommand.RaiseCanExecuteChanged();
         CancelConfirmationCommand.RaiseCanExecuteChanged();
         CancelCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>Gets the pipeline's stages in order, one segment per <see cref="BuildStage"/> value.</summary>
+    public IReadOnlyList<BuildStageViewModel> Stages { get; }
+
+    /// <summary>Gets the number of stages that have actually succeeded in the current or most recent build.</summary>
+    public int CompletedStageCount => Stages.Count(stage => stage.Status == BuildStageStatus.Succeeded);
+
+    /// <summary>
+    /// Gets an honest "Stage N of 8" summary reflecting <see cref="CompletedStageCount"/> exactly --
+    /// never an invented percentage (correction #3).
+    /// </summary>
+    public string StageProgressText => $"Stage {CompletedStageCount} of {Stages.Count}";
+
+    /// <summary>Resets every stage segment back to Pending before a new build starts.</summary>
+    private void ResetStages()
+    {
+        foreach (BuildStageViewModel stage in Stages)
+        {
+            stage.Reset();
+        }
+
+        NotifyStageProgressChanged();
+    }
+
+    /// <summary>Applies one reported stage transition to its matching segment.</summary>
+    /// <param name="stageEvent">The reported transition.</param>
+    private void OnBuildStageEvent(BuildStageEvent stageEvent)
+    {
+        BuildStageViewModel? stage = Stages.FirstOrDefault(candidate => candidate.Stage == stageEvent.Stage);
+        stage?.Apply(stageEvent);
+        NotifyStageProgressChanged();
+    }
+
+    /// <summary>Notifies bound properties that summarize the stage segments as a whole.</summary>
+    private void NotifyStageProgressChanged()
+    {
+        OnPropertyChanged(nameof(CompletedStageCount));
+        OnPropertyChanged(nameof(StageProgressText));
     }
 }

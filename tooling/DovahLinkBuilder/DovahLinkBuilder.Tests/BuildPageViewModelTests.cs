@@ -253,6 +253,128 @@ public sealed class BuildPageViewModelTests
         Assert.Contains("Python", viewModel.BuildBlockedReason!);
     }
 
+    /// <summary>Applies reported stage transitions to their matching segments and updates the honest progress count.</summary>
+    [Fact]
+    public async Task BuildCommandAppliesReportedStageTransitionsToTheMatchingSegments()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator
+        {
+            StageEventsToEmit =
+            [
+                new BuildStageEvent(BuildStage.ValidateRepository, BuildStageStatus.Running),
+                new BuildStageEvent(BuildStage.ValidateRepository, BuildStageStatus.Succeeded, TimeSpan.FromSeconds(1)),
+                new BuildStageEvent(BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                new BuildStageEvent(BuildStage.ConfigureAdapter, BuildStageStatus.Succeeded, TimeSpan.FromSeconds(2)),
+            ],
+        };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildStageStatus.Succeeded, viewModel.Stages[0].Status);
+        Assert.Equal(BuildStageStatus.Succeeded, viewModel.Stages[1].Status);
+        Assert.Equal(BuildStageStatus.Pending, viewModel.Stages[2].Status);
+        Assert.Equal(2, viewModel.CompletedStageCount);
+        Assert.Equal("Stage 2 of 8", viewModel.StageProgressText);
+    }
+
+    /// <summary>Marks a failed stage as Failed rather than Succeeded, and does not count it toward the completed total.</summary>
+    [Fact]
+    public async Task BuildCommandMarksAFailedStageWithoutCountingItAsCompleted()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator
+        {
+            StageEventsToEmit =
+            [
+                new BuildStageEvent(BuildStage.ValidateRepository, BuildStageStatus.Running),
+                new BuildStageEvent(BuildStage.ValidateRepository, BuildStageStatus.Succeeded, TimeSpan.FromSeconds(1)),
+                new BuildStageEvent(BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                new BuildStageEvent(BuildStage.ConfigureAdapter, BuildStageStatus.Failed, TimeSpan.FromSeconds(1)),
+            ],
+            ThrownException = new InvalidOperationException("the adapter build failed"),
+        };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildStageStatus.Succeeded, viewModel.Stages[0].Status);
+        Assert.Equal(BuildStageStatus.Failed, viewModel.Stages[1].Status);
+        Assert.Equal(1, viewModel.CompletedStageCount);
+    }
+
+    /// <summary>Resets every stage back to Pending at the start of a new build, discarding the previous run's progress.</summary>
+    [Fact]
+    public async Task StartingANewBuildResetsStagesFromThePreviousRun()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator
+        {
+            StageEventsToEmit = [new BuildStageEvent(BuildStage.ValidateRepository, BuildStageStatus.Succeeded, TimeSpan.FromSeconds(1))],
+        };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        Assert.Equal(1, viewModel.CompletedStageCount);
+
+        buildCoordinator.StageEventsToEmit = [];
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildStageStatus.Pending, viewModel.Stages[0].Status);
+        Assert.Equal(0, viewModel.CompletedStageCount);
+    }
+
+    /// <summary>Reports zero completed stages and "Stage 0 of 8" before any build has run.</summary>
+    [Fact]
+    public void StageProgressStartsAtZeroOfEightBeforeAnyBuild()
+    {
+        var viewModel = BuildViewModel();
+
+        Assert.Equal(0, viewModel.CompletedStageCount);
+        Assert.Equal("Stage 0 of 8", viewModel.StageProgressText);
+    }
+
+    /// <summary>Reports all 8 stages completed and "Stage 8 of 8" once every stage has succeeded.</summary>
+    [Fact]
+    public async Task StageProgressReachesEightOfEightWhenEveryStageSucceeds()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator
+        {
+            StageEventsToEmit = Enum.GetValues<BuildStage>()
+                .Select(stage => new BuildStageEvent(stage, BuildStageStatus.Succeeded, TimeSpan.FromSeconds(1)))
+                .ToList(),
+        };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(8, viewModel.CompletedStageCount);
+        Assert.Equal("Stage 8 of 8", viewModel.StageProgressText);
+    }
+
+    /// <summary>Ignores a stage transition for a value outside the tracked pipeline stages instead of throwing.</summary>
+    [Fact]
+    public async Task BuildCommandIgnoresATransitionForAnUnrecognizedStage()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator
+        {
+            StageEventsToEmit = [new BuildStageEvent((BuildStage)(-1), BuildStageStatus.Succeeded, TimeSpan.FromSeconds(1))],
+        };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(0, viewModel.CompletedStageCount);
+    }
+
     /// <summary>Reports every required build tool as available, for a fake that does not otherwise override <see cref="FakePreflightService.Results"/>.</summary>
     private sealed class FakePreflightService : IPreflightService
     {
@@ -306,6 +428,13 @@ public sealed class BuildPageViewModelTests
         /// <summary>Gets the number of times <see cref="BuildAsync"/> was called.</summary>
         public int CallCount { get; private set; }
 
+        /// <summary>
+        /// Gets or sets the stage transitions <see cref="BuildAsync"/> reports through <c>onStage</c>
+        /// before returning or throwing. Mutable so a test can reconfigure it between two calls on the
+        /// same fake instance.
+        /// </summary>
+        public IReadOnlyList<BuildStageEvent> StageEventsToEmit { get; set; } = [];
+
         /// <inheritdoc/>
         public async Task<AdapterHostBuildResult> BuildAsync(
             AdapterHostBuildRequest request,
@@ -314,6 +443,11 @@ public sealed class BuildPageViewModelTests
             CancellationToken cancellationToken = default)
         {
             CallCount++;
+            foreach (BuildStageEvent stageEvent in StageEventsToEmit)
+            {
+                onStage?.Invoke(stageEvent);
+            }
+
             if (WaitForCancellation)
             {
                 await Task.Delay(Timeout.Infinite, cancellationToken);
