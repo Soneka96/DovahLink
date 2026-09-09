@@ -45,6 +45,46 @@ public sealed class SettingsPageViewModelTests
         Assert.Equal(@"D:\repo", store.Settings.RepositoryPath);
     }
 
+    /// <summary>Preserves fields this page does not itself track (the main window's saved geometry) across a save it does trigger.</summary>
+    [Fact]
+    public void SavingASettingsPageFieldPreservesUntrackedFields()
+    {
+        var store = new FakeSettingsStore
+        {
+            Settings = new BuilderSettings(WindowLeft: 120, WindowTop: 80, WindowWidth: 1024, WindowHeight: 768, WindowIsMaximized: true),
+        };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        viewModel.RepositoryPath = @"D:\repo";
+
+        Assert.Equal(@"D:\repo", store.Settings.RepositoryPath);
+        Assert.Equal(120, store.Settings.WindowLeft);
+        Assert.Equal(80, store.Settings.WindowTop);
+        Assert.Equal(1024, store.Settings.WindowWidth);
+        Assert.Equal(768, store.Settings.WindowHeight);
+        Assert.True(store.Settings.WindowIsMaximized);
+    }
+
+    /// <summary>Preserves fields this page does not itself track across a reset command's save, the same as an ordinary field change.</summary>
+    [Fact]
+    public void ResettingASettingsPageFieldPreservesUntrackedFields()
+    {
+        var store = new FakeSettingsStore
+        {
+            Settings = new BuilderSettings(RepositoryPath: @"D:\repo", WindowLeft: 120, WindowTop: 80, WindowWidth: 1024, WindowHeight: 768, WindowIsMaximized: true),
+        };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        viewModel.ResetRepositoryPathCommand.Execute(null);
+
+        Assert.Null(store.Settings.RepositoryPath);
+        Assert.Equal(120, store.Settings.WindowLeft);
+        Assert.Equal(80, store.Settings.WindowTop);
+        Assert.Equal(1024, store.Settings.WindowWidth);
+        Assert.Equal(768, store.Settings.WindowHeight);
+        Assert.True(store.Settings.WindowIsMaximized);
+    }
+
     /// <summary>Saves the updated settings immediately when the Skyrim install path changes.</summary>
     [Fact]
     public void SettingSkyrimInstallPathSavesImmediately()

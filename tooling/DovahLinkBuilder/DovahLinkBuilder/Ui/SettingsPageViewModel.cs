@@ -188,17 +188,24 @@ public sealed class SettingsPageViewModel : ObservableObject
     /// <summary>Gets the command that clears <see cref="OutputPath"/> back to auto-detection.</summary>
     public RelayCommand ResetOutputPathCommand { get; }
 
-    /// <summary>Persists the current settings.</summary>
+    /// <summary>
+    /// Persists the current settings, merged onto whatever is currently on disk rather than
+    /// constructed fresh -- this page tracks only the fields above, so building a new
+    /// <see cref="BuilderSettings"/> from just those would silently reset every field another page
+    /// owns (for example the main window's saved geometry) back to its default on every save here.
+    /// </summary>
     private void Save()
     {
-        settingsStore.Save(new BuilderSettings(
-            RepositoryPath,
-            SkyrimInstallPath,
-            OutputPath,
-            OpenOutputFolderAfterSuccessfulBuild,
-            AutoScrollLogs,
-            VerboseCommandOutput,
-            NotifyWhenBuildCompletes));
+        settingsStore.Save(settingsStore.Load() with
+        {
+            RepositoryPath = RepositoryPath,
+            SkyrimInstallPath = SkyrimInstallPath,
+            OutputPath = OutputPath,
+            OpenOutputFolderAfterSuccessfulBuild = OpenOutputFolderAfterSuccessfulBuild,
+            AutoScrollLogs = AutoScrollLogs,
+            VerboseCommandOutput = VerboseCommandOutput,
+            NotifyWhenBuildCompletes = NotifyWhenBuildCompletes,
+        });
     }
 
     /// <summary>Gets the repository path actually in effect: <see cref="RepositoryPath"/> when set, otherwise the resolved <see cref="repositoryRoot"/>. Always has a value.</summary>
