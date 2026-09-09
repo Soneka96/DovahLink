@@ -180,7 +180,7 @@ public sealed class PreflightServiceTests
         callerCancellation.CancelAfter(TimeSpan.FromMilliseconds(50));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => service.CheckAllAsync(temporaryDirectory.Path, callerCancellation.Token));
+            () => service.CheckAllAsync(temporaryDirectory.Path, cancellationToken: callerCancellation.Token));
     }
 
     /// <summary>Routes the CMake and Python probes through the same shared check, reporting their own tool names.</summary>
@@ -254,6 +254,41 @@ public sealed class PreflightServiceTests
         ToolchainCheckResult outputFolderResult = results[7];
         Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
         Assert.NotNull(outputFolderResult.RemediationHint);
+    }
+
+    /// <summary>Checks the configured output path override instead of the repository's default tooling/out.</summary>
+    [Fact]
+    public async Task CheckAllReportsOutputFolderFoundForTheConfiguredOverride()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = Path.Combine(temporaryDirectory.Path, "repo");
+        Directory.CreateDirectory(Path.Combine(repositoryRoot, "adapter"));
+        File.WriteAllText(Path.Combine(repositoryRoot, "adapter", "vcpkg.json"), "{}");
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "custom-out");
+        var service = new PreflightService(new FakeCommandRunner(), TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot, outputOverride);
+
+        ToolchainCheckResult outputFolderResult = results[7];
+        Assert.Equal(ToolchainAvailability.Found, outputFolderResult.Availability);
+        Assert.Equal(outputOverride, outputFolderResult.Detail);
+        Assert.True(Directory.Exists(outputOverride));
+        Assert.False(Directory.Exists(Path.Combine(repositoryRoot, "tooling", "out")));
+    }
+
+    /// <summary>Checks the configured output path override even when the repository root itself could not be determined.</summary>
+    [Fact]
+    public async Task CheckAllReportsOutputFolderFoundForTheConfiguredOverrideWithoutARepositoryRoot()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "custom-out");
+        var service = new PreflightService(new FakeCommandRunner(), TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path, outputOverride);
+
+        ToolchainCheckResult outputFolderResult = results[7];
+        Assert.Equal(ToolchainAvailability.Found, outputFolderResult.Availability);
+        Assert.Equal(outputOverride, outputFolderResult.Detail);
     }
 
     /// <summary>Returns all eight checks in the documented order.</summary>

@@ -21,7 +21,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -50,7 +50,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -81,7 +81,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -105,6 +105,41 @@ public sealed class GitStatusSharingTests
     }
 
     /// <summary>
+    /// A settings output path override reaches both the Environment/Build pages' shared preflight
+    /// check and the actual build request a subsequent build sends the coordinator -- through the
+    /// same <see cref="ISettingsStore"/> instance both <see cref="EnvironmentStore"/> and
+    /// <see cref="BuildPageViewModel"/> read -- so preflight can never report a destination as usable
+    /// while the real build targets a different one.
+    /// </summary>
+    [Fact]
+    public async Task ASettingsOutputPathOverrideReachesBothThePreflightCheckAndTheBuildRequest()
+    {
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, settingsStore);
+        var buildCoordinator = new FakeAdapterHostBuildCoordinatorThatRecordsRequests();
+        var buildPage = new BuildPageViewModel(
+            environmentStore,
+            gitStatusStore,
+            buildCoordinator,
+            new StubBuildHistoryStore(),
+            settingsStore,
+            _ => { },
+            _ => { },
+            repositoryContext);
+
+        await buildPage.InitializeAsync();
+        Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
+
+        buildPage.BuildCommand.Execute(null);
+        await buildPage.RunningBuildTask!;
+
+        Assert.Equal(@"D:\custom-out", buildCoordinator.LastRequest?.OutputRootOverride);
+    }
+
+    /// <summary>
     /// Changing the shared <see cref="RepositoryContext"/>'s root -- exactly as Settings does when the
     /// repository override changes -- is observed by the shared <see cref="GitStatusStore"/> and by
     /// both pages' own preflight checks on their next refresh, rather than either continuing to check
@@ -117,7 +152,7 @@ public sealed class GitStatusSharingTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new StubSettingsStore());
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -148,10 +183,14 @@ public sealed class GitStatusSharingTests
         /// <summary>Gets every <paramref name="startPath"/> a caller has requested a check for, in call order.</summary>
         public List<string> CapturedStartPaths { get; } = [];
 
+        /// <summary>Gets every <paramref name="outputPathOverride"/> a caller has requested a check for, in call order.</summary>
+        public List<string?> CapturedOutputPathOverrides { get; } = [];
+
         /// <inheritdoc/>
-        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
         {
             CapturedStartPaths.Add(startPath);
+            CapturedOutputPathOverrides.Add(outputPathOverride);
             return Task.FromResult<IReadOnlyList<ToolchainCheckResult>>([]);
         }
     }
@@ -209,6 +248,37 @@ public sealed class GitStatusSharingTests
         /// <inheritdoc/>
         public void Save(BuilderSettings settings)
         {
+        }
+    }
+
+    /// <summary>An in-memory <see cref="ISettingsStore"/>, for a test that needs a configured, mutable output path override.</summary>
+    private sealed class FakeSettingsStore : ISettingsStore
+    {
+        /// <summary>Gets or sets the currently persisted settings; defaults to <see cref="BuilderSettings"/>'s own defaults.</summary>
+        public BuilderSettings Settings { get; set; } = new();
+
+        /// <inheritdoc/>
+        public BuilderSettings Load() => Settings;
+
+        /// <inheritdoc/>
+        public void Save(BuilderSettings settings) => Settings = settings;
+    }
+
+    /// <summary>Succeeds using the test assembly's own DLL as a real, always-present archive; records the request it was given.</summary>
+    private sealed class FakeAdapterHostBuildCoordinatorThatRecordsRequests : IAdapterHostBuildCoordinator
+    {
+        /// <summary>Gets the request passed to the most recent <see cref="BuildAsync"/> call, or <see langword="null"/> before any call.</summary>
+        public AdapterHostBuildRequest? LastRequest { get; private set; }
+
+        /// <inheritdoc/>
+        public Task<AdapterHostBuildResult> BuildAsync(
+            AdapterHostBuildRequest request,
+            Action<string>? onOutput = null,
+            Action<BuildStageEvent>? onStage = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(new AdapterHostBuildResult(typeof(GitStatusSharingTests).Assembly.Location));
         }
     }
 }

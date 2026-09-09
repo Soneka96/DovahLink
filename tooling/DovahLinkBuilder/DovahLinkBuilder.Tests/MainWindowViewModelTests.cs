@@ -26,7 +26,7 @@ public sealed class MainWindowViewModelTests
     public MainWindowViewModelTests()
     {
         gitStatusStore = new GitStatusStore(new StubGitStatusService(), repositoryContext);
-        environmentStore = new EnvironmentStore(new StubPreflightService(), gitStatusStore, repositoryContext);
+        environmentStore = new EnvironmentStore(new StubPreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
     }
 
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
@@ -126,7 +126,7 @@ public sealed class MainWindowViewModelTests
     private sealed class StubPreflightService : IPreflightService
     {
         /// <inheritdoc/>
-        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolchainCheckResult>>([]);
     }
 

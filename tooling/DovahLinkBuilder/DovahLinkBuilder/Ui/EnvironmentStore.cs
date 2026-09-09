@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
@@ -43,6 +44,9 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// <summary>The shared repository root each refresh checks.</summary>
     private readonly IRepositoryContext repositoryContext;
 
+    /// <summary>Loads the Builder's persisted settings, for the output path override each refresh checks.</summary>
+    private readonly ISettingsStore settingsStore;
+
     /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
     private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
 
@@ -59,15 +63,17 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// </summary>
     private Task? inFlightRefresh;
 
-    /// <summary>Creates a store over the given preflight service, shared git status store, and shared repository context.</summary>
+    /// <summary>Creates a store over the given preflight service, shared git status store, shared repository context, and settings store.</summary>
     /// <param name="preflightService">Checks the required build tools.</param>
     /// <param name="gitStatusStore">The shared git status refreshed alongside preflight, once per <see cref="RefreshAsync"/> call.</param>
     /// <param name="repositoryContext">The shared repository root each refresh checks.</param>
-    public EnvironmentStore(IPreflightService preflightService, IGitStatusStore gitStatusStore, IRepositoryContext repositoryContext)
+    /// <param name="settingsStore">Loads the Builder's persisted settings, for the output path override each refresh checks.</param>
+    public EnvironmentStore(IPreflightService preflightService, IGitStatusStore gitStatusStore, IRepositoryContext repositoryContext, ISettingsStore settingsStore)
     {
         this.preflightService = preflightService;
         this.gitStatusStore = gitStatusStore;
         this.repositoryContext = repositoryContext;
+        this.settingsStore = settingsStore;
         repositoryContext.PropertyChanged += OnRepositoryContextChanged;
     }
 
@@ -116,7 +122,7 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
             do
             {
                 rootCheckedThisPass = repositoryContext.RepositoryRoot;
-                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, cancellationToken);
+                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, settingsStore.Load().OutputPath, cancellationToken);
                 await gitStatusStore.RefreshAsync(cancellationToken);
             }
             while (rootCheckedThisPass != repositoryContext.RepositoryRoot);

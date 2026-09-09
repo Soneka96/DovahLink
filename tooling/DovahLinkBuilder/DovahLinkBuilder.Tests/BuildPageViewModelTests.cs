@@ -25,14 +25,15 @@ public sealed class BuildPageViewModelTests
     {
         string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
+        FakeSettingsStore resolvedSettingsStore = settingsStore ?? new FakeSettingsStore();
         var gitStatusStore = new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext, resolvedSettingsStore);
         return new(
             environmentStore,
             gitStatusStore,
             buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
             buildHistoryStore ?? new FakeBuildHistoryStore(),
-            settingsStore ?? new FakeSettingsStore(),
+            resolvedSettingsStore,
             openOutputFolder ?? (_ => { }),
             setClipboardText ?? (_ => { }),
             resolvedRepositoryContext);
@@ -78,7 +79,7 @@ public sealed class BuildPageViewModelTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
         var buildCoordinator = new FakeAdapterHostBuildCoordinator();
         var viewModel = new BuildPageViewModel(
             environmentStore,
@@ -163,7 +164,7 @@ public sealed class BuildPageViewModelTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new FakeSettingsStore());
         var viewModel = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -1510,7 +1511,7 @@ public sealed class BuildPageViewModelTests
         public List<string> CapturedStartPaths { get; } = [];
 
         /// <inheritdoc/>
-        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
         {
             CapturedStartPaths.Add(startPath);
             if (PauseSignal is not null)

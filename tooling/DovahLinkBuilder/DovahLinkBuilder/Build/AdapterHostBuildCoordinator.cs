@@ -26,8 +26,9 @@ public interface IAdapterHostBuildCoordinator
     /// console-admin script or YAML configuration is missing.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when the Visual Studio or Papyrus toolchain cannot be validated, the Adapter build
-    /// fails, or the packaging script fails or does not report a written archive path.
+    /// Thrown when the Visual Studio or Papyrus toolchain cannot be validated, the build output
+    /// location cannot be created or accessed, the Adapter build fails, or the packaging script fails
+    /// or does not report a written archive path.
     /// </exception>
     Task<AdapterHostBuildResult> BuildAsync(
         AdapterHostBuildRequest request,
@@ -89,6 +90,8 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
         string adapterBuildOutputRoot = Path.Combine(adapterRoot, "build", presetName);
         string consoleAdminPexPath = Path.Combine(adapterBuildOutputRoot, ConsoleAdminPexFileName);
 
+        string outputRoot = request.OutputRootOverride ?? request.Profile.ToOutputRoot(repositoryRoot);
+
         (VisualStudioToolchain toolchain, PapyrusToolchain papyrusToolchain) = await RunStageAsync(
             BuildStage.ValidateRepository,
             onStage,
@@ -110,8 +113,8 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 }
 
                 // Every prerequisite this build needs is validated here, before any build command runs --
-                // a missing compiler, script, or config file fails immediately instead of after the
-                // multi-minute CMake build below.
+                // a missing compiler, script, config file, or unusable output destination fails
+                // immediately instead of after the multi-minute CMake build below.
                 if (!File.Exists(consoleAdminScriptPath))
                 {
                     throw new FileNotFoundException("Could not find the console-admin Papyrus script.", consoleAdminScriptPath);
@@ -120,6 +123,15 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 if (!File.Exists(consoleAdminYamlPath))
                 {
                     throw new FileNotFoundException("Could not find the console-admin YAML configuration.", consoleAdminYamlPath);
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(outputRoot);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    throw new InvalidOperationException($"Could not create or access the build output location: {outputRoot}", exception);
                 }
 
                 VisualStudioToolchain validatedToolchain = VisualStudioToolchainLocator.Validate(toolchainProvider());
@@ -181,9 +193,6 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                     throw new InvalidOperationException($"The Papyrus compile failed with exit code {papyrusExitCode}.");
                 }
             });
-
-        string outputRoot = request.OutputRootOverride ?? request.Profile.ToOutputRoot(repositoryRoot);
-        Directory.CreateDirectory(outputRoot);
 
         // Packaging is entirely owned by tooling/package_adapter_host.py (see AdapterHostPackager):
         // this orchestrates it as an external process rather than reimplementing the Vortex package

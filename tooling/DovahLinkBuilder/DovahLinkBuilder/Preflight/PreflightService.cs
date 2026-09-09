@@ -12,12 +12,16 @@ public interface IPreflightService
     /// Checks the repository, every required toolchain, and the build output location, in that order.
     /// </summary>
     /// <param name="startPath">The path from which to search upward for the repository root.</param>
+    /// <param name="outputPathOverride">
+    /// The configured build output path override, or <see langword="null"/> to check the repository's
+    /// default <c>tooling/out</c> instead.
+    /// </param>
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
     /// <returns>
     /// One <see cref="ToolchainCheckResult"/> per required check: Repository, .NET SDK, Visual
     /// Studio, CMake, vcpkg, Papyrus Compiler, Python, then Output Folder.
     /// </returns>
-    Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Aggregates every required build tool into one ordered, non-throwing preflight report.</summary>
@@ -55,7 +59,7 @@ public sealed class PreflightService : IPreflightService
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
     {
         ToolchainCheckResult repositoryResult = CheckRepository(startPath, out string? repositoryRoot);
 
@@ -68,7 +72,7 @@ public sealed class PreflightService : IPreflightService
             CheckVcpkg(),
             PapyrusToolchainLocator.TryFind(),
             await CheckVersionProbeAsync("python", "Python", startPath, cancellationToken),
-            CheckOutputFolder(repositoryRoot),
+            CheckOutputFolder(repositoryRoot, outputPathOverride),
         ];
     }
 
@@ -116,9 +120,10 @@ public sealed class PreflightService : IPreflightService
     /// of throwing.
     /// </summary>
     /// <param name="repositoryRoot">The repository root located by <see cref="CheckRepository"/>, or <see langword="null"/>.</param>
-    private static ToolchainCheckResult CheckOutputFolder(string? repositoryRoot)
+    /// <param name="outputPathOverride">The configured build output path override, or <see langword="null"/> to check the repository's default <c>tooling/out</c> instead.</param>
+    private static ToolchainCheckResult CheckOutputFolder(string? repositoryRoot, string? outputPathOverride)
     {
-        if (repositoryRoot is null)
+        if (outputPathOverride is null && repositoryRoot is null)
         {
             return new ToolchainCheckResult(
                 OutputFolderToolName,
@@ -127,7 +132,8 @@ public sealed class PreflightService : IPreflightService
                 "The repository root could not be determined, so the output folder location is unknown.");
         }
 
-        string outputRoot = Path.Combine(repositoryRoot, "tooling", "out");
+        // repositoryRoot is only null here when outputPathOverride is set, per the guard above.
+        string outputRoot = outputPathOverride ?? Path.Combine(repositoryRoot!, "tooling", "out");
         try
         {
             Directory.CreateDirectory(outputRoot);

@@ -253,6 +253,76 @@ public sealed class AdapterHostBuildCoordinatorTests
         Assert.Empty(runner.Commands);
     }
 
+    /// <summary>
+    /// Fails before any build command runs when the build output location cannot be created -- so an
+    /// unusable destination is caught in seconds rather than after several minutes of Adapter
+    /// compilation.
+    /// </summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenTheOutputLocationCannotBeCreated()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        string blockedOutputPath = Path.Combine(temporaryDirectory.Path, "blocked-output");
+        File.WriteAllText(blockedOutputPath, "blocked");
+        var runner = new FakeCommandRunner();
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: blockedOutputPath)));
+
+        Assert.Empty(runner.Commands);
+    }
+
+    /// <summary>Reports only the ValidateRepository stage as failed when the build output location cannot be created.</summary>
+    [Fact]
+    public async Task ReportsOnlyValidateRepositoryFailedWhenTheOutputLocationCannotBeCreated()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        string blockedOutputPath = Path.Combine(temporaryDirectory.Path, "blocked-output");
+        File.WriteAllText(blockedOutputPath, "blocked");
+        var stageEvents = new List<BuildStageEvent>();
+        var coordinator = new AdapterHostBuildCoordinator(
+            new FakeCommandRunner(),
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: blockedOutputPath),
+            onStage: stageEvents.Add));
+
+        Assert.Equal(
+            [
+                (BuildStage.ValidateRepository, BuildStageStatus.Running),
+                (BuildStage.ValidateRepository, BuildStageStatus.Failed),
+            ],
+            stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
+    /// <summary>Creates each profile's own output root, before any build command runs, whether an override is set or not.</summary>
+    /// <param name="profile">The profile whose default output root must exist once ValidateRepository succeeds.</param>
+    [Theory]
+    [InlineData(BuildProfile.Debug)]
+    [InlineData(BuildProfile.Beta)]
+    [InlineData(BuildProfile.Release)]
+    public async Task CreatesTheProfileSpecificDefaultOutputRootDuringValidateRepository(BuildProfile profile)
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var coordinator = new AdapterHostBuildCoordinator(
+            new FakeCommandRunner(),
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, profile));
+
+        Assert.True(Directory.Exists(profile.ToOutputRoot(temporaryDirectory.Path)));
+    }
+
     /// <summary>Fails before any build command runs when the Visual Studio toolchain cannot be found.</summary>
     [Fact]
     public async Task FailsBeforeAnyBuildCommandWhenTheVisualStudioToolchainIsMissing()
@@ -627,6 +697,24 @@ public sealed class AdapterHostBuildCoordinatorTests
             ],
             runner.Commands[4].Arguments);
         Assert.True(Directory.Exists(outputOverride));
+    }
+
+    /// <summary>Uses the output root override instead of a non-Release profile's own default subfolder, the same as it does for Release's.</summary>
+    [Fact]
+    public async Task PackagesToTheOutputRootOverrideInsteadOfANonReleaseProfilesDefaultSubfolder()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "custom-output");
+        var coordinator = new AdapterHostBuildCoordinator(
+            new FakeCommandRunner(),
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, BuildProfile.Debug, outputOverride));
+
+        Assert.True(Directory.Exists(outputOverride));
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out", "debug")));
     }
 
     /// <summary>Records command-runner inputs and returns a configured exit code and packaging output.</summary>

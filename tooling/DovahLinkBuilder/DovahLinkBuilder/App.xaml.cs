@@ -29,7 +29,7 @@ public partial class App : Application
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, settingsStore);
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);

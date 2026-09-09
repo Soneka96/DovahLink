@@ -1,5 +1,6 @@
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -16,7 +17,7 @@ public sealed class EnvironmentPageViewModelTests
     {
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext, new StubSettingsStore());
         return new(environmentStore, gitStatusStore);
     }
 
@@ -140,7 +141,7 @@ public sealed class EnvironmentPageViewModelTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new StubSettingsStore());
         var viewModel = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
 
         repositoryContext.SetRepositoryRoot(@"C:\repo-b");
@@ -188,7 +189,7 @@ public sealed class EnvironmentPageViewModelTests
         public int CallCount { get; private set; }
 
         /// <inheritdoc/>
-        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
         {
             CallCount++;
             if (PauseSignal is not null)
@@ -225,5 +226,17 @@ public sealed class EnvironmentPageViewModelTests
         /// <inheritdoc/>
         public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
             ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
+    }
+
+    /// <summary>Reports <see cref="BuilderSettings"/>'s own defaults and discards writes; a stub for tests that never inspect settings.</summary>
+    private sealed class StubSettingsStore : ISettingsStore
+    {
+        /// <inheritdoc/>
+        public BuilderSettings Load() => new();
+
+        /// <inheritdoc/>
+        public void Save(BuilderSettings settings)
+        {
+        }
     }
 }

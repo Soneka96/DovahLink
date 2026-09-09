@@ -1,5 +1,6 @@
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -20,7 +21,7 @@ public sealed class EnvironmentStoreTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
 
         await store.RefreshAsync();
 
@@ -36,7 +37,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
 
         Task first = store.RefreshAsync();
         Task second = store.RefreshAsync();
@@ -55,7 +56,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
         await store.RefreshAsync();
         Assert.Equal(1, preflightService.CallCount);
 
@@ -72,7 +73,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
 
         Task refresh = store.RefreshAsync();
         Assert.True(store.IsRefreshing);
@@ -90,7 +91,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        _ = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        _ = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
 
         repositoryContext.SetRepositoryRoot(@"C:\repo-b");
 
@@ -110,7 +111,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
 
         repositoryContext.SetRepositoryRoot(@"C:\repo-b");
         Assert.True(store.IsRefreshing);
@@ -126,13 +127,28 @@ public sealed class EnvironmentStoreTests
         Assert.Equal(@"C:\repo-c", preflightService.CapturedStartPaths[^1]);
     }
 
+    /// <summary>Passes the persisted output path override through to preflight, so it checks the actual configured destination.</summary>
+    [Fact]
+    public async Task RefreshAsyncPassesTheOutputPathOverrideToPreflight()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, settingsStore);
+
+        await store.RefreshAsync();
+
+        Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
+    }
+
     /// <summary>Raises PropertyChanged for PreflightResults and IsRefreshing as a refresh starts and finishes.</summary>
     [Fact]
     public async Task RefreshAsyncRaisesPropertyChangedForPreflightResultsAndIsRefreshing()
     {
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new FakeSettingsStore());
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
 
@@ -154,11 +170,15 @@ public sealed class EnvironmentStoreTests
         /// <summary>Gets every <paramref name="startPath"/> a caller has requested a check for, in call order.</summary>
         public List<string> CapturedStartPaths { get; } = [];
 
+        /// <summary>Gets every <paramref name="outputPathOverride"/> a caller has requested a check for, in call order.</summary>
+        public List<string?> CapturedOutputPathOverrides { get; } = [];
+
         /// <inheritdoc/>
-        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
         {
             CallCount++;
             CapturedStartPaths.Add(startPath);
+            CapturedOutputPathOverrides.Add(outputPathOverride);
             if (PauseSignal is not null)
             {
                 await PauseSignal.Task;
@@ -174,5 +194,18 @@ public sealed class EnvironmentStoreTests
         /// <inheritdoc/>
         public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
             Task.FromResult(new GitSourceStatus("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123"));
+    }
+
+    /// <summary>Reports a configurable output path override; a fake for tests that verify it reaches preflight.</summary>
+    private sealed class FakeSettingsStore : ISettingsStore
+    {
+        /// <summary>Gets or sets the currently persisted settings; defaults to <see cref="BuilderSettings"/>'s own defaults.</summary>
+        public BuilderSettings Settings { get; set; } = new();
+
+        /// <inheritdoc/>
+        public BuilderSettings Load() => Settings;
+
+        /// <inheritdoc/>
+        public void Save(BuilderSettings settings) => Settings = settings;
     }
 }
