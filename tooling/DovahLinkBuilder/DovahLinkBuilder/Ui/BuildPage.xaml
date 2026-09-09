@@ -4,7 +4,8 @@
              xmlns:app="clr-namespace:DovahLink.DovahLinkBuilder">
     <StackPanel Margin="24">
         <TextBlock Text="{Binding BuildSummaryText}" FontSize="16" FontWeight="Bold" />
-        <CheckBox Content="Clean build" IsChecked="{Binding IsCleanBuild}" IsEnabled="{Binding CanBuild}" Margin="0,12,0,0" />
+        <CheckBox Content="Clean build" IsChecked="{Binding IsCleanBuild}" IsEnabled="{Binding CanBuild}" Margin="0,12,0,0"
+                  ToolTip="Clears generated Adapter and Host build outputs before building. Slower." />
 
         <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasGitBanner, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Border.Style>
@@ -47,7 +48,9 @@
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0"
                     Visibility="{Binding CanShowBuildActions, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Button Content="Build" Command="{Binding BuildCommand}" Margin="0,0,8,0" />
-            <Button Content="Cancel" Command="{Binding CancelCommand}" />
+            <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,0,8,0" />
+            <TextBlock Text="{Binding CancellingMessage}" VerticalAlignment="Center" Foreground="DarkOrange"
+                       Visibility="{Binding IsCancelling, Converter={StaticResource BooleanToVisibilityConverter}}" />
         </StackPanel>
 
         <Border Margin="0,12,0,0" Padding="8" Visibility="{Binding HasResult, Converter={StaticResource BooleanToVisibilityConverter}}">

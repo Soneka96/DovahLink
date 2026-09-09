@@ -24,8 +24,11 @@ public sealed class MainWindowViewModel : ObservableObject
         NavigateToSettingsCommand = new RelayCommand(() => CurrentPage = SettingsPage);
     }
 
-    /// <summary>Gets the Build page's ViewModel, kept alive for the application's lifetime.</summary>
-    private BuildPageViewModel BuildPage { get; }
+    /// <summary>
+    /// Gets the Build page's ViewModel, kept alive for the application's lifetime. Public so the main
+    /// window's close handler can check for an in-flight build regardless of the currently displayed page.
+    /// </summary>
+    public BuildPageViewModel BuildPage { get; }
 
     /// <summary>Gets the Environment page's ViewModel, kept alive for the application's lifetime.</summary>
     private EnvironmentPageViewModel EnvironmentPage { get; }

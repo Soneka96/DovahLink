@@ -57,6 +57,9 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>The backing field for <see cref="IsBuilding"/>.</summary>
     private bool isBuilding;
 
+    /// <summary>The backing field for <see cref="IsCancelling"/>.</summary>
+    private bool isCancelling;
+
     /// <summary>The backing field for <see cref="IsAwaitingConfirmation"/>.</summary>
     private bool isAwaitingConfirmation;
 
@@ -117,7 +120,7 @@ public sealed class BuildPageViewModel : ObservableObject
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
-        CancelCommand = new RelayCommand(OnCancel, () => IsBuilding);
+        CancelCommand = new RelayCommand(OnCancel, () => IsBuilding && !IsCancelling);
         ViewArchiveContentsCommand = new RelayCommand(OnViewArchiveContents, () => ArchivePath is not null);
         RebuildCommand = new RelayCommand(OnRebuild, () => !IsBuilding && !IsAwaitingConfirmation);
         CopyDiagnosticsCommand = new RelayCommand(OnCopyDiagnostics);
@@ -157,6 +160,25 @@ public sealed class BuildPageViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>
+    /// Gets whether cancellation has been requested and is being carried out; the Cancel button is
+    /// disabled during this transient state, between Building and Cancelled (correction #6).
+    /// </summary>
+    public bool IsCancelling
+    {
+        get => isCancelling;
+        private set
+        {
+            if (SetProperty(ref isCancelling, value))
+            {
+                NotifyCommandStateChanged();
+            }
+        }
+    }
+
+    /// <summary>Gets the message shown while cancellation is in progress, or <see langword="null"/> otherwise.</summary>
+    public string? CancellingMessage => IsCancelling ? "Stopping build… Terminating active build processes." : null;
 
     /// <summary>Gets whether the page is showing the uncommitted/unpushed build acknowledgement prompt.</summary>
     public bool IsAwaitingConfirmation
@@ -321,9 +343,18 @@ public sealed class BuildPageViewModel : ObservableObject
         IsAwaitingConfirmation = false;
     }
 
-    /// <summary>Requests cancellation of the currently running build.</summary>
+    /// <summary>
+    /// Requests cancellation of the currently running build and enters the Cancelling transient state;
+    /// does nothing when no build is running or cancellation was already requested (correction #6).
+    /// </summary>
     private void OnCancel()
     {
+        if (!IsBuilding || IsCancelling)
+        {
+            return;
+        }
+
+        IsCancelling = true;
         buildCancellation?.Cancel();
     }
 
@@ -385,6 +416,12 @@ public sealed class BuildPageViewModel : ObservableObject
         var stopwatch = Stopwatch.StartNew();
         try
         {
+            if (IsCleanBuild)
+            {
+                Log.AppendLine("Clean build: clearing generated Adapter and Host build outputs...");
+                await Task.Run(CleanBuildOutputs, buildCancellation.Token);
+            }
+
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
                 new AdapterHostBuildRequest(repositoryRoot),
                 onOutput: Log.AppendLine,
@@ -413,6 +450,7 @@ public sealed class BuildPageViewModel : ObservableObject
             buildCancellation = null;
             RecordBuildHistory(startedAt, stopwatch.Elapsed);
             IsBuilding = false;
+            IsCancelling = false;
         }
     }
 
@@ -463,6 +501,7 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(HasBuildBlockedReason));
         OnPropertyChanged(nameof(CanShowBuildActions));
         OnPropertyChanged(nameof(FooterStatusText));
+        OnPropertyChanged(nameof(CancellingMessage));
         BuildCommand.RaiseCanExecuteChanged();
         ConfirmBuildCommand.RaiseCanExecuteChanged();
         CancelConfirmationCommand.RaiseCanExecuteChanged();
@@ -670,18 +709,20 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>
     /// Gets the footer status text reflecting the Build page's real current state (correction #7):
-    /// Building while a build runs; Failed/Cancelled/Complete for the most recent finished build;
-    /// "Environment incomplete" while idle with a missing required check; Ready only while idle with
-    /// everything passing. Never a static "Ready".
+    /// Building while a build runs; Cancelling during the transient shutdown between Building and
+    /// Cancelled; Failed/Cancelled/Complete for the most recent finished build; "Environment incomplete"
+    /// while idle with a missing required check; Ready only while idle with everything passing. Never a
+    /// static "Ready".
     /// </summary>
-    public string FooterStatusText => (IsBuilding, LastOutcome, HasBuildBlockedReason) switch
+    public string FooterStatusText => (IsBuilding, IsCancelling, LastOutcome, HasBuildBlockedReason) switch
     {
-        (true, _, _) => "Building",
-        (false, BuildHistoryResult.Failed, _) => "Failed",
-        (false, BuildHistoryResult.Cancelled, _) => "Cancelled",
-        (false, BuildHistoryResult.Succeeded, _) => "Complete",
-        (false, null, true) => "Environment incomplete",
-        (false, null, false) => "Ready",
+        (true, true, _, _) => "Cancelling",
+        (true, false, _, _) => "Building",
+        (false, _, BuildHistoryResult.Failed, _) => "Failed",
+        (false, _, BuildHistoryResult.Cancelled, _) => "Cancelled",
+        (false, _, BuildHistoryResult.Succeeded, _) => "Complete",
+        (false, _, null, true) => "Environment incomplete",
+        (false, _, null, false) => "Ready",
         _ => "Ready",
     };
 
@@ -711,5 +752,28 @@ public sealed class BuildPageViewModel : ObservableObject
     private void OnCopyDiagnostics()
     {
         setClipboardText(DiagnosticsFormatter.Format(PreflightResults, gitStatus, gitStatusError, LastOutcome, LastOutcomeMessage));
+    }
+
+    /// <summary>
+    /// Clears generated Adapter and Host build outputs before building: only
+    /// <c>adapter/build/windows-x64-release/</c> and <c>tooling/out/{publish,package}</c> are safe to
+    /// delete, confirmed against the real repository layout -- never vcpkg's shared package cache
+    /// (correction #10).
+    /// </summary>
+    private void CleanBuildOutputs()
+    {
+        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "adapter", "build", "windows-x64-release"));
+        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "tooling", "out", "publish"));
+        DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "tooling", "out", "package"));
+    }
+
+    /// <summary>Deletes a directory and its contents, if it exists.</summary>
+    /// <param name="path">The directory to delete.</param>
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
     }
 }

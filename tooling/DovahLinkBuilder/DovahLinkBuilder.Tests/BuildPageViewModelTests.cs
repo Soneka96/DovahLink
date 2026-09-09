@@ -19,7 +19,8 @@ public sealed class BuildPageViewModelTests
         FakeBuildHistoryStore? buildHistoryStore = null,
         FakeSettingsStore? settingsStore = null,
         Action<string>? openOutputFolder = null,
-        Action<string>? setClipboardText = null) => new(
+        Action<string>? setClipboardText = null,
+        string? repositoryRoot = null) => new(
         preflightService ?? new FakePreflightService(),
         gitStatusService ?? new FakeGitStatusService(),
         buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
@@ -27,7 +28,7 @@ public sealed class BuildPageViewModelTests
         settingsStore ?? new FakeSettingsStore(),
         openOutputFolder ?? (_ => { }),
         setClipboardText ?? (_ => { }),
-        @"C:\repo");
+        repositoryRoot ?? @"C:\repo");
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
     /// <param name="temporaryDirectoryPath">The temporary directory to create the source files and archive under.</param>
@@ -1136,6 +1137,131 @@ public sealed class BuildPageViewModelTests
         Assert.Contains("Branch: main", copiedText);
         Assert.Contains("Outcome: Failed", copiedText);
         Assert.Contains("the adapter build failed", copiedText);
+    }
+
+    /// <summary>
+    /// Deletes only the scoped generated output directories for a clean build -- adapter/build/windows-x64-release
+    /// and tooling/out/{publish,package} -- leaving a sibling directory (standing in for vcpkg's shared
+    /// package cache) untouched (correction #10).
+    /// </summary>
+    [Fact]
+    public async Task BuildCommandWithCleanBuildDeletesOnlyTheScopedOutputDirectories()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string releaseDir = Path.Combine(repositoryRoot, "adapter", "build", "windows-x64-release");
+        string publishDir = Path.Combine(repositoryRoot, "tooling", "out", "publish");
+        string packageDir = Path.Combine(repositoryRoot, "tooling", "out", "package");
+        string vcpkgCacheDir = Path.Combine(repositoryRoot, "adapter", "build", "vcpkg_installed");
+        CreateDirectoryWithMarkerFile(releaseDir);
+        CreateDirectoryWithMarkerFile(publishDir);
+        CreateDirectoryWithMarkerFile(packageDir);
+        CreateDirectoryWithMarkerFile(vcpkgCacheDir);
+        var viewModel = BuildViewModel(repositoryRoot: repositoryRoot);
+        await viewModel.InitializeAsync();
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(Directory.Exists(releaseDir));
+        Assert.False(Directory.Exists(publishDir));
+        Assert.False(Directory.Exists(packageDir));
+        Assert.True(Directory.Exists(vcpkgCacheDir));
+    }
+
+    /// <summary>Leaves every existing output directory untouched when Clean build is not enabled.</summary>
+    [Fact]
+    public async Task BuildCommandWithoutCleanBuildLeavesOutputDirectoriesUntouched()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string releaseDir = Path.Combine(repositoryRoot, "adapter", "build", "windows-x64-release");
+        CreateDirectoryWithMarkerFile(releaseDir);
+        var viewModel = BuildViewModel(repositoryRoot: repositoryRoot);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.True(Directory.Exists(releaseDir));
+    }
+
+    /// <summary>
+    /// Succeeds on a Clean build when none of the scoped output directories exist yet -- the common
+    /// case on a fresh clone's first build -- rather than failing on a missing-directory error.
+    /// </summary>
+    [Fact]
+    public async Task BuildCommandWithCleanBuildSucceedsWhenTheOutputDirectoriesDoNotExistYet()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var viewModel = BuildViewModel(repositoryRoot: temporaryDirectory.Path);
+        await viewModel.InitializeAsync();
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+    }
+
+    /// <summary>Creates a directory containing a marker file, so an empty-directory quirk can't hide a real deletion bug.</summary>
+    /// <param name="path">The directory to create.</param>
+    private static void CreateDirectoryWithMarkerFile(string path)
+    {
+        Directory.CreateDirectory(path);
+        File.WriteAllText(Path.Combine(path, "marker.txt"), "x");
+    }
+
+    /// <summary>Enters the Cancelling transient state and disables further cancellation while it is in progress.</summary>
+    [Fact]
+    public async Task CancelCommandEntersTheCancellingStateAndDisablesFurtherCancellation()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+
+        viewModel.CancelCommand.Execute(null);
+
+        Assert.True(viewModel.IsCancelling);
+        Assert.False(viewModel.CancelCommand.CanExecute(null));
+        Assert.Equal("Stopping build… Terminating active build processes.", viewModel.CancellingMessage);
+        Assert.Equal("Cancelling", viewModel.FooterStatusText);
+
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.IsCancelling);
+        Assert.Null(viewModel.CancellingMessage);
+        Assert.Equal("Cancelled", viewModel.FooterStatusText);
+    }
+
+    /// <summary>Does nothing when Cancel is executed directly while already cancelling, bypassing the bound command's own CanExecute gate.</summary>
+    [Fact]
+    public async Task CancelCommandDoesNothingWhenAlreadyCancelling()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        viewModel.CancelCommand.Execute(null);
+        Assert.True(viewModel.IsCancelling);
+
+        viewModel.CancelCommand.Execute(null);
+
+        Assert.True(viewModel.IsCancelling);
+        await viewModel.RunningBuildTask!;
+    }
+
+    /// <summary>Does nothing when Cancel is executed directly while no build is running.</summary>
+    [Fact]
+    public void CancelCommandDoesNothingWhenNoBuildIsRunning()
+    {
+        var viewModel = BuildViewModel();
+
+        viewModel.CancelCommand.Execute(null);
+
+        Assert.False(viewModel.IsCancelling);
     }
 
     /// <summary>Reports every required build tool as available, for a fake that does not otherwise override <see cref="FakePreflightService.Results"/>.</summary>
