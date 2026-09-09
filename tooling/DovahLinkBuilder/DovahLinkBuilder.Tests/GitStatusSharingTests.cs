@@ -21,7 +21,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -50,7 +50,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -81,7 +81,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -106,10 +106,9 @@ public sealed class GitStatusSharingTests
 
     /// <summary>
     /// A settings output path override reaches both the Environment/Build pages' shared preflight
-    /// check and the actual build request a subsequent build sends the coordinator -- through the
-    /// same <see cref="ISettingsStore"/> instance both <see cref="EnvironmentStore"/> and
-    /// <see cref="BuildPageViewModel"/> read -- so preflight can never report a destination as usable
-    /// while the real build targets a different one.
+    /// check (through the shared <see cref="IOutputPathContext"/>) and the actual build request a
+    /// subsequent build sends the coordinator (through <see cref="ISettingsStore"/>) -- so preflight
+    /// can never report a destination as usable while the real build targets a different one.
     /// </summary>
     [Fact]
     public async Task ASettingsOutputPathOverrideReachesBothThePreflightCheckAndTheBuildRequest()
@@ -118,7 +117,7 @@ public sealed class GitStatusSharingTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, settingsStore);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(@"D:\custom-out"));
         var buildCoordinator = new FakeAdapterHostBuildCoordinatorThatRecordsRequests();
         var buildPage = new BuildPageViewModel(
             environmentStore,
@@ -152,7 +151,7 @@ public sealed class GitStatusSharingTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new StubSettingsStore());
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -193,6 +192,10 @@ public sealed class GitStatusSharingTests
             CapturedOutputPathOverrides.Add(outputPathOverride);
             return Task.FromResult<IReadOnlyList<ToolchainCheckResult>>([]);
         }
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride) =>
+            previousResults;
     }
 
     /// <summary>Reports a clean, pushed git status unless reconfigured; the only fake this test suite mutates.</summary>

@@ -26,7 +26,7 @@ public sealed class MainWindowViewModelTests
     public MainWindowViewModelTests()
     {
         gitStatusStore = new GitStatusStore(new StubGitStatusService(), repositoryContext);
-        environmentStore = new EnvironmentStore(new StubPreflightService(), gitStatusStore, repositoryContext, new StubSettingsStore());
+        environmentStore = new EnvironmentStore(new StubPreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
     }
 
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
@@ -128,6 +128,10 @@ public sealed class MainWindowViewModelTests
         /// <inheritdoc/>
         public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolchainCheckResult>>([]);
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride) =>
+            previousResults;
     }
 
     /// <summary>Reports a clean, pushed git status; a stub for tests that never inspect git gating.</summary>

@@ -1,6 +1,6 @@
+using System.IO;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
-using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -21,7 +21,7 @@ public sealed class EnvironmentStoreTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
 
         await store.RefreshAsync();
 
@@ -37,7 +37,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
 
         Task first = store.RefreshAsync();
         Task second = store.RefreshAsync();
@@ -56,7 +56,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
         await store.RefreshAsync();
         Assert.Equal(1, preflightService.CallCount);
 
@@ -73,7 +73,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
 
         Task refresh = store.RefreshAsync();
         Assert.True(store.IsRefreshing);
@@ -91,7 +91,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        _ = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
+        _ = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
 
         repositoryContext.SetRepositoryRoot(@"C:\repo-b");
 
@@ -111,7 +111,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
 
         repositoryContext.SetRepositoryRoot(@"C:\repo-b");
         Assert.True(store.IsRefreshing);
@@ -134,12 +134,68 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, settingsStore);
+        var outputPathContext = new OutputPathContext(@"D:\custom-out");
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
 
         await store.RefreshAsync();
 
         Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
+    }
+
+    /// <summary>
+    /// Recomputes only the Output Folder check when the output path context changes, rather than
+    /// re-running the full preflight battery -- proving the store distinguishes an output-path-only
+    /// change from a repository change, which does need every check re-run.
+    /// </summary>
+    [Fact]
+    public async Task ChangingTheOutputPathContextRefreshesOnlyTheOutputFolderCheck()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var outputPathContext = new OutputPathContext(null);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        await store.RefreshAsync();
+        Assert.Equal(1, preflightService.CallCount);
+
+        outputPathContext.SetOutputPath(@"D:\new-out");
+
+        Assert.Equal(1, preflightService.CallCount);
+        Assert.Equal(1, preflightService.RefreshOutputFolderCheckCallCount);
+        Assert.False(store.IsRefreshing);
+        Assert.Equal(@"D:\new-out", store.PreflightResults[^1].Detail);
+    }
+
+    /// <summary>Does nothing when the output path context changes before any full refresh has ever run.</summary>
+    [Fact]
+    public void ChangingTheOutputPathContextBeforeAnyRefreshDoesNothing()
+    {
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var outputPathContext = new OutputPathContext(null);
+        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, outputPathContext);
+
+        outputPathContext.SetOutputPath(@"D:\new-out");
+
+        Assert.Empty(store.PreflightResults);
+    }
+
+    /// <summary>Raises PropertyChanged for PreflightResults, but not IsRefreshing, when the output path context changes -- a narrow recheck never enters the refreshing state.</summary>
+    [Fact]
+    public async Task ChangingTheOutputPathContextRaisesPropertyChangedForPreflightResultsOnlyNotIsRefreshing()
+    {
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var outputPathContext = new OutputPathContext(null);
+        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, outputPathContext);
+        await store.RefreshAsync();
+        var raisedProperties = new List<string?>();
+        store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
+
+        outputPathContext.SetOutputPath(@"D:\new-out");
+
+        Assert.Contains(nameof(EnvironmentStore.PreflightResults), raisedProperties);
+        Assert.DoesNotContain(nameof(EnvironmentStore.IsRefreshing), raisedProperties);
     }
 
     /// <summary>Raises PropertyChanged for PreflightResults and IsRefreshing as a refresh starts and finishes.</summary>
@@ -148,7 +204,7 @@ public sealed class EnvironmentStoreTests
     {
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
 
@@ -173,6 +229,9 @@ public sealed class EnvironmentStoreTests
         /// <summary>Gets every <paramref name="outputPathOverride"/> a caller has requested a check for, in call order.</summary>
         public List<string?> CapturedOutputPathOverrides { get; } = [];
 
+        /// <summary>Gets the number of times <see cref="RefreshOutputFolderCheck"/> was called.</summary>
+        public int RefreshOutputFolderCheckCallCount { get; private set; }
+
         /// <inheritdoc/>
         public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
         {
@@ -184,7 +243,25 @@ public sealed class EnvironmentStoreTests
                 await PauseSignal.Task;
             }
 
-            return [new ToolchainCheckResult("Repository", ToolchainAvailability.Found, startPath, null)];
+            return
+            [
+                new ToolchainCheckResult("Repository", ToolchainAvailability.Found, startPath, null),
+                new ToolchainCheckResult("Output Folder", ToolchainAvailability.Found, outputPathOverride ?? Path.Combine(startPath, "tooling", "out"), null),
+            ];
+        }
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride)
+        {
+            RefreshOutputFolderCheckCallCount++;
+            if (previousResults.Count == 0)
+            {
+                return previousResults;
+            }
+
+            ToolchainCheckResult[] updatedResults = previousResults.ToArray();
+            updatedResults[^1] = new ToolchainCheckResult("Output Folder", ToolchainAvailability.Found, outputPathOverride ?? repositoryRoot, null);
+            return updatedResults;
         }
     }
 
@@ -194,18 +271,5 @@ public sealed class EnvironmentStoreTests
         /// <inheritdoc/>
         public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
             Task.FromResult(new GitSourceStatus("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123"));
-    }
-
-    /// <summary>Reports a configurable output path override; a fake for tests that verify it reaches preflight.</summary>
-    private sealed class FakeSettingsStore : ISettingsStore
-    {
-        /// <summary>Gets or sets the currently persisted settings; defaults to <see cref="BuilderSettings"/>'s own defaults.</summary>
-        public BuilderSettings Settings { get; set; } = new();
-
-        /// <inheritdoc/>
-        public BuilderSettings Load() => Settings;
-
-        /// <inheritdoc/>
-        public void Save(BuilderSettings settings) => Settings = settings;
     }
 }

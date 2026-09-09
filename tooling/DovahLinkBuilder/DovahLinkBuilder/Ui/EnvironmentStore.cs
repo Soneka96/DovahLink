@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
-using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
@@ -44,8 +43,8 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// <summary>The shared repository root each refresh checks.</summary>
     private readonly IRepositoryContext repositoryContext;
 
-    /// <summary>Loads the Builder's persisted settings, for the output path override each refresh checks.</summary>
-    private readonly ISettingsStore settingsStore;
+    /// <summary>The shared build output path override each refresh checks, and whose own change alone triggers a narrower recheck.</summary>
+    private readonly IOutputPathContext outputPathContext;
 
     /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
     private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
@@ -63,18 +62,19 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// </summary>
     private Task? inFlightRefresh;
 
-    /// <summary>Creates a store over the given preflight service, shared git status store, shared repository context, and settings store.</summary>
+    /// <summary>Creates a store over the given preflight service, shared git status store, shared repository context, and shared output path context.</summary>
     /// <param name="preflightService">Checks the required build tools.</param>
     /// <param name="gitStatusStore">The shared git status refreshed alongside preflight, once per <see cref="RefreshAsync"/> call.</param>
     /// <param name="repositoryContext">The shared repository root each refresh checks.</param>
-    /// <param name="settingsStore">Loads the Builder's persisted settings, for the output path override each refresh checks.</param>
-    public EnvironmentStore(IPreflightService preflightService, IGitStatusStore gitStatusStore, IRepositoryContext repositoryContext, ISettingsStore settingsStore)
+    /// <param name="outputPathContext">The shared build output path override each refresh checks, and whose own change alone triggers a narrower recheck.</param>
+    public EnvironmentStore(IPreflightService preflightService, IGitStatusStore gitStatusStore, IRepositoryContext repositoryContext, IOutputPathContext outputPathContext)
     {
         this.preflightService = preflightService;
         this.gitStatusStore = gitStatusStore;
         this.repositoryContext = repositoryContext;
-        this.settingsStore = settingsStore;
+        this.outputPathContext = outputPathContext;
         repositoryContext.PropertyChanged += OnRepositoryContextChanged;
+        outputPathContext.PropertyChanged += OnOutputPathContextChanged;
     }
 
     /// <inheritdoc/>
@@ -122,7 +122,7 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
             do
             {
                 rootCheckedThisPass = repositoryContext.RepositoryRoot;
-                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, settingsStore.Load().OutputPath, cancellationToken);
+                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, outputPathContext.OutputPath, cancellationToken);
                 await gitStatusStore.RefreshAsync(cancellationToken);
             }
             while (rootCheckedThisPass != repositoryContext.RepositoryRoot);
@@ -145,5 +145,18 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     private void OnRepositoryContextChanged(object? sender, PropertyChangedEventArgs e)
     {
         _ = RefreshAsync();
+    }
+
+    /// <summary>
+    /// Recomputes just the Output Folder check whenever the active output path override changes,
+    /// leaving every other already-loaded check untouched: unlike a repository change, an output path
+    /// change cannot affect any other required tool's availability, so re-running the full battery
+    /// (several external version-probe processes) would be wasted work.
+    /// </summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused change details; the context reports only one property.</param>
+    private void OnOutputPathContextChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        PreflightResults = preflightService.RefreshOutputFolderCheck(PreflightResults, repositoryContext.RepositoryRoot, outputPathContext.OutputPath);
     }
 }

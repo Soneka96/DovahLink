@@ -305,6 +305,39 @@ public sealed class PreflightServiceTests
             results.Select(result => result.ToolName));
     }
 
+    /// <summary>Replaces only the Output Folder entry, leaving every other check's result untouched.</summary>
+    [Fact]
+    public async Task RefreshOutputFolderCheckReplacesOnlyTheOutputFolderEntry()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = Path.Combine(temporaryDirectory.Path, "repo");
+        Directory.CreateDirectory(Path.Combine(repositoryRoot, "adapter"));
+        File.WriteAllText(Path.Combine(repositoryRoot, "adapter", "vcpkg.json"), "{}");
+        var service = new PreflightService(new FakeCommandRunner(), TestVersionProbeTimeout);
+        IReadOnlyList<ToolchainCheckResult> previousResults = await service.CheckAllAsync(repositoryRoot);
+        string newOutputOverride = Path.Combine(temporaryDirectory.Path, "custom-out");
+
+        IReadOnlyList<ToolchainCheckResult> updatedResults = service.RefreshOutputFolderCheck(previousResults, repositoryRoot, newOutputOverride);
+
+        Assert.Equal(previousResults.Take(7), updatedResults.Take(7));
+        ToolchainCheckResult outputFolderResult = updatedResults[7];
+        Assert.Equal("Output Folder", outputFolderResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Found, outputFolderResult.Availability);
+        Assert.Equal(newOutputOverride, outputFolderResult.Detail);
+    }
+
+    /// <summary>Returns the given results unchanged when they contain no Output Folder entry yet, for example before any full refresh has ever run.</summary>
+    [Fact]
+    public void RefreshOutputFolderCheckReturnsResultsUnchangedWithoutAnExistingEntry()
+    {
+        var service = new PreflightService(new FakeCommandRunner(), TestVersionProbeTimeout);
+        IReadOnlyList<ToolchainCheckResult> previousResults = [];
+
+        IReadOnlyList<ToolchainCheckResult> updatedResults = service.RefreshOutputFolderCheck(previousResults, @"C:\repo", null);
+
+        Assert.Same(previousResults, updatedResults);
+    }
+
     /// <summary>Records command invocations and simulates a missing executable or an unresponsive process.</summary>
     private sealed class FakeCommandRunner : ICommandRunner
     {

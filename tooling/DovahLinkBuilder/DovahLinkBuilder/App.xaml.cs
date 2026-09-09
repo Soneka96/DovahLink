@@ -25,11 +25,12 @@ public partial class App : Application
         // below then adopts the persisted override, if any, as the actually active root).
         string autoDetectedRepositoryRoot = RepositoryRootLocator.Find(AppContext.BaseDirectory);
         var repositoryContext = new RepositoryContext(settings.RepositoryPath ?? autoDetectedRepositoryRoot);
+        var outputPathContext = new OutputPathContext(settings.OutputPath);
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, settingsStore);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);

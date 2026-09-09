@@ -22,6 +22,17 @@ public interface IPreflightService
     /// Studio, CMake, vcpkg, Papyrus Compiler, Python, then Output Folder.
     /// </returns>
     Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Recomputes just the Output Folder check against <paramref name="outputPathOverride"/>, leaving
+    /// every other entry in <paramref name="previousResults"/> unchanged -- a build output path change
+    /// alone does not affect any other required tool's availability, so nothing else needs re-checking.
+    /// </summary>
+    /// <param name="previousResults">The most recently loaded results, as returned by <see cref="CheckAllAsync"/>.</param>
+    /// <param name="repositoryRoot">The repository root to resolve the default output location under when <paramref name="outputPathOverride"/> is <see langword="null"/>.</param>
+    /// <param name="outputPathOverride">The configured build output path override, or <see langword="null"/> to check the repository's default <c>tooling/out</c> instead.</param>
+    /// <returns><paramref name="previousResults"/> unchanged if it contains no Output Folder entry yet; otherwise a new list with that entry replaced.</returns>
+    IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride);
 }
 
 /// <summary>Aggregates every required build tool into one ordered, non-throwing preflight report.</summary>
@@ -113,6 +124,20 @@ public sealed class PreflightService : IPreflightService
         {
             return new ToolchainCheckResult(VcpkgToolName, ToolchainAvailability.CouldNotCheck, null, exception.Message);
         }
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride)
+    {
+        int index = previousResults.ToList().FindIndex(result => result.ToolName == OutputFolderToolName);
+        if (index < 0)
+        {
+            return previousResults;
+        }
+
+        ToolchainCheckResult[] updatedResults = previousResults.ToArray();
+        updatedResults[index] = CheckOutputFolder(repositoryRoot, outputPathOverride);
+        return updatedResults;
     }
 
     /// <summary>
