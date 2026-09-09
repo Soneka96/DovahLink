@@ -14,7 +14,226 @@ namespace DovahLink.DovahLinkBuilder.Ui;
 /// Owns the Build page's state: preflight and git gating, the uncommitted/unpushed acknowledgement
 /// flow, and running the Adapter+Host build.
 /// </summary>
-public sealed class BuildPageViewModel : ObservableObject
+public interface IBuildPageViewModel : INotifyPropertyChanged
+{
+    /// <summary>Gets every build profile the picker offers.</summary>
+    IReadOnlyList<BuildProfile> AvailableProfiles { get; }
+
+    /// <summary>Gets or sets the build profile the next build targets.</summary>
+    BuildProfile SelectedProfile { get; set; }
+
+    /// <summary>Gets <see cref="SelectedProfile"/>'s display name, for the build summary and recorded build history.</summary>
+    string Profile { get; }
+
+    /// <summary>Gets a short summary of the current profile and build options.</summary>
+    string BuildSummaryText { get; }
+
+    /// <summary>Gets the Adapter build summary row's text: <see cref="SelectedProfile"/>'s dotnet configuration and architecture.</summary>
+    string AdapterSummaryText { get; }
+
+    /// <summary>Gets the Host build summary row's text: the fixed publish trait plus <see cref="SelectedProfile"/>'s dotnet configuration.</summary>
+    string HostSummaryText { get; }
+
+    /// <summary>Gets the repository's product version, read fresh from its VERSION file; "unknown" when it cannot be read.</summary>
+    string RepositoryVersion { get; }
+
+    /// <summary>Gets or sets an optional local note to attach to the next build that is started.</summary>
+    string? BuildNote { get; set; }
+
+    /// <summary>Gets or sets whether generated Adapter and Host build outputs are cleared before building.</summary>
+    bool IsCleanBuild { get; set; }
+
+    /// <summary>Gets whether a build is currently running.</summary>
+    bool IsBuilding { get; }
+
+    /// <summary>
+    /// Gets whether cancellation has been requested and is being carried out; the Cancel button is
+    /// disabled during this transient state, between Building and Cancelled.
+    /// </summary>
+    bool IsCancelling { get; }
+
+    /// <summary>Gets the message shown while cancellation is in progress, or <see langword="null"/> otherwise.</summary>
+    string? CancellingMessage { get; }
+
+    /// <summary>Gets whether the page is showing the uncommitted/unpushed build acknowledgement prompt.</summary>
+    bool IsAwaitingConfirmation { get; }
+
+    /// <summary>
+    /// Gets the reason a build cannot currently start, or <see langword="null"/> when building is
+    /// allowed. Reflects the first required check that is not <see cref="ToolchainAvailability.Found"/>,
+    /// or a git status error, in that order.
+    /// </summary>
+    string? BuildBlockedReason { get; }
+
+    /// <summary>Gets whether <see cref="BuildBlockedReason"/> currently has a value.</summary>
+    bool HasBuildBlockedReason { get; }
+
+    /// <summary>Gets whether the ordinary Build/Cancel controls should show, as opposed to the acknowledgement prompt.</summary>
+    bool CanShowBuildActions { get; }
+
+    /// <summary>Gets whether the Build command can currently start a build.</summary>
+    bool CanBuild { get; }
+
+    /// <summary>Gets the outcome of the most recently finished build, or <see langword="null"/> before any build has finished.</summary>
+    BuildHistoryResult? LastOutcome { get; }
+
+    /// <summary>Gets whether a build has finished, and a result banner should show.</summary>
+    bool HasResult { get; }
+
+    /// <summary>
+    /// Gets whether the idle build form (summary, clean-build toggle, note, Build button) should show,
+    /// as opposed to the pipeline/console/outcome view: only before any build has run this session and
+    /// while nothing is currently building or cancelling.
+    /// </summary>
+    bool ShowIdleForm { get; }
+
+    /// <summary>Gets whether the pipeline/console/outcome view should show, as the complement of <see cref="ShowIdleForm"/>.</summary>
+    bool ShowActiveOrResult { get; }
+
+    /// <summary>Gets whether the most recently finished build failed, for showing "Copy diagnostics" on the failure banner.</summary>
+    bool IsFailed { get; }
+
+    /// <summary>Gets the result banner text for <see cref="LastOutcome"/>, or <see langword="null"/> before any build has finished.</summary>
+    string? ResultBannerText { get; }
+
+    /// <summary>Gets the failure message for the most recently finished build; <see langword="null"/> unless it failed.</summary>
+    string? LastOutcomeMessage { get; }
+
+    /// <summary>Gets the command that starts a build, or opens the acknowledgement prompt for a dirty/unpushed source.</summary>
+    RelayCommand BuildCommand { get; }
+
+    /// <summary>Gets the command that starts a build after the acknowledgement prompt is accepted.</summary>
+    RelayCommand ConfirmBuildCommand { get; }
+
+    /// <summary>Gets the command that dismisses the acknowledgement prompt without starting a build.</summary>
+    RelayCommand CancelConfirmationCommand { get; }
+
+    /// <summary>Gets the command that cancels the currently running build.</summary>
+    RelayCommand CancelCommand { get; }
+
+    /// <summary>
+    /// Gets the currently running build's task, or <see langword="null"/> when idle. Lets the main
+    /// window's close handler await a build's own cancellation-driven shutdown before actually
+    /// closing, and gives tests a seam to await the same task.
+    /// </summary>
+    Task? RunningBuildTask { get; }
+
+    /// <summary>Loads the current preflight and git status, updating <see cref="BuildBlockedReason"/>.</summary>
+    /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
+    Task InitializeAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Gets the pipeline's stages in order, one segment per <see cref="BuildStage"/> value.</summary>
+    IReadOnlyList<BuildStageViewModel> Stages { get; }
+
+    /// <summary>Gets the number of stages that have actually succeeded in the current or most recent build.</summary>
+    int CompletedStageCount { get; }
+
+    /// <summary>Gets an honest "Stage N of 8" summary reflecting <see cref="CompletedStageCount"/> exactly -- never an invented percentage.</summary>
+    string StageProgressText { get; }
+
+    /// <summary>Gets the Build page's log panel, kept alive for the application's lifetime.</summary>
+    LogViewModel Log { get; }
+
+    /// <summary>Gets the produced archive's path on success; <see langword="null"/> otherwise.</summary>
+    string? ArchivePath { get; }
+
+    /// <summary>Gets whether <see cref="ArchivePath"/> currently has a value.</summary>
+    bool HasArchivePath { get; }
+
+    /// <summary>Gets the produced archive's file name on success; <see langword="null"/> otherwise.</summary>
+    string? ArchiveFileName { get; }
+
+    /// <summary>Gets the produced archive's human-readable file size on success; <see langword="null"/> otherwise.</summary>
+    string? ArchiveSizeText { get; }
+
+    /// <summary>Gets how long the most recently finished build ran; <see langword="null"/> before any build has finished.</summary>
+    TimeSpan? LastBuildDuration { get; }
+
+    /// <summary>Gets a "Finished in Ns." summary of <see cref="LastBuildDuration"/>; <see langword="null"/> before any build has finished.</summary>
+    string? LastBuildDurationText { get; }
+
+    /// <summary>Gets the command that opens the produced archive's containing folder.</summary>
+    RelayCommand OpenArchiveFolderCommand { get; }
+
+    /// <summary>Gets the command that copies the produced archive's path to the clipboard.</summary>
+    RelayCommand CopyArchivePathCommand { get; }
+
+    /// <summary>Gets the produced archive's SHA-256 hash, as lowercase hex, on success; <see langword="null"/> otherwise.</summary>
+    string? ArchiveSha256 { get; }
+
+    /// <summary>Gets whether the archive's real contents are currently shown.</summary>
+    bool IsShowingArchiveContents { get; }
+
+    /// <summary>Gets the produced archive's real entry names, read directly from the ZIP; empty until <see cref="ViewArchiveContentsCommand"/> runs.</summary>
+    IReadOnlyList<string> ArchiveEntries { get; }
+
+    /// <summary>Gets the command that toggles showing the produced archive's real contents.</summary>
+    RelayCommand ViewArchiveContentsCommand { get; }
+
+    /// <summary>Gets the retained build history, most recent first.</summary>
+    IReadOnlyList<BuildHistoryEntry> RecentBuilds { get; }
+
+    /// <summary>Gets whether "Show all" has been used to reveal every retained build, rather than just the most recent ones.</summary>
+    bool IsShowingAllRecentBuilds { get; }
+
+    /// <summary>Gets the recent builds currently shown: the most recent few, or all of them once <see cref="IsShowingAllRecentBuilds"/> is set.</summary>
+    IReadOnlyList<BuildHistoryEntry> VisibleRecentBuilds { get; }
+
+    /// <summary>Gets whether there are more retained builds than <see cref="VisibleRecentBuilds"/> currently shows.</summary>
+    bool HasMoreRecentBuilds { get; }
+
+    /// <summary>Gets the command that toggles between showing the most recent few builds and every retained build.</summary>
+    RelayCommand ToggleShowAllRecentBuildsCommand { get; }
+
+    /// <summary>
+    /// Gets the command that returns from a finished build's result view to the idle build form
+    /// without starting a build. Refreshes preflight and git status in the background so the form's
+    /// gate reflects current reality by the time the user presses Build themselves, rather than
+    /// trusting a check that may be stale by however long the previous build took.
+    /// </summary>
+    RelayCommand NewBuildCommand { get; }
+
+    /// <summary>Gets the current branch name, shown only in the footer status strip.</summary>
+    string? GitBranch { get; }
+
+    /// <summary>Gets a short source-state label for the footer status strip: Pushed, Local changes, Not pushed, Committed (unverified), or Unverified while git status has not loaded.</summary>
+    string GitFooterStateText { get; }
+
+    /// <summary>
+    /// Gets whether the current git status needs the maintainer's attention before building: a dirty
+    /// working tree, or commits not yet pushed to the upstream remote. Never true while git status has
+    /// not loaded or could not be determined -- that failure is already surfaced via
+    /// <see cref="BuildBlockedReason"/>.
+    /// </summary>
+    bool GitNeedsAttention { get; }
+
+    /// <summary>
+    /// Gets the footer status text reflecting the Build page's real current state: Building while a
+    /// build runs; Cancelling during the transient shutdown between Building and Cancelled;
+    /// Failed/Cancelled/Complete for the most recent finished build; "Environment incomplete" while
+    /// idle with a missing required check; Ready only while idle with everything passing. Never a
+    /// static "Ready".
+    /// </summary>
+    string FooterStatusText { get; }
+
+    /// <summary>Gets the most recently loaded preflight results, in preflight order.</summary>
+    IReadOnlyList<ToolchainCheckResult> PreflightResults { get; }
+
+    /// <summary>Gets an honest "N of M checks passed" summary of <see cref="PreflightResults"/>.</summary>
+    string EnvironmentSummaryText { get; }
+
+    /// <summary>Gets whether any required build tool is currently unavailable.</summary>
+    bool HasMissingRequiredTool { get; }
+
+    /// <summary>Gets the resolved .NET SDK version detail for the footer status strip, or <see langword="null"/> before preflight has loaded.</summary>
+    string? DotNetVersionDetail { get; }
+
+    /// <summary>Gets the command that copies a plain-text diagnostics report -- environment checks, git status, and the last build -- to the clipboard.</summary>
+    RelayCommand CopyDiagnosticsCommand { get; }
+}
+
+/// <inheritdoc cref="IBuildPageViewModel"/>
+public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
 {
     /// <summary>The text shown while preflight and git status have not finished loading yet.</summary>
     private const string CheckingEnvironmentReason = "Checking environment and git status...";
@@ -147,10 +366,10 @@ public sealed class BuildPageViewModel : ObservableObject
         recentBuilds = buildHistoryStore.GetRecent();
     }
 
-    /// <summary>Gets every build profile the picker offers.</summary>
+    /// <inheritdoc/>
     public IReadOnlyList<BuildProfile> AvailableProfiles { get; } = Enum.GetValues<BuildProfile>();
 
-    /// <summary>Gets or sets the build profile the next build targets.</summary>
+    /// <inheritdoc/>
     public BuildProfile SelectedProfile
     {
         get => selectedProfile;
@@ -166,29 +385,29 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets <see cref="SelectedProfile"/>'s display name, for the build summary and recorded build history.</summary>
+    /// <inheritdoc/>
     public string Profile => SelectedProfile.ToString();
 
-    /// <summary>Gets a short summary of the current profile and build options.</summary>
+    /// <inheritdoc/>
     public string BuildSummaryText => IsCleanBuild ? $"{Profile} · Clean build" : Profile;
 
-    /// <summary>Gets the Adapter build summary row's text: <see cref="SelectedProfile"/>'s dotnet configuration and architecture.</summary>
+    /// <inheritdoc/>
     public string AdapterSummaryText => $"{SelectedProfile.ToDotnetConfiguration()} x64";
 
-    /// <summary>Gets the Host build summary row's text: the fixed publish trait plus <see cref="SelectedProfile"/>'s dotnet configuration.</summary>
+    /// <inheritdoc/>
     public string HostSummaryText => $"self-contained win-x64 ({SelectedProfile.ToDotnetConfiguration()})";
 
-    /// <summary>Gets the repository's product version, read fresh from its VERSION file; "unknown" when it cannot be read.</summary>
+    /// <inheritdoc/>
     public string RepositoryVersion => TryReadRepositoryVersion();
 
-    /// <summary>Gets or sets an optional local note to attach to the next build that is started.</summary>
+    /// <inheritdoc/>
     public string? BuildNote
     {
         get => buildNote;
         set => SetProperty(ref buildNote, value);
     }
 
-    /// <summary>Gets or sets whether generated Adapter and Host build outputs are cleared before building.</summary>
+    /// <inheritdoc/>
     public bool IsCleanBuild
     {
         get => isCleanBuild;
@@ -201,7 +420,7 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets whether a build is currently running.</summary>
+    /// <inheritdoc/>
     public bool IsBuilding
     {
         get => isBuilding;
@@ -215,10 +434,7 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Gets whether cancellation has been requested and is being carried out; the Cancel button is
-    /// disabled during this transient state, between Building and Cancelled (correction #6).
-    /// </summary>
+    /// <inheritdoc/>
     public bool IsCancelling
     {
         get => isCancelling;
@@ -232,10 +448,10 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets the message shown while cancellation is in progress, or <see langword="null"/> otherwise.</summary>
+    /// <inheritdoc/>
     public string? CancellingMessage => IsCancelling ? "Stopping build… Terminating active build processes." : null;
 
-    /// <summary>Gets whether the page is showing the uncommitted/unpushed build acknowledgement prompt.</summary>
+    /// <inheritdoc/>
     public bool IsAwaitingConfirmation
     {
         get => isAwaitingConfirmation;
@@ -248,11 +464,7 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Gets the reason a build cannot currently start, or <see langword="null"/> when building is
-    /// allowed. Reflects the first required check that is not <see cref="ToolchainAvailability.Found"/>,
-    /// or a git status error, in that order.
-    /// </summary>
+    /// <inheritdoc/>
     public string? BuildBlockedReason
     {
         get => buildBlockedReason;
@@ -265,16 +477,16 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets whether <see cref="BuildBlockedReason"/> currently has a value.</summary>
+    /// <inheritdoc/>
     public bool HasBuildBlockedReason => BuildBlockedReason is not null;
 
-    /// <summary>Gets whether the ordinary Build/Cancel controls should show, as opposed to the acknowledgement prompt.</summary>
+    /// <inheritdoc/>
     public bool CanShowBuildActions => !IsAwaitingConfirmation;
 
-    /// <summary>Gets whether the Build command can currently start a build.</summary>
+    /// <inheritdoc/>
     public bool CanBuild => !IsBuilding && !IsAwaitingConfirmation && BuildBlockedReason is null;
 
-    /// <summary>Gets the outcome of the most recently finished build, or <see langword="null"/> before any build has finished.</summary>
+    /// <inheritdoc/>
     public BuildHistoryResult? LastOutcome
     {
         get => lastOutcome;
@@ -291,17 +503,13 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets whether a build has finished, and a result banner should show.</summary>
+    /// <inheritdoc/>
     public bool HasResult => LastOutcome is not null;
 
-    /// <summary>
-    /// Gets whether the idle build form (summary, clean-build toggle, note, Build button) should show,
-    /// as opposed to the pipeline/console/outcome view: only before any build has run this session and
-    /// while nothing is currently building or cancelling.
-    /// </summary>
+    /// <inheritdoc/>
     public bool ShowIdleForm => !IsBuilding && !IsCancelling && !HasResult;
 
-    /// <summary>Gets whether the pipeline/console/outcome view should show, as the complement of <see cref="ShowIdleForm"/>.</summary>
+    /// <inheritdoc/>
     public bool ShowActiveOrResult => !ShowIdleForm;
 
     /// <summary>Notifies the properties that switch between the idle form and the active/result view.</summary>
@@ -311,10 +519,10 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowActiveOrResult));
     }
 
-    /// <summary>Gets whether the most recently finished build failed, for showing "Copy diagnostics" on the failure banner.</summary>
+    /// <inheritdoc/>
     public bool IsFailed => LastOutcome == BuildHistoryResult.Failed;
 
-    /// <summary>Gets the result banner text for <see cref="LastOutcome"/>, or <see langword="null"/> before any build has finished.</summary>
+    /// <inheritdoc/>
     public string? ResultBannerText => LastOutcome switch
     {
         BuildHistoryResult.Succeeded => "Build succeeded.",
@@ -323,30 +531,29 @@ public sealed class BuildPageViewModel : ObservableObject
         _ => null,
     };
 
-    /// <summary>Gets the failure message for the most recently finished build; <see langword="null"/> unless it failed.</summary>
+    /// <inheritdoc/>
     public string? LastOutcomeMessage
     {
         get => lastOutcomeMessage;
         private set => SetProperty(ref lastOutcomeMessage, value);
     }
 
-    /// <summary>Gets the command that starts a build, or opens the acknowledgement prompt for a dirty/unpushed source.</summary>
+    /// <inheritdoc/>
     public RelayCommand BuildCommand { get; }
 
-    /// <summary>Gets the command that starts a build after the acknowledgement prompt is accepted.</summary>
+    /// <inheritdoc/>
     public RelayCommand ConfirmBuildCommand { get; }
 
-    /// <summary>Gets the command that dismisses the acknowledgement prompt without starting a build.</summary>
+    /// <inheritdoc/>
     public RelayCommand CancelConfirmationCommand { get; }
 
-    /// <summary>Gets the command that cancels the currently running build.</summary>
+    /// <inheritdoc/>
     public RelayCommand CancelCommand { get; }
 
-    /// <summary>Gets the currently running build's task, or <see langword="null"/> when idle. A test seam only.</summary>
-    internal Task? RunningBuildTask { get; private set; }
+    /// <inheritdoc/>
+    public Task? RunningBuildTask { get; private set; }
 
-    /// <summary>Loads the current preflight and git status, updating <see cref="BuildBlockedReason"/>.</summary>
-    /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
+    /// <inheritdoc/>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await environmentStore.RefreshAsync(cancellationToken);
@@ -642,16 +849,13 @@ public sealed class BuildPageViewModel : ObservableObject
         NewBuildCommand.RaiseCanExecuteChanged();
     }
 
-    /// <summary>Gets the pipeline's stages in order, one segment per <see cref="BuildStage"/> value.</summary>
+    /// <inheritdoc/>
     public IReadOnlyList<BuildStageViewModel> Stages { get; }
 
-    /// <summary>Gets the number of stages that have actually succeeded in the current or most recent build.</summary>
+    /// <inheritdoc/>
     public int CompletedStageCount => Stages.Count(stage => stage.Status == BuildStageStatus.Succeeded);
 
-    /// <summary>
-    /// Gets an honest "Stage N of 8" summary reflecting <see cref="CompletedStageCount"/> exactly --
-    /// never an invented percentage (correction #3).
-    /// </summary>
+    /// <inheritdoc/>
     public string StageProgressText => $"Stage {CompletedStageCount} of {Stages.Count}";
 
     /// <summary>Resets every stage segment back to Pending before a new build starts.</summary>
@@ -681,10 +885,10 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(StageProgressText));
     }
 
-    /// <summary>Gets the Build page's log panel, kept alive for the application's lifetime.</summary>
+    /// <inheritdoc/>
     public LogViewModel Log { get; }
 
-    /// <summary>Gets the produced archive's path on success; <see langword="null"/> otherwise.</summary>
+    /// <inheritdoc/>
     public string? ArchivePath
     {
         get => archivePath;
@@ -701,20 +905,20 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets whether <see cref="ArchivePath"/> currently has a value.</summary>
+    /// <inheritdoc/>
     public bool HasArchivePath => ArchivePath is not null;
 
-    /// <summary>Gets the produced archive's file name on success; <see langword="null"/> otherwise.</summary>
+    /// <inheritdoc/>
     public string? ArchiveFileName => ArchivePath is null ? null : Path.GetFileName(ArchivePath);
 
-    /// <summary>Gets the produced archive's human-readable file size on success; <see langword="null"/> otherwise.</summary>
+    /// <inheritdoc/>
     public string? ArchiveSizeText
     {
         get => archiveSizeText;
         private set => SetProperty(ref archiveSizeText, value);
     }
 
-    /// <summary>Gets how long the most recently finished build ran; <see langword="null"/> before any build has finished.</summary>
+    /// <inheritdoc/>
     public TimeSpan? LastBuildDuration
     {
         get => lastBuildDuration;
@@ -727,37 +931,37 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets a "Finished in Ns." summary of <see cref="LastBuildDuration"/>; <see langword="null"/> before any build has finished.</summary>
+    /// <inheritdoc/>
     public string? LastBuildDurationText => LastBuildDuration is { } duration ? $"Finished in {duration.TotalSeconds:0.0}s." : null;
 
-    /// <summary>Gets the command that opens the produced archive's containing folder.</summary>
+    /// <inheritdoc/>
     public RelayCommand OpenArchiveFolderCommand { get; }
 
-    /// <summary>Gets the command that copies the produced archive's path to the clipboard.</summary>
+    /// <inheritdoc/>
     public RelayCommand CopyArchivePathCommand { get; }
 
-    /// <summary>Gets the produced archive's SHA-256 hash, as lowercase hex, on success; <see langword="null"/> otherwise.</summary>
+    /// <inheritdoc/>
     public string? ArchiveSha256
     {
         get => archiveSha256;
         private set => SetProperty(ref archiveSha256, value);
     }
 
-    /// <summary>Gets whether the archive's real contents are currently shown.</summary>
+    /// <inheritdoc/>
     public bool IsShowingArchiveContents
     {
         get => isShowingArchiveContents;
         private set => SetProperty(ref isShowingArchiveContents, value);
     }
 
-    /// <summary>Gets the produced archive's real entry names, read directly from the ZIP; empty until <see cref="ViewArchiveContentsCommand"/> runs.</summary>
+    /// <inheritdoc/>
     public IReadOnlyList<string> ArchiveEntries
     {
         get => archiveEntries;
         private set => SetProperty(ref archiveEntries, value);
     }
 
-    /// <summary>Gets the command that toggles showing the produced archive's real contents.</summary>
+    /// <inheritdoc/>
     public RelayCommand ViewArchiveContentsCommand { get; }
 
     /// <summary>Computes a file's SHA-256 hash as lowercase hex.</summary>
@@ -791,7 +995,7 @@ public sealed class BuildPageViewModel : ObservableObject
         IsShowingArchiveContents = true;
     }
 
-    /// <summary>Gets the retained build history, most recent first.</summary>
+    /// <inheritdoc/>
     public IReadOnlyList<BuildHistoryEntry> RecentBuilds
     {
         get => recentBuilds;
@@ -805,7 +1009,7 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets whether "Show all" has been used to reveal every retained build, rather than just the most recent ones.</summary>
+    /// <inheritdoc/>
     public bool IsShowingAllRecentBuilds
     {
         get => isShowingAllRecentBuilds;
@@ -818,22 +1022,17 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets the recent builds currently shown: the most recent few, or all of them once <see cref="IsShowingAllRecentBuilds"/> is set.</summary>
+    /// <inheritdoc/>
     public IReadOnlyList<BuildHistoryEntry> VisibleRecentBuilds =>
         IsShowingAllRecentBuilds ? RecentBuilds : RecentBuilds.Take(RecentBuildsPreviewCount).ToList();
 
-    /// <summary>Gets whether there are more retained builds than <see cref="VisibleRecentBuilds"/> currently shows.</summary>
+    /// <inheritdoc/>
     public bool HasMoreRecentBuilds => RecentBuilds.Count > RecentBuildsPreviewCount;
 
-    /// <summary>Gets the command that toggles between showing the most recent few builds and every retained build.</summary>
+    /// <inheritdoc/>
     public RelayCommand ToggleShowAllRecentBuildsCommand { get; }
 
-    /// <summary>
-    /// Gets the command that returns from a finished build's result view to the idle build form
-    /// without starting a build. Refreshes preflight and git status in the background so the form's
-    /// gate reflects current reality by the time the user presses Build themselves, rather than
-    /// trusting a check that may be stale by however long the previous build took.
-    /// </summary>
+    /// <inheritdoc/>
     public RelayCommand NewBuildCommand { get; }
 
     /// <summary>
@@ -892,10 +1091,10 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets the current branch name, shown only in the footer status strip.</summary>
+    /// <inheritdoc/>
     public string? GitBranch => gitStatusStore.Status?.Branch;
 
-    /// <summary>Gets a short source-state label for the footer status strip: Pushed, Local changes, Not pushed, Committed (unverified), or Unverified while git status has not loaded.</summary>
+    /// <inheritdoc/>
     public string GitFooterStateText => gitStatusStore.Status switch
     {
         { WorkingTreeState: WorkingTreeState.Dirty } => "Local changes",
@@ -905,21 +1104,10 @@ public sealed class BuildPageViewModel : ObservableObject
         _ => "Unverified",
     };
 
-    /// <summary>
-    /// Gets whether the current git status needs the maintainer's attention before building: a dirty
-    /// working tree, or commits not yet pushed to the upstream remote. Never true while git status has
-    /// not loaded or could not be determined -- that failure is already surfaced via
-    /// <see cref="BuildBlockedReason"/>.
-    /// </summary>
+    /// <inheritdoc/>
     public bool GitNeedsAttention => gitStatusStore.Status is { WorkingTreeState: WorkingTreeState.Dirty } or { RemoteSyncState: RemoteSyncState.NotPushed };
 
-    /// <summary>
-    /// Gets the footer status text reflecting the Build page's real current state (correction #7):
-    /// Building while a build runs; Cancelling during the transient shutdown between Building and
-    /// Cancelled; Failed/Cancelled/Complete for the most recent finished build; "Environment incomplete"
-    /// while idle with a missing required check; Ready only while idle with everything passing. Never a
-    /// static "Ready".
-    /// </summary>
+    /// <inheritdoc/>
     public string FooterStatusText => (IsBuilding, IsCancelling, LastOutcome, HasBuildBlockedReason) switch
     {
         (true, true, _, _) => "Cancelling",
@@ -940,7 +1128,7 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(GitNeedsAttention));
     }
 
-    /// <summary>Gets the most recently loaded preflight results, in preflight order.</summary>
+    /// <inheritdoc/>
     public IReadOnlyList<ToolchainCheckResult> PreflightResults
     {
         get => preflightResults;
@@ -955,17 +1143,17 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets an honest "N of M checks passed" summary of <see cref="PreflightResults"/>.</summary>
+    /// <inheritdoc/>
     public string EnvironmentSummaryText =>
         $"{PreflightResults.Count(result => result.Availability == ToolchainAvailability.Found)} of {PreflightResults.Count} checks passed";
 
-    /// <summary>Gets whether any required build tool is currently unavailable.</summary>
+    /// <inheritdoc/>
     public bool HasMissingRequiredTool => PreflightResults.Any(result => result.Availability != ToolchainAvailability.Found);
 
-    /// <summary>Gets the resolved .NET SDK version detail for the footer status strip, or <see langword="null"/> before preflight has loaded.</summary>
+    /// <inheritdoc/>
     public string? DotNetVersionDetail => PreflightResults.FirstOrDefault(result => result.ToolName == ".NET SDK")?.Detail;
 
-    /// <summary>Gets the command that copies a plain-text diagnostics report -- environment checks, git status, and the last build -- to the clipboard.</summary>
+    /// <inheritdoc/>
     public RelayCommand CopyDiagnosticsCommand { get; }
 
     /// <summary>Formats the current diagnostics report and writes it to the clipboard.</summary>

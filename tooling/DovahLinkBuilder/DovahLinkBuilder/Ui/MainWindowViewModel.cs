@@ -11,9 +11,9 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <param name="environmentPage">The Environment page's ViewModel, kept alive for the application's lifetime.</param>
     /// <param name="settingsPage">The Settings page's ViewModel, kept alive for the application's lifetime.</param>
     public MainWindowViewModel(
-        BuildPageViewModel buildPage,
-        EnvironmentPageViewModel environmentPage,
-        SettingsPageViewModel settingsPage)
+        IBuildPageViewModel buildPage,
+        IEnvironmentPageViewModel environmentPage,
+        ISettingsPageViewModel settingsPage)
     {
         BuildPage = buildPage;
         EnvironmentPage = environmentPage;
@@ -28,13 +28,13 @@ public sealed class MainWindowViewModel : ObservableObject
     /// Gets the Build page's ViewModel, kept alive for the application's lifetime. Public so the main
     /// window's close handler can check for an in-flight build regardless of the currently displayed page.
     /// </summary>
-    public BuildPageViewModel BuildPage { get; }
+    public IBuildPageViewModel BuildPage { get; }
 
     /// <summary>Gets the Environment page's ViewModel, kept alive for the application's lifetime.</summary>
-    private EnvironmentPageViewModel EnvironmentPage { get; }
+    private IEnvironmentPageViewModel EnvironmentPage { get; }
 
     /// <summary>Gets the Settings page's ViewModel, kept alive for the application's lifetime.</summary>
-    private SettingsPageViewModel SettingsPage { get; }
+    private ISettingsPageViewModel SettingsPage { get; }
 
     /// <summary>Gets the currently displayed page's ViewModel.</summary>
     public object CurrentPage

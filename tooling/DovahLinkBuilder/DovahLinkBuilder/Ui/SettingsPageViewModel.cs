@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using DovahLink.DovahLinkBuilder.Persistence;
 
@@ -9,9 +10,77 @@ namespace DovahLink.DovahLinkBuilder.Ui;
 /// have a real resolved default; back to simply unset for Skyrim, which has none) and, where a
 /// resolved value exists to open, an Open-folder command -- and the Builder's behavior toggles.
 /// Every change saves immediately through <see cref="ISettingsStore"/>; there is no "remember last
-/// profile" setting, since there is only one real profile (correction #11).
+/// profile" setting, since there is only one real profile.
 /// </summary>
-public sealed class SettingsPageViewModel : ObservableObject
+public interface ISettingsPageViewModel : INotifyPropertyChanged
+{
+    /// <summary>Gets or sets the repository path override, or <see langword="null"/> to use the auto-detected repository.</summary>
+    string? RepositoryPath { get; set; }
+
+    /// <summary>Gets or sets the Skyrim / Creation Kit install path, set only through a folder picker, or <see langword="null"/> when not configured.</summary>
+    string? SkyrimInstallPath { get; set; }
+
+    /// <summary>Gets or sets the build output path override, or <see langword="null"/> to use the repository's default <c>tooling/out</c>.</summary>
+    string? OutputPath { get; set; }
+
+    /// <summary>Gets or sets whether to open the output folder after a build succeeds. Never applies to a failed or cancelled build.</summary>
+    bool OpenOutputFolderAfterSuccessfulBuild { get; set; }
+
+    /// <summary>Gets or sets whether the log panel scrolls to the newest line automatically.</summary>
+    bool AutoScrollLogs { get; set; }
+
+    /// <summary>Gets or sets whether build and packaging commands report their full raw output rather than a condensed summary.</summary>
+    bool VerboseCommandOutput { get; set; }
+
+    /// <summary>Gets or sets whether to show a desktop notification when a build finishes.</summary>
+    bool NotifyWhenBuildCompletes { get; set; }
+
+    /// <summary>Gets the command that clears <see cref="RepositoryPath"/> back to auto-detection.</summary>
+    RelayCommand ResetRepositoryPathCommand { get; }
+
+    /// <summary>Gets the command that clears <see cref="SkyrimInstallPath"/> back to unset.</summary>
+    RelayCommand ResetSkyrimInstallPathCommand { get; }
+
+    /// <summary>Gets the command that clears <see cref="OutputPath"/> back to auto-detection.</summary>
+    RelayCommand ResetOutputPathCommand { get; }
+
+    /// <summary>Gets the repository path actually in effect: <see cref="RepositoryPath"/> when set, otherwise the auto-detected repository. Always has a value.</summary>
+    string EffectiveRepositoryPath { get; }
+
+    /// <summary>Gets the reason the last <see cref="BrowseRepositoryPathCommand"/> pick was rejected, or <see langword="null"/> when the current override (if any) is valid.</summary>
+    string? RepositoryPathError { get; }
+
+    /// <summary>Gets the command that opens a folder picker and, when the chosen folder is a valid DovahLink repository, sets it as <see cref="RepositoryPath"/>.</summary>
+    RelayCommand BrowseRepositoryPathCommand { get; }
+
+    /// <summary>Gets the command that opens <see cref="EffectiveRepositoryPath"/> in the system file explorer.</summary>
+    RelayCommand OpenRepositoryFolderCommand { get; }
+
+    /// <summary>
+    /// Gets the build output path actually in effect: <see cref="OutputPath"/> when set, otherwise
+    /// <see cref="BuildProfile.Release"/>'s default output root (the profile every override, once set,
+    /// replaces regardless of which profile a build later targets). Always has a value.
+    /// </summary>
+    string EffectiveOutputPath { get; }
+
+    /// <summary>Gets the command that opens a folder picker and sets the chosen folder as <see cref="OutputPath"/>. Any folder is accepted; nothing to validate against.</summary>
+    RelayCommand BrowseOutputPathCommand { get; }
+
+    /// <summary>Gets the command that opens <see cref="EffectiveOutputPath"/> in the system file explorer.</summary>
+    RelayCommand OpenOutputFolderCommand { get; }
+
+    /// <summary>Gets the command that opens a folder picker and sets the chosen folder as <see cref="SkyrimInstallPath"/>. Nothing in the Builder reads this value yet, so any folder is accepted.</summary>
+    RelayCommand BrowseSkyrimInstallPathCommand { get; }
+
+    /// <summary>Gets the command that opens <see cref="SkyrimInstallPath"/> in the system file explorer; disabled while it is unset, since there is no resolved fallback to open.</summary>
+    RelayCommand OpenSkyrimInstallFolderCommand { get; }
+
+    /// <summary>Gets <see cref="SkyrimInstallPath"/> for display, or "Not set" in its place -- never a false claim of auto-detection, since none exists.</summary>
+    string SkyrimInstallPathDisplayText { get; }
+}
+
+/// <inheritdoc cref="ISettingsPageViewModel"/>
+public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewModel
 {
     /// <summary>Persists the Builder's settings.</summary>
     private readonly ISettingsStore settingsStore;
@@ -92,7 +161,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         repositoryContext.SetRepositoryRoot(EffectiveRepositoryPath);
     }
 
-    /// <summary>Gets or sets the repository path override, or <see langword="null"/> to use the auto-detected repository.</summary>
+    /// <inheritdoc/>
     public string? RepositoryPath
     {
         get => repositoryPath;
@@ -108,7 +177,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets or sets the Skyrim / Creation Kit install path, set only through a folder picker, or <see langword="null"/> when not configured.</summary>
+    /// <inheritdoc/>
     public string? SkyrimInstallPath
     {
         get => skyrimInstallPath;
@@ -124,7 +193,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets or sets the build output path override, or <see langword="null"/> to use the repository's default <c>tooling/out</c>.</summary>
+    /// <inheritdoc/>
     public string? OutputPath
     {
         get => outputPath;
@@ -139,7 +208,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets or sets whether to open the output folder after a build succeeds. Never applies to a failed or cancelled build.</summary>
+    /// <inheritdoc/>
     public bool OpenOutputFolderAfterSuccessfulBuild
     {
         get => openOutputFolderAfterSuccessfulBuild;
@@ -152,7 +221,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets or sets whether the log panel scrolls to the newest line automatically.</summary>
+    /// <inheritdoc/>
     public bool AutoScrollLogs
     {
         get => autoScrollLogs;
@@ -165,7 +234,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets or sets whether build and packaging commands report their full raw output rather than a condensed summary.</summary>
+    /// <inheritdoc/>
     public bool VerboseCommandOutput
     {
         get => verboseCommandOutput;
@@ -178,7 +247,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets or sets whether to show a desktop notification when a build finishes.</summary>
+    /// <inheritdoc/>
     public bool NotifyWhenBuildCompletes
     {
         get => notifyWhenBuildCompletes;
@@ -191,13 +260,13 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets the command that clears <see cref="RepositoryPath"/> back to auto-detection.</summary>
+    /// <inheritdoc/>
     public RelayCommand ResetRepositoryPathCommand { get; }
 
-    /// <summary>Gets the command that clears <see cref="SkyrimInstallPath"/> back to unset.</summary>
+    /// <inheritdoc/>
     public RelayCommand ResetSkyrimInstallPathCommand { get; }
 
-    /// <summary>Gets the command that clears <see cref="OutputPath"/> back to auto-detection.</summary>
+    /// <inheritdoc/>
     public RelayCommand ResetOutputPathCommand { get; }
 
     /// <summary>
@@ -220,20 +289,20 @@ public sealed class SettingsPageViewModel : ObservableObject
         });
     }
 
-    /// <summary>Gets the repository path actually in effect: <see cref="RepositoryPath"/> when set, otherwise <see cref="autoDetectedRepositoryRoot"/>. Always has a value.</summary>
+    /// <inheritdoc/>
     public string EffectiveRepositoryPath => RepositoryPath ?? autoDetectedRepositoryRoot;
 
-    /// <summary>Gets the reason the last <see cref="BrowseRepositoryPathCommand"/> pick was rejected, or <see langword="null"/> when the current override (if any) is valid.</summary>
+    /// <inheritdoc/>
     public string? RepositoryPathError
     {
         get => repositoryPathError;
         private set => SetProperty(ref repositoryPathError, value);
     }
 
-    /// <summary>Gets the command that opens a folder picker and, when the chosen folder is a valid DovahLink repository, sets it as <see cref="RepositoryPath"/>.</summary>
+    /// <inheritdoc/>
     public RelayCommand BrowseRepositoryPathCommand { get; }
 
-    /// <summary>Gets the command that opens <see cref="EffectiveRepositoryPath"/> in the system file explorer.</summary>
+    /// <inheritdoc/>
     public RelayCommand OpenRepositoryFolderCommand { get; }
 
     /// <summary>
@@ -275,17 +344,13 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>
-    /// Gets the build output path actually in effect: <see cref="OutputPath"/> when set, otherwise
-    /// <see cref="BuildProfile.Release"/>'s default output root (the profile every override, once set,
-    /// replaces regardless of which profile a build later targets). Always has a value.
-    /// </summary>
+    /// <inheritdoc/>
     public string EffectiveOutputPath => OutputPath ?? BuildProfile.Release.ToOutputRoot(autoDetectedRepositoryRoot);
 
-    /// <summary>Gets the command that opens a folder picker and sets the chosen folder as <see cref="OutputPath"/>. Any folder is accepted; nothing to validate against.</summary>
+    /// <inheritdoc/>
     public RelayCommand BrowseOutputPathCommand { get; }
 
-    /// <summary>Gets the command that opens <see cref="EffectiveOutputPath"/> in the system file explorer.</summary>
+    /// <inheritdoc/>
     public RelayCommand OpenOutputFolderCommand { get; }
 
     /// <summary>Prompts for a folder and, when one is chosen, sets it as <see cref="OutputPath"/>. Does nothing when the picker is cancelled.</summary>
@@ -297,10 +362,10 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets the command that opens a folder picker and sets the chosen folder as <see cref="SkyrimInstallPath"/>. Nothing in the Builder reads this value yet, so any folder is accepted.</summary>
+    /// <inheritdoc/>
     public RelayCommand BrowseSkyrimInstallPathCommand { get; }
 
-    /// <summary>Gets the command that opens <see cref="SkyrimInstallPath"/> in the system file explorer; disabled while it is unset, since there is no resolved fallback to open.</summary>
+    /// <inheritdoc/>
     public RelayCommand OpenSkyrimInstallFolderCommand { get; }
 
     /// <summary>Prompts for a folder and, when one is chosen, sets it as <see cref="SkyrimInstallPath"/>. Does nothing when the picker is cancelled.</summary>
@@ -312,7 +377,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Gets <see cref="SkyrimInstallPath"/> for display, or "Not set" in its place -- never a false claim of auto-detection, since none exists.</summary>
+    /// <inheritdoc/>
     public string SkyrimInstallPathDisplayText => SkyrimInstallPath ?? "Not set";
 
     /// <summary>
