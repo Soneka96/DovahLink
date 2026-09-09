@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -21,8 +22,8 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>Checks the required build tools before a build is allowed to start.</summary>
     private readonly IPreflightService preflightService;
 
-    /// <summary>Reports the repository's branch, working tree, and remote sync state.</summary>
-    private readonly IGitStatusService gitStatusService;
+    /// <summary>The shared git status both the Build and Environment pages read and refresh.</summary>
+    private readonly IGitStatusStore gitStatusStore;
 
     /// <summary>Builds and packages the production Adapter and Host.</summary>
     private readonly IAdapterHostBuildCoordinator buildCoordinator;
@@ -41,12 +42,6 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>The repository root this page checks and builds.</summary>
     private readonly string repositoryRoot;
-
-    /// <summary>The most recently loaded git status, or <see langword="null"/> when it could not be determined.</summary>
-    private GitSourceStatus? gitStatus;
-
-    /// <summary>The most recently loaded git status failure message, or <see langword="null"/> when git status loaded successfully.</summary>
-    private string? gitStatusError;
 
     /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
     private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
@@ -110,7 +105,7 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>Initializes the page over its collaborators, starting in the "checking environment" state.</summary>
     /// <param name="preflightService">Checks the required build tools before a build is allowed to start.</param>
-    /// <param name="gitStatusService">Reports the repository's branch, working tree, and remote sync state.</param>
+    /// <param name="gitStatusStore">The shared git status both the Build and Environment pages read and refresh.</param>
     /// <param name="buildCoordinator">Builds and packages the production Adapter and Host.</param>
     /// <param name="buildHistoryStore">Persists and retrieves the Builder's recent build history.</param>
     /// <param name="settingsStore">Loads the Builder's persisted settings.</param>
@@ -119,7 +114,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="repositoryRoot">The repository root this page checks and builds.</param>
     public BuildPageViewModel(
         IPreflightService preflightService,
-        IGitStatusService gitStatusService,
+        IGitStatusStore gitStatusStore,
         IAdapterHostBuildCoordinator buildCoordinator,
         IBuildHistoryStore buildHistoryStore,
         ISettingsStore settingsStore,
@@ -128,13 +123,14 @@ public sealed class BuildPageViewModel : ObservableObject
         string repositoryRoot)
     {
         this.preflightService = preflightService;
-        this.gitStatusService = gitStatusService;
+        this.gitStatusStore = gitStatusStore;
         this.buildCoordinator = buildCoordinator;
         this.buildHistoryStore = buildHistoryStore;
         this.settingsStore = settingsStore;
         this.openOutputFolder = openOutputFolder;
         this.setClipboardText = setClipboardText;
         this.repositoryRoot = repositoryRoot;
+        gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
@@ -353,28 +349,21 @@ public sealed class BuildPageViewModel : ObservableObject
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         PreflightResults = await preflightService.CheckAllAsync(repositoryRoot, cancellationToken);
-        await RefreshGitStatusAsync(cancellationToken);
+        await gitStatusStore.RefreshAsync(cancellationToken);
         UpdateBuildBlockedReason();
     }
 
-    /// <summary>Loads the current git status into <see cref="gitStatus"/>/<see cref="gitStatusError"/>, reporting a failure instead of throwing.</summary>
-    /// <param name="cancellationToken">The token used to cancel the outstanding check.</param>
-    private async Task RefreshGitStatusAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Relays a change on the shared <see cref="gitStatusStore"/> to this page's own derived
+    /// properties, since a refresh triggered from the Environment page's Recheck must also be
+    /// reflected here (for example the sidebar's git-attention indicator).
+    /// </summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused change details; either property changing recomputes both.</param>
+    private void OnGitStatusStoreChanged(object? sender, PropertyChangedEventArgs e)
     {
-        try
-        {
-            gitStatus = await gitStatusService.GetStatusAsync(repositoryRoot, cancellationToken);
-            gitStatusError = null;
-        }
-        catch (InvalidOperationException exception)
-        {
-            gitStatus = null;
-            gitStatusError = exception.Message;
-        }
-        finally
-        {
-            NotifyGitStatusChanged();
-        }
+        UpdateBuildBlockedReason();
+        NotifyGitStatusChanged();
     }
 
     /// <summary>Recomputes <see cref="BuildBlockedReason"/> from the latest <see cref="PreflightResults"/> and git status.</summary>
@@ -387,8 +376,8 @@ public sealed class BuildPageViewModel : ObservableObject
 
         BuildBlockedReason = unavailableTools.Count > 0
             ? $"Environment incomplete: {string.Join(", ", unavailableTools)}."
-            : gitStatusError is not null
-                ? $"Could not determine git status: {gitStatusError}"
+            : gitStatusStore.StatusError is not null
+                ? $"Could not determine git status: {gitStatusStore.StatusError}"
                 : null;
     }
 
@@ -853,10 +842,10 @@ public sealed class BuildPageViewModel : ObservableObject
     }
 
     /// <summary>Gets the current branch name, shown only in the footer status strip.</summary>
-    public string? GitBranch => gitStatus?.Branch;
+    public string? GitBranch => gitStatusStore.Status?.Branch;
 
     /// <summary>Gets a short source-state label for the footer status strip: Pushed, Local changes, Not pushed, Committed (unverified), or Unverified while git status has not loaded.</summary>
-    public string GitFooterStateText => gitStatus switch
+    public string GitFooterStateText => gitStatusStore.Status switch
     {
         { WorkingTreeState: WorkingTreeState.Dirty } => "Local changes",
         { RemoteSyncState: RemoteSyncState.NotPushed } => "Not pushed",
@@ -871,7 +860,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// not loaded or could not be determined -- that failure is already surfaced via
     /// <see cref="BuildBlockedReason"/>.
     /// </summary>
-    public bool GitNeedsAttention => gitStatus is { WorkingTreeState: WorkingTreeState.Dirty } or { RemoteSyncState: RemoteSyncState.NotPushed };
+    public bool GitNeedsAttention => gitStatusStore.Status is { WorkingTreeState: WorkingTreeState.Dirty } or { RemoteSyncState: RemoteSyncState.NotPushed };
 
     /// <summary>
     /// Gets the footer status text reflecting the Build page's real current state (correction #7):
@@ -931,7 +920,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>Formats the current diagnostics report and writes it to the clipboard.</summary>
     private void OnCopyDiagnostics()
     {
-        setClipboardText(DiagnosticsFormatter.Format(PreflightResults, gitStatus, gitStatusError, LastOutcome, LastOutcomeMessage));
+        setClipboardText(DiagnosticsFormatter.Format(PreflightResults, gitStatusStore.Status, gitStatusStore.StatusError, LastOutcome, LastOutcomeMessage));
     }
 
     /// <summary>

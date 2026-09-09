@@ -17,7 +17,7 @@ public sealed class MainWindowViewModelTests
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
     private static BuildPageViewModel BuildStubBuildPage() => new(
         new StubPreflightService(),
-        new StubGitStatusService(),
+        new GitStatusStore(new StubGitStatusService(), @"C:\repo"),
         new StubAdapterHostBuildCoordinator(),
         new StubBuildHistoryStore(),
         new StubSettingsStore(),

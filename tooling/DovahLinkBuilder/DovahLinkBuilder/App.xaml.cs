@@ -24,13 +24,14 @@ public partial class App : Application
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
+        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryRoot);
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
 
         var buildPage = new BuildPageViewModel(
             preflightService,
-            gitStatusService,
+            gitStatusStore,
             buildCoordinator,
             buildHistoryStore,
             settingsStore,

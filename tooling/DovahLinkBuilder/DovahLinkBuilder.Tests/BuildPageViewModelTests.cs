@@ -20,15 +20,19 @@ public sealed class BuildPageViewModelTests
         FakeSettingsStore? settingsStore = null,
         Action<string>? openOutputFolder = null,
         Action<string>? setClipboardText = null,
-        string? repositoryRoot = null) => new(
-        preflightService ?? new FakePreflightService(),
-        gitStatusService ?? new FakeGitStatusService(),
-        buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
-        buildHistoryStore ?? new FakeBuildHistoryStore(),
-        settingsStore ?? new FakeSettingsStore(),
-        openOutputFolder ?? (_ => { }),
-        setClipboardText ?? (_ => { }),
-        repositoryRoot ?? @"C:\repo");
+        string? repositoryRoot = null)
+    {
+        string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
+        return new(
+            preflightService ?? new FakePreflightService(),
+            new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryRoot),
+            buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
+            buildHistoryStore ?? new FakeBuildHistoryStore(),
+            settingsStore ?? new FakeSettingsStore(),
+            openOutputFolder ?? (_ => { }),
+            setClipboardText ?? (_ => { }),
+            resolvedRepositoryRoot);
+    }
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
     /// <param name="temporaryDirectoryPath">The temporary directory to create the source files and archive under.</param>
@@ -97,6 +101,34 @@ public sealed class BuildPageViewModelTests
 
         Assert.False(viewModel.CanBuild);
         Assert.Contains("not a git repository", viewModel.BuildBlockedReason!);
+    }
+
+    /// <summary>
+    /// Reacts to a git status refresh made directly on the shared store rather than one this page's
+    /// own InitializeAsync triggered, proving the subscription that keeps GitNeedsAttention live when
+    /// a different page (Environment's Recheck) refreshes the same shared store.
+    /// </summary>
+    [Fact]
+    public async Task GitNeedsAttentionReactsToARefreshMadeDirectlyOnTheSharedStore()
+    {
+        var gitStatusService = new FakeGitStatusService();
+        var gitStatusStore = new GitStatusStore(gitStatusService, @"C:\repo");
+        var viewModel = new BuildPageViewModel(
+            new FakePreflightService(),
+            gitStatusStore,
+            new FakeAdapterHostBuildCoordinator(),
+            new FakeBuildHistoryStore(),
+            new FakeSettingsStore(),
+            _ => { },
+            _ => { },
+            @"C:\repo");
+        await viewModel.InitializeAsync();
+        Assert.False(viewModel.GitNeedsAttention);
+
+        gitStatusService.Status = new GitSourceStatus("main", WorkingTreeState.Dirty, RemoteSyncState.Pushed, "abc123");
+        await gitStatusStore.RefreshAsync();
+
+        Assert.True(viewModel.GitNeedsAttention);
     }
 
     /// <summary>Starts a build immediately when the source is clean and pushed.</summary>
