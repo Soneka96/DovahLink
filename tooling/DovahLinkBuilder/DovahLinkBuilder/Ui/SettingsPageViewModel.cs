@@ -58,8 +58,9 @@ public interface ISettingsPageViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Gets the build output path actually in effect: <see cref="OutputPath"/> when set, otherwise
-    /// <see cref="BuildProfile.Release"/>'s default output root (the profile every override, once set,
-    /// replaces regardless of which profile a build later targets). Always has a value.
+    /// <see cref="BuildProfile.Release"/>'s default output root under the currently active repository
+    /// (<see cref="EffectiveRepositoryPath"/>) -- the profile every override, once set, replaces
+    /// regardless of which profile a build later targets. Always has a value.
     /// </summary>
     string EffectiveOutputPath { get; }
 
@@ -151,7 +152,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
             () => RepositoryPath = null, () => RepositoryPath is { } path && !PathsAreEqual(path, autoDetectedRepositoryRoot));
         ResetSkyrimInstallPathCommand = new RelayCommand(() => SkyrimInstallPath = null, () => SkyrimInstallPath is not null);
         ResetOutputPathCommand = new RelayCommand(
-            () => OutputPath = null, () => OutputPath is { } path && !PathsAreEqual(path, BuildProfile.Release.ToOutputRoot(autoDetectedRepositoryRoot)));
+            () => OutputPath = null, () => OutputPath is { } path && !PathsAreEqual(path, BuildProfile.Release.ToOutputRoot(EffectiveRepositoryPath)));
         BrowseRepositoryPathCommand = new RelayCommand(OnBrowseRepositoryPath);
         OpenRepositoryFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveRepositoryPath));
         BrowseOutputPathCommand = new RelayCommand(OnBrowseOutputPath);
@@ -171,8 +172,12 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
             {
                 OnPropertyChanged(nameof(EffectiveRepositoryPath));
                 ResetRepositoryPathCommand.RaiseCanExecuteChanged();
-                Save();
+                // Shares the new root with every other consumer before the best-effort persistence
+                // below, which can fail: the in-memory repository this page now displays must never
+                // disagree with the one everything else is already using, even if saving it for next
+                // launch does not succeed.
                 repositoryContext.SetRepositoryRoot(EffectiveRepositoryPath);
+                Save();
             }
         }
     }
@@ -277,16 +282,25 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     /// </summary>
     private void Save()
     {
-        settingsStore.Save(settingsStore.Load() with
+        try
         {
-            RepositoryPath = RepositoryPath,
-            SkyrimInstallPath = SkyrimInstallPath,
-            OutputPath = OutputPath,
-            OpenOutputFolderAfterSuccessfulBuild = OpenOutputFolderAfterSuccessfulBuild,
-            AutoScrollLogs = AutoScrollLogs,
-            VerboseCommandOutput = VerboseCommandOutput,
-            NotifyWhenBuildCompletes = NotifyWhenBuildCompletes,
-        });
+            settingsStore.Save(settingsStore.Load() with
+            {
+                RepositoryPath = RepositoryPath,
+                SkyrimInstallPath = SkyrimInstallPath,
+                OutputPath = OutputPath,
+                OpenOutputFolderAfterSuccessfulBuild = OpenOutputFolderAfterSuccessfulBuild,
+                AutoScrollLogs = AutoScrollLogs,
+                VerboseCommandOutput = VerboseCommandOutput,
+                NotifyWhenBuildCompletes = NotifyWhenBuildCompletes,
+            });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Persisting a settings change for next launch is best-effort local bookkeeping; a
+            // failure here must never surface as an unhandled exception from a property setter, or
+            // prevent the in-memory state that change already applied from taking effect.
+        }
     }
 
     /// <inheritdoc/>
@@ -345,7 +359,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     }
 
     /// <inheritdoc/>
-    public string EffectiveOutputPath => OutputPath ?? BuildProfile.Release.ToOutputRoot(autoDetectedRepositoryRoot);
+    public string EffectiveOutputPath => OutputPath ?? BuildProfile.Release.ToOutputRoot(EffectiveRepositoryPath);
 
     /// <inheritdoc/>
     public RelayCommand BrowseOutputPathCommand { get; }

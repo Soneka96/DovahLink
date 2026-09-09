@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
 
@@ -75,9 +76,21 @@ public sealed class LogViewModel : ObservableObject
         lines.Clear();
     }
 
-    /// <summary>Copies every log line, joined by newlines, to the clipboard.</summary>
+    /// <summary>
+    /// Copies every log line, joined by newlines, to the clipboard. A failure here (for example
+    /// another process briefly holding clipboard access, a real and fairly common Windows condition)
+    /// is a convenience-action failure and never changes any reported state.
+    /// </summary>
     private void OnCopyAll()
     {
-        setClipboardText(string.Join(Environment.NewLine, lines));
+        try
+        {
+            setClipboardText(string.Join(Environment.NewLine, lines));
+        }
+        catch (ExternalException)
+        {
+            // Another process briefly holding clipboard access is a normal, transient Windows
+            // condition; a failure here must not crash the application or change any reported state.
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
@@ -182,6 +183,43 @@ public sealed class BuildPageViewModelTests
         await gitStatusStore.RefreshAsync();
 
         Assert.True(viewModel.GitNeedsAttention);
+    }
+
+    /// <summary>
+    /// Re-reads the VERSION file from the newly active repository once a refresh completes, proving
+    /// <see cref="BuildPageViewModel.RepositoryVersion"/> doesn't keep showing the previous repository's
+    /// version after a repository change that this page did not itself request (for example, one made
+    /// from Settings).
+    /// </summary>
+    [Fact]
+    public async Task RepositoryVersionReflectsTheNewRepositoryAfterARefreshMadeElsewhere()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryARoot = Path.Combine(temporaryDirectory.Path, "repo-a");
+        string repositoryBRoot = Path.Combine(temporaryDirectory.Path, "repo-b");
+        Directory.CreateDirectory(repositoryARoot);
+        Directory.CreateDirectory(repositoryBRoot);
+        File.WriteAllText(Path.Combine(repositoryARoot, "VERSION"), "1.0.0");
+        File.WriteAllText(Path.Combine(repositoryBRoot, "VERSION"), "2.0.0");
+        var repositoryContext = new RepositoryContext(repositoryARoot);
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var viewModel = new BuildPageViewModel(
+            environmentStore,
+            gitStatusStore,
+            new FakeAdapterHostBuildCoordinator(),
+            new FakeBuildHistoryStore(),
+            new FakeSettingsStore(),
+            _ => { },
+            _ => { },
+            repositoryContext);
+        await viewModel.InitializeAsync();
+        Assert.Equal("1.0.0", viewModel.RepositoryVersion);
+
+        repositoryContext.SetRepositoryRoot(repositoryBRoot);
+        await environmentStore.RefreshAsync();
+
+        Assert.Equal("2.0.0", viewModel.RepositoryVersion);
     }
 
     /// <summary>Starts a build immediately when the source is clean and pushed.</summary>
@@ -699,6 +737,28 @@ public sealed class BuildPageViewModelTests
     public void ViewArchiveContentsCommandDoesNothingWithoutAnArchive()
     {
         var viewModel = BuildViewModel();
+
+        viewModel.ViewArchiveContentsCommand.Execute(null);
+
+        Assert.False(viewModel.IsShowingArchiveContents);
+        Assert.Empty(viewModel.ArchiveEntries);
+    }
+
+    /// <summary>
+    /// Does nothing rather than crashing when the produced archive is no longer a readable ZIP -- for
+    /// example moved, deleted, or overwritten by something else in the time since the build finished.
+    /// </summary>
+    [Fact]
+    public async Task ViewArchiveContentsCommandDoesNothingWhenTheArchiveIsNotAReadableZip()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string corruptArchivePath = Path.Combine(temporaryDirectory.Path, "archive.zip");
+        File.WriteAllText(corruptArchivePath, "not a zip file");
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(corruptArchivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
 
         viewModel.ViewArchiveContentsCommand.Execute(null);
 
@@ -1351,6 +1411,38 @@ public sealed class BuildPageViewModelTests
         Assert.Equal("Complete", viewModel.FooterStatusText);
     }
 
+    /// <summary>
+    /// Reports "Checking" rather than "Environment incomplete" while a refresh is still in flight, so a
+    /// repository change or startup check-in-progress isn't misread as an already-failed check.
+    /// </summary>
+    [Fact]
+    public async Task FooterStatusTextIsCheckingWhileTheEnvironmentIsRefreshing()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo-a");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new FakeSettingsStore());
+        var viewModel = new BuildPageViewModel(
+            environmentStore,
+            gitStatusStore,
+            new FakeAdapterHostBuildCoordinator(),
+            new FakeBuildHistoryStore(),
+            new FakeSettingsStore(),
+            _ => { },
+            _ => { },
+            repositoryContext);
+        await viewModel.InitializeAsync();
+        var pauseSignal = new TaskCompletionSource();
+        preflightService.PauseSignal = pauseSignal;
+
+        Task pendingRefresh = environmentStore.RefreshAsync();
+
+        Assert.Equal("Checking", viewModel.FooterStatusText);
+
+        pauseSignal.SetResult();
+        await pendingRefresh;
+    }
+
     /// <summary>Loads the full preflight results, not just the summarized blocked reason, for diagnostics.</summary>
     [Fact]
     public async Task InitializeAsyncLoadsPreflightResults()
@@ -1425,6 +1517,42 @@ public sealed class BuildPageViewModelTests
         Assert.Contains("Branch: main", copiedText);
         Assert.Contains("Outcome: Failed", copiedText);
         Assert.Contains("the adapter build failed", copiedText);
+    }
+
+    /// <summary>
+    /// Swallows a transient clipboard-access failure (another process briefly holding the clipboard, a
+    /// real and fairly common Windows condition) rather than crashing the application or changing any
+    /// reported state.
+    /// </summary>
+    [Fact]
+    public async Task CopyDiagnosticsCommandSwallowsAClipboardAccessFailure()
+    {
+        var viewModel = BuildViewModel(setClipboardText: _ => throw new ExternalException("clipboard busy"));
+        await viewModel.InitializeAsync();
+
+        Exception? thrown = Record.Exception(() => viewModel.CopyDiagnosticsCommand.Execute(null));
+
+        Assert.Null(thrown);
+    }
+
+    /// <summary>
+    /// Swallows a transient clipboard-access failure when copying the produced archive's path, the same
+    /// way <see cref="CopyDiagnosticsCommandSwallowsAClipboardAccessFailure"/> does for diagnostics.
+    /// </summary>
+    [Fact]
+    public async Task CopyArchivePathCommandSwallowsAClipboardAccessFailure()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, setClipboardText: _ => throw new ExternalException("clipboard busy"));
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Exception? thrown = Record.Exception(() => viewModel.CopyArchivePathCommand.Execute(null));
+
+        Assert.Null(thrown);
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
@@ -576,13 +577,16 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <summary>
     /// Relays a change on the shared <see cref="environmentStore"/> to this page's own preflight
     /// results, since a refresh triggered from the Environment page's Recheck must also be reflected
-    /// here.
+    /// here. Also re-reads <see cref="RepositoryVersion"/>, since a refresh this page did not itself
+    /// request can mean the active repository just changed underneath it (<see cref="repositoryContext"/>),
+    /// and that property has no backing field of its own to otherwise signal it changed.
     /// </summary>
     /// <param name="sender">The unused event source.</param>
     /// <param name="e">The unused change details; every change recomputes the same derived state.</param>
     private void OnEnvironmentStoreChanged(object? sender, PropertyChangedEventArgs e)
     {
         PreflightResults = environmentStore.PreflightResults;
+        OnPropertyChanged(nameof(RepositoryVersion));
         UpdateBuildBlockedReason();
     }
 
@@ -981,7 +985,9 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
 
     /// <summary>
     /// Toggles the archive contents display; reads the real ZIP's entries directly (no second
-    /// hardcoded package-layout list) the first time it is shown.
+    /// hardcoded package-layout list) the first time it is shown. Does nothing, rather than crashing
+    /// the application, if the archive has since been moved, deleted, or is locked by another process --
+    /// a real possibility given how long it can sit on disk before this is clicked.
     /// </summary>
     private void OnViewArchiveContents()
     {
@@ -996,9 +1002,17 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
             return;
         }
 
-        using ZipArchive archive = ZipFile.OpenRead(ArchivePath);
-        ArchiveEntries = archive.Entries.Select(entry => entry.FullName).ToList();
-        IsShowingArchiveContents = true;
+        try
+        {
+            using ZipArchive archive = ZipFile.OpenRead(ArchivePath);
+            ArchiveEntries = archive.Entries.Select(entry => entry.FullName).ToList();
+            IsShowingArchiveContents = true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            // Reading the archive's own contents for display is a convenience action; a failure here
+            // must not crash the application or change any other reported state.
+        }
     }
 
     /// <inheritdoc/>
@@ -1088,12 +1102,31 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         }
     }
 
-    /// <summary>Copies the produced archive's path to the clipboard; does nothing when there is no archive.</summary>
+    /// <summary>
+    /// Copies the produced archive's path to the clipboard; does nothing when there is no archive. A
+    /// failure here (for example another process briefly holding clipboard access, a real and fairly
+    /// common Windows condition) is a convenience-action failure and never changes any reported state.
+    /// </summary>
     private void OnCopyArchivePath()
     {
         if (ArchivePath is not null)
         {
-            setClipboardText(ArchivePath);
+            TrySetClipboardText(ArchivePath);
+        }
+    }
+
+    /// <summary>Writes <paramref name="text"/> to the clipboard, swallowing a failure to acquire it rather than crashing the application.</summary>
+    /// <param name="text">The text to write.</param>
+    private void TrySetClipboardText(string text)
+    {
+        try
+        {
+            setClipboardText(text);
+        }
+        catch (ExternalException)
+        {
+            // Another process briefly holding clipboard access is a normal, transient Windows
+            // condition; a failure here must not crash the application or change any reported state.
         }
     }
 
@@ -1121,6 +1154,11 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         (false, _, BuildHistoryResult.Failed, _) => "Failed",
         (false, _, BuildHistoryResult.Cancelled, _) => "Cancelled",
         (false, _, BuildHistoryResult.Succeeded, _) => "Complete",
+        // Distinguished from the case below: environmentStore refreshing means nothing has actually
+        // been determined incomplete yet -- reporting it as such here would assert a negative result
+        // before the check that would produce one has even finished (for example immediately after a
+        // repository change, or at startup).
+        (false, _, null, true) when environmentStore.IsRefreshing => "Checking",
         (false, _, null, true) => "Environment incomplete",
         (false, _, null, false) => "Ready",
         _ => "Ready",
@@ -1165,7 +1203,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <summary>Formats the current diagnostics report and writes it to the clipboard.</summary>
     private void OnCopyDiagnostics()
     {
-        setClipboardText(DiagnosticsFormatter.Format(PreflightResults, gitStatusStore.Status, gitStatusStore.StatusError, LastOutcome, LastOutcomeMessage));
+        TrySetClipboardText(DiagnosticsFormatter.Format(PreflightResults, gitStatusStore.Status, gitStatusStore.StatusError, LastOutcome, LastOutcomeMessage));
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using DovahLink.DovahLinkBuilder.Ui;
 
 namespace DovahLink.DovahLinkBuilder.Tests;
@@ -76,5 +77,20 @@ public sealed class LogViewModelTests
         log.CopyAllCommand.Execute(null);
 
         Assert.Equal(string.Empty, copiedText);
+    }
+
+    /// <summary>
+    /// Swallows a transient clipboard-access failure (another process briefly holding the clipboard, a
+    /// real and fairly common Windows condition) rather than crashing the application.
+    /// </summary>
+    [Fact]
+    public void CopyAllCommandSwallowsAClipboardAccessFailure()
+    {
+        var log = new LogViewModel(_ => throw new ExternalException("clipboard busy"));
+        log.AppendLine("first");
+
+        Exception? thrown = Record.Exception(() => log.CopyAllCommand.Execute(null));
+
+        Assert.Null(thrown);
     }
 }

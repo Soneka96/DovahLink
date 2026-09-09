@@ -1,3 +1,4 @@
+using System.IO;
 using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -43,6 +44,35 @@ public sealed class SettingsPageViewModelTests
         viewModel.RepositoryPath = @"D:\repo";
 
         Assert.Equal(@"D:\repo", store.Settings.RepositoryPath);
+    }
+
+    /// <summary>Swallows a local persistence failure rather than letting it escape a property setter as an unhandled exception.</summary>
+    [Fact]
+    public void SettingAFieldSwallowsAPersistenceFailure()
+    {
+        var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"));
+
+        Exception? thrown = Record.Exception(() => viewModel.RepositoryPath = @"D:\repo");
+
+        Assert.Null(thrown);
+        Assert.Equal(@"D:\repo", viewModel.RepositoryPath);
+    }
+
+    /// <summary>
+    /// Updates the shared repository context even when persisting the change fails, so every other
+    /// consumer stays coherent with what this page now displays regardless of a local disk problem.
+    /// </summary>
+    [Fact]
+    public void SettingRepositoryPathUpdatesTheSharedRepositoryContextEvenWhenSavingFails()
+    {
+        var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
+        var repositoryContext = new RepositoryContext(@"D:\resolved-repo");
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext);
+
+        viewModel.RepositoryPath = @"D:\repo";
+
+        Assert.Equal(@"D:\repo", repositoryContext.RepositoryRoot);
     }
 
     /// <summary>Seeds the shared repository context with a persisted override on construction, not just the auto-detected root.</summary>
@@ -457,6 +487,36 @@ public sealed class SettingsPageViewModelTests
         Assert.Equal(@"D:\custom-out", viewModel.EffectiveOutputPath);
     }
 
+    /// <summary>
+    /// Tracks the currently active repository once a repository path override is set, not the
+    /// auto-detected repository the override just replaced -- otherwise this page would display and
+    /// open a different repository's output folder than the one a build actually targets.
+    /// </summary>
+    [Fact]
+    public void EffectiveOutputPathTracksTheCurrentRepositoryOnceAnOverrideIsSet()
+    {
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"));
+
+        viewModel.RepositoryPath = @"D:\override-repo";
+
+        Assert.Equal(BuildProfile.Release.ToOutputRoot(@"D:\override-repo"), viewModel.EffectiveOutputPath);
+    }
+
+    /// <summary>
+    /// Compares against the currently active repository's default, not the auto-detected repository a
+    /// override just replaced, when deciding whether Reset would actually change anything.
+    /// </summary>
+    [Fact]
+    public void ResetOutputPathCommandComparesAgainstTheCurrentRepositoryOnceAnOverrideIsSet()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: BuildProfile.Release.ToOutputRoot(@"D:\override-repo")) };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"));
+
+        viewModel.RepositoryPath = @"D:\override-repo";
+
+        Assert.False(viewModel.ResetOutputPathCommand.CanExecute(null));
+    }
+
     /// <summary>Sets the output path override unconditionally to whatever folder the picker returns.</summary>
     [Fact]
     public void BrowseOutputPathCommandSetsTheOverride()
@@ -585,11 +645,22 @@ public sealed class SettingsPageViewModelTests
         /// <summary>Gets or sets the currently persisted settings; defaults to <see cref="BuilderSettings"/>'s own defaults.</summary>
         public BuilderSettings Settings { get; set; } = new();
 
+        /// <summary>Gets or sets the exception <see cref="Save"/> throws instead of persisting, or <see langword="null"/>.</summary>
+        public Exception? ThrownExceptionOnSave { get; set; }
+
         /// <inheritdoc/>
         public BuilderSettings Load() => Settings;
 
         /// <inheritdoc/>
-        public void Save(BuilderSettings settings) => Settings = settings;
+        public void Save(BuilderSettings settings)
+        {
+            if (ThrownExceptionOnSave is not null)
+            {
+                throw ThrownExceptionOnSave;
+            }
+
+            Settings = settings;
+        }
     }
 
     /// <summary>A scripted <see cref="IFolderPickerService"/>, avoiding a real OS dialog in tests.</summary>

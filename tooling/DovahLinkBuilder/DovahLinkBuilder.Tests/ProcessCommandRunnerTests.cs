@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using DovahLink.DovahLinkBuilder.Build;
 
@@ -117,6 +118,28 @@ public sealed class ProcessCommandRunnerTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => runner.RunAsync(command, null, null, cancellation.Token));
+    }
+
+    /// <summary>Preserves cancellation, without hanging, when process termination itself fails.</summary>
+    [Fact]
+    public async Task CancellationIsNotMaskedWhenTerminationFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var runner = new ProcessCommandRunner(_ => throw new Win32Exception("access denied"));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        // The runner deliberately gives up on this un-terminated process rather than waiting for it (that's
+        // the behaviour under test), so it's still holding the working directory open here; wait for it to
+        // exit naturally before the temporary directory is disposed below.
+        await Task.Delay(TimeSpan.FromSeconds(3));
     }
 
     /// <summary>Terminates a real child process tree promptly while preserving cancellation.</summary>
