@@ -458,7 +458,7 @@ public sealed class BuildPageViewModel : ObservableObject
             return null;
         }
 
-        if (gitStatus is { WorkingTreeState: WorkingTreeState.Dirty } or { RemoteSyncState: RemoteSyncState.NotPushed })
+        if (GitNeedsAttention)
         {
             IsAwaitingConfirmation = true;
             return null;
@@ -888,6 +888,14 @@ public sealed class BuildPageViewModel : ObservableObject
     };
 
     /// <summary>
+    /// Gets whether the current git status needs the maintainer's attention before building: a dirty
+    /// working tree, or commits not yet pushed to the upstream remote. Never true while git status has
+    /// not loaded or could not be determined -- that failure is already surfaced via
+    /// <see cref="BuildBlockedReason"/>.
+    /// </summary>
+    public bool GitNeedsAttention => gitStatus is { WorkingTreeState: WorkingTreeState.Dirty } or { RemoteSyncState: RemoteSyncState.NotPushed };
+
+    /// <summary>
     /// Gets the footer status text reflecting the Build page's real current state (correction #7):
     /// Building while a build runs; Cancelling during the transient shutdown between Building and
     /// Cancelled; Failed/Cancelled/Complete for the most recent finished build; "Environment incomplete"
@@ -917,6 +925,7 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(GitBranch));
         OnPropertyChanged(nameof(GitCommitSha));
         OnPropertyChanged(nameof(GitFooterStateText));
+        OnPropertyChanged(nameof(GitNeedsAttention));
     }
 
     /// <summary>Gets the most recently loaded preflight results, in preflight order.</summary>

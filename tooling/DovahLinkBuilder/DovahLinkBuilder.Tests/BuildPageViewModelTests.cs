@@ -951,6 +951,52 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(expectedIsReady, viewModel.IsGitReady);
     }
 
+    /// <summary>Reports no attention needed before any check has loaded.</summary>
+    [Fact]
+    public void GitNeedsAttentionIsFalseBeforeInitialization()
+    {
+        var viewModel = BuildViewModel();
+
+        Assert.False(viewModel.GitNeedsAttention);
+    }
+
+    /// <summary>Reports no attention needed when git status cannot be determined, since that failure is already surfaced via <see cref="BuildPageViewModel.BuildBlockedReason"/>.</summary>
+    [Fact]
+    public async Task GitNeedsAttentionIsFalseWhenGitStatusCannotBeDetermined()
+    {
+        var gitStatusService = new FakeGitStatusService { ThrownException = new InvalidOperationException("not a git repository") };
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.False(viewModel.GitNeedsAttention);
+    }
+
+    /// <summary>Reports whether attention is needed for every working-tree/remote-sync combination: true for a dirty tree or unpushed commits, false otherwise.</summary>
+    /// <param name="workingTreeState">The reported working tree state.</param>
+    /// <param name="remoteSyncState">The reported remote sync state.</param>
+    /// <param name="expectedNeedsAttention">Whether this combination is expected to need attention.</param>
+    [Theory]
+    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.Pushed, true)]
+    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.NotPushed, true)]
+    [InlineData(WorkingTreeState.Dirty, RemoteSyncState.CouldNotVerify, true)]
+    [InlineData(WorkingTreeState.Clean, RemoteSyncState.NotPushed, true)]
+    [InlineData(WorkingTreeState.Clean, RemoteSyncState.CouldNotVerify, false)]
+    [InlineData(WorkingTreeState.Clean, RemoteSyncState.Pushed, false)]
+    public async Task GitNeedsAttentionReflectsEachStateCombination(
+        WorkingTreeState workingTreeState, RemoteSyncState remoteSyncState, bool expectedNeedsAttention)
+    {
+        var gitStatusService = new FakeGitStatusService
+        {
+            Status = new GitSourceStatus("main", workingTreeState, remoteSyncState, "abc123"),
+        };
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(expectedNeedsAttention, viewModel.GitNeedsAttention);
+    }
+
     /// <summary>Exposes the branch and full commit SHA for "See details" -- never shown in the main banner (correction #1).</summary>
     [Fact]
     public async Task InitializeAsyncExposesBranchAndCommitShaForSeeDetails()
