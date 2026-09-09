@@ -19,7 +19,8 @@ public partial class App : Application
 
         string appDataDirectory = GetAppDataDirectory();
         var settingsStore = new SettingsStore(appDataDirectory);
-        string repositoryRoot = settingsStore.Load().RepositoryPath ?? RepositoryRootLocator.Find(AppContext.BaseDirectory);
+        BuilderSettings settings = settingsStore.Load();
+        string repositoryRoot = settings.RepositoryPath ?? RepositoryRootLocator.Find(AppContext.BaseDirectory);
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
@@ -39,7 +40,27 @@ public partial class App : Application
         var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusService, repositoryRoot);
         var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, repositoryRoot);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
-        new MainWindow(mainWindowViewModel).Show();
+        var mainWindow = new MainWindow(mainWindowViewModel, settingsStore);
+        var virtualScreenBounds = new Rect(
+            SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        if (WindowPlacement.Resolve(settings.WindowLeft, settings.WindowTop, settings.WindowWidth, settings.WindowHeight, virtualScreenBounds) is { } bounds)
+        {
+            mainWindow.Left = bounds.Left;
+            mainWindow.Top = bounds.Top;
+            mainWindow.Width = bounds.Width;
+            mainWindow.Height = bounds.Height;
+        }
+
+        if (settings.WindowIsMaximized)
+        {
+            // Setting WindowState before the window has a native handle is unreliable and can be
+            // silently ignored; SourceInitialized fires once that handle exists but before the first
+            // paint, so the window opens maximized directly instead of flashing normal-sized first.
+            mainWindow.SourceInitialized += (_, _) => mainWindow.WindowState = WindowState.Maximized;
+        }
+
+        mainWindow.Show();
 
         _ = buildPage.InitializeAsync();
         _ = environmentPage.InitializeAsync();

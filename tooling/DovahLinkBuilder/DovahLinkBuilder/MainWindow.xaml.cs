@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Ui;
 
 namespace DovahLink.DovahLinkBuilder;
@@ -8,6 +9,9 @@ namespace DovahLink.DovahLinkBuilder;
 /// <summary>The Builder's main window: a navigation rail and the currently selected page.</summary>
 public partial class MainWindow : Window
 {
+    /// <summary>Persists the window's bounds when it closes, for <see cref="OnClosed"/>.</summary>
+    private readonly ISettingsStore settingsStore;
+
     /// <summary>
     /// Resolves to <see langword="true"/> once the user has chosen to cancel the running build and
     /// close, or <see langword="false"/> once they have chosen to keep building; <see langword="null"/>
@@ -15,13 +19,22 @@ public partial class MainWindow : Window
     /// </summary>
     private TaskCompletionSource<bool>? closeConfirmation;
 
+    /// <summary>Whether the window was maximized, captured at the very start of <see cref="OnClosing"/>; see <see cref="OnClosed"/> for why.</summary>
+    private bool wasMaximizedOnClosing;
+
+    /// <summary>The window's normal (non-maximized) bounds, captured at the very start of <see cref="OnClosing"/>; see <see cref="OnClosed"/> for why.</summary>
+    private Rect boundsOnClosing;
+
     /// <summary>Initializes the window over the supplied navigation ViewModel.</summary>
     /// <param name="viewModel">Owns navigation between the Build, Environment, and Settings pages.</param>
-    public MainWindow(MainWindowViewModel viewModel)
+    /// <param name="settingsStore">Persists the window's bounds when it closes.</param>
+    public MainWindow(MainWindowViewModel viewModel, ISettingsStore settingsStore)
     {
         InitializeComponent();
         DataContext = viewModel;
+        this.settingsStore = settingsStore;
         Closing += OnClosing;
+        Closed += OnClosed;
     }
 
     /// <summary>
@@ -31,12 +44,18 @@ public partial class MainWindow : Window
     /// running in the background while the user has navigated away from the Build page. While the
     /// dialog is showing, keyboard focus moves onto it (kept there by <c>CloseOverlay</c>'s
     /// <c>KeyboardNavigation.TabNavigation="Cycle"</c> in the markup) and is restored to whatever had
-    /// focus beforehand once the dialog closes.
+    /// focus beforehand once the dialog closes. Captures <see cref="wasMaximizedOnClosing"/> and
+    /// <see cref="boundsOnClosing"/> as its very first statement, before anything else runs: closing a
+    /// maximized window makes Windows restore it as part of the close sequence, so <see cref="WindowState"/>
+    /// already reads back as <see cref="WindowState.Normal"/> by the time <see cref="OnClosed"/> fires.
     /// </summary>
     /// <param name="sender">The unused event source.</param>
     /// <param name="e">Carries the cancel flag this handler sets to block the close.</param>
     private async void OnClosing(object? sender, CancelEventArgs e)
     {
+        wasMaximizedOnClosing = WindowState == WindowState.Maximized;
+        boundsOnClosing = wasMaximizedOnClosing ? RestoreBounds : new Rect(Left, Top, Width, Height);
+
         if (DataContext is not MainWindowViewModel viewModel || !viewModel.BuildPage.IsBuilding)
         {
             return;
@@ -76,5 +95,27 @@ public partial class MainWindow : Window
     private void OnCancelBuildAndCloseClick(object sender, RoutedEventArgs e)
     {
         closeConfirmation?.TrySetResult(true);
+    }
+
+    /// <summary>
+    /// Saves the bounds <see cref="OnClosing"/> captured once the window has actually closed --
+    /// <see cref="OnClosing"/> may cancel and re-run through the build-confirmation flow first, so this
+    /// uses <see cref="Closed"/> instead to save exactly once, only once closing is final. Uses the
+    /// snapshot from <see cref="OnClosing"/> rather than reading <see cref="Window.WindowState"/> again
+    /// here, since Windows has already restored a maximized window by this point as part of its own
+    /// close sequence.
+    /// </summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused event data.</param>
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        settingsStore.Save(settingsStore.Load() with
+        {
+            WindowLeft = boundsOnClosing.Left,
+            WindowTop = boundsOnClosing.Top,
+            WindowWidth = boundsOnClosing.Width,
+            WindowHeight = boundsOnClosing.Height,
+            WindowIsMaximized = wasMaximizedOnClosing,
+        });
     }
 }
