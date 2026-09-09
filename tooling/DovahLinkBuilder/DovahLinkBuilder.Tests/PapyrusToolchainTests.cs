@@ -134,4 +134,48 @@ public sealed class PapyrusToolchainTests
         Assert.Equal(Path.GetFullPath(flagsFilePath), validated.FlagsFilePath);
     }
 
+    /// <summary>Reports <see cref="ToolchainAvailability.Found"/> for an installation with the required files.</summary>
+    [Fact]
+    public void TryFindReturnsFoundForAnInstallationWithTheRequiredFiles()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string installationRoot = Path.Combine(temporaryDirectory.Path, "Skyrim Special Edition");
+        string compilerPath = Path.Combine(installationRoot, "Papyrus Compiler", "PapyrusCompiler.exe");
+        string importDirectory = Path.Combine(installationRoot, "Data", "Scripts", "Source");
+        string flagsFilePath = Path.Combine(importDirectory, "TESV_Papyrus_Flags.flg");
+        Directory.CreateDirectory(Path.GetDirectoryName(compilerPath)!);
+        Directory.CreateDirectory(importDirectory);
+        File.WriteAllText(compilerPath, "compiler");
+        File.WriteAllText(flagsFilePath, "flags");
+
+        ToolchainCheckResult result = PapyrusToolchainLocator.TryFind([installationRoot]);
+
+        Assert.Equal(ToolchainAvailability.Found, result.Availability);
+        Assert.Equal(compilerPath, result.Detail);
+        Assert.Null(result.RemediationHint);
+    }
+
+    /// <summary>Reports <see cref="ToolchainAvailability.Missing"/> when no root has the required files.</summary>
+    [Fact]
+    public void TryFindReturnsMissingWhenNoInstallationHasTheRequiredFiles()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+
+        ToolchainCheckResult result = PapyrusToolchainLocator.TryFind([temporaryDirectory.Path]);
+
+        Assert.Equal(ToolchainAvailability.Missing, result.Availability);
+        Assert.Null(result.Detail);
+        Assert.NotNull(result.RemediationHint);
+    }
+
+    /// <summary>Reports <see cref="ToolchainAvailability.CouldNotCheck"/> when a root cannot be evaluated.</summary>
+    [Fact]
+    public void TryFindReturnsCouldNotCheckWhenARootCannotBeEvaluated()
+    {
+        ToolchainCheckResult result = PapyrusToolchainLocator.TryFind([null!]);
+
+        Assert.Equal(ToolchainAvailability.CouldNotCheck, result.Availability);
+        Assert.Null(result.Detail);
+        Assert.NotNull(result.RemediationHint);
+    }
 }

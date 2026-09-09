@@ -3,6 +3,9 @@ namespace DovahLink.DovahLinkBuilder.Build;
 /// <summary>Locates a supported Creation Kit Papyrus compiler installation.</summary>
 public static class PapyrusToolchainLocator
 {
+    /// <summary>The tool name reported by <see cref="TryFind()"/> and <see cref="TryFind(IEnumerable{string})"/>.</summary>
+    private const string ToolName = "Papyrus Compiler";
+
     /// <summary>The Papyrus source import directory layouts checked under each installation root.</summary>
     private static readonly string[] ImportDirectoryLayouts =
     [
@@ -14,19 +17,7 @@ public static class PapyrusToolchainLocator
     /// Locates the Papyrus compiler from the configured or standard Skyrim Special Edition installation paths.
     /// </summary>
     /// <returns>The located Papyrus toolchain.</returns>
-    public static PapyrusToolchain Find()
-    {
-        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        string? skyrimInstall = Environment.GetEnvironmentVariable("SKYRIM_INSTALL_DIR");
-
-        IEnumerable<string> roots = new[]
-        {
-            skyrimInstall,
-            Path.Combine(programFilesX86, "Steam", "steamapps", "common", "Skyrim Special Edition"),
-        }.Where(path => !string.IsNullOrWhiteSpace(path))!;
-
-        return Find(roots);
-    }
+    public static PapyrusToolchain Find() => Find(GetDefaultInstallationRoots());
 
     /// <summary>
     /// Locates the Papyrus compiler among the specified installation roots.
@@ -81,5 +72,48 @@ public static class PapyrusToolchainLocator
             throw new InvalidOperationException($"The Papyrus flags file does not exist: {flagsFilePath}");
         }
         return new PapyrusToolchain(compilerPath, importDirectory, flagsFilePath);
+    }
+
+    /// <summary>
+    /// Locates the Papyrus compiler from the configured or standard Skyrim Special Edition
+    /// installation paths, reporting the result instead of throwing.
+    /// </summary>
+    /// <returns>A <see cref="ToolchainCheckResult"/> describing whether the Papyrus compiler was found.</returns>
+    public static ToolchainCheckResult TryFind() => TryFind(GetDefaultInstallationRoots());
+
+    /// <summary>
+    /// Locates the Papyrus compiler among the specified installation roots, reporting the result
+    /// instead of throwing.
+    /// </summary>
+    /// <param name="installationRoots">The installation roots to search.</param>
+    /// <returns>A <see cref="ToolchainCheckResult"/> describing whether the Papyrus compiler was found.</returns>
+    public static ToolchainCheckResult TryFind(IEnumerable<string> installationRoots)
+    {
+        try
+        {
+            PapyrusToolchain toolchain = Find(installationRoots);
+            return new ToolchainCheckResult(ToolName, ToolchainAvailability.Found, toolchain.CompilerPath, null);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return new ToolchainCheckResult(ToolName, ToolchainAvailability.Missing, null, exception.Message);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return new ToolchainCheckResult(ToolName, ToolchainAvailability.CouldNotCheck, null, exception.Message);
+        }
+    }
+
+    /// <summary>Gets the configured or standard Skyrim Special Edition installation roots to search.</summary>
+    private static IEnumerable<string> GetDefaultInstallationRoots()
+    {
+        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        string? skyrimInstall = Environment.GetEnvironmentVariable("SKYRIM_INSTALL_DIR");
+
+        return new[]
+        {
+            skyrimInstall,
+            Path.Combine(programFilesX86, "Steam", "steamapps", "common", "Skyrim Special Edition"),
+        }.Where(path => !string.IsNullOrWhiteSpace(path))!;
     }
 }

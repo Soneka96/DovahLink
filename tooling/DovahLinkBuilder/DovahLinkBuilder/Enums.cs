@@ -63,3 +63,19 @@ public enum BuildStageStatus
     /// <summary>The stage failed.</summary>
     Failed,
 }
+
+/// <summary>Describes whether a required build tool is available, for non-throwing preflight checks.</summary>
+public enum ToolchainAvailability
+{
+    /// <summary>The tool was located and validated.</summary>
+    Found,
+
+    /// <summary>The tool could not be located.</summary>
+    Missing,
+
+    /// <summary>The tool was located but failed validation.</summary>
+    Invalid,
+
+    /// <summary>Availability could not be determined, for example because a search path could not be evaluated.</summary>
+    CouldNotCheck,
+}
