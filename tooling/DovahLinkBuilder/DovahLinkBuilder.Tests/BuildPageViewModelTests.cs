@@ -998,6 +998,69 @@ public sealed class BuildPageViewModelTests
         AssertResetToIdleForm(viewModel, buildCoordinator, expectedCallCount: 1);
     }
 
+    /// <summary>
+    /// Re-seeds Log.AutoScroll from the current AutoScrollLogs setting at the next build, so a
+    /// Settings-page change takes effect without waiting for a restart -- while still letting the
+    /// user override it live from the log panel's own checkbox during a single build (see
+    /// <see cref="BuildPageViewModel.ResetBuildResultState"/>'s own doc for why this seeds only at a
+    /// build boundary rather than tracking the setting continuously).
+    /// </summary>
+    [Fact]
+    public async Task NewBuildCommandReSeedsAutoScrollFromTheCurrentSetting()
+    {
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: true) };
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        Assert.True(viewModel.Log.AutoScroll);
+
+        settingsStore.Settings = settingsStore.Settings with { AutoScrollLogs = false };
+        viewModel.NewBuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.Log.AutoScroll);
+    }
+
+    /// <summary>
+    /// Re-seeds Log.AutoScroll at the start of a fresh build too, not only through NewBuildCommand --
+    /// proven by changing the setting before the very first build, since the constructor's own initial
+    /// seed would otherwise make this indistinguishable from RunBuildAsync never having re-seeded at all.
+    /// </summary>
+    [Fact]
+    public async Task BuildCommandReSeedsAutoScrollFromTheCurrentSettingAtStartup()
+    {
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: true) };
+        var viewModel = BuildViewModel(settingsStore: settingsStore);
+        settingsStore.Settings = settingsStore.Settings with { AutoScrollLogs = false };
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.Log.AutoScroll);
+    }
+
+    /// <summary>
+    /// Leaves a live, mid-session manual toggle of Log.AutoScroll untouched by an environment refresh
+    /// that is not itself a build boundary -- re-seeding happens only where ResetBuildResultState is
+    /// actually called (a build starting, or NewBuildCommand), never merely because preflight or git
+    /// status refreshed.
+    /// </summary>
+    [Fact]
+    public async Task ALiveAutoScrollToggleSurvivesAnEnvironmentRefreshThatIsNotABuildBoundary()
+    {
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: true) };
+        var viewModel = BuildViewModel(settingsStore: settingsStore);
+        await viewModel.InitializeAsync();
+        viewModel.Log.AutoScroll = false;
+
+        await viewModel.InitializeAsync();
+
+        Assert.False(viewModel.Log.AutoScroll);
+    }
+
     /// <summary>Returns to the idle form and clears the previous result after a failed build, without starting a new one.</summary>
     [Fact]
     public async Task NewBuildCommandResetsToIdleFormFromAFailedResult()

@@ -751,7 +751,12 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         }
     }
 
-    /// <summary>Clears the previous build's outcome, archive, stages, and log back to a fresh, no-result state.</summary>
+    /// <summary>
+    /// Clears the previous build's outcome, archive, stages, and log back to a fresh, no-result state.
+    /// Also re-seeds <see cref="LogViewModel.AutoScroll"/> from the current setting, so a change made
+    /// on the Settings page takes effect at the next build rather than only when the application was
+    /// started, without overriding the user's own live toggle of the same checkbox mid-session.
+    /// </summary>
     private void ResetBuildResultState()
     {
         LastOutcome = null;
@@ -764,6 +769,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         IsShowingArchiveContents = false;
         ResetStages();
         Log.Clear();
+        Log.AutoScroll = settingsStore.Load().AutoScrollLogs;
     }
 
     /// <summary>Formats a byte count as a human-readable KB/MB size.</summary>
