@@ -163,6 +163,8 @@ public sealed class BuildPageViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(Profile));
                 OnPropertyChanged(nameof(BuildSummaryText));
+                OnPropertyChanged(nameof(AdapterSummaryText));
+                OnPropertyChanged(nameof(HostSummaryText));
             }
         }
     }
@@ -172,6 +174,12 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>Gets a short summary of the current profile and build options.</summary>
     public string BuildSummaryText => IsCleanBuild ? $"{Profile} · Clean build" : Profile;
+
+    /// <summary>Gets the Adapter build summary row's text: <see cref="SelectedProfile"/>'s dotnet configuration and architecture.</summary>
+    public string AdapterSummaryText => $"{SelectedProfile.ToDotnetConfiguration()} x64";
+
+    /// <summary>Gets the Host build summary row's text: the fixed publish trait plus <see cref="SelectedProfile"/>'s dotnet configuration.</summary>
+    public string HostSummaryText => $"self-contained win-x64 ({SelectedProfile.ToDotnetConfiguration()})";
 
     /// <summary>Gets the repository's product version, read fresh from its VERSION file; "unknown" when it cannot be read.</summary>
     public string RepositoryVersion => TryReadRepositoryVersion();

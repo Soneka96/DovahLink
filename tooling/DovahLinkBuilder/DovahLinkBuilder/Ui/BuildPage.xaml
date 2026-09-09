@@ -28,11 +28,11 @@
 
                         <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,0,0,1" Padding="0,7,0,7">
                             <Grid><TextBlock Text="Adapter" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
-                                <TextBlock Text="Release x64" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
+                                <TextBlock Text="{Binding AdapterSummaryText}" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
                         </Border>
                         <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,0,0,1" Padding="0,7,0,7">
                             <Grid><TextBlock Text="Host" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
-                                <TextBlock Text="self-contained win-x64" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
+                                <TextBlock Text="{Binding HostSummaryText}" FontWeight="Medium" FontSize="13" HorizontalAlignment="Right" /></Grid>
                         </Border>
                         <Border BorderBrush="{StaticResource SurfaceBorderBrush}" BorderThickness="0,0,0,1" Padding="0,7,0,7">
                             <Grid><TextBlock Text="Papyrus" Style="{StaticResource SubtleTextStyle}" HorizontalAlignment="Left" />
@@ -66,10 +66,10 @@
 
                         <Button Style="{StaticResource PrimaryButtonStyle}" Command="{Binding BuildCommand}" Margin="0,14,0,0"
                                 Visibility="{Binding CanShowBuildActions, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                AutomationProperties.Name="Build Release">
+                                AutomationProperties.Name="{Binding Profile, StringFormat='Build {0}'}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#x25B6;" Style="{StaticResource GlyphStyle}" Foreground="{StaticResource TextOnAccentBrush}" FontSize="13" Margin="0,0,9,0" />
-                                <AccessText Text="Build _Release" Foreground="{StaticResource TextOnAccentBrush}" FontWeight="Medium" FontSize="14" />
+                                <AccessText Text="{Binding Profile, StringFormat='_Build {0}'}" Foreground="{StaticResource TextOnAccentBrush}" FontWeight="Medium" FontSize="14" />
                             </StackPanel>
                         </Button>
                         <TextBlock Text="{Binding BuildBlockedReason}" Foreground="{StaticResource BadBrush}" FontSize="11.5"

@@ -263,6 +263,24 @@ public sealed class BuildPageViewModelTests
         Assert.Equal("Release · Clean build", viewModel.BuildSummaryText);
     }
 
+    /// <summary>Reports the Adapter and Host summary rows for each profile: Debug builds Debug, Beta shares Release's Adapter/Host configuration.</summary>
+    /// <param name="profile">The profile to select.</param>
+    /// <param name="expectedAdapterSummaryText">The expected Adapter row text.</param>
+    /// <param name="expectedHostSummaryText">The expected Host row text.</param>
+    [Theory]
+    [InlineData(BuildProfile.Debug, "Debug x64", "self-contained win-x64 (Debug)")]
+    [InlineData(BuildProfile.Beta, "Release x64", "self-contained win-x64 (Release)")]
+    [InlineData(BuildProfile.Release, "Release x64", "self-contained win-x64 (Release)")]
+    public void SummaryRowsReflectTheSelectedProfile(BuildProfile profile, string expectedAdapterSummaryText, string expectedHostSummaryText)
+    {
+        var viewModel = BuildViewModel();
+
+        viewModel.SelectedProfile = profile;
+
+        Assert.Equal(expectedAdapterSummaryText, viewModel.AdapterSummaryText);
+        Assert.Equal(expectedHostSummaryText, viewModel.HostSummaryText);
+    }
+
     /// <summary>Reports every non-Found tool, not only the first, in the blocked reason text.</summary>
     [Fact]
     public async Task InitializeAsyncListsEveryUnavailableToolInTheBlockedReason()
