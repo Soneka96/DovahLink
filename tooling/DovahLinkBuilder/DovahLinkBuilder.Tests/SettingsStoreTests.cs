@@ -93,4 +93,35 @@ public sealed class SettingsStoreTests
 
         Assert.Equal(new BuilderSettings(), store.Load());
     }
+
+    /// <summary>Leaves only the final settings file behind, proving the write goes through a temporary file rather than truncating it in place.</summary>
+    [Fact]
+    public void SaveDoesNotLeaveATemporaryFileBehind()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var store = new SettingsStore(temporaryDirectory.Path);
+
+        store.Save(new BuilderSettings());
+
+        Assert.Equal(["settings.json"], Directory.GetFiles(temporaryDirectory.Path).Select(Path.GetFileName));
+    }
+
+    /// <summary>
+    /// Throws, rather than silently discarding the settings, when the file cannot be written, and
+    /// cleans up the temporary file used for the atomic write rather than leaving it behind.
+    /// </summary>
+    [Fact]
+    public void SaveThrowsWhenTheFileCannotBeWrittenAndCleansUpTheTemporaryFile()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string filePath = Path.Combine(temporaryDirectory.Path, "settings.json");
+        File.WriteAllText(filePath, "{}");
+        var store = new SettingsStore(temporaryDirectory.Path);
+        using var lockingStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        Exception? exception = Record.Exception(() => store.Save(new BuilderSettings()));
+
+        Assert.True(exception is IOException or UnauthorizedAccessException, $"Expected an IOException or UnauthorizedAccessException but got {exception?.GetType()}.");
+        Assert.False(File.Exists(filePath + ".tmp"));
+    }
 }

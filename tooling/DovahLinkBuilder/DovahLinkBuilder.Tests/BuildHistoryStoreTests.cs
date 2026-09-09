@@ -121,6 +121,8 @@ public sealed class BuildHistoryStoreTests
     /// <see cref="GetRecentReturnsEmptyWhenTheFileCannotBeRead"/>: recording a new build is not
     /// optional in the same way reading history back is, so a caller for whom that distinction
     /// matters (see <see cref="Ui.BuildPageViewModel"/>'s own handling) must be able to observe it.
+    /// Also proves the temporary file used for the atomic write is cleaned up rather than left behind
+    /// when the destination cannot be replaced.
     /// </summary>
     [Fact]
     public void AddThrowsWhenTheFileCannotBeWritten()
@@ -131,6 +133,21 @@ public sealed class BuildHistoryStoreTests
         var store = new BuildHistoryStore(temporaryDirectory.Path);
         using var lockingStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
 
-        Assert.ThrowsAny<IOException>(() => store.Add(Fixtures.BuildBuildHistoryEntry()));
+        Exception? exception = Record.Exception(() => store.Add(Fixtures.BuildBuildHistoryEntry()));
+
+        Assert.True(exception is IOException or UnauthorizedAccessException, $"Expected an IOException or UnauthorizedAccessException but got {exception?.GetType()}.");
+        Assert.False(File.Exists(filePath + ".tmp"));
+    }
+
+    /// <summary>Leaves only the final history file behind, proving the write goes through a temporary file rather than truncating it in place.</summary>
+    [Fact]
+    public void AddDoesNotLeaveATemporaryFileBehind()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var store = new BuildHistoryStore(temporaryDirectory.Path);
+
+        store.Add(Fixtures.BuildBuildHistoryEntry());
+
+        Assert.Equal(["build-history.json"], Directory.GetFiles(temporaryDirectory.Path).Select(Path.GetFileName));
     }
 }

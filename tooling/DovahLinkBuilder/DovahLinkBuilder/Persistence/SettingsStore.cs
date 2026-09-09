@@ -15,6 +15,8 @@ public interface ISettingsStore
 
     /// <summary>Persists <paramref name="settings"/>, replacing any previously saved value.</summary>
     /// <param name="settings">The settings to persist.</param>
+    /// <exception cref="IOException">Thrown when the file cannot be written.</exception>
+    /// <exception cref="UnauthorizedAccessException">Thrown when the file cannot be written due to insufficient permissions.</exception>
     void Save(BuilderSettings settings);
 }
 
@@ -66,6 +68,20 @@ public sealed class SettingsStore : ISettingsStore
     {
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
         string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(filePath, json);
+        // Written to a temporary file first and moved into place, rather than written directly to
+        // filePath, so a process stopped mid-write can never leave a partially written, unreadable
+        // settings file behind: File.Move with overwrite replaces the destination in one step. The
+        // finally block deletes the temporary file if the write or move above failed; it is already
+        // gone (a no-op delete) once the move has succeeded.
+        string temporaryPath = filePath + ".tmp";
+        try
+        {
+            File.WriteAllText(temporaryPath, json);
+            File.Move(temporaryPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
     }
 }

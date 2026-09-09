@@ -77,6 +77,20 @@ public sealed class BuildHistoryStore : IBuildHistoryStore
 
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
         string json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(filePath, json);
+        // Written to a temporary file first and moved into place, rather than written directly to
+        // filePath, so a process stopped mid-write can never leave a partially written, unreadable
+        // history file behind: File.Move with overwrite replaces the destination in one step. The
+        // finally block deletes the temporary file if the write or move above failed; it is already
+        // gone (a no-op delete) once the move has succeeded.
+        string temporaryPath = filePath + ".tmp";
+        try
+        {
+            File.WriteAllText(temporaryPath, json);
+            File.Move(temporaryPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
     }
 }
