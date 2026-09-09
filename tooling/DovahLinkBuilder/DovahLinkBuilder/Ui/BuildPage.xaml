@@ -71,6 +71,9 @@
                 <TextBlock Text="{Binding ResultBannerText}" FontWeight="Bold" />
                 <TextBlock Text="{Binding LastOutcomeMessage}" TextWrapping="Wrap" Margin="0,4,0,0" />
 
+                <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}" Margin="0,8,0,0" HorizontalAlignment="Left"
+                        Visibility="{Binding IsFailed, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
                 <StackPanel Visibility="{Binding HasArchivePath, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,8,0,0">
                     <TextBlock Text="{Binding ArchivePath}" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding ArchiveSha256, StringFormat='SHA-256: {0}'}" Margin="0,4,0,0" />

@@ -36,11 +36,20 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</summary>
     private readonly Action<string> openOutputFolder;
 
+    /// <summary>Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</summary>
+    private readonly Action<string> setClipboardText;
+
     /// <summary>The repository root this page checks and builds.</summary>
     private readonly string repositoryRoot;
 
     /// <summary>The most recently loaded git status, or <see langword="null"/> when it could not be determined.</summary>
     private GitSourceStatus? gitStatus;
+
+    /// <summary>The most recently loaded git status failure message, or <see langword="null"/> when git status loaded successfully.</summary>
+    private string? gitStatusError;
+
+    /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
+    private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
 
     /// <summary>The backing field for <see cref="IsCleanBuild"/>.</summary>
     private bool isCleanBuild;
@@ -85,6 +94,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="buildHistoryStore">Persists and retrieves the Builder's recent build history.</param>
     /// <param name="settingsStore">Loads the Builder's persisted settings.</param>
     /// <param name="openOutputFolder">Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</param>
+    /// <param name="setClipboardText">Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</param>
     /// <param name="repositoryRoot">The repository root this page checks and builds.</param>
     public BuildPageViewModel(
         IPreflightService preflightService,
@@ -93,6 +103,7 @@ public sealed class BuildPageViewModel : ObservableObject
         IBuildHistoryStore buildHistoryStore,
         ISettingsStore settingsStore,
         Action<string> openOutputFolder,
+        Action<string> setClipboardText,
         string repositoryRoot)
     {
         this.preflightService = preflightService;
@@ -101,6 +112,7 @@ public sealed class BuildPageViewModel : ObservableObject
         this.buildHistoryStore = buildHistoryStore;
         this.settingsStore = settingsStore;
         this.openOutputFolder = openOutputFolder;
+        this.setClipboardText = setClipboardText;
         this.repositoryRoot = repositoryRoot;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
@@ -108,6 +120,7 @@ public sealed class BuildPageViewModel : ObservableObject
         CancelCommand = new RelayCommand(OnCancel, () => IsBuilding);
         ViewArchiveContentsCommand = new RelayCommand(OnViewArchiveContents, () => ArchivePath is not null);
         RebuildCommand = new RelayCommand(OnRebuild, () => !IsBuilding && !IsAwaitingConfirmation);
+        CopyDiagnosticsCommand = new RelayCommand(OnCopyDiagnostics);
         Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
         Log = new LogViewModel { AutoScroll = settingsStore.Load().AutoScrollLogs };
         recentBuilds = buildHistoryStore.GetRecent();
@@ -195,12 +208,16 @@ public sealed class BuildPageViewModel : ObservableObject
                 OnPropertyChanged(nameof(HasResult));
                 OnPropertyChanged(nameof(ResultBannerText));
                 OnPropertyChanged(nameof(FooterStatusText));
+                OnPropertyChanged(nameof(IsFailed));
             }
         }
     }
 
     /// <summary>Gets whether a build has finished, and a result banner should show.</summary>
     public bool HasResult => LastOutcome is not null;
+
+    /// <summary>Gets whether the most recently finished build failed, for showing "Copy diagnostics" on the failure banner.</summary>
+    public bool IsFailed => LastOutcome == BuildHistoryResult.Failed;
 
     /// <summary>Gets the result banner text for <see cref="LastOutcome"/>, or <see langword="null"/> before any build has finished.</summary>
     public string? ResultBannerText => LastOutcome switch
@@ -237,26 +254,24 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<ToolchainCheckResult> preflightResults =
-            await preflightService.CheckAllAsync(repositoryRoot, cancellationToken);
-        string? gitStatusError = await RefreshGitStatusAsync(cancellationToken);
-        UpdateBuildBlockedReason(preflightResults, gitStatusError);
+        PreflightResults = await preflightService.CheckAllAsync(repositoryRoot, cancellationToken);
+        await RefreshGitStatusAsync(cancellationToken);
+        UpdateBuildBlockedReason();
     }
 
-    /// <summary>Loads the current git status, reporting a failure message instead of throwing.</summary>
+    /// <summary>Loads the current git status into <see cref="gitStatus"/>/<see cref="gitStatusError"/>, reporting a failure instead of throwing.</summary>
     /// <param name="cancellationToken">The token used to cancel the outstanding check.</param>
-    /// <returns>A failure message when the status could not be determined; otherwise <see langword="null"/>.</returns>
-    private async Task<string?> RefreshGitStatusAsync(CancellationToken cancellationToken)
+    private async Task RefreshGitStatusAsync(CancellationToken cancellationToken)
     {
         try
         {
             gitStatus = await gitStatusService.GetStatusAsync(repositoryRoot, cancellationToken);
-            return null;
+            gitStatusError = null;
         }
         catch (InvalidOperationException exception)
         {
             gitStatus = null;
-            return exception.Message;
+            gitStatusError = exception.Message;
         }
         finally
         {
@@ -264,10 +279,8 @@ public sealed class BuildPageViewModel : ObservableObject
         }
     }
 
-    /// <summary>Recomputes <see cref="BuildBlockedReason"/> from the latest preflight results and git status.</summary>
-    /// <param name="preflightResults">The latest preflight results.</param>
-    /// <param name="gitStatusError">The git status failure message, or <see langword="null"/> when git status loaded successfully.</param>
-    private void UpdateBuildBlockedReason(IReadOnlyList<ToolchainCheckResult> preflightResults, string? gitStatusError)
+    /// <summary>Recomputes <see cref="BuildBlockedReason"/> from the latest <see cref="PreflightResults"/> and git status.</summary>
+    private void UpdateBuildBlockedReason()
     {
         List<string> unavailableTools = preflightResults
             .Where(result => result.Availability != ToolchainAvailability.Found)
@@ -682,5 +695,21 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(IsGitReady));
         OnPropertyChanged(nameof(GitBranch));
         OnPropertyChanged(nameof(GitCommitSha));
+    }
+
+    /// <summary>Gets the most recently loaded preflight results, in preflight order.</summary>
+    public IReadOnlyList<ToolchainCheckResult> PreflightResults
+    {
+        get => preflightResults;
+        private set => SetProperty(ref preflightResults, value);
+    }
+
+    /// <summary>Gets the command that copies a plain-text diagnostics report -- environment checks, git status, and the last build -- to the clipboard.</summary>
+    public RelayCommand CopyDiagnosticsCommand { get; }
+
+    /// <summary>Formats the current diagnostics report and writes it to the clipboard.</summary>
+    private void OnCopyDiagnostics()
+    {
+        setClipboardText(DiagnosticsFormatter.Format(PreflightResults, gitStatus, gitStatusError, LastOutcome, LastOutcomeMessage));
     }
 }

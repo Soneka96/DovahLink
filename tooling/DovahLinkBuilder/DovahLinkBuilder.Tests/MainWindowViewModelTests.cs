@@ -21,6 +21,7 @@ public sealed class MainWindowViewModelTests
         new StubBuildHistoryStore(),
         new StubSettingsStore(),
         _ => { },
+        _ => { },
         @"C:\repo");
 
     /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>

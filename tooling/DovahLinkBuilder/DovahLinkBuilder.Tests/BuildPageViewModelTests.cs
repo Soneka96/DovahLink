@@ -18,13 +18,15 @@ public sealed class BuildPageViewModelTests
         FakeAdapterHostBuildCoordinator? buildCoordinator = null,
         FakeBuildHistoryStore? buildHistoryStore = null,
         FakeSettingsStore? settingsStore = null,
-        Action<string>? openOutputFolder = null) => new(
+        Action<string>? openOutputFolder = null,
+        Action<string>? setClipboardText = null) => new(
         preflightService ?? new FakePreflightService(),
         gitStatusService ?? new FakeGitStatusService(),
         buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
         buildHistoryStore ?? new FakeBuildHistoryStore(),
         settingsStore ?? new FakeSettingsStore(),
         openOutputFolder ?? (_ => { }),
+        setClipboardText ?? (_ => { }),
         @"C:\repo");
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -1078,6 +1080,62 @@ public sealed class BuildPageViewModelTests
 
         Assert.True(viewModel.HasBuildBlockedReason);
         Assert.Equal("Complete", viewModel.FooterStatusText);
+    }
+
+    /// <summary>Loads the full preflight results, not just the summarized blocked reason, for diagnostics.</summary>
+    [Fact]
+    public async Task InitializeAsyncLoadsPreflightResults()
+    {
+        var viewModel = BuildViewModel();
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(8, viewModel.PreflightResults.Count);
+    }
+
+    /// <summary>Reports IsFailed only for a failed build, not for success or cancellation.</summary>
+    [Fact]
+    public async Task IsFailedReflectsOnlyAFailedOutcome()
+    {
+        var viewModel = BuildViewModel();
+        await viewModel.InitializeAsync();
+        Assert.False(viewModel.IsFailed);
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        Assert.False(viewModel.IsFailed);
+
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("the adapter build failed") };
+        var failedViewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await failedViewModel.InitializeAsync();
+        failedViewModel.BuildCommand.Execute(null);
+        await failedViewModel.RunningBuildTask!;
+
+        Assert.True(failedViewModel.IsFailed);
+    }
+
+    /// <summary>Copies a diagnostics report reflecting the current preflight results, git status, and last build outcome to the clipboard.</summary>
+    [Fact]
+    public async Task CopyDiagnosticsCommandWritesTheCurrentStateToTheClipboard()
+    {
+        var gitStatusService = new FakeGitStatusService
+        {
+            Status = new GitSourceStatus("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123"),
+        };
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("the adapter build failed") };
+        string? copiedText = null;
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService, buildCoordinator: buildCoordinator, setClipboardText: text => copiedText = text);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        viewModel.CopyDiagnosticsCommand.Execute(null);
+
+        Assert.NotNull(copiedText);
+        Assert.Contains("Repository: Found", copiedText);
+        Assert.Contains("Branch: main", copiedText);
+        Assert.Contains("Outcome: Failed", copiedText);
+        Assert.Contains("the adapter build failed", copiedText);
     }
 
     /// <summary>Reports every required build tool as available, for a fake that does not otherwise override <see cref="FakePreflightService.Results"/>.</summary>

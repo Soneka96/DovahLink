@@ -28,7 +28,14 @@ public partial class App : Application
         var settingsStore = new SettingsStore(appDataDirectory);
 
         var buildPage = new BuildPageViewModel(
-            preflightService, gitStatusService, buildCoordinator, buildHistoryStore, settingsStore, OpenFolderInExplorer, repositoryRoot);
+            preflightService,
+            gitStatusService,
+            buildCoordinator,
+            buildHistoryStore,
+            settingsStore,
+            OpenFolderInExplorer,
+            Clipboard.SetText,
+            repositoryRoot);
         var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusService, repositoryRoot);
         var settingsPage = new SettingsPageViewModel(settingsStore);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
