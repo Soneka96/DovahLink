@@ -29,12 +29,13 @@ public partial class App : Application
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
 
         var buildPage = new BuildPageViewModel(
-            preflightService,
+            environmentStore,
             gitStatusStore,
             buildCoordinator,
             buildHistoryStore,
@@ -42,7 +43,7 @@ public partial class App : Application
             OpenFolderInExplorer,
             Clipboard.SetText,
             repositoryContext);
-        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusStore, repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         var mainWindow = new MainWindow(mainWindowViewModel, settingsStore);
@@ -67,8 +68,10 @@ public partial class App : Application
 
         mainWindow.Show();
 
-        _ = buildPage.InitializeAsync();
-        _ = environmentPage.InitializeAsync();
+        // One shared refresh for both pages, rather than each independently triggering its own
+        // preflight-and-git-status check: EnvironmentStore.RefreshAsync's PropertyChanged notifies
+        // both buildPage and environmentPage, which already subscribed to it in their own constructors.
+        _ = environmentStore.RefreshAsync();
     }
 
     /// <summary>Gets the local application-data directory the Builder persists its settings and build history under.</summary>

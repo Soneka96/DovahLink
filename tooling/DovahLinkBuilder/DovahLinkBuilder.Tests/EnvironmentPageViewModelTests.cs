@@ -15,10 +15,9 @@ public sealed class EnvironmentPageViewModelTests
         IRepositoryContext? repositoryContext = null)
     {
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(@"C:\repo");
-        return new(
-            preflightService ?? new FakePreflightService(),
-            new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext),
-            resolvedRepositoryContext);
+        var gitStatusStore = new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext);
+        return new(environmentStore, gitStatusStore);
     }
 
     /// <summary>Starts with no checks loaded and no git status.</summary>

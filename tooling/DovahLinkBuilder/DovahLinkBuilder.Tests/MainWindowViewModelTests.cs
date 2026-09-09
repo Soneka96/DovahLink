@@ -16,6 +16,19 @@ public sealed class MainWindowViewModelTests
     /// </summary>
     private readonly RepositoryContext repositoryContext = new(@"C:\repo");
 
+    /// <summary>The shared git status both stub pages <see cref="BuildViewModel"/> constructs are given.</summary>
+    private readonly IGitStatusStore gitStatusStore;
+
+    /// <summary>The shared preflight-and-git-status refresh both stub pages <see cref="BuildViewModel"/> constructs are given.</summary>
+    private readonly IEnvironmentStore environmentStore;
+
+    /// <summary>Builds the shared collaborators every test's stub pages depend on.</summary>
+    public MainWindowViewModelTests()
+    {
+        gitStatusStore = new GitStatusStore(new StubGitStatusService(), repositoryContext);
+        environmentStore = new EnvironmentStore(new StubPreflightService(), gitStatusStore, repositoryContext);
+    }
+
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
     private MainWindowViewModel BuildViewModel() =>
         new(BuildStubBuildPage(), BuildStubEnvironmentPage(),
@@ -23,8 +36,8 @@ public sealed class MainWindowViewModelTests
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
     private BuildPageViewModel BuildStubBuildPage() => new(
-        new StubPreflightService(),
-        new GitStatusStore(new StubGitStatusService(), repositoryContext),
+        environmentStore,
+        gitStatusStore,
         new StubAdapterHostBuildCoordinator(),
         new StubBuildHistoryStore(),
         new StubSettingsStore(),
@@ -33,8 +46,7 @@ public sealed class MainWindowViewModelTests
         repositoryContext);
 
     /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>
-    private EnvironmentPageViewModel BuildStubEnvironmentPage() =>
-        new(new StubPreflightService(), new GitStatusStore(new StubGitStatusService(), repositoryContext), repositoryContext);
+    private EnvironmentPageViewModel BuildStubEnvironmentPage() => new(environmentStore, gitStatusStore);
 
     /// <summary>Starts with the Build page selected.</summary>
     [Fact]

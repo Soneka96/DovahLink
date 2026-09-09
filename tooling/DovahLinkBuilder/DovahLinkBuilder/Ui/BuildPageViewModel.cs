@@ -19,8 +19,8 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>The text shown while preflight and git status have not finished loading yet.</summary>
     private const string CheckingEnvironmentReason = "Checking environment and git status...";
 
-    /// <summary>Checks the required build tools before a build is allowed to start.</summary>
-    private readonly IPreflightService preflightService;
+    /// <summary>The shared preflight-and-git-status refresh both the Build and Environment pages trigger.</summary>
+    private readonly IEnvironmentStore environmentStore;
 
     /// <summary>The shared git status both the Build and Environment pages read and refresh.</summary>
     private readonly IGitStatusStore gitStatusStore;
@@ -104,7 +104,7 @@ public sealed class BuildPageViewModel : ObservableObject
     private BuildProfile selectedProfile = BuildProfile.Release;
 
     /// <summary>Initializes the page over its collaborators, starting in the "checking environment" state.</summary>
-    /// <param name="preflightService">Checks the required build tools before a build is allowed to start.</param>
+    /// <param name="environmentStore">The shared preflight-and-git-status refresh both the Build and Environment pages trigger.</param>
     /// <param name="gitStatusStore">The shared git status both the Build and Environment pages read and refresh.</param>
     /// <param name="buildCoordinator">Builds and packages the production Adapter and Host.</param>
     /// <param name="buildHistoryStore">Persists and retrieves the Builder's recent build history.</param>
@@ -113,7 +113,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="setClipboardText">Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</param>
     /// <param name="repositoryContext">The shared repository root this page checks and builds.</param>
     public BuildPageViewModel(
-        IPreflightService preflightService,
+        IEnvironmentStore environmentStore,
         IGitStatusStore gitStatusStore,
         IAdapterHostBuildCoordinator buildCoordinator,
         IBuildHistoryStore buildHistoryStore,
@@ -122,7 +122,7 @@ public sealed class BuildPageViewModel : ObservableObject
         Action<string> setClipboardText,
         IRepositoryContext repositoryContext)
     {
-        this.preflightService = preflightService;
+        this.environmentStore = environmentStore;
         this.gitStatusStore = gitStatusStore;
         this.buildCoordinator = buildCoordinator;
         this.buildHistoryStore = buildHistoryStore;
@@ -131,6 +131,7 @@ public sealed class BuildPageViewModel : ObservableObject
         this.setClipboardText = setClipboardText;
         this.repositoryContext = repositoryContext;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
+        environmentStore.PropertyChanged += OnEnvironmentStoreChanged;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
@@ -348,8 +349,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        PreflightResults = await preflightService.CheckAllAsync(repositoryContext.RepositoryRoot, cancellationToken);
-        await gitStatusStore.RefreshAsync(cancellationToken);
+        await environmentStore.RefreshAsync(cancellationToken);
         UpdateBuildBlockedReason();
     }
 
@@ -364,6 +364,19 @@ public sealed class BuildPageViewModel : ObservableObject
     {
         UpdateBuildBlockedReason();
         NotifyGitStatusChanged();
+    }
+
+    /// <summary>
+    /// Relays a change on the shared <see cref="environmentStore"/> to this page's own preflight
+    /// results, since a refresh triggered from the Environment page's Recheck must also be reflected
+    /// here.
+    /// </summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused change details; every change recomputes the same derived state.</param>
+    private void OnEnvironmentStoreChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        PreflightResults = environmentStore.PreflightResults;
+        UpdateBuildBlockedReason();
     }
 
     /// <summary>Recomputes <see cref="BuildBlockedReason"/> from the latest <see cref="PreflightResults"/> and git status.</summary>

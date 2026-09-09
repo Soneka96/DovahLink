@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -112,6 +113,24 @@ public sealed class GitStatusStoreTests
         Assert.Empty(raisedProperties);
     }
 
+    /// <summary>
+    /// Reports the real <see cref="GitStatusService"/>'s InvalidOperationException as StatusError,
+    /// end-to-end, when git itself cannot be started -- not just when a fake service already throws
+    /// that exact exception type directly.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsyncReportsAFailureWhenGitCannotBeStarted()
+    {
+        var commandRunner = new UnstartableCommandRunner();
+        var gitStatusService = new GitStatusService(commandRunner);
+        var store = new GitStatusStore(gitStatusService, new RepositoryContext(@"C:\repo"));
+
+        await store.RefreshAsync();
+
+        Assert.Null(store.Status);
+        Assert.NotNull(store.StatusError);
+    }
+
     /// <summary>Reads the current repository root on every refresh, rather than the root captured when the store was constructed.</summary>
     [Fact]
     public async Task RefreshAsyncReadsTheCurrentRepositoryRootRatherThanACachedValue()
@@ -146,5 +165,17 @@ public sealed class GitStatusStoreTests
             LastRequestedRepositoryRoot = repositoryRoot;
             return ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
         }
+    }
+
+    /// <summary>Simulates an unstartable git executable by throwing <see cref="Win32Exception"/> from every command.</summary>
+    private sealed class UnstartableCommandRunner : ICommandRunner
+    {
+        /// <inheritdoc/>
+        public Task<int> RunAsync(
+            BuildCommand command,
+            Action<string>? onStandardOutput,
+            Action<string>? onStandardError,
+            CancellationToken cancellationToken = default) =>
+            throw new Win32Exception("The system cannot find the file specified.");
     }
 }

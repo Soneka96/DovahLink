@@ -1,42 +1,33 @@
 using System.ComponentModel;
-using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
-using DovahLink.DovahLinkBuilder.Preflight;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
 
 /// <summary>
 /// Owns the Environment page's state: the 8 required build tool checks and an informational git
-/// remote status row, both loaded from the same services the Build page uses so every page reflects
-/// one shared, real check result rather than an independently hardcoded copy (correction #2).
+/// remote status row, both loaded from the same shared store the Build page uses so every page
+/// reflects one shared, real check result rather than an independently hardcoded copy.
 /// </summary>
 public sealed class EnvironmentPageViewModel : ObservableObject
 {
-    /// <summary>Checks the required build tools.</summary>
-    private readonly IPreflightService preflightService;
+    /// <summary>The shared preflight-and-git-status refresh both the Build and Environment pages trigger.</summary>
+    private readonly IEnvironmentStore environmentStore;
 
     /// <summary>The shared git status both the Build and Environment pages read and refresh.</summary>
     private readonly IGitStatusStore gitStatusStore;
 
-    /// <summary>The shared repository root this page checks.</summary>
-    private readonly IRepositoryContext repositoryContext;
-
     /// <summary>The backing field for <see cref="Checks"/>.</summary>
     private IReadOnlyList<EnvironmentCheckViewModel> checks = [];
 
-    /// <summary>The backing field for <see cref="IsChecking"/>.</summary>
-    private bool isChecking;
-
     /// <summary>Initializes the page over its collaborators, starting with no checks loaded.</summary>
-    /// <param name="preflightService">Checks the required build tools.</param>
+    /// <param name="environmentStore">The shared preflight-and-git-status refresh both the Build and Environment pages trigger.</param>
     /// <param name="gitStatusStore">The shared git status both the Build and Environment pages read and refresh.</param>
-    /// <param name="repositoryContext">The shared repository root this page checks.</param>
-    public EnvironmentPageViewModel(IPreflightService preflightService, IGitStatusStore gitStatusStore, IRepositoryContext repositoryContext)
+    public EnvironmentPageViewModel(IEnvironmentStore environmentStore, IGitStatusStore gitStatusStore)
     {
-        this.preflightService = preflightService;
+        this.environmentStore = environmentStore;
         this.gitStatusStore = gitStatusStore;
-        this.repositoryContext = repositoryContext;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
+        environmentStore.PropertyChanged += OnEnvironmentStoreChanged;
         RecheckCommand = new RelayCommand(OnRecheck, () => !IsChecking);
     }
 
@@ -74,18 +65,8 @@ public sealed class EnvironmentPageViewModel : ObservableObject
         OnPropertyChanged(nameof(GitStatusError));
     }
 
-    /// <summary>Gets whether a check is currently in progress.</summary>
-    public bool IsChecking
-    {
-        get => isChecking;
-        private set
-        {
-            if (SetProperty(ref isChecking, value))
-            {
-                RecheckCommand.RaiseCanExecuteChanged();
-            }
-        }
-    }
+    /// <summary>Gets whether a check is currently in progress, reflecting the shared <see cref="environmentStore"/>'s own refresh state.</summary>
+    public bool IsChecking => environmentStore.IsRefreshing;
 
     /// <summary>Gets the command that manually re-runs every check.</summary>
     public RelayCommand RecheckCommand { get; }
@@ -95,9 +76,12 @@ public sealed class EnvironmentPageViewModel : ObservableObject
 
     /// <summary>Loads the preflight checks and git status.</summary>
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
-    public Task InitializeAsync(CancellationToken cancellationToken = default) => RunChecksAsync(cancellationToken);
+    public Task InitializeAsync(CancellationToken cancellationToken = default) => environmentStore.RefreshAsync(cancellationToken);
 
-    /// <summary>Re-runs every check; does nothing while a check is already in progress.</summary>
+    /// <summary>
+    /// Re-runs every check; does nothing while a check is already in progress. Shares an already
+    /// in-flight refresh with the Build page's own trigger, rather than starting a duplicate.
+    /// </summary>
     private void OnRecheck()
     {
         if (IsChecking)
@@ -105,23 +89,19 @@ public sealed class EnvironmentPageViewModel : ObservableObject
             return;
         }
 
-        RunningRecheckTask = RunChecksAsync();
+        RunningRecheckTask = environmentStore.RefreshAsync();
     }
 
-    /// <summary>Runs the preflight checks and git status check, reporting a failure message instead of throwing for git status.</summary>
-    /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
-    private async Task RunChecksAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Relays a change on the shared <see cref="environmentStore"/> to this page's own bound
+    /// properties, since a refresh triggered from the Build page must also be reflected here.
+    /// </summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused change details; either property changing recomputes both.</param>
+    private void OnEnvironmentStoreChanged(object? sender, PropertyChangedEventArgs e)
     {
-        IsChecking = true;
-        try
-        {
-            IReadOnlyList<ToolchainCheckResult> results = await preflightService.CheckAllAsync(repositoryContext.RepositoryRoot, cancellationToken);
-            Checks = results.Select(result => new EnvironmentCheckViewModel(result)).ToList();
-            await gitStatusStore.RefreshAsync(cancellationToken);
-        }
-        finally
-        {
-            IsChecking = false;
-        }
+        Checks = environmentStore.PreflightResults.Select(result => new EnvironmentCheckViewModel(result)).ToList();
+        OnPropertyChanged(nameof(IsChecking));
+        RecheckCommand.RaiseCanExecuteChanged();
     }
 }

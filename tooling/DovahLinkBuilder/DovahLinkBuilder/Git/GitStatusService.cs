@@ -11,8 +11,9 @@ public interface IGitStatusService
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
     /// <returns>The repository's current git status.</returns>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when the branch, working tree, or commit lookup fails, for example because
-    /// <paramref name="repositoryRoot"/> is not a git repository.
+    /// Thrown when the branch, working tree, or commit lookup fails -- for example because
+    /// <paramref name="repositoryRoot"/> is not a git repository, or because <c>git</c> itself could
+    /// not be started.
     /// </exception>
     Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default);
 }
@@ -45,9 +46,23 @@ public sealed class GitStatusService : IGitStatusService
     /// <inheritdoc/>
     public async Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default)
     {
-        string branch = await RunGitAsync(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"], cancellationToken);
-        string statusOutput = await RunGitAsync(repositoryRoot, ["status", "--porcelain"], cancellationToken);
-        string commitSha = await RunGitAsync(repositoryRoot, ["rev-parse", "HEAD"], cancellationToken);
+        string branch;
+        string statusOutput;
+        string commitSha;
+        try
+        {
+            branch = await RunGitAsync(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"], cancellationToken);
+            statusOutput = await RunGitAsync(repositoryRoot, ["status", "--porcelain"], cancellationToken);
+            commitSha = await RunGitAsync(repositoryRoot, ["rev-parse", "HEAD"], cancellationToken);
+        }
+        catch (Win32Exception exception)
+        {
+            // An unstartable git.exe is exactly as unable to report status as a nonzero exit code is,
+            // so it is folded into the same documented failure contract RunGitAsync already reports
+            // for that case, rather than left to escape as a raw process-start exception.
+            throw new InvalidOperationException($"Could not start git in {repositoryRoot}: {exception.Message}", exception);
+        }
+
         RemoteSyncState remoteSyncState = await CheckRemoteSyncAsync(repositoryRoot, cancellationToken);
 
         WorkingTreeState workingTreeState = statusOutput.Length == 0 ? WorkingTreeState.Clean : WorkingTreeState.Dirty;

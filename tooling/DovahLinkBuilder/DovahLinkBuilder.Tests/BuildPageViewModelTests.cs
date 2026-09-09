@@ -25,9 +25,11 @@ public sealed class BuildPageViewModelTests
     {
         string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
+        var gitStatusStore = new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext);
         return new(
-            preflightService ?? new FakePreflightService(),
-            new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext),
+            environmentStore,
+            gitStatusStore,
             buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
             buildHistoryStore ?? new FakeBuildHistoryStore(),
             settingsStore ?? new FakeSettingsStore(),
@@ -116,8 +118,9 @@ public sealed class BuildPageViewModelTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
         var viewModel = new BuildPageViewModel(
-            new FakePreflightService(),
+            environmentStore,
             gitStatusStore,
             new FakeAdapterHostBuildCoordinator(),
             new FakeBuildHistoryStore(),
@@ -1170,6 +1173,26 @@ public sealed class BuildPageViewModelTests
         await viewModel.InitializeAsync();
 
         Assert.Equal(8, viewModel.PreflightResults.Count);
+    }
+
+    /// <summary>Reflects the shared environment store's actual mixed results, not just their count, through the same refresh path other pages also trigger.</summary>
+    [Fact]
+    public async Task InitializeAsyncLoadsPreflightResultsReflectingAMixOfAvailabilityValues()
+    {
+        var preflightService = new FakePreflightService
+        {
+            Results =
+            [
+                new ToolchainCheckResult("CMake", ToolchainAvailability.Missing, null, "not on PATH"),
+                new ToolchainCheckResult("Python", ToolchainAvailability.CouldNotCheck, null, "timed out"),
+            ],
+        };
+        var viewModel = BuildViewModel(preflightService: preflightService);
+
+        await viewModel.InitializeAsync();
+
+        Assert.Equal(ToolchainAvailability.Missing, viewModel.PreflightResults[0].Availability);
+        Assert.Equal(ToolchainAvailability.CouldNotCheck, viewModel.PreflightResults[1].Availability);
     }
 
     /// <summary>Reports IsFailed only for a failed build, not for success or cancellation.</summary>

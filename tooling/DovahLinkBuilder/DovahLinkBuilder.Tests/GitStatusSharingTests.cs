@@ -21,8 +21,9 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
         var buildPage = new BuildPageViewModel(
-            new FakePreflightService(),
+            environmentStore,
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
@@ -30,7 +31,7 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext);
-        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
         Assert.False(buildPage.GitNeedsAttention);
@@ -49,8 +50,9 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
         var buildPage = new BuildPageViewModel(
-            new FakePreflightService(),
+            environmentStore,
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
@@ -58,7 +60,7 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext);
-        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
         Assert.Equal(RemoteSyncState.Pushed, environmentPage.GitStatus?.RemoteSyncState);
@@ -79,8 +81,9 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext);
         var buildPage = new BuildPageViewModel(
-            new FakePreflightService(),
+            environmentStore,
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
@@ -88,7 +91,7 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext);
-        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
         Assert.Null(buildPage.BuildBlockedReason);
@@ -114,8 +117,9 @@ public sealed class GitStatusSharingTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext);
         var buildPage = new BuildPageViewModel(
-            preflightService,
+            environmentStore,
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
@@ -123,7 +127,7 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext);
-        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusStore, repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
         Assert.Equal(@"C:\repo-a", gitStatusService.LastRequestedRepositoryRoot);

@@ -121,6 +121,19 @@ public sealed class GitStatusServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetStatusAsync(@"C:\repo"));
     }
 
+    /// <summary>
+    /// Reports the documented InvalidOperationException, not a raw process-start exception, when
+    /// <c>git</c> itself cannot be started -- for example because it is missing from PATH.
+    /// </summary>
+    [Fact]
+    public async Task GetStatusThrowsInvalidOperationExceptionWhenGitCannotBeStarted()
+    {
+        var runner = new FakeCommandRunner { BranchThrowsWin32Exception = true };
+        var service = new GitStatusService(runner, TestFetchTimeout);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetStatusAsync(@"C:\repo"));
+    }
+
     /// <summary>Throws when the working tree status lookup fails, rather than reporting a guessed status.</summary>
     [Fact]
     public async Task GetStatusThrowsWhenTheWorkingTreeStatusLookupFails()
@@ -183,6 +196,9 @@ public sealed class GitStatusServiceTests
         /// <summary>Gets the exit code for <c>git rev-parse --abbrev-ref HEAD</c>.</summary>
         public int BranchExitCode { get; init; }
 
+        /// <summary>Gets whether <c>git rev-parse --abbrev-ref HEAD</c> throws <see cref="Win32Exception"/> to simulate a missing git executable.</summary>
+        public bool BranchThrowsWin32Exception { get; init; }
+
         /// <summary>Gets the standard-output lines for <c>git status --porcelain</c>.</summary>
         public IReadOnlyList<string> StatusOutputLines { get; init; } = [];
 
@@ -224,6 +240,10 @@ public sealed class GitStatusServiceTests
             switch (command.Arguments[0])
             {
                 case "rev-parse" when command.Arguments.Contains("--abbrev-ref"):
+                    if (BranchThrowsWin32Exception)
+                    {
+                        throw new Win32Exception("The system cannot find the file specified.");
+                    }
                     Emit(BranchOutputLines, onStandardOutput);
                     return BranchExitCode;
                 case "status":
