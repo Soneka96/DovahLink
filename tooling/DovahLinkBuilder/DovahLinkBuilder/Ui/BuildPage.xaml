@@ -256,12 +256,19 @@
                         CornerRadius="10" Padding="14,15" Margin="0,0,0,14"
                         Visibility="{Binding IsCancelling, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="&#x25D0;" Style="{StaticResource GlyphStyle}" Foreground="{StaticResource WarnBrush}" FontSize="19" Margin="0,0,12,0">
-                            <TextBlock.Triggers>
-                                <EventTrigger RoutedEvent="Loaded">
-                                    <BeginStoryboard Storyboard="{StaticResource SpinStoryboard}" />
-                                </EventTrigger>
-                            </TextBlock.Triggers>
+                        <TextBlock Text="&#x25D0;" Foreground="{StaticResource WarnBrush}" FontSize="19" Margin="0,0,12,0">
+                            <TextBlock.Style>
+                                <!-- Spins only while the OS "Show animations in Windows" setting allows it; the glyph itself always shows. -->
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource GlyphStyle}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}" Value="True">
+                                            <DataTrigger.EnterActions>
+                                                <BeginStoryboard Storyboard="{StaticResource SpinStoryboard}" />
+                                            </DataTrigger.EnterActions>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
                         </TextBlock>
                         <StackPanel>
                             <TextBlock Text="Stopping build&#8230;" FontWeight="Medium" Foreground="{StaticResource WarnBrush}" />
@@ -457,13 +464,20 @@
                                                             <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}">
                                                                 <Setter Property="Text" Value="&#x25D0;" />
                                                                 <Setter Property="Foreground" Value="White" />
-                                                                <DataTrigger.EnterActions>
-                                                                    <BeginStoryboard x:Name="StageSpinBeginStoryboard" Storyboard="{StaticResource SpinStoryboard}" />
-                                                                </DataTrigger.EnterActions>
-                                                                <DataTrigger.ExitActions>
-                                                                    <StopStoryboard BeginStoryboardName="StageSpinBeginStoryboard" />
-                                                                </DataTrigger.ExitActions>
                                                             </DataTrigger>
+                                                            <!-- Spins the Running glyph above only while the OS "Show animations in Windows" setting allows it. -->
+                                                            <MultiDataTrigger>
+                                                                <MultiDataTrigger.Conditions>
+                                                                    <Condition Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Running}" />
+                                                                    <Condition Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}" Value="True" />
+                                                                </MultiDataTrigger.Conditions>
+                                                                <MultiDataTrigger.EnterActions>
+                                                                    <BeginStoryboard x:Name="StageSpinBeginStoryboard" Storyboard="{StaticResource SpinStoryboard}" />
+                                                                </MultiDataTrigger.EnterActions>
+                                                                <MultiDataTrigger.ExitActions>
+                                                                    <StopStoryboard BeginStoryboardName="StageSpinBeginStoryboard" />
+                                                                </MultiDataTrigger.ExitActions>
+                                                            </MultiDataTrigger>
                                                             <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Succeeded}">
                                                                 <Setter Property="Text" Value="&#x2713;" />
                                                                 <Setter Property="Foreground" Value="{StaticResource OkBrush}" />
