@@ -61,6 +61,9 @@
                                     <Style TargetType="Ellipse">
                                         <Setter Property="Fill" Value="{StaticResource OkBrush}" />
                                         <Style.Triggers>
+                                            <DataTrigger Binding="{Binding BuildPage.GitNeedsAttention}" Value="True">
+                                                <Setter Property="Fill" Value="{StaticResource WarnBrush}" />
+                                            </DataTrigger>
                                             <DataTrigger Binding="{Binding BuildPage.HasMissingRequiredTool}" Value="True">
                                                 <Setter Property="Fill" Value="{StaticResource BadBrush}" />
                                             </DataTrigger>
