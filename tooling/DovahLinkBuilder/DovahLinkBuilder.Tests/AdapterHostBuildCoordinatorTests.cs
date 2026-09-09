@@ -331,6 +331,152 @@ public sealed class AdapterHostBuildCoordinatorTests
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
     }
 
+    /// <summary>Reports an ordered Running/Succeeded sequence for every stage it owns directly.</summary>
+    [Fact]
+    public async Task ReportsStageProgressThroughTheStageCallback()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var coordinator = new AdapterHostBuildCoordinator(
+            new FakeCommandRunner(),
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add);
+
+        Assert.Equal(
+            [
+                (BuildStage.ValidateRepository, BuildStageStatus.Running),
+                (BuildStage.ValidateRepository, BuildStageStatus.Succeeded),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Succeeded),
+                (BuildStage.BuildAdapter, BuildStageStatus.Running),
+                (BuildStage.BuildAdapter, BuildStageStatus.Succeeded),
+                (BuildStage.CompilePapyrus, BuildStageStatus.Running),
+                (BuildStage.CompilePapyrus, BuildStageStatus.Succeeded),
+            ],
+            stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+        Assert.All(
+            stageEvents.Where(stageEvent => stageEvent.Status != BuildStageStatus.Running),
+            stageEvent => Assert.NotNull(stageEvent.Duration));
+    }
+
+    /// <summary>Reports only the failed stage, and no later stage, when a build command fails.</summary>
+    [Fact]
+    public async Task ReportsOnlyTheFailedStageWhenAConfigureCommandFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner { FailingInvocation = 1 };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        Assert.Equal(
+            [
+                (BuildStage.ValidateRepository, BuildStageStatus.Running),
+                (BuildStage.ValidateRepository, BuildStageStatus.Succeeded),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Failed),
+            ],
+            stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
+    /// <summary>Reports only the failed stage when the Adapter build command fails.</summary>
+    [Fact]
+    public async Task ReportsOnlyTheFailedStageWhenTheBuildCommandFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner { FailingInvocation = 2 };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        Assert.Equal(
+            [
+                (BuildStage.ValidateRepository, BuildStageStatus.Running),
+                (BuildStage.ValidateRepository, BuildStageStatus.Succeeded),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Succeeded),
+                (BuildStage.BuildAdapter, BuildStageStatus.Running),
+                (BuildStage.BuildAdapter, BuildStageStatus.Failed),
+            ],
+            stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
+    /// <summary>Reports only the failed stage when the Papyrus compile command fails.</summary>
+    [Fact]
+    public async Task ReportsOnlyTheFailedStageWhenThePapyrusCompileFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner { FailingInvocation = 3 };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        Assert.Equal(
+            [
+                (BuildStage.ValidateRepository, BuildStageStatus.Running),
+                (BuildStage.ValidateRepository, BuildStageStatus.Succeeded),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Succeeded),
+                (BuildStage.BuildAdapter, BuildStageStatus.Running),
+                (BuildStage.BuildAdapter, BuildStageStatus.Succeeded),
+                (BuildStage.CompilePapyrus, BuildStageStatus.Running),
+                (BuildStage.CompilePapyrus, BuildStageStatus.Failed),
+            ],
+            stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
+    /// <summary>Reports only the ValidateRepository stage as failed when a required toolchain is missing.</summary>
+    [Fact]
+    public async Task ReportsOnlyValidateRepositoryFailedWhenAToolchainIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        PapyrusToolchain papyrusToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path);
+        File.Delete(papyrusToolchain.CompilerPath);
+        var stageEvents = new List<BuildStageEvent>();
+        var coordinator = new AdapterHostBuildCoordinator(
+            new FakeCommandRunner(),
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => papyrusToolchain);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        Assert.Equal(
+            [
+                (BuildStage.ValidateRepository, BuildStageStatus.Running),
+                (BuildStage.ValidateRepository, BuildStageStatus.Failed),
+            ],
+            stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
     /// <summary>Records command-runner inputs and returns a configured exit code and packaging output.</summary>
     private sealed class FakeCommandRunner : ICommandRunner
     {

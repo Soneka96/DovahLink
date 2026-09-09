@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Coordinates building the production Adapter and packaging it with the Host.</summary>
@@ -8,6 +10,12 @@ public interface IAdapterHostBuildCoordinator
     /// </summary>
     /// <param name="request">The repository to build.</param>
     /// <param name="onOutput">An optional callback for build and packaging progress messages.</param>
+    /// <param name="onStage">
+    /// An optional callback for structured stage progress. Reports <see cref="BuildStage.ValidateRepository"/>,
+    /// <see cref="BuildStage.ConfigureAdapter"/>, <see cref="BuildStage.BuildAdapter"/>, and
+    /// <see cref="BuildStage.CompilePapyrus"/> transitions; the remaining stages are reported once packaging
+    /// emits its own structured progress.
+    /// </param>
     /// <param name="cancellationToken">A token that can cancel the build or packaging commands.</param>
     /// <returns>The path to the created archive.</returns>
     /// <exception cref="FileNotFoundException">
@@ -21,6 +29,7 @@ public interface IAdapterHostBuildCoordinator
     Task<AdapterHostBuildResult> BuildAsync(
         AdapterHostBuildRequest request,
         Action<string>? onOutput = null,
+        Action<BuildStageEvent>? onStage = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -65,86 +74,121 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
     public async Task<AdapterHostBuildResult> BuildAsync(
         AdapterHostBuildRequest request,
         Action<string>? onOutput = null,
+        Action<BuildStageEvent>? onStage = null,
         CancellationToken cancellationToken = default)
     {
         string repositoryRoot = Path.GetFullPath(request.RepositoryRoot);
         string adapterRoot = Path.Combine(repositoryRoot, "adapter");
         string manifestPath = Path.Combine(adapterRoot, "vcpkg.json");
-        if (!File.Exists(manifestPath))
-        {
-            throw new FileNotFoundException("Could not find the adapter vcpkg manifest.", manifestPath);
-        }
-
         string versionPath = Path.Combine(repositoryRoot, "VERSION");
-        if (!File.Exists(versionPath))
-        {
-            throw new FileNotFoundException("Could not find the repository VERSION file.", versionPath);
-        }
-
         string packagingScriptPath = Path.Combine(repositoryRoot, "tooling", "package_adapter_host.py");
-        if (!File.Exists(packagingScriptPath))
-        {
-            throw new FileNotFoundException("Could not find the Adapter+Host packaging script.", packagingScriptPath);
-        }
-
-        // Every prerequisite this build needs is validated here, before any build command runs --
-        // a missing compiler, script, or config file fails immediately instead of after the
-        // multi-minute Release CMake build below.
         string consoleAdminRoot = Path.Combine(repositoryRoot, "console-admin");
         string consoleAdminScriptPath = Path.Combine(consoleAdminRoot, "DovahLinkAdmin.psc");
-        if (!File.Exists(consoleAdminScriptPath))
-        {
-            throw new FileNotFoundException("Could not find the console-admin Papyrus script.", consoleAdminScriptPath);
-        }
         string consoleAdminYamlPath = Path.Combine(consoleAdminRoot, "dovahlink.yaml");
-        if (!File.Exists(consoleAdminYamlPath))
-        {
-            throw new FileNotFoundException("Could not find the console-admin YAML configuration.", consoleAdminYamlPath);
-        }
-
-        VisualStudioToolchain toolchain = VisualStudioToolchainLocator.Validate(toolchainProvider());
-        PapyrusToolchain papyrusToolchain = PapyrusToolchainLocator.Validate(papyrusToolchainProvider());
-
-        onOutput?.Invoke("Building the DovahLink Adapter Release binary...");
-        var environmentLines = new List<string>();
-        int environmentExitCode = await commandRunner.RunAsync(
-            BuildCommand.CreateEnvironmentImport(toolchain),
-            environmentLines.Add,
-            onOutput,
-            cancellationToken);
-        if (environmentExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"Visual Studio environment initialization failed with exit code {environmentExitCode}.");
-        }
-
-        IReadOnlyDictionary<string, string> buildEnvironment = VisualStudioEnvironment.Create(environmentLines, toolchain);
-        foreach (BuildCommand command in BuildCommand.CreateReleaseBuild(adapterRoot, buildEnvironment))
-        {
-            int exitCode = await commandRunner.RunAsync(command, onOutput, onOutput, cancellationToken);
-            if (exitCode != 0)
-            {
-                throw new InvalidOperationException($"The Adapter build failed with exit code {exitCode}.");
-            }
-        }
-
         string adapterBuildOutputRoot = Path.Combine(adapterRoot, "build", ReleaseBuildDirectory);
-
-        onOutput?.Invoke("Compiling the DovahLink admin console script...");
-        BuildCommand papyrusCommand = BuildCommand.CreatePapyrusCompile(consoleAdminScriptPath, papyrusToolchain, adapterBuildOutputRoot);
-        int papyrusExitCode = await commandRunner.RunAsync(papyrusCommand, onOutput, onOutput, cancellationToken);
-        if (papyrusExitCode != 0)
-        {
-            throw new InvalidOperationException($"The Papyrus compile failed with exit code {papyrusExitCode}.");
-        }
         string consoleAdminPexPath = Path.Combine(adapterBuildOutputRoot, ConsoleAdminPexFileName);
+
+        (VisualStudioToolchain toolchain, PapyrusToolchain papyrusToolchain) = await RunStageAsync(
+            BuildStage.ValidateRepository,
+            onStage,
+            () =>
+            {
+                if (!File.Exists(manifestPath))
+                {
+                    throw new FileNotFoundException("Could not find the adapter vcpkg manifest.", manifestPath);
+                }
+
+                if (!File.Exists(versionPath))
+                {
+                    throw new FileNotFoundException("Could not find the repository VERSION file.", versionPath);
+                }
+
+                if (!File.Exists(packagingScriptPath))
+                {
+                    throw new FileNotFoundException("Could not find the Adapter+Host packaging script.", packagingScriptPath);
+                }
+
+                // Every prerequisite this build needs is validated here, before any build command runs --
+                // a missing compiler, script, or config file fails immediately instead of after the
+                // multi-minute Release CMake build below.
+                if (!File.Exists(consoleAdminScriptPath))
+                {
+                    throw new FileNotFoundException("Could not find the console-admin Papyrus script.", consoleAdminScriptPath);
+                }
+
+                if (!File.Exists(consoleAdminYamlPath))
+                {
+                    throw new FileNotFoundException("Could not find the console-admin YAML configuration.", consoleAdminYamlPath);
+                }
+
+                VisualStudioToolchain validatedToolchain = VisualStudioToolchainLocator.Validate(toolchainProvider());
+                PapyrusToolchain validatedPapyrusToolchain = PapyrusToolchainLocator.Validate(papyrusToolchainProvider());
+                return Task.FromResult((validatedToolchain, validatedPapyrusToolchain));
+            });
+
+        IReadOnlyList<BuildCommand> releaseCommands = await RunStageAsync(
+            BuildStage.ConfigureAdapter,
+            onStage,
+            async () =>
+            {
+                onOutput?.Invoke("Building the DovahLink Adapter Release binary...");
+                var environmentLines = new List<string>();
+                int environmentExitCode = await commandRunner.RunAsync(
+                    BuildCommand.CreateEnvironmentImport(toolchain),
+                    environmentLines.Add,
+                    onOutput,
+                    cancellationToken);
+                if (environmentExitCode != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Visual Studio environment initialization failed with exit code {environmentExitCode}.");
+                }
+
+                IReadOnlyDictionary<string, string> buildEnvironment = VisualStudioEnvironment.Create(environmentLines, toolchain);
+                IReadOnlyList<BuildCommand> commands = BuildCommand.CreateReleaseBuild(adapterRoot, buildEnvironment);
+                int configureExitCode = await commandRunner.RunAsync(commands[0], onOutput, onOutput, cancellationToken);
+                if (configureExitCode != 0)
+                {
+                    throw new InvalidOperationException($"The Adapter build failed with exit code {configureExitCode}.");
+                }
+
+                return commands;
+            });
+
+        await RunStageAsync(
+            BuildStage.BuildAdapter,
+            onStage,
+            async () =>
+            {
+                int exitCode = await commandRunner.RunAsync(releaseCommands[1], onOutput, onOutput, cancellationToken);
+                if (exitCode != 0)
+                {
+                    throw new InvalidOperationException($"The Adapter build failed with exit code {exitCode}.");
+                }
+            });
+
+        await RunStageAsync(
+            BuildStage.CompilePapyrus,
+            onStage,
+            async () =>
+            {
+                onOutput?.Invoke("Compiling the DovahLink admin console script...");
+                BuildCommand papyrusCommand = BuildCommand.CreatePapyrusCompile(consoleAdminScriptPath, papyrusToolchain, adapterBuildOutputRoot);
+                int papyrusExitCode = await commandRunner.RunAsync(papyrusCommand, onOutput, onOutput, cancellationToken);
+                if (papyrusExitCode != 0)
+                {
+                    throw new InvalidOperationException($"The Papyrus compile failed with exit code {papyrusExitCode}.");
+                }
+            });
 
         string outputRoot = Path.Combine(repositoryRoot, "tooling", "out");
         Directory.CreateDirectory(outputRoot);
 
         // Packaging is entirely owned by tooling/package_adapter_host.py (see AdapterHostPackager):
         // this orchestrates it as an external process rather than reimplementing the Vortex package
-        // layout, so the layout has exactly one authoritative implementation.
+        // layout, so the layout has exactly one authoritative implementation. Its four stages
+        // (PublishHost, AssemblePackage, ValidatePackage, CreateZip) are not yet reported through
+        // onStage; that requires the packaging script to emit structured progress of its own.
         onOutput?.Invoke("Packaging the Adapter and Host...");
         var packagingOutputLines = new List<string>();
         var packagingCommand = new BuildCommand(
@@ -181,5 +225,45 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
         }
 
         return new AdapterHostBuildResult(archivePath);
+    }
+
+    /// <summary>Runs <paramref name="action"/> as one reported build stage, without a result value.</summary>
+    /// <param name="stage">The stage being run.</param>
+    /// <param name="onStage">The optional stage-progress callback to report through.</param>
+    /// <param name="action">The stage's work.</param>
+    /// <exception cref="Exception">Rethrows whatever exception <paramref name="action"/> throws, after reporting <see cref="BuildStageStatus.Failed"/>.</exception>
+    private static async Task RunStageAsync(BuildStage stage, Action<BuildStageEvent>? onStage, Func<Task> action)
+    {
+        await RunStageAsync<object?>(stage, onStage, async () =>
+        {
+            await action();
+            return null;
+        });
+    }
+
+    /// <summary>Runs <paramref name="action"/> as one reported build stage, returning its result.</summary>
+    /// <typeparam name="T">The type of value <paramref name="action"/> produces.</typeparam>
+    /// <param name="stage">The stage being run.</param>
+    /// <param name="onStage">The optional stage-progress callback to report through.</param>
+    /// <param name="action">The stage's work.</param>
+    /// <returns>The value <paramref name="action"/> produced.</returns>
+    /// <exception cref="Exception">Rethrows whatever exception <paramref name="action"/> throws, after reporting <see cref="BuildStageStatus.Failed"/>.</exception>
+    private static async Task<T> RunStageAsync<T>(BuildStage stage, Action<BuildStageEvent>? onStage, Func<Task<T>> action)
+    {
+        onStage?.Invoke(new BuildStageEvent(stage, BuildStageStatus.Running));
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        T result;
+        try
+        {
+            result = await action();
+        }
+        catch
+        {
+            onStage?.Invoke(new BuildStageEvent(stage, BuildStageStatus.Failed, stopwatch.Elapsed));
+            throw;
+        }
+
+        onStage?.Invoke(new BuildStageEvent(stage, BuildStageStatus.Succeeded, stopwatch.Elapsed));
+        return result;
     }
 }

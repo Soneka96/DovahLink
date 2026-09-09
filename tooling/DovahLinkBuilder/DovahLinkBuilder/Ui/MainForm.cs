@@ -100,7 +100,7 @@ public sealed class MainForm : Form
             AdapterHostBuildResult result = await coordinator.BuildAsync(
                 new AdapterHostBuildRequest(repositoryRoot),
                 AppendOutput,
-                buildCancellation.Token);
+                cancellationToken: buildCancellation.Token);
             viewModel.Complete(result.ArchivePath);
             AppendOutput($"> Finished: {result.ArchivePath}");
         }
