@@ -29,7 +29,7 @@ public partial class MainWindow : Window
     /// <summary>Initializes the window over the supplied navigation ViewModel.</summary>
     /// <param name="viewModel">Owns navigation between the Build, Environment, and Settings pages.</param>
     /// <param name="settingsStore">Persists the window's bounds when it closes.</param>
-    public MainWindow(MainWindowViewModel viewModel, ISettingsStore settingsStore)
+    public MainWindow(IMainWindowViewModel viewModel, ISettingsStore settingsStore)
     {
         InitializeComponent();
         DataContext = viewModel;
@@ -68,7 +68,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (DataContext is not MainWindowViewModel viewModel || !viewModel.BuildPage.IsBuilding)
+        if (DataContext is not IMainWindowViewModel viewModel || !viewModel.BuildPage.IsBuilding)
         {
             return;
         }

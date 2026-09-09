@@ -10,7 +10,7 @@ namespace DovahLink.DovahLinkBuilder.Ui;
 /// have a real resolved default; back to simply unset for Skyrim, which has none) and, where a
 /// resolved value exists to open, an Open-folder command -- and the Builder's behavior toggles.
 /// Every change saves immediately through <see cref="ISettingsStore"/>; there is no "remember last
-/// profile" setting, since there is only one real profile.
+/// profile" setting -- the Build page's own profile selection is not persisted across launches.
 /// </summary>
 public interface ISettingsPageViewModel : INotifyPropertyChanged
 {

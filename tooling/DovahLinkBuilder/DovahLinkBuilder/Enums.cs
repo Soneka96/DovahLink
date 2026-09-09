@@ -13,7 +13,7 @@ public enum BuildStage
     /// <summary>Imports the Visual Studio build environment and configures the Adapter CMake project.</summary>
     ConfigureAdapter,
 
-    /// <summary>Builds the Adapter Release binary.</summary>
+    /// <summary>Builds the Adapter binary in the selected <see cref="BuildProfile"/>'s configuration.</summary>
     BuildAdapter,
 
     /// <summary>Compiles the console-admin Papyrus script.</summary>
