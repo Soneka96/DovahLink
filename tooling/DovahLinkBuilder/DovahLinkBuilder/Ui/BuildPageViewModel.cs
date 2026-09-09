@@ -40,8 +40,8 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</summary>
     private readonly Action<string> setClipboardText;
 
-    /// <summary>The repository root this page checks and builds.</summary>
-    private readonly string repositoryRoot;
+    /// <summary>The shared repository root this page checks and builds.</summary>
+    private readonly IRepositoryContext repositoryContext;
 
     /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
     private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
@@ -111,7 +111,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="settingsStore">Loads the Builder's persisted settings.</param>
     /// <param name="openOutputFolder">Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</param>
     /// <param name="setClipboardText">Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</param>
-    /// <param name="repositoryRoot">The repository root this page checks and builds.</param>
+    /// <param name="repositoryContext">The shared repository root this page checks and builds.</param>
     public BuildPageViewModel(
         IPreflightService preflightService,
         IGitStatusStore gitStatusStore,
@@ -120,7 +120,7 @@ public sealed class BuildPageViewModel : ObservableObject
         ISettingsStore settingsStore,
         Action<string> openOutputFolder,
         Action<string> setClipboardText,
-        string repositoryRoot)
+        IRepositoryContext repositoryContext)
     {
         this.preflightService = preflightService;
         this.gitStatusStore = gitStatusStore;
@@ -129,7 +129,7 @@ public sealed class BuildPageViewModel : ObservableObject
         this.settingsStore = settingsStore;
         this.openOutputFolder = openOutputFolder;
         this.setClipboardText = setClipboardText;
-        this.repositoryRoot = repositoryRoot;
+        this.repositoryContext = repositoryContext;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
@@ -348,7 +348,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        PreflightResults = await preflightService.CheckAllAsync(repositoryRoot, cancellationToken);
+        PreflightResults = await preflightService.CheckAllAsync(repositoryContext.RepositoryRoot, cancellationToken);
         await gitStatusStore.RefreshAsync(cancellationToken);
         UpdateBuildBlockedReason();
     }
@@ -482,7 +482,7 @@ public sealed class BuildPageViewModel : ObservableObject
             }
 
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
-                new AdapterHostBuildRequest(repositoryRoot, SelectedProfile, settingsStore.Load().OutputPath),
+                new AdapterHostBuildRequest(repositoryContext.RepositoryRoot, SelectedProfile, settingsStore.Load().OutputPath),
                 onOutput: Log.AppendLine,
                 onStage: OnBuildStageEvent,
                 buildCancellation.Token);
@@ -564,7 +564,7 @@ public sealed class BuildPageViewModel : ObservableObject
     {
         try
         {
-            return File.ReadAllText(Path.Combine(repositoryRoot, "VERSION")).Trim();
+            return File.ReadAllText(Path.Combine(repositoryContext.RepositoryRoot, "VERSION")).Trim();
         }
         catch (IOException)
         {
@@ -933,6 +933,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// </summary>
     private void CleanBuildOutputs()
     {
+        string repositoryRoot = repositoryContext.RepositoryRoot;
         DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "adapter", "build", SelectedProfile.ToCMakePreset()));
         string outputRoot = settingsStore.Load().OutputPath ?? SelectedProfile.ToOutputRoot(repositoryRoot);
         DeleteDirectoryIfExists(Path.Combine(outputRoot, "publish"));

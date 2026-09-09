@@ -11,7 +11,7 @@ public sealed class GitStatusStoreTests
     [Fact]
     public void StartsWithNoStatusLoaded()
     {
-        var store = new GitStatusStore(new FakeGitStatusService(), @"C:\repo");
+        var store = new GitStatusStore(new FakeGitStatusService(), new RepositoryContext(@"C:\repo"));
 
         Assert.Null(store.Status);
         Assert.Null(store.StatusError);
@@ -25,7 +25,7 @@ public sealed class GitStatusStoreTests
         {
             Status = new GitSourceStatus("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123"),
         };
-        var store = new GitStatusStore(gitStatusService, @"C:\repo");
+        var store = new GitStatusStore(gitStatusService, new RepositoryContext(@"C:\repo"));
 
         await store.RefreshAsync();
 
@@ -38,7 +38,7 @@ public sealed class GitStatusStoreTests
     public async Task RefreshAsyncReportsFailureInsteadOfThrowing()
     {
         var gitStatusService = new FakeGitStatusService { ThrownException = new InvalidOperationException("not a git repository") };
-        var store = new GitStatusStore(gitStatusService, @"C:\repo");
+        var store = new GitStatusStore(gitStatusService, new RepositoryContext(@"C:\repo"));
 
         await store.RefreshAsync();
 
@@ -51,7 +51,7 @@ public sealed class GitStatusStoreTests
     public async Task RefreshAsyncClearsAPreviousFailureOnceItSucceeds()
     {
         var gitStatusService = new FakeGitStatusService { ThrownException = new InvalidOperationException("not a git repository") };
-        var store = new GitStatusStore(gitStatusService, @"C:\repo");
+        var store = new GitStatusStore(gitStatusService, new RepositoryContext(@"C:\repo"));
         await store.RefreshAsync();
         Assert.NotNull(store.StatusError);
 
@@ -71,7 +71,7 @@ public sealed class GitStatusStoreTests
         {
             Status = new GitSourceStatus("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123"),
         };
-        var store = new GitStatusStore(gitStatusService, @"C:\repo");
+        var store = new GitStatusStore(gitStatusService, new RepositoryContext(@"C:\repo"));
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
 
@@ -85,7 +85,7 @@ public sealed class GitStatusStoreTests
     public async Task RefreshAsyncRaisesPropertyChangedForStatusErrorWhenItChanges()
     {
         var gitStatusService = new FakeGitStatusService { ThrownException = new InvalidOperationException("not a git repository") };
-        var store = new GitStatusStore(gitStatusService, @"C:\repo");
+        var store = new GitStatusStore(gitStatusService, new RepositoryContext(@"C:\repo"));
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
 
@@ -102,7 +102,7 @@ public sealed class GitStatusStoreTests
         {
             Status = new GitSourceStatus("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123"),
         };
-        var store = new GitStatusStore(gitStatusService, @"C:\repo");
+        var store = new GitStatusStore(gitStatusService, new RepositoryContext(@"C:\repo"));
         await store.RefreshAsync();
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
@@ -110,6 +110,22 @@ public sealed class GitStatusStoreTests
         await store.RefreshAsync();
 
         Assert.Empty(raisedProperties);
+    }
+
+    /// <summary>Reads the current repository root on every refresh, rather than the root captured when the store was constructed.</summary>
+    [Fact]
+    public async Task RefreshAsyncReadsTheCurrentRepositoryRootRatherThanACachedValue()
+    {
+        var gitStatusService = new FakeGitStatusService();
+        var repositoryContext = new RepositoryContext(@"C:\repo-a");
+        var store = new GitStatusStore(gitStatusService, repositoryContext);
+        await store.RefreshAsync();
+        Assert.Equal(@"C:\repo-a", gitStatusService.LastRequestedRepositoryRoot);
+
+        repositoryContext.SetRepositoryRoot(@"C:\repo-b");
+        await store.RefreshAsync();
+
+        Assert.Equal(@"C:\repo-b", gitStatusService.LastRequestedRepositoryRoot);
     }
 
     /// <summary>Reports a clean, pushed git status unless configured to throw or report otherwise.</summary>
@@ -121,8 +137,14 @@ public sealed class GitStatusStoreTests
         /// <summary>Gets or sets the exception to throw instead of returning <see cref="Status"/>, or <see langword="null"/>.</summary>
         public Exception? ThrownException { get; set; }
 
+        /// <summary>Gets the repository root most recently requested through <see cref="GetStatusAsync"/>.</summary>
+        public string? LastRequestedRepositoryRoot { get; private set; }
+
         /// <inheritdoc/>
-        public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
-            ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
+        public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default)
+        {
+            LastRequestedRepositoryRoot = repositoryRoot;
+            return ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
+        }
     }
 }

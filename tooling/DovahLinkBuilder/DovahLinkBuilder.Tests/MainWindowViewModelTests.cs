@@ -9,25 +9,32 @@ namespace DovahLink.DovahLinkBuilder.Tests;
 /// <summary>Verifies <see cref="MainWindowViewModel"/>'s navigation behavior.</summary>
 public sealed class MainWindowViewModelTests
 {
+    /// <summary>
+    /// The repository root shared by every stub page ViewModel <see cref="BuildViewModel"/>
+    /// constructs. An instance field, not static: xUnit constructs a fresh test class instance per
+    /// test method, so this stays isolated between tests the same way a fresh local would.
+    /// </summary>
+    private readonly RepositoryContext repositoryContext = new(@"C:\repo");
+
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
-    private static MainWindowViewModel BuildViewModel() =>
+    private MainWindowViewModel BuildViewModel() =>
         new(BuildStubBuildPage(), BuildStubEnvironmentPage(),
-            new SettingsPageViewModel(new StubSettingsStore(), new StubFolderPickerService(), _ => { }, @"C:\repo"));
+            new SettingsPageViewModel(new StubSettingsStore(), new StubFolderPickerService(), _ => { }, @"C:\repo", repositoryContext));
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
-    private static BuildPageViewModel BuildStubBuildPage() => new(
+    private BuildPageViewModel BuildStubBuildPage() => new(
         new StubPreflightService(),
-        new GitStatusStore(new StubGitStatusService(), @"C:\repo"),
+        new GitStatusStore(new StubGitStatusService(), repositoryContext),
         new StubAdapterHostBuildCoordinator(),
         new StubBuildHistoryStore(),
         new StubSettingsStore(),
         _ => { },
         _ => { },
-        @"C:\repo");
+        repositoryContext);
 
     /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>
-    private static EnvironmentPageViewModel BuildStubEnvironmentPage() =>
-        new(new StubPreflightService(), new GitStatusStore(new StubGitStatusService(), @"C:\repo"), @"C:\repo");
+    private EnvironmentPageViewModel BuildStubEnvironmentPage() =>
+        new(new StubPreflightService(), new GitStatusStore(new StubGitStatusService(), repositoryContext), repositoryContext);
 
     /// <summary>Starts with the Build page selected.</summary>
     [Fact]

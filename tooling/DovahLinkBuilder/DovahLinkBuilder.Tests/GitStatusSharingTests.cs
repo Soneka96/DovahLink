@@ -8,8 +8,9 @@ namespace DovahLink.DovahLinkBuilder.Tests;
 
 /// <summary>
 /// A small composition test proving the Build and Environment pages share one real
-/// <see cref="GitStatusStore"/> instance rather than each independently caching its own copy: a
-/// refresh triggered from either page must be reflected on the other.
+/// <see cref="GitStatusStore"/> instance and one real <see cref="RepositoryContext"/> instance
+/// rather than each independently caching its own copy: a refresh triggered from either page, or a
+/// repository root change, must be reflected on the other.
 /// </summary>
 public sealed class GitStatusSharingTests
 {
@@ -18,7 +19,8 @@ public sealed class GitStatusSharingTests
     public async Task RecheckOnTheEnvironmentPageUpdatesTheBuildPagesGitNeedsAttention()
     {
         var gitStatusService = new FakeGitStatusService();
-        var gitStatusStore = new GitStatusStore(gitStatusService, @"C:\repo");
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
         var buildPage = new BuildPageViewModel(
             new FakePreflightService(),
             gitStatusStore,
@@ -27,8 +29,8 @@ public sealed class GitStatusSharingTests
             new StubSettingsStore(),
             _ => { },
             _ => { },
-            @"C:\repo");
-        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, @"C:\repo");
+            repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, repositoryContext);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
         Assert.False(buildPage.GitNeedsAttention);
@@ -45,7 +47,8 @@ public sealed class GitStatusSharingTests
     public async Task ANewBuildRefreshOnTheBuildPageUpdatesTheEnvironmentPagesGitStatus()
     {
         var gitStatusService = new FakeGitStatusService();
-        var gitStatusStore = new GitStatusStore(gitStatusService, @"C:\repo");
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
         var buildPage = new BuildPageViewModel(
             new FakePreflightService(),
             gitStatusStore,
@@ -54,8 +57,8 @@ public sealed class GitStatusSharingTests
             new StubSettingsStore(),
             _ => { },
             _ => { },
-            @"C:\repo");
-        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, @"C:\repo");
+            repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, repositoryContext);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
         Assert.Equal(RemoteSyncState.Pushed, environmentPage.GitStatus?.RemoteSyncState);
@@ -74,7 +77,8 @@ public sealed class GitStatusSharingTests
     public async Task RecheckOnTheEnvironmentPageWithAFailingGitStatusUpdatesTheBuildPagesBuildBlockedReason()
     {
         var gitStatusService = new FakeGitStatusService();
-        var gitStatusStore = new GitStatusStore(gitStatusService, @"C:\repo");
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
         var buildPage = new BuildPageViewModel(
             new FakePreflightService(),
             gitStatusStore,
@@ -83,8 +87,8 @@ public sealed class GitStatusSharingTests
             new StubSettingsStore(),
             _ => { },
             _ => { },
-            @"C:\repo");
-        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, @"C:\repo");
+            repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(new FakePreflightService(), gitStatusStore, repositoryContext);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
         Assert.Null(buildPage.BuildBlockedReason);
@@ -97,12 +101,55 @@ public sealed class GitStatusSharingTests
         Assert.Contains("not a git repository", buildPage.BuildBlockedReason!);
     }
 
+    /// <summary>
+    /// Changing the shared <see cref="RepositoryContext"/>'s root -- exactly as Settings does when the
+    /// repository override changes -- is observed by the shared <see cref="GitStatusStore"/> and by
+    /// both pages' own preflight checks on their next refresh, rather than either continuing to check
+    /// whatever repository root each was originally constructed with.
+    /// </summary>
+    [Fact]
+    public async Task ChangingTheSharedRepositoryContextIsObservedByGitStatusAndBothPagesPreflight()
+    {
+        var gitStatusService = new FakeGitStatusService();
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo-a");
+        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
+        var buildPage = new BuildPageViewModel(
+            preflightService,
+            gitStatusStore,
+            new StubAdapterHostBuildCoordinator(),
+            new StubBuildHistoryStore(),
+            new StubSettingsStore(),
+            _ => { },
+            _ => { },
+            repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusStore, repositoryContext);
+        await buildPage.InitializeAsync();
+        await environmentPage.InitializeAsync();
+        Assert.Equal(@"C:\repo-a", gitStatusService.LastRequestedRepositoryRoot);
+        Assert.All(preflightService.CapturedStartPaths, path => Assert.Equal(@"C:\repo-a", path));
+
+        repositoryContext.SetRepositoryRoot(@"C:\repo-b");
+        preflightService.CapturedStartPaths.Clear();
+        await buildPage.InitializeAsync();
+        await environmentPage.InitializeAsync();
+
+        Assert.Equal(@"C:\repo-b", gitStatusService.LastRequestedRepositoryRoot);
+        Assert.All(preflightService.CapturedStartPaths, path => Assert.Equal(@"C:\repo-b", path));
+    }
+
     /// <summary>Reports every required tool as Found; a stub for tests that never inspect preflight behavior.</summary>
     private sealed class FakePreflightService : IPreflightService
     {
+        /// <summary>Gets every <paramref name="startPath"/> a caller has requested a check for, in call order.</summary>
+        public List<string> CapturedStartPaths { get; } = [];
+
         /// <inheritdoc/>
-        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<ToolchainCheckResult>>([]);
+        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default)
+        {
+            CapturedStartPaths.Add(startPath);
+            return Task.FromResult<IReadOnlyList<ToolchainCheckResult>>([]);
+        }
     }
 
     /// <summary>Reports a clean, pushed git status unless reconfigured; the only fake this test suite mutates.</summary>
@@ -114,9 +161,15 @@ public sealed class GitStatusSharingTests
         /// <summary>Gets or sets the exception to throw instead of returning <see cref="Status"/>, or <see langword="null"/>.</summary>
         public Exception? ThrownException { get; set; }
 
+        /// <summary>Gets the repository root most recently requested through <see cref="GetStatusAsync"/>.</summary>
+        public string? LastRequestedRepositoryRoot { get; private set; }
+
         /// <inheritdoc/>
-        public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
-            ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
+        public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default)
+        {
+            LastRequestedRepositoryRoot = repositoryRoot;
+            return ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
+        }
     }
 
     /// <summary>Never invoked by these tests; throws if it ever is.</summary>

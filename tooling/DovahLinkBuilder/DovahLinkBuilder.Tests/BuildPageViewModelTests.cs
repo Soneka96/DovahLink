@@ -20,18 +20,20 @@ public sealed class BuildPageViewModelTests
         FakeSettingsStore? settingsStore = null,
         Action<string>? openOutputFolder = null,
         Action<string>? setClipboardText = null,
-        string? repositoryRoot = null)
+        string? repositoryRoot = null,
+        IRepositoryContext? repositoryContext = null)
     {
         string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
+        IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
         return new(
             preflightService ?? new FakePreflightService(),
-            new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryRoot),
+            new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext),
             buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
             buildHistoryStore ?? new FakeBuildHistoryStore(),
             settingsStore ?? new FakeSettingsStore(),
             openOutputFolder ?? (_ => { }),
             setClipboardText ?? (_ => { }),
-            resolvedRepositoryRoot);
+            resolvedRepositoryContext);
     }
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -112,7 +114,8 @@ public sealed class BuildPageViewModelTests
     public async Task GitNeedsAttentionReactsToARefreshMadeDirectlyOnTheSharedStore()
     {
         var gitStatusService = new FakeGitStatusService();
-        var gitStatusStore = new GitStatusStore(gitStatusService, @"C:\repo");
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
         var viewModel = new BuildPageViewModel(
             new FakePreflightService(),
             gitStatusStore,
@@ -121,7 +124,7 @@ public sealed class BuildPageViewModelTests
             new FakeSettingsStore(),
             _ => { },
             _ => { },
-            @"C:\repo");
+            repositoryContext);
         await viewModel.InitializeAsync();
         Assert.False(viewModel.GitNeedsAttention);
 

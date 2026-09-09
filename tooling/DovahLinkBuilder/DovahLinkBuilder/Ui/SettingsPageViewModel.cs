@@ -22,8 +22,11 @@ public sealed class SettingsPageViewModel : ObservableObject
     /// <summary>Opens a folder in the system file explorer, for <see cref="OpenRepositoryFolderCommand"/> and its siblings.</summary>
     private readonly Action<string> openFolder;
 
-    /// <summary>The repository root resolved at startup (an override, or the auto-detected repository); the effective value <see cref="EffectiveRepositoryPath"/> falls back to.</summary>
-    private readonly string repositoryRoot;
+    /// <summary>The auto-detected repository root, used only when there is no override; the effective value <see cref="EffectiveRepositoryPath"/> falls back to.</summary>
+    private readonly string autoDetectedRepositoryRoot;
+
+    /// <summary>The shared repository root every consumer reads, kept in sync with <see cref="EffectiveRepositoryPath"/>.</summary>
+    private readonly IRepositoryContext repositoryContext;
 
     /// <summary>The backing field for <see cref="RepositoryPath"/>.</summary>
     private string? repositoryPath;
@@ -53,13 +56,20 @@ public sealed class SettingsPageViewModel : ObservableObject
     /// <param name="settingsStore">Persists the Builder's settings.</param>
     /// <param name="folderPicker">Prompts the user to pick a folder for a path override.</param>
     /// <param name="openFolder">Opens a folder in the system file explorer.</param>
-    /// <param name="repositoryRoot">The repository root resolved at startup (an override, or the auto-detected repository).</param>
-    public SettingsPageViewModel(ISettingsStore settingsStore, IFolderPickerService folderPicker, Action<string> openFolder, string repositoryRoot)
+    /// <param name="autoDetectedRepositoryRoot">The auto-detected repository root, used only when there is no override.</param>
+    /// <param name="repositoryContext">The shared repository root every consumer reads.</param>
+    public SettingsPageViewModel(
+        ISettingsStore settingsStore,
+        IFolderPickerService folderPicker,
+        Action<string> openFolder,
+        string autoDetectedRepositoryRoot,
+        IRepositoryContext repositoryContext)
     {
         this.settingsStore = settingsStore;
         this.folderPicker = folderPicker;
         this.openFolder = openFolder;
-        this.repositoryRoot = repositoryRoot;
+        this.autoDetectedRepositoryRoot = autoDetectedRepositoryRoot;
+        this.repositoryContext = repositoryContext;
         BuilderSettings settings = settingsStore.Load();
         repositoryPath = settings.RepositoryPath;
         skyrimInstallPath = settings.SkyrimInstallPath;
@@ -69,16 +79,17 @@ public sealed class SettingsPageViewModel : ObservableObject
         verboseCommandOutput = settings.VerboseCommandOutput;
         notifyWhenBuildCompletes = settings.NotifyWhenBuildCompletes;
         ResetRepositoryPathCommand = new RelayCommand(
-            () => RepositoryPath = null, () => RepositoryPath is { } path && !PathsAreEqual(path, repositoryRoot));
+            () => RepositoryPath = null, () => RepositoryPath is { } path && !PathsAreEqual(path, autoDetectedRepositoryRoot));
         ResetSkyrimInstallPathCommand = new RelayCommand(() => SkyrimInstallPath = null, () => SkyrimInstallPath is not null);
         ResetOutputPathCommand = new RelayCommand(
-            () => OutputPath = null, () => OutputPath is { } path && !PathsAreEqual(path, BuildProfile.Release.ToOutputRoot(repositoryRoot)));
+            () => OutputPath = null, () => OutputPath is { } path && !PathsAreEqual(path, BuildProfile.Release.ToOutputRoot(autoDetectedRepositoryRoot)));
         BrowseRepositoryPathCommand = new RelayCommand(OnBrowseRepositoryPath);
         OpenRepositoryFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveRepositoryPath));
         BrowseOutputPathCommand = new RelayCommand(OnBrowseOutputPath);
         OpenOutputFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveOutputPath));
         BrowseSkyrimInstallPathCommand = new RelayCommand(OnBrowseSkyrimInstallPath);
         OpenSkyrimInstallFolderCommand = new RelayCommand(() => OpenFolderSafely(SkyrimInstallPath!), () => SkyrimInstallPath is not null);
+        repositoryContext.SetRepositoryRoot(EffectiveRepositoryPath);
     }
 
     /// <summary>Gets or sets the repository path override, or <see langword="null"/> to use the auto-detected repository.</summary>
@@ -92,6 +103,7 @@ public sealed class SettingsPageViewModel : ObservableObject
                 OnPropertyChanged(nameof(EffectiveRepositoryPath));
                 ResetRepositoryPathCommand.RaiseCanExecuteChanged();
                 Save();
+                repositoryContext.SetRepositoryRoot(EffectiveRepositoryPath);
             }
         }
     }
@@ -208,8 +220,8 @@ public sealed class SettingsPageViewModel : ObservableObject
         });
     }
 
-    /// <summary>Gets the repository path actually in effect: <see cref="RepositoryPath"/> when set, otherwise the resolved <see cref="repositoryRoot"/>. Always has a value.</summary>
-    public string EffectiveRepositoryPath => RepositoryPath ?? repositoryRoot;
+    /// <summary>Gets the repository path actually in effect: <see cref="RepositoryPath"/> when set, otherwise <see cref="autoDetectedRepositoryRoot"/>. Always has a value.</summary>
+    public string EffectiveRepositoryPath => RepositoryPath ?? autoDetectedRepositoryRoot;
 
     /// <summary>Gets the reason the last <see cref="BrowseRepositoryPathCommand"/> pick was rejected, or <see langword="null"/> when the current override (if any) is valid.</summary>
     public string? RepositoryPathError
@@ -268,7 +280,7 @@ public sealed class SettingsPageViewModel : ObservableObject
     /// <see cref="BuildProfile.Release"/>'s default output root (the profile every override, once set,
     /// replaces regardless of which profile a build later targets). Always has a value.
     /// </summary>
-    public string EffectiveOutputPath => OutputPath ?? BuildProfile.Release.ToOutputRoot(repositoryRoot);
+    public string EffectiveOutputPath => OutputPath ?? BuildProfile.Release.ToOutputRoot(autoDetectedRepositoryRoot);
 
     /// <summary>Gets the command that opens a folder picker and sets the chosen folder as <see cref="OutputPath"/>. Any folder is accepted; nothing to validate against.</summary>
     public RelayCommand BrowseOutputPathCommand { get; }

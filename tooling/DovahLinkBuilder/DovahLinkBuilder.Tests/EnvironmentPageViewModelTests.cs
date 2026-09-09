@@ -11,10 +11,15 @@ public sealed class EnvironmentPageViewModelTests
     /// <summary>Builds a view model over the given (or default all-passing) fakes.</summary>
     private static EnvironmentPageViewModel BuildViewModel(
         FakePreflightService? preflightService = null,
-        FakeGitStatusService? gitStatusService = null) => new(
-        preflightService ?? new FakePreflightService(),
-        new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), @"C:\repo"),
-        @"C:\repo");
+        FakeGitStatusService? gitStatusService = null,
+        IRepositoryContext? repositoryContext = null)
+    {
+        IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(@"C:\repo");
+        return new(
+            preflightService ?? new FakePreflightService(),
+            new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext),
+            resolvedRepositoryContext);
+    }
 
     /// <summary>Starts with no checks loaded and no git status.</summary>
     [Fact]

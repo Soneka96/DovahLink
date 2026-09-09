@@ -18,8 +18,8 @@ public sealed class EnvironmentPageViewModel : ObservableObject
     /// <summary>The shared git status both the Build and Environment pages read and refresh.</summary>
     private readonly IGitStatusStore gitStatusStore;
 
-    /// <summary>The repository root this page checks.</summary>
-    private readonly string repositoryRoot;
+    /// <summary>The shared repository root this page checks.</summary>
+    private readonly IRepositoryContext repositoryContext;
 
     /// <summary>The backing field for <see cref="Checks"/>.</summary>
     private IReadOnlyList<EnvironmentCheckViewModel> checks = [];
@@ -30,12 +30,12 @@ public sealed class EnvironmentPageViewModel : ObservableObject
     /// <summary>Initializes the page over its collaborators, starting with no checks loaded.</summary>
     /// <param name="preflightService">Checks the required build tools.</param>
     /// <param name="gitStatusStore">The shared git status both the Build and Environment pages read and refresh.</param>
-    /// <param name="repositoryRoot">The repository root this page checks.</param>
-    public EnvironmentPageViewModel(IPreflightService preflightService, IGitStatusStore gitStatusStore, string repositoryRoot)
+    /// <param name="repositoryContext">The shared repository root this page checks.</param>
+    public EnvironmentPageViewModel(IPreflightService preflightService, IGitStatusStore gitStatusStore, IRepositoryContext repositoryContext)
     {
         this.preflightService = preflightService;
         this.gitStatusStore = gitStatusStore;
-        this.repositoryRoot = repositoryRoot;
+        this.repositoryContext = repositoryContext;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         RecheckCommand = new RelayCommand(OnRecheck, () => !IsChecking);
     }
@@ -115,7 +115,7 @@ public sealed class EnvironmentPageViewModel : ObservableObject
         IsChecking = true;
         try
         {
-            IReadOnlyList<ToolchainCheckResult> results = await preflightService.CheckAllAsync(repositoryRoot, cancellationToken);
+            IReadOnlyList<ToolchainCheckResult> results = await preflightService.CheckAllAsync(repositoryContext.RepositoryRoot, cancellationToken);
             Checks = results.Select(result => new EnvironmentCheckViewModel(result)).ToList();
             await gitStatusStore.RefreshAsync(cancellationToken);
         }

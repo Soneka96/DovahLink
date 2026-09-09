@@ -20,11 +20,15 @@ public partial class App : Application
         string appDataDirectory = GetAppDataDirectory();
         var settingsStore = new SettingsStore(appDataDirectory);
         BuilderSettings settings = settingsStore.Load();
-        string repositoryRoot = settings.RepositoryPath ?? RepositoryRootLocator.Find(AppContext.BaseDirectory);
+        // Resolved unconditionally, even when an override is already configured, so Settings always
+        // has a real auto-detected fallback to display and reset to (RepositoryContext.SetRepositoryRoot
+        // below then adopts the persisted override, if any, as the actually active root).
+        string autoDetectedRepositoryRoot = RepositoryRootLocator.Find(AppContext.BaseDirectory);
+        var repositoryContext = new RepositoryContext(settings.RepositoryPath ?? autoDetectedRepositoryRoot);
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
-        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryRoot);
+        var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
@@ -37,9 +41,9 @@ public partial class App : Application
             settingsStore,
             OpenFolderInExplorer,
             Clipboard.SetText,
-            repositoryRoot);
-        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusStore, repositoryRoot);
-        var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, repositoryRoot);
+            repositoryContext);
+        var environmentPage = new EnvironmentPageViewModel(preflightService, gitStatusStore, repositoryContext);
+        var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         var mainWindow = new MainWindow(mainWindowViewModel, settingsStore);
         var virtualScreenBounds = new Rect(

@@ -30,8 +30,8 @@ public sealed class GitStatusStore : ObservableObject, IGitStatusStore
     /// <summary>Reports the repository's branch, working tree, and remote sync state.</summary>
     private readonly IGitStatusService gitStatusService;
 
-    /// <summary>The repository root this store checks.</summary>
-    private readonly string repositoryRoot;
+    /// <summary>The shared repository root every consumer checks.</summary>
+    private readonly IRepositoryContext repositoryContext;
 
     /// <summary>The backing field for <see cref="Status"/>.</summary>
     private GitSourceStatus? status;
@@ -39,13 +39,13 @@ public sealed class GitStatusStore : ObservableObject, IGitStatusStore
     /// <summary>The backing field for <see cref="StatusError"/>.</summary>
     private string? statusError;
 
-    /// <summary>Creates a store over the given git status service, checking one fixed repository root.</summary>
+    /// <summary>Creates a store over the given git status service, always checking the currently active repository root.</summary>
     /// <param name="gitStatusService">Reports the repository's branch, working tree, and remote sync state.</param>
-    /// <param name="repositoryRoot">The repository root this store checks.</param>
-    public GitStatusStore(IGitStatusService gitStatusService, string repositoryRoot)
+    /// <param name="repositoryContext">The shared repository root every consumer checks.</param>
+    public GitStatusStore(IGitStatusService gitStatusService, IRepositoryContext repositoryContext)
     {
         this.gitStatusService = gitStatusService;
-        this.repositoryRoot = repositoryRoot;
+        this.repositoryContext = repositoryContext;
     }
 
     /// <inheritdoc/>
@@ -67,7 +67,7 @@ public sealed class GitStatusStore : ObservableObject, IGitStatusStore
     {
         try
         {
-            Status = await gitStatusService.GetStatusAsync(repositoryRoot, cancellationToken);
+            Status = await gitStatusService.GetStatusAsync(repositoryContext.RepositoryRoot, cancellationToken);
             StatusError = null;
         }
         catch (InvalidOperationException exception)
