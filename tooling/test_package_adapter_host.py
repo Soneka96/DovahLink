@@ -14,7 +14,15 @@ from adapter_host_packager import (
     ADAPTER_RUNTIME_DLL_NAMES,
     HOST_EXECUTABLE_NAME,
 )
-from package_adapter_host import main, parse_args, read_product_version
+from package_adapter_host import (
+    STAGE_ARCHIVE,
+    STAGE_HOST_PUBLISH,
+    STAGE_PACKAGE_ASSEMBLY,
+    STAGE_PACKAGE_VALIDATION,
+    main,
+    parse_args,
+    read_product_version,
+)
 
 
 def _write_file(path: Path, content: str = "") -> None:
@@ -74,8 +82,8 @@ class ParseArgsTests(unittest.TestCase):
 class MainTests(unittest.TestCase):
     """Tests for main, proving the production pipeline is wired in the correct order."""
 
-    def test_main_publishes_assembles_and_zips_in_order(self) -> None:
-        """Verifies main() publishes the Host, assembles the package, then zips it, in that order."""
+    def test_main_publishes_assembles_validates_and_zips_in_order(self) -> None:
+        """Verifies main() publishes, assembles, validates, then zips, reporting each as a stage."""
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
@@ -117,9 +125,65 @@ class MainTests(unittest.TestCase):
             zips = list(output_dir.glob("DovahLink-Adapter-*.zip"))
             self.assertEqual(len(zips), 1)
             # DovahLinkBuilder's coordinator locates the archive path by scanning this script's
-            # stdout for a line starting with "Wrote " (AdapterHostBuildCoordinator.WrittenArchivePrefix);
-            # this is the only place that cross-language contract is verified.
-            self.assertEqual(captured_stdout.getvalue(), f"Wrote {zips[0]}\n")
+            # stdout for a line starting with "Wrote " (AdapterHostBuildCoordinator.WrittenArchivePrefix)
+            # and parses the "##stage <name> <status>" lines into BuildStageEvents
+            # (BuildStageProgressParser); this is the only place that cross-language contract is
+            # verified.
+            expected_lines = [
+                f"##stage {STAGE_HOST_PUBLISH} start",
+                f"##stage {STAGE_HOST_PUBLISH} done",
+                f"##stage {STAGE_PACKAGE_ASSEMBLY} start",
+                f"##stage {STAGE_PACKAGE_ASSEMBLY} done",
+                f"##stage {STAGE_PACKAGE_VALIDATION} start",
+                f"##stage {STAGE_PACKAGE_VALIDATION} done",
+                f"##stage {STAGE_ARCHIVE} start",
+                f"##stage {STAGE_ARCHIVE} done",
+                f"Wrote {zips[0]}",
+            ]
+            self.assertEqual(
+                captured_stdout.getvalue(), "\n".join(expected_lines) + "\n"
+            )
+
+    def test_main_stops_after_the_start_marker_when_a_stage_fails(self) -> None:
+        """Verifies a failing stage reports its start marker but never its done marker."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            # publish_host "succeeds" without writing the Host executable, so the next stage
+            # (package_assembly) fails validating its own required source file.
+            def fake_run(_self: object, args: list[str]) -> None:
+                pass
+
+            captured_stdout = io.StringIO()
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(captured_stdout),
+            ):
+                with self.assertRaises(FileNotFoundError):
+                    main(
+                        [
+                            "--adapter-build-dir",
+                            str(adapter_build_dir),
+                            "--output-dir",
+                            str(output_dir),
+                        ]
+                    )
+
+            expected_lines = [
+                f"##stage {STAGE_HOST_PUBLISH} start",
+                f"##stage {STAGE_HOST_PUBLISH} done",
+                f"##stage {STAGE_PACKAGE_ASSEMBLY} start",
+            ]
+            self.assertEqual(
+                captured_stdout.getvalue(), "\n".join(expected_lines) + "\n"
+            )
 
 
 if __name__ == "__main__":

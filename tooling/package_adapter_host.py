@@ -18,6 +18,16 @@ HOST_PROJECT_PATH = (
 )
 VERSION_PATH = REPOSITORY_ROOT / "VERSION"
 
+# ---- Stage progress markers ----
+
+# DovahLinkBuilder's coordinator scans stdout for lines of this shape to report structured
+# packaging progress (BuildStageProgressParser); this is the only place that cross-language
+# contract is defined, mirroring the "Wrote " archive-path contract below.
+STAGE_HOST_PUBLISH = "host_publish"
+STAGE_PACKAGE_ASSEMBLY = "package_assembly"
+STAGE_PACKAGE_VALIDATION = "package_validation"
+STAGE_ARCHIVE = "archive"
+
 
 def read_product_version(version_path: Path) -> str:
     """Reads the published product version from the repository-root VERSION file.
@@ -69,7 +79,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str]) -> int:
-    """Publishes the Host, assembles the Adapter+Host package, and zips it.
+    """Publishes the Host, assembles the Adapter+Host package, validates it, and zips it.
 
     Args:
         argv: The argument list, excluding the program name.
@@ -81,9 +91,12 @@ def main(argv: list[str]) -> int:
 
     packager = AdapterHostPackager(SubprocessProcessRunner())
     host_publish_dir = args.output_dir / "publish"
+    _print_stage(STAGE_HOST_PUBLISH, "start")
     packager.publish_host(HOST_PROJECT_PATH, host_publish_dir)
+    _print_stage(STAGE_HOST_PUBLISH, "done")
 
     package_dir = args.output_dir / "package"
+    _print_stage(STAGE_PACKAGE_ASSEMBLY, "start")
     packager.assemble_package(
         adapter_build_dir=args.adapter_build_dir,
         host_publish_dir=host_publish_dir,
@@ -91,13 +104,29 @@ def main(argv: list[str]) -> int:
         console_admin_pex=args.console_admin_pex,
         console_admin_yaml=args.console_admin_yaml,
     )
+    _print_stage(STAGE_PACKAGE_ASSEMBLY, "done")
+
+    _print_stage(STAGE_PACKAGE_VALIDATION, "start")
+    packager.validate_package(
+        package_dir,
+        console_admin_pex=args.console_admin_pex,
+        console_admin_yaml=args.console_admin_yaml,
+    )
+    _print_stage(STAGE_PACKAGE_VALIDATION, "done")
 
     version = read_product_version(VERSION_PATH)
+    _print_stage(STAGE_ARCHIVE, "start")
     archive_path = packager.zip_package(
         package_dir, args.output_dir / f"DovahLink-Adapter-{version}"
     )
+    _print_stage(STAGE_ARCHIVE, "done")
     print(f"Wrote {archive_path}")
     return 0
+
+
+def _print_stage(name: str, status: str) -> None:
+    """Prints a `##stage <name> <status>` progress marker for DovahLinkBuilder to parse."""
+    print(f"##stage {name} {status}")
 
 
 if __name__ == "__main__":
