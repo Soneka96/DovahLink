@@ -69,6 +69,7 @@ public sealed class BuildPageViewModel : ObservableObject
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
         CancelCommand = new RelayCommand(OnCancel, () => IsBuilding);
         Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
+        Log = new LogViewModel();
     }
 
     /// <summary>Gets the build profile the Builder currently supports.</summary>
@@ -269,12 +270,13 @@ public sealed class BuildPageViewModel : ObservableObject
         LastOutcome = null;
         LastOutcomeMessage = null;
         ResetStages();
+        Log.Clear();
         buildCancellation = new CancellationTokenSource();
         try
         {
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
                 new AdapterHostBuildRequest(repositoryRoot),
-                onOutput: null,
+                onOutput: Log.AppendLine,
                 onStage: OnBuildStageEvent,
                 buildCancellation.Token);
             LastOutcome = BuildHistoryResult.Succeeded;
@@ -347,4 +349,7 @@ public sealed class BuildPageViewModel : ObservableObject
         OnPropertyChanged(nameof(CompletedStageCount));
         OnPropertyChanged(nameof(StageProgressText));
     }
+
+    /// <summary>Gets the Build page's log panel, kept alive for the application's lifetime.</summary>
+    public LogViewModel Log { get; }
 }

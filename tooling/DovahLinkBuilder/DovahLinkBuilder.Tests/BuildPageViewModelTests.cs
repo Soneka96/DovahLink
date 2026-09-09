@@ -375,6 +375,58 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(0, viewModel.CompletedStageCount);
     }
 
+    /// <summary>Forwards each output line reported by the coordinator into the log panel, in order.</summary>
+    [Fact]
+    public async Task BuildCommandAppendsCoordinatorOutputToTheLog()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { OutputLinesToEmit = ["Building the DovahLink Adapter...", "Packaging..."] };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(["Building the DovahLink Adapter...", "Packaging..."], viewModel.Log.Lines);
+    }
+
+    /// <summary>Keeps the log populated through a Building-to-Cancelling-to-Cancelled transition (correction #6).</summary>
+    [Fact]
+    public async Task LogSurvivesACancellingToCancelledTransition()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator
+        {
+            OutputLinesToEmit = ["Building the DovahLink Adapter..."],
+            WaitForCancellation = true,
+        };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Cancelled, viewModel.LastOutcome);
+        Assert.Equal(["Building the DovahLink Adapter..."], viewModel.Log.Lines);
+    }
+
+    /// <summary>Clears the previous run's log when a new build starts, so runs are not mixed together.</summary>
+    [Fact]
+    public async Task StartingANewBuildClearsTheLogFromThePreviousRun()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { OutputLinesToEmit = ["first run"] };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        Assert.Equal(["first run"], viewModel.Log.Lines);
+
+        buildCoordinator.OutputLinesToEmit = ["second run"];
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(["second run"], viewModel.Log.Lines);
+    }
+
     /// <summary>Reports every required build tool as available, for a fake that does not otherwise override <see cref="FakePreflightService.Results"/>.</summary>
     private sealed class FakePreflightService : IPreflightService
     {
@@ -435,6 +487,9 @@ public sealed class BuildPageViewModelTests
         /// </summary>
         public IReadOnlyList<BuildStageEvent> StageEventsToEmit { get; set; } = [];
 
+        /// <summary>Gets or sets the output lines <see cref="BuildAsync"/> reports through <c>onOutput</c> before returning or throwing.</summary>
+        public IReadOnlyList<string> OutputLinesToEmit { get; set; } = [];
+
         /// <inheritdoc/>
         public async Task<AdapterHostBuildResult> BuildAsync(
             AdapterHostBuildRequest request,
@@ -446,6 +501,11 @@ public sealed class BuildPageViewModelTests
             foreach (BuildStageEvent stageEvent in StageEventsToEmit)
             {
                 onStage?.Invoke(stageEvent);
+            }
+
+            foreach (string line in OutputLinesToEmit)
+            {
+                onOutput?.Invoke(line);
             }
 
             if (WaitForCancellation)

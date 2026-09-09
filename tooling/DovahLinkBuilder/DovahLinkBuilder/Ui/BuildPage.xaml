@@ -58,5 +58,16 @@
             </ItemsControl.ItemTemplate>
         </ItemsControl>
         <TextBlock Text="{Binding StageProgressText}" Margin="0,4,0,0" />
+
+        <Expander Header="Log" IsExpanded="{Binding Log.IsExpanded}" Margin="0,16,0,0">
+            <StackPanel Margin="0,8,0,0">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <CheckBox Content="Auto-scroll" IsChecked="{Binding Log.AutoScroll}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <Button Content="Copy all" Command="{Binding Log.CopyAllCommand}" Margin="0,0,8,0" />
+                    <Button Content="Clear" Command="{Binding Log.ClearCommand}" />
+                </StackPanel>
+                <ListBox x:Name="LogListBox" ItemsSource="{Binding Log.Lines}" Height="160" FontFamily="Consolas" />
+            </StackPanel>
+        </Expander>
     </StackPanel>
 </UserControl>
