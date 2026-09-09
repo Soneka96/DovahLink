@@ -70,7 +70,7 @@
         <Setter Property="Margin" Value="0,0,0,11" />
     </Style>
 
-    <!-- A small Segoe UI symbol glyph used in place of an icon font; see Theme.xaml's icon notes. -->
+    <!-- A small Segoe UI symbol glyph used in place of an icon font; see Theme.xaml's icon notes. Sits inside fully re-templated Button/ToggleButton controls, whose own theme style blocks Foreground inheritance from Window; set the same TextBrush fallback every other TextBlock already uses here instead of at every usage. -->
     <Style x:Key="GlyphStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Segoe UI Symbol" />
         <Setter Property="FontSize" Value="15" />
@@ -81,6 +81,7 @@
                 <RotateTransform Angle="0" />
             </Setter.Value>
         </Setter>
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
     </Style>
 
     <Style x:Key="CardBorderStyle" TargetType="Border">
