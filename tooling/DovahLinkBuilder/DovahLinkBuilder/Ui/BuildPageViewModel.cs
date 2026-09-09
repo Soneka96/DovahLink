@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
@@ -24,6 +26,9 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>Builds and packages the production Adapter and Host.</summary>
     private readonly IAdapterHostBuildCoordinator buildCoordinator;
+
+    /// <summary>Persists and retrieves the Builder's recent build history.</summary>
+    private readonly IBuildHistoryStore buildHistoryStore;
 
     /// <summary>The repository root this page checks and builds.</summary>
     private readonly string repositoryRoot;
@@ -64,28 +69,36 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <summary>The backing field for <see cref="ArchiveEntries"/>.</summary>
     private IReadOnlyList<string> archiveEntries = [];
 
+    /// <summary>The backing field for <see cref="RecentBuilds"/>.</summary>
+    private IReadOnlyList<BuildHistoryEntry> recentBuilds;
+
     /// <summary>Initializes the page over its collaborators, starting in the "checking environment" state.</summary>
     /// <param name="preflightService">Checks the required build tools before a build is allowed to start.</param>
     /// <param name="gitStatusService">Reports the repository's branch, working tree, and remote sync state.</param>
     /// <param name="buildCoordinator">Builds and packages the production Adapter and Host.</param>
+    /// <param name="buildHistoryStore">Persists and retrieves the Builder's recent build history.</param>
     /// <param name="repositoryRoot">The repository root this page checks and builds.</param>
     public BuildPageViewModel(
         IPreflightService preflightService,
         IGitStatusService gitStatusService,
         IAdapterHostBuildCoordinator buildCoordinator,
+        IBuildHistoryStore buildHistoryStore,
         string repositoryRoot)
     {
         this.preflightService = preflightService;
         this.gitStatusService = gitStatusService;
         this.buildCoordinator = buildCoordinator;
+        this.buildHistoryStore = buildHistoryStore;
         this.repositoryRoot = repositoryRoot;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
         ConfirmBuildCommand = new RelayCommand(OnConfirmBuild, () => IsAwaitingConfirmation);
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
         CancelCommand = new RelayCommand(OnCancel, () => IsBuilding);
         ViewArchiveContentsCommand = new RelayCommand(OnViewArchiveContents, () => ArchivePath is not null);
+        RebuildCommand = new RelayCommand(OnRebuild, () => !IsBuilding && !IsAwaitingConfirmation);
         Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
         Log = new LogViewModel();
+        recentBuilds = buildHistoryStore.GetRecent();
     }
 
     /// <summary>Gets the build profile the Builder currently supports.</summary>
@@ -257,18 +270,7 @@ public sealed class BuildPageViewModel : ObservableObject
     /// </summary>
     private void OnBuild()
     {
-        if (!CanBuild)
-        {
-            return;
-        }
-
-        if (gitStatus is { WorkingTreeState: WorkingTreeState.Dirty } or { RemoteSyncState: RemoteSyncState.NotPushed })
-        {
-            IsAwaitingConfirmation = true;
-            return;
-        }
-
-        RunningBuildTask = RunBuildAsync();
+        RunningBuildTask = StartBuildOrRequestConfirmation();
     }
 
     /// <summary>Starts a build after the acknowledgement prompt is accepted.</summary>
@@ -295,6 +297,47 @@ public sealed class BuildPageViewModel : ObservableObject
         buildCancellation?.Cancel();
     }
 
+    /// <summary>Re-checks preflight and git status, then starts a build (or opens the acknowledgement prompt) exactly as a fresh Build click would.</summary>
+    private void OnRebuild()
+    {
+        RunningBuildTask = RebuildAsync();
+    }
+
+    /// <summary>
+    /// Re-enters the full preflight+git gate before starting a build (correction #9: Rebuild must
+    /// never bypass the gate, since the environment or source may have changed since the referenced
+    /// build).
+    /// </summary>
+    private async Task RebuildAsync()
+    {
+        await InitializeAsync();
+        if (StartBuildOrRequestConfirmation() is { } buildTask)
+        {
+            await buildTask;
+        }
+    }
+
+    /// <summary>
+    /// Starts a build for a clean, pushed source; otherwise opens the acknowledgement prompt and
+    /// returns without building. Does nothing when a build cannot currently start.
+    /// </summary>
+    /// <returns>The running build's task, or <see langword="null"/> when blocked or awaiting confirmation.</returns>
+    private Task? StartBuildOrRequestConfirmation()
+    {
+        if (!CanBuild)
+        {
+            return null;
+        }
+
+        if (gitStatus is { WorkingTreeState: WorkingTreeState.Dirty } or { RemoteSyncState: RemoteSyncState.NotPushed })
+        {
+            IsAwaitingConfirmation = true;
+            return null;
+        }
+
+        return RunBuildAsync();
+    }
+
     /// <summary>Runs the Adapter+Host build, recording its outcome.</summary>
     private async Task RunBuildAsync()
     {
@@ -308,6 +351,8 @@ public sealed class BuildPageViewModel : ObservableObject
         ResetStages();
         Log.Clear();
         buildCancellation = new CancellationTokenSource();
+        DateTimeOffset startedAt = DateTimeOffset.Now;
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
@@ -335,7 +380,48 @@ public sealed class BuildPageViewModel : ObservableObject
         {
             buildCancellation.Dispose();
             buildCancellation = null;
+            RecordBuildHistory(startedAt, stopwatch.Elapsed);
             IsBuilding = false;
+        }
+    }
+
+    /// <summary>Records the just-finished build and refreshes <see cref="RecentBuilds"/> from the store.</summary>
+    /// <param name="startedAt">When this build started.</param>
+    /// <param name="duration">How long this build ran before reaching its final outcome.</param>
+    private void RecordBuildHistory(DateTimeOffset startedAt, TimeSpan duration)
+    {
+        string? failedStage = LastOutcome == BuildHistoryResult.Failed
+            ? Stages.FirstOrDefault(stage => stage.Status == BuildStageStatus.Failed)?.DisplayName
+            : null;
+
+        buildHistoryStore.Add(new BuildHistoryEntry(
+            startedAt,
+            LastOutcome!.Value,
+            TryReadRepositoryVersion(),
+            Profile,
+            duration,
+            ArchivePath,
+            failedStage,
+            ArchiveSha256,
+            Note: null));
+
+        RecentBuilds = buildHistoryStore.GetRecent();
+    }
+
+    /// <summary>Reads the repository's VERSION file, reporting "unknown" instead of throwing when it cannot be read.</summary>
+    private string TryReadRepositoryVersion()
+    {
+        try
+        {
+            return File.ReadAllText(Path.Combine(repositoryRoot, "VERSION")).Trim();
+        }
+        catch (IOException)
+        {
+            return "unknown";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return "unknown";
         }
     }
 
@@ -349,6 +435,7 @@ public sealed class BuildPageViewModel : ObservableObject
         ConfirmBuildCommand.RaiseCanExecuteChanged();
         CancelConfirmationCommand.RaiseCanExecuteChanged();
         CancelCommand.RaiseCanExecuteChanged();
+        RebuildCommand.RaiseCanExecuteChanged();
     }
 
     /// <summary>Gets the pipeline's stages in order, one segment per <see cref="BuildStage"/> value.</summary>
@@ -464,4 +551,18 @@ public sealed class BuildPageViewModel : ObservableObject
         ArchiveEntries = archive.Entries.Select(entry => entry.FullName).ToList();
         IsShowingArchiveContents = true;
     }
+
+    /// <summary>Gets the retained build history, most recent first.</summary>
+    public IReadOnlyList<BuildHistoryEntry> RecentBuilds
+    {
+        get => recentBuilds;
+        private set => SetProperty(ref recentBuilds, value);
+    }
+
+    /// <summary>
+    /// Gets the command that re-checks preflight and git status and then builds (or opens the
+    /// acknowledgement prompt), the same as a fresh Build click -- never bypassing the gate
+    /// (correction #9).
+    /// </summary>
+    public RelayCommand RebuildCommand { get; }
 }

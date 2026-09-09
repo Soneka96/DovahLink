@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -14,10 +15,12 @@ public sealed class BuildPageViewModelTests
     private static BuildPageViewModel BuildViewModel(
         FakePreflightService? preflightService = null,
         FakeGitStatusService? gitStatusService = null,
-        FakeAdapterHostBuildCoordinator? buildCoordinator = null) => new(
+        FakeAdapterHostBuildCoordinator? buildCoordinator = null,
+        FakeBuildHistoryStore? buildHistoryStore = null) => new(
         preflightService ?? new FakePreflightService(),
         gitStatusService ?? new FakeGitStatusService(),
         buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
+        buildHistoryStore ?? new FakeBuildHistoryStore(),
         @"C:\repo");
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -594,11 +597,202 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
     }
 
+    /// <summary>Loads the store's existing entries as <see cref="BuildPageViewModel.RecentBuilds"/> on construction.</summary>
+    [Fact]
+    public void ConstructorLoadsRecentBuildsFromTheStore()
+    {
+        var buildHistoryStore = new FakeBuildHistoryStore();
+        buildHistoryStore.Add(Fixtures.BuildBuildHistoryEntry());
+
+        var viewModel = BuildViewModel(buildHistoryStore: buildHistoryStore);
+
+        Assert.Single(viewModel.RecentBuilds);
+    }
+
+    /// <summary>Records a successful build's outcome, version, profile, archive path, and hash.</summary>
+    [Fact]
+    public async Task BuildCommandRecordsASuccessfulBuildInHistory()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
+        var buildHistoryStore = new FakeBuildHistoryStore();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        BuildHistoryEntry recorded = Assert.Single(buildHistoryStore.GetRecent());
+        Assert.Equal(BuildHistoryResult.Succeeded, recorded.Result);
+        Assert.Equal("Release", recorded.Profile);
+        Assert.Equal(archivePath, recorded.ArtifactPath);
+        Assert.NotNull(recorded.Sha256);
+        Assert.Null(recorded.FailedStage);
+        Assert.Same(recorded, viewModel.RecentBuilds[0]);
+    }
+
+    /// <summary>Falls back to "unknown" instead of throwing when the repository's VERSION file cannot be read.</summary>
+    [Fact]
+    public async Task BuildCommandRecordsUnknownVersionWhenTheVersionFileCannotBeRead()
+    {
+        var buildHistoryStore = new FakeBuildHistoryStore();
+        var viewModel = BuildViewModel(buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal("unknown", Assert.Single(buildHistoryStore.GetRecent()).Version);
+    }
+
+    /// <summary>Records a failed build with the stage that was running when it failed.</summary>
+    [Fact]
+    public async Task BuildCommandRecordsAFailedBuildWithItsFailedStage()
+    {
+        var buildHistoryStore = new FakeBuildHistoryStore();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator
+        {
+            StageEventsToEmit =
+            [
+                new BuildStageEvent(BuildStage.ValidateRepository, BuildStageStatus.Running),
+                new BuildStageEvent(BuildStage.ValidateRepository, BuildStageStatus.Succeeded, TimeSpan.FromSeconds(1)),
+                new BuildStageEvent(BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                new BuildStageEvent(BuildStage.ConfigureAdapter, BuildStageStatus.Failed, TimeSpan.FromSeconds(1)),
+            ],
+            ThrownException = new InvalidOperationException("the adapter build failed"),
+        };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        BuildHistoryEntry recorded = Assert.Single(buildHistoryStore.GetRecent());
+        Assert.Equal(BuildHistoryResult.Failed, recorded.Result);
+        Assert.Equal("Configure Adapter", recorded.FailedStage);
+        Assert.Null(recorded.ArtifactPath);
+        Assert.Null(recorded.Sha256);
+    }
+
+    /// <summary>Records a cancelled build with no failed stage and no archive.</summary>
+    [Fact]
+    public async Task CancelCommandRecordsACancelledBuild()
+    {
+        var buildHistoryStore = new FakeBuildHistoryStore();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        BuildHistoryEntry recorded = Assert.Single(buildHistoryStore.GetRecent());
+        Assert.Equal(BuildHistoryResult.Cancelled, recorded.Result);
+        Assert.Null(recorded.FailedStage);
+        Assert.Null(recorded.ArtifactPath);
+    }
+
+    /// <summary>Builds immediately when a re-check still finds every required check passing and the source clean and pushed.</summary>
+    [Fact]
+    public async Task RebuildCommandBuildsWhenChecksStillPass()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        viewModel.RebuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(1, buildCoordinator.CallCount);
+        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+    }
+
+    /// <summary>
+    /// Re-checks preflight before rebuilding and blocks a newly-failing check, never bypassing the
+    /// gate with a stale, previously-passing result (correction #9).
+    /// </summary>
+    [Fact]
+    public async Task RebuildCommandReChecksPreflightAndBlocksOnANewlyFailingCheck()
+    {
+        var preflightService = new FakePreflightService();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(preflightService: preflightService, buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        Assert.True(viewModel.CanBuild);
+
+        preflightService.Results = [new ToolchainCheckResult("CMake", ToolchainAvailability.Missing, null, "not on PATH")];
+        viewModel.RebuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.CanBuild);
+        Assert.Contains("CMake", viewModel.BuildBlockedReason!);
+        Assert.Equal(0, buildCoordinator.CallCount);
+    }
+
+    /// <summary>Re-checks git status before rebuilding and opens the acknowledgement prompt for a source that became dirty (correction #9).</summary>
+    [Fact]
+    public async Task RebuildCommandReChecksGitStatusAndOpensConfirmationForANewlyDirtySource()
+    {
+        var gitStatusService = new FakeGitStatusService();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService, buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+
+        gitStatusService.Status = new GitSourceStatus("main", WorkingTreeState.Dirty, RemoteSyncState.Pushed, "abc123");
+        viewModel.RebuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.True(viewModel.IsAwaitingConfirmation);
+        Assert.Equal(0, buildCoordinator.CallCount);
+    }
+
+    /// <summary>Re-checks git status before rebuilding and blocks with the failure reason when it can no longer be determined (correction #9).</summary>
+    [Fact]
+    public async Task RebuildCommandReChecksGitStatusAndBlocksWhenItCanNoLongerBeDetermined()
+    {
+        var gitStatusService = new FakeGitStatusService();
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(gitStatusService: gitStatusService, buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        Assert.True(viewModel.CanBuild);
+
+        gitStatusService.ThrownException = new InvalidOperationException("not a git repository");
+        viewModel.RebuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.CanBuild);
+        Assert.Contains("not a git repository", viewModel.BuildBlockedReason!);
+        Assert.Equal(0, buildCoordinator.CallCount);
+    }
+
+    /// <summary>Does nothing when Rebuild is executed directly while a build is already running.</summary>
+    [Fact]
+    public async Task RebuildCommandDoesNothingWhileABuildIsRunning()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        Task originalBuildTask = viewModel.RunningBuildTask!;
+
+        viewModel.RebuildCommand.Execute(null);
+
+        Assert.Equal(1, buildCoordinator.CallCount);
+
+        viewModel.CancelCommand.Execute(null);
+        await originalBuildTask;
+    }
+
     /// <summary>Reports every required build tool as available, for a fake that does not otherwise override <see cref="FakePreflightService.Results"/>.</summary>
     private sealed class FakePreflightService : IPreflightService
     {
-        /// <summary>Gets the results to return; defaults to every required tool reporting Found.</summary>
-        public IReadOnlyList<ToolchainCheckResult> Results { get; init; } = BuildAllFoundResults();
+        /// <summary>
+        /// Gets or sets the results to return; defaults to every required tool reporting Found. Mutable
+        /// so a test can reconfigure it between two calls on the same fake instance.
+        /// </summary>
+        public IReadOnlyList<ToolchainCheckResult> Results { get; set; } = BuildAllFoundResults();
 
         /// <inheritdoc/>
         public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, CancellationToken cancellationToken = default) =>
@@ -621,11 +815,18 @@ public sealed class BuildPageViewModelTests
     /// <summary>Reports a clean, pushed git status unless configured to throw or report otherwise.</summary>
     private sealed class FakeGitStatusService : IGitStatusService
     {
-        /// <summary>Gets the status to return; defaults to a clean tree already pushed to its upstream.</summary>
-        public GitSourceStatus Status { get; init; } = new("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123");
+        /// <summary>
+        /// Gets or sets the status to return; defaults to a clean tree already pushed to its upstream.
+        /// Mutable so a test can reconfigure it between two calls on the same fake instance.
+        /// </summary>
+        public GitSourceStatus Status { get; set; } = new("main", WorkingTreeState.Clean, RemoteSyncState.Pushed, "abc123");
 
-        /// <summary>Gets the exception to throw instead of returning <see cref="Status"/>, or <see langword="null"/>.</summary>
-        public Exception? ThrownException { get; init; }
+        /// <summary>
+        /// Gets or sets the exception to throw instead of returning <see cref="Status"/>, or
+        /// <see langword="null"/>. Mutable so a test can reconfigure it between two calls on the same
+        /// fake instance.
+        /// </summary>
+        public Exception? ThrownException { get; set; }
 
         /// <inheritdoc/>
         public Task<GitSourceStatus> GetStatusAsync(string repositoryRoot, CancellationToken cancellationToken = default) =>
@@ -696,5 +897,18 @@ public sealed class BuildPageViewModelTests
 
             return Result;
         }
+    }
+
+    /// <summary>An in-memory <see cref="IBuildHistoryStore"/>, avoiding real disk I/O for tests that record build history.</summary>
+    private sealed class FakeBuildHistoryStore : IBuildHistoryStore
+    {
+        /// <summary>The recorded entries, most recent first.</summary>
+        private readonly List<BuildHistoryEntry> entries = [];
+
+        /// <inheritdoc/>
+        public IReadOnlyList<BuildHistoryEntry> GetRecent() => entries;
+
+        /// <inheritdoc/>
+        public void Add(BuildHistoryEntry entry) => entries.Insert(0, entry);
     }
 }

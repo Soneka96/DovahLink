@@ -1,5 +1,6 @@
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -12,8 +13,8 @@ public sealed class MainWindowViewModelTests
     private static MainWindowViewModel BuildViewModel() => new(BuildStubBuildPage(), new EnvironmentPageViewModel(), new SettingsPageViewModel());
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
-    private static BuildPageViewModel BuildStubBuildPage() =>
-        new(new StubPreflightService(), new StubGitStatusService(), new StubAdapterHostBuildCoordinator(), @"C:\repo");
+    private static BuildPageViewModel BuildStubBuildPage() => new(
+        new StubPreflightService(), new StubGitStatusService(), new StubAdapterHostBuildCoordinator(), new StubBuildHistoryStore(), @"C:\repo");
 
     /// <summary>Starts with the Build page selected.</summary>
     [Fact]
@@ -105,5 +106,17 @@ public sealed class MainWindowViewModelTests
             Action<BuildStageEvent>? onStage = null,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Navigation tests should never start a build.");
+    }
+
+    /// <summary>Reports no build history; a stub for tests that never inspect recorded builds.</summary>
+    private sealed class StubBuildHistoryStore : IBuildHistoryStore
+    {
+        /// <inheritdoc/>
+        public IReadOnlyList<BuildHistoryEntry> GetRecent() => [];
+
+        /// <inheritdoc/>
+        public void Add(BuildHistoryEntry entry)
+        {
+        }
     }
 }

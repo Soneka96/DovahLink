@@ -1,6 +1,8 @@
+using System.IO;
 using System.Windows;
 using DovahLink.DovahLinkBuilder.Build;
 using DovahLink.DovahLinkBuilder.Git;
+using DovahLink.DovahLinkBuilder.Persistence;
 using DovahLink.DovahLinkBuilder.Preflight;
 using DovahLink.DovahLinkBuilder.Ui;
 
@@ -15,16 +17,22 @@ public partial class App : Application
         base.OnStartup(e);
 
         string repositoryRoot = RepositoryRootLocator.Find(AppContext.BaseDirectory);
+        string appDataDirectory = GetAppDataDirectory();
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find);
+        var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
 
-        var buildPage = new BuildPageViewModel(preflightService, gitStatusService, buildCoordinator, repositoryRoot);
+        var buildPage = new BuildPageViewModel(preflightService, gitStatusService, buildCoordinator, buildHistoryStore, repositoryRoot);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, new EnvironmentPageViewModel(), new SettingsPageViewModel());
         new MainWindow(mainWindowViewModel).Show();
 
         _ = buildPage.InitializeAsync();
     }
+
+    /// <summary>Gets the local application-data directory the Builder persists its settings and build history under.</summary>
+    private static string GetAppDataDirectory() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DovahLinkBuilder");
 }

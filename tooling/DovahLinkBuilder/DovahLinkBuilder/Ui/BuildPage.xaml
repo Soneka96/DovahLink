@@ -103,5 +103,24 @@
                 <ListBox x:Name="LogListBox" ItemsSource="{Binding Log.Lines}" Height="160" FontFamily="Consolas" />
             </StackPanel>
         </Expander>
+
+        <Expander Header="Recent builds" Margin="0,16,0,0">
+            <StackPanel Margin="0,8,0,0">
+                <Button Content="Rebuild last build" Command="{Binding RebuildCommand}" HorizontalAlignment="Left" Margin="0,0,0,8" />
+                <ItemsControl ItemsSource="{Binding RecentBuilds}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Margin="0,2,0,2">
+                                <Run Text="{Binding Timestamp, Mode=OneWay, StringFormat='{}{0:g}'}" />
+                                <Run Text=" — " />
+                                <Run Text="{Binding Result, Mode=OneWay}" />
+                                <Run Text=" — " />
+                                <Run Text="{Binding Version, Mode=OneWay}" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Expander>
     </StackPanel>
 </UserControl>
