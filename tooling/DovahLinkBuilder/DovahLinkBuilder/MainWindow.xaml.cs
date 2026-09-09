@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using DovahLink.DovahLinkBuilder.Persistence;
@@ -109,13 +110,22 @@ public partial class MainWindow : Window
     /// <param name="e">The unused event data.</param>
     private void OnClosed(object? sender, EventArgs e)
     {
-        settingsStore.Save(settingsStore.Load() with
+        try
         {
-            WindowLeft = boundsOnClosing.Left,
-            WindowTop = boundsOnClosing.Top,
-            WindowWidth = boundsOnClosing.Width,
-            WindowHeight = boundsOnClosing.Height,
-            WindowIsMaximized = wasMaximizedOnClosing,
-        });
+            settingsStore.Save(settingsStore.Load() with
+            {
+                WindowLeft = boundsOnClosing.Left,
+                WindowTop = boundsOnClosing.Top,
+                WindowWidth = boundsOnClosing.Width,
+                WindowHeight = boundsOnClosing.Height,
+                WindowIsMaximized = wasMaximizedOnClosing,
+            });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Saving the window's last geometry is a convenience for next launch; a failure here
+            // must never prevent the window -- and the application shutdown this event is part of
+            // -- from closing.
+        }
     }
 }

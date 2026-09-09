@@ -15,6 +15,8 @@ public interface IBuildHistoryStore
     /// retained maximum is exceeded.
     /// </summary>
     /// <param name="entry">The build to record.</param>
+    /// <exception cref="IOException">Thrown when the file cannot be written. Unlike <see cref="GetRecent"/>, this is not swallowed: a caller for whom a failed recording is non-critical (see <see cref="Ui.BuildPageViewModel"/>'s own handling) must catch it itself.</exception>
+    /// <exception cref="UnauthorizedAccessException">Thrown when the file cannot be written due to insufficient permissions.</exception>
     void Add(BuildHistoryEntry entry);
 }
 
@@ -54,6 +56,12 @@ public sealed class BuildHistoryStore : IBuildHistoryStore
         {
             // A corrupt local history file is not meaningful build state to preserve or fail over;
             // the Builder falls back to an empty history rather than refusing to start.
+            return [];
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A locked or inaccessible history file is no more meaningful to preserve or fail over
+            // than a corrupt one, per this method's own documented "cannot be read" contract.
             return [];
         }
     }

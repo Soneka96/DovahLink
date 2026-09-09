@@ -53,6 +53,12 @@ public sealed class SettingsStore : ISettingsStore
             // over; the Builder falls back to defaults rather than refusing to start.
             return new BuilderSettings();
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A locked or inaccessible preferences file is no more meaningful to preserve or fail
+            // over than a corrupt one, per this method's own documented "cannot be read" contract.
+            return new BuilderSettings();
+        }
     }
 
     /// <inheritdoc/>

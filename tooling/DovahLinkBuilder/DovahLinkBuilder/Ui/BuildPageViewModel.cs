@@ -535,9 +535,12 @@ public sealed class BuildPageViewModel : ObservableObject
             buildCancellation.Dispose();
             buildCancellation = null;
             LastBuildDuration = stopwatch.Elapsed;
-            RecordBuildHistory(startedAt, stopwatch.Elapsed, noteForThisBuild);
+            // Teardown of the build's own lifecycle state completes unconditionally, before the
+            // optional, best-effort local history write below -- a build must never appear stuck
+            // "in progress" just because history persistence failed.
             IsBuilding = false;
             IsCancelling = false;
+            TryRecordBuildHistory(startedAt, stopwatch.Elapsed, noteForThisBuild);
         }
     }
 
@@ -560,6 +563,28 @@ public sealed class BuildPageViewModel : ObservableObject
     /// <param name="bytes">The size in bytes.</param>
     private static string FormatFileSize(long bytes) =>
         bytes < 1024 * 1024 ? $"{bytes / 1024.0:0.#} KB" : $"{bytes / (1024.0 * 1024.0):0.#} MB";
+
+    /// <summary>
+    /// Records the just-finished build, swallowing a local persistence failure: history is optional
+    /// bookkeeping, and a failure to write or reload it must never change the build's own already-
+    /// finished outcome or propagate out of <see cref="RunBuildAsync"/>'s teardown.
+    /// </summary>
+    /// <param name="startedAt">When this build started.</param>
+    /// <param name="duration">How long this build ran before reaching its final outcome.</param>
+    /// <param name="note">The optional local note the user attached to this build.</param>
+    private void TryRecordBuildHistory(DateTimeOffset startedAt, TimeSpan duration, string? note)
+    {
+        try
+        {
+            RecordBuildHistory(startedAt, duration, note);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Recording build history is optional local bookkeeping; a failure here must not affect
+            // the build's own already-reported outcome. RecentBuilds is simply left at its previous,
+            // now slightly stale value rather than partially updated.
+        }
+    }
 
     /// <summary>Records the just-finished build and refreshes <see cref="RecentBuilds"/> from the store.</summary>
     /// <param name="startedAt">When this build started.</param>

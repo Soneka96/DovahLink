@@ -1,3 +1,4 @@
+using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using DovahLink.DovahLinkBuilder.Build;
@@ -197,6 +198,48 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(1, buildCoordinator.CallCount);
         Assert.False(viewModel.IsAwaitingConfirmation);
         Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+    }
+
+    /// <summary>
+    /// Completes build lifecycle teardown -- IsBuilding and IsCancelling both false, Cancel disabled --
+    /// even when writing the finished build to local history throws, and still reports the build's own
+    /// real outcome rather than silently reporting it differently because persistence failed.
+    /// </summary>
+    [Fact]
+    public async Task BuildLifecycleTeardownCompletesWhenRecordingHistoryFails()
+    {
+        var buildHistoryStore = new FakeBuildHistoryStore { ThrownExceptionOnAdd = new IOException("disk full") };
+        var viewModel = BuildViewModel(buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.IsBuilding);
+        Assert.False(viewModel.IsCancelling);
+        Assert.False(viewModel.CancelCommand.CanExecute(null));
+        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+        Assert.Empty(viewModel.RecentBuilds);
+    }
+
+    /// <summary>
+    /// Reports the real build failure -- not the unrelated history-persistence failure -- when both
+    /// happen in the same build.
+    /// </summary>
+    [Fact]
+    public async Task ReportsTheRealBuildFailureWhenRecordingHistoryAlsoFails()
+    {
+        var buildHistoryStore = new FakeBuildHistoryStore { ThrownExceptionOnAdd = new IOException("disk full") };
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("Adapter build failed with exit code 1.") };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, buildHistoryStore: buildHistoryStore);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.IsBuilding);
+        Assert.Equal(BuildHistoryResult.Failed, viewModel.LastOutcome);
+        Assert.Equal("Adapter build failed with exit code 1.", viewModel.LastOutcomeMessage);
     }
 
     /// <summary>Opens the acknowledgement prompt instead of building immediately when the working tree is dirty.</summary>
@@ -1633,11 +1676,22 @@ public sealed class BuildPageViewModelTests
         /// <summary>The recorded entries, most recent first.</summary>
         private readonly List<BuildHistoryEntry> entries = [];
 
+        /// <summary>Gets or sets the exception <see cref="Add"/> throws instead of recording, or <see langword="null"/>.</summary>
+        public Exception? ThrownExceptionOnAdd { get; set; }
+
         /// <inheritdoc/>
         public IReadOnlyList<BuildHistoryEntry> GetRecent() => entries;
 
         /// <inheritdoc/>
-        public void Add(BuildHistoryEntry entry) => entries.Insert(0, entry);
+        public void Add(BuildHistoryEntry entry)
+        {
+            if (ThrownExceptionOnAdd is not null)
+            {
+                throw ThrownExceptionOnAdd;
+            }
+
+            entries.Insert(0, entry);
+        }
     }
 
     /// <summary>An in-memory <see cref="ISettingsStore"/>, avoiding real disk I/O for tests over Builder settings.</summary>

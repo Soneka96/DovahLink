@@ -80,4 +80,17 @@ public sealed class SettingsStoreTests
 
         Assert.Equal(new BuilderSettings(), store.Load());
     }
+
+    /// <summary>Returns default settings, rather than throwing, when the saved file cannot be read due to a sharing violation.</summary>
+    [Fact]
+    public void LoadReturnsDefaultsWhenTheFileCannotBeRead()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string filePath = Path.Combine(temporaryDirectory.Path, "settings.json");
+        File.WriteAllText(filePath, "{}");
+        var store = new SettingsStore(temporaryDirectory.Path);
+        using var lockingStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        Assert.Equal(new BuilderSettings(), store.Load());
+    }
 }

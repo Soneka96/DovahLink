@@ -102,4 +102,35 @@ public sealed class BuildHistoryStoreTests
 
         Assert.Empty(store.GetRecent());
     }
+
+    /// <summary>Returns an empty history, rather than throwing, when the saved file cannot be read due to a sharing violation.</summary>
+    [Fact]
+    public void GetRecentReturnsEmptyWhenTheFileCannotBeRead()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string filePath = Path.Combine(temporaryDirectory.Path, "build-history.json");
+        File.WriteAllText(filePath, "[]");
+        var store = new BuildHistoryStore(temporaryDirectory.Path);
+        using var lockingStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        Assert.Empty(store.GetRecent());
+    }
+
+    /// <summary>
+    /// Throws, rather than silently discarding the entry, when the file cannot be written -- unlike
+    /// <see cref="GetRecentReturnsEmptyWhenTheFileCannotBeRead"/>: recording a new build is not
+    /// optional in the same way reading history back is, so a caller for whom that distinction
+    /// matters (see <see cref="Ui.BuildPageViewModel"/>'s own handling) must be able to observe it.
+    /// </summary>
+    [Fact]
+    public void AddThrowsWhenTheFileCannotBeWritten()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string filePath = Path.Combine(temporaryDirectory.Path, "build-history.json");
+        File.WriteAllText(filePath, "[]");
+        var store = new BuildHistoryStore(temporaryDirectory.Path);
+        using var lockingStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        Assert.ThrowsAny<IOException>(() => store.Add(Fixtures.BuildBuildHistoryEntry()));
+    }
 }
