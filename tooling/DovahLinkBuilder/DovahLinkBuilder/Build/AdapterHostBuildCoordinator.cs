@@ -221,28 +221,46 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
             ],
             repositoryRoot,
             new Dictionary<string, string>());
-        int packagingExitCode = await commandRunner.RunAsync(
-            packagingCommand,
-            line =>
-            {
-                packagingOutputLines.Add(line);
-                onOutput?.Invoke(line);
-                switch (BuildStageProgressParser.TryParse(line))
+        int packagingExitCode;
+        try
+        {
+            packagingExitCode = await commandRunner.RunAsync(
+                packagingCommand,
+                line =>
                 {
-                    case { Status: BuildStageStatus.Running } running:
-                        runningPackagingStage = running.Stage;
-                        runningPackagingStageStopwatch = Stopwatch.StartNew();
-                        onStage?.Invoke(new BuildStageEvent(running.Stage, BuildStageStatus.Running));
-                        break;
-                    case { Status: BuildStageStatus.Succeeded } succeeded:
-                        onStage?.Invoke(new BuildStageEvent(succeeded.Stage, BuildStageStatus.Succeeded, runningPackagingStageStopwatch?.Elapsed));
-                        runningPackagingStage = null;
-                        runningPackagingStageStopwatch = null;
-                        break;
-                }
-            },
-            onOutput,
-            cancellationToken);
+                    packagingOutputLines.Add(line);
+                    onOutput?.Invoke(line);
+                    switch (BuildStageProgressParser.TryParse(line))
+                    {
+                        case { Status: BuildStageStatus.Running } running:
+                            runningPackagingStage = running.Stage;
+                            runningPackagingStageStopwatch = Stopwatch.StartNew();
+                            onStage?.Invoke(new BuildStageEvent(running.Stage, BuildStageStatus.Running));
+                            break;
+                        case { Status: BuildStageStatus.Succeeded } succeeded:
+                            onStage?.Invoke(new BuildStageEvent(succeeded.Stage, BuildStageStatus.Succeeded, runningPackagingStageStopwatch?.Elapsed));
+                            runningPackagingStage = null;
+                            runningPackagingStageStopwatch = null;
+                            break;
+                    }
+                },
+                onOutput,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Not wrapped in RunStageAsync, since these four stages share one external process
+            // rather than one call per stage: without this, cancelling mid-packaging would leave
+            // whichever stage was running reported as stuck Running forever, since the script never
+            // gets the chance to print its own "done" (or lack of one) for a killed process.
+            if (runningPackagingStage is { } cancelledStage)
+            {
+                onStage?.Invoke(new BuildStageEvent(cancelledStage, BuildStageStatus.Cancelled, runningPackagingStageStopwatch?.Elapsed));
+            }
+
+            throw;
+        }
+
         if (packagingExitCode != 0)
         {
             if (runningPackagingStage is { } failedStage)
@@ -268,7 +286,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
     /// <param name="stage">The stage being run.</param>
     /// <param name="onStage">The optional stage-progress callback to report through.</param>
     /// <param name="action">The stage's work.</param>
-    /// <exception cref="Exception">Rethrows whatever exception <paramref name="action"/> throws, after reporting <see cref="BuildStageStatus.Failed"/>.</exception>
+    /// <exception cref="Exception">Rethrows whatever exception <paramref name="action"/> throws, after reporting <see cref="BuildStageStatus.Cancelled"/> for an <see cref="OperationCanceledException"/> or <see cref="BuildStageStatus.Failed"/> for any other exception.</exception>
     private static async Task RunStageAsync(BuildStage stage, Action<BuildStageEvent>? onStage, Func<Task> action)
     {
         await RunStageAsync<object?>(stage, onStage, async () =>
@@ -284,7 +302,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
     /// <param name="onStage">The optional stage-progress callback to report through.</param>
     /// <param name="action">The stage's work.</param>
     /// <returns>The value <paramref name="action"/> produced.</returns>
-    /// <exception cref="Exception">Rethrows whatever exception <paramref name="action"/> throws, after reporting <see cref="BuildStageStatus.Failed"/>.</exception>
+    /// <exception cref="Exception">Rethrows whatever exception <paramref name="action"/> throws, after reporting <see cref="BuildStageStatus.Cancelled"/> for an <see cref="OperationCanceledException"/> or <see cref="BuildStageStatus.Failed"/> for any other exception.</exception>
     private static async Task<T> RunStageAsync<T>(BuildStage stage, Action<BuildStageEvent>? onStage, Func<Task<T>> action)
     {
         onStage?.Invoke(new BuildStageEvent(stage, BuildStageStatus.Running));
@@ -293,6 +311,11 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
         try
         {
             result = await action();
+        }
+        catch (OperationCanceledException)
+        {
+            onStage?.Invoke(new BuildStageEvent(stage, BuildStageStatus.Cancelled, stopwatch.Elapsed));
+            throw;
         }
         catch
         {

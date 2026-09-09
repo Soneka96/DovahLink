@@ -557,6 +557,118 @@ public sealed class AdapterHostBuildCoordinatorTests
             stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
     }
 
+    /// <summary>
+    /// Reports a C# stage cancelled mid-flight as Cancelled, not Failed, with no event at all for any
+    /// later stage -- proving the one still Pending when cancellation happened never gets a spurious
+    /// Running or Failed event of its own.
+    /// </summary>
+    [Fact]
+    public async Task ReportsCancelledNotFailedWhenACSharpStageIsCancelled()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner { CancelledInvocation = 1 };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        Assert.Equal(
+            [
+                (BuildStage.ValidateRepository, BuildStageStatus.Running),
+                (BuildStage.ValidateRepository, BuildStageStatus.Succeeded),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Running),
+                (BuildStage.ConfigureAdapter, BuildStageStatus.Cancelled),
+            ],
+            stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
+    /// <summary>
+    /// Reports a packaging stage cancelled mid-flight as Cancelled, not left stuck Running forever --
+    /// the one gap <see cref="RunStageAsync"/>'s own per-stage try/catch cannot cover, since the four
+    /// packaging stages share one external process rather than one call per stage.
+    /// </summary>
+    [Fact]
+    public async Task ReportsCancelledNotStuckRunningWhenAPackagingStageIsCancelled()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner
+        {
+            CancelledInvocation = 4,
+            AdditionalPackagingOutputLines = ["##stage host_publish start"],
+        };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        IEnumerable<(BuildStage Stage, BuildStageStatus Status)> packagingEvents = stageEvents
+            .Where(stageEvent => stageEvent.Stage
+                is BuildStage.PublishHost or BuildStage.AssemblePackage or BuildStage.ValidatePackage or BuildStage.CreateZip)
+            .Select(stageEvent => (stageEvent.Stage, stageEvent.Status));
+        Assert.Equal(
+            [
+                (BuildStage.PublishHost, BuildStageStatus.Running),
+                (BuildStage.PublishHost, BuildStageStatus.Cancelled),
+            ],
+            packagingEvents);
+    }
+
+    /// <summary>
+    /// Attributes a cancelled packaging stage to whichever stage was actually running, not the first
+    /// one to have started -- proving <c>runningPackagingStage</c>'s tracking keeps up as the shared
+    /// packaging process moves through more than one stage marker before cancellation happens.
+    /// </summary>
+    [Fact]
+    public async Task ReportsCancelledForTheLaterPackagingStageActuallyRunning()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var stageEvents = new List<BuildStageEvent>();
+        var runner = new FakeCommandRunner
+        {
+            CancelledInvocation = 4,
+            AdditionalPackagingOutputLines =
+            [
+                "##stage host_publish start",
+                "##stage host_publish done",
+                "##stage package_assembly start",
+            ],
+        };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path),
+            onStage: stageEvents.Add));
+
+        IEnumerable<(BuildStage Stage, BuildStageStatus Status)> packagingEvents = stageEvents
+            .Where(stageEvent => stageEvent.Stage
+                is BuildStage.PublishHost or BuildStage.AssemblePackage or BuildStage.ValidatePackage or BuildStage.CreateZip)
+            .Select(stageEvent => (stageEvent.Stage, stageEvent.Status));
+        Assert.Equal(
+            [
+                (BuildStage.PublishHost, BuildStageStatus.Running),
+                (BuildStage.PublishHost, BuildStageStatus.Succeeded),
+                (BuildStage.AssemblePackage, BuildStageStatus.Running),
+                (BuildStage.AssemblePackage, BuildStageStatus.Cancelled),
+            ],
+            packagingEvents);
+    }
+
     /// <summary>Reports only the ValidateRepository stage as failed when a required toolchain is missing.</summary>
     [Fact]
     public async Task ReportsOnlyValidateRepositoryFailedWhenAToolchainIsMissing()
@@ -723,6 +835,9 @@ public sealed class AdapterHostBuildCoordinatorTests
         /// <summary>Gets the zero-based invocation that returns failure, or minus one for success.</summary>
         public int FailingInvocation { get; init; } = -1;
 
+        /// <summary>Gets the zero-based invocation that throws <see cref="OperationCanceledException"/> instead of completing, or minus one for none.</summary>
+        public int CancelledInvocation { get; init; } = -1;
+
         /// <summary>Gets whether the fake packaging invocation reports a written archive path.</summary>
         public bool ReportArchivePath { get; init; } = true;
 
@@ -765,6 +880,12 @@ public sealed class AdapterHostBuildCoordinatorTests
             {
                 onStandardOutput?.Invoke("fake build output");
             }
+
+            if (invocation == CancelledInvocation)
+            {
+                throw new OperationCanceledException();
+            }
+
             return Task.FromResult(invocation == FailingInvocation ? 1 : 0);
         }
     }

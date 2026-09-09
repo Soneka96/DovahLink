@@ -46,6 +46,9 @@ public enum BuildStageStatus
 
     /// <summary>The stage failed.</summary>
     Failed,
+
+    /// <summary>The stage was cancelled before it could finish.</summary>
+    Cancelled,
 }
 
 /// <summary>Describes whether a required build tool is available, for non-throwing preflight checks.</summary>

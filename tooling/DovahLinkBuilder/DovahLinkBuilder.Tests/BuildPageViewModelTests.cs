@@ -947,6 +947,41 @@ public sealed class BuildPageViewModelTests
         Assert.Null(recorded.ArtifactPath);
     }
 
+    /// <summary>
+    /// Leaves no stage shown as Running once a real, cancelled build finishes -- exercising the real
+    /// <see cref="AdapterHostBuildCoordinator"/>'s own cancellation-to-stage-event reporting through
+    /// the page's bound <see cref="BuildPageViewModel.Stages"/>, not just a fake coordinator that
+    /// never emits realistic stage events at all.
+    /// </summary>
+    [Fact]
+    public async Task CancellingARealBuildLeavesNoStageShownAsRunning()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var buildCoordinator = new AdapterHostBuildCoordinator(
+            new CancellingCommandRunner(),
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+        var repositoryContext = new RepositoryContext(temporaryDirectory.Path);
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var viewModel = new BuildPageViewModel(
+            new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new FakeSettingsStore()),
+            gitStatusStore,
+            buildCoordinator,
+            new FakeBuildHistoryStore(),
+            new FakeSettingsStore(),
+            _ => { },
+            _ => { },
+            repositoryContext);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Cancelled, viewModel.LastOutcome);
+        Assert.DoesNotContain(viewModel.Stages, stage => stage.Status == BuildStageStatus.Running);
+    }
+
     /// <summary>Returns to the idle form and clears the previous result after a succeeded build, without starting a new one.</summary>
     [Fact]
     public async Task NewBuildCommandResetsToIdleFormFromASucceededResult()
@@ -1668,6 +1703,18 @@ public sealed class BuildPageViewModelTests
 
             return Result;
         }
+    }
+
+    /// <summary>Throws <see cref="OperationCanceledException"/> from its very first command, simulating a build cancelled during ConfigureAdapter.</summary>
+    private sealed class CancellingCommandRunner : ICommandRunner
+    {
+        /// <inheritdoc/>
+        public Task<int> RunAsync(
+            BuildCommand command,
+            Action<string>? onStandardOutput,
+            Action<string>? onStandardError,
+            CancellationToken cancellationToken = default) =>
+            throw new OperationCanceledException();
     }
 
     /// <summary>An in-memory <see cref="IBuildHistoryStore"/>, avoiding real disk I/O for tests that record build history.</summary>

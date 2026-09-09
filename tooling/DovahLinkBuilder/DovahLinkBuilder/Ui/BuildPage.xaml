@@ -336,6 +336,9 @@
                                                         <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}">
                                                             <Setter Property="Background" Value="{StaticResource BadBrush}" />
                                                         </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Cancelled}">
+                                                            <Setter Property="Background" Value="{StaticResource WarnBrush}" />
+                                                        </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </Border.Style>
@@ -372,15 +375,10 @@
                                                             <Setter Property="Background" Value="{StaticResource BadBgBrush}" />
                                                             <Setter Property="BorderBrush" Value="{StaticResource BadBorderBrush}" />
                                                         </DataTrigger>
-                                                        <MultiDataTrigger>
-                                                            <MultiDataTrigger.Conditions>
-                                                                <Condition Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}" />
-                                                                <Condition Binding="{Binding DataContext.LastOutcome, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                           Value="{x:Static app:BuildHistoryResult.Cancelled}" />
-                                                            </MultiDataTrigger.Conditions>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Cancelled}">
                                                             <Setter Property="Background" Value="{StaticResource WarnBgBrush}" />
                                                             <Setter Property="BorderBrush" Value="{StaticResource WarnBorderBrush}" />
-                                                        </MultiDataTrigger>
+                                                        </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </Border.Style>
@@ -415,15 +413,10 @@
                                                                 <Setter Property="Text" Value="&#x2715;" />
                                                                 <Setter Property="Foreground" Value="{StaticResource BadBrush}" />
                                                             </DataTrigger>
-                                                            <MultiDataTrigger>
-                                                                <MultiDataTrigger.Conditions>
-                                                                    <Condition Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}" />
-                                                                    <Condition Binding="{Binding DataContext.LastOutcome, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                               Value="{x:Static app:BuildHistoryResult.Cancelled}" />
-                                                                </MultiDataTrigger.Conditions>
+                                                            <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Cancelled}">
                                                                 <Setter Property="Text" Value="&#x25A0;" />
                                                                 <Setter Property="Foreground" Value="{StaticResource WarnBrush}" />
-                                                            </MultiDataTrigger>
+                                                            </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
                                                 </TextBlock.Style>
@@ -435,14 +428,9 @@
                                                 <Style TargetType="TextBlock" BasedOn="{StaticResource MutedTextStyle}">
                                                     <Setter Property="Text" Value="{Binding Duration.TotalSeconds, StringFormat='{}{0:0.0}s'}" />
                                                     <Style.Triggers>
-                                                        <MultiDataTrigger>
-                                                            <MultiDataTrigger.Conditions>
-                                                                <Condition Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Failed}" />
-                                                                <Condition Binding="{Binding DataContext.LastOutcome, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                           Value="{x:Static app:BuildHistoryResult.Cancelled}" />
-                                                            </MultiDataTrigger.Conditions>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static app:BuildStageStatus.Cancelled}">
                                                             <Setter Property="Text" Value="cancelled" />
-                                                        </MultiDataTrigger>
+                                                        </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </TextBlock.Style>
