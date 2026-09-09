@@ -495,7 +495,7 @@ public sealed class BuildPageViewModel : ObservableObject
             }
 
             AdapterHostBuildResult result = await buildCoordinator.BuildAsync(
-                new AdapterHostBuildRequest(repositoryRoot, SelectedProfile),
+                new AdapterHostBuildRequest(repositoryRoot, SelectedProfile, settingsStore.Load().OutputPath),
                 onOutput: Log.AppendLine,
                 onStage: OnBuildStageEvent,
                 buildCancellation.Token);
@@ -955,14 +955,16 @@ public sealed class BuildPageViewModel : ObservableObject
 
     /// <summary>
     /// Clears generated Adapter and Host build outputs before building: only
-    /// <c>adapter/build/{preset}/</c> and the selected profile's <c>tooling/out/{publish,package}</c>
-    /// are safe to delete, confirmed against the real repository layout -- never vcpkg's shared
-    /// package cache (correction #10).
+    /// <c>adapter/build/{preset}/</c> and the effective output root's <c>{publish,package}</c>
+    /// subfolders are deleted -- confirmed against the real repository layout when the output root is
+    /// the default <c>tooling/out</c>, or the folder the user explicitly chose through
+    /// <see cref="SettingsPageViewModel.BrowseOutputPathCommand"/> when an override is set -- never
+    /// vcpkg's shared package cache (correction #10).
     /// </summary>
     private void CleanBuildOutputs()
     {
         DeleteDirectoryIfExists(Path.Combine(repositoryRoot, "adapter", "build", SelectedProfile.ToCMakePreset()));
-        string outputRoot = SelectedProfile.ToOutputRoot(repositoryRoot);
+        string outputRoot = settingsStore.Load().OutputPath ?? SelectedProfile.ToOutputRoot(repositoryRoot);
         DeleteDirectoryIfExists(Path.Combine(outputRoot, "publish"));
         DeleteDirectoryIfExists(Path.Combine(outputRoot, "package"));
     }

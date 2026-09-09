@@ -182,7 +182,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 }
             });
 
-        string outputRoot = request.Profile.ToOutputRoot(repositoryRoot);
+        string outputRoot = request.OutputRootOverride ?? request.Profile.ToOutputRoot(repositoryRoot);
         Directory.CreateDirectory(outputRoot);
 
         // Packaging is entirely owned by tooling/package_adapter_host.py (see AdapterHostPackager):

@@ -309,6 +309,76 @@ public sealed class SettingsPageViewModelTests
         Assert.Null(thrown);
     }
 
+    /// <summary>Falls back to the Release profile's default output root when there is no override.</summary>
+    [Fact]
+    public void EffectiveOutputPathFallsBackToTheReleaseDefaultWithoutAnOverride()
+    {
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.Equal(BuildProfile.Release.ToOutputRoot(@"D:\resolved-repo"), viewModel.EffectiveOutputPath);
+    }
+
+    /// <summary>Prefers the override over the default output root once one is set.</summary>
+    [Fact]
+    public void EffectiveOutputPathPrefersTheOverride()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo");
+
+        Assert.Equal(@"D:\custom-out", viewModel.EffectiveOutputPath);
+    }
+
+    /// <summary>Sets the output path override unconditionally to whatever folder the picker returns.</summary>
+    [Fact]
+    public void BrowseOutputPathCommandSetsTheOverride()
+    {
+        var store = new FakeSettingsStore();
+        var picker = new FakeFolderPicker { NextPick = @"D:\custom-out" };
+        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo");
+
+        viewModel.BrowseOutputPathCommand.Execute(null);
+
+        Assert.Equal(@"D:\custom-out", viewModel.OutputPath);
+        Assert.Equal(@"D:\custom-out", store.Settings.OutputPath);
+    }
+
+    /// <summary>Does nothing when the folder picker is cancelled.</summary>
+    [Fact]
+    public void BrowseOutputPathCommandDoesNothingWhenCancelled()
+    {
+        var picker = new FakeFolderPicker { NextPick = null };
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo");
+
+        viewModel.BrowseOutputPathCommand.Execute(null);
+
+        Assert.Null(viewModel.OutputPath);
+    }
+
+    /// <summary>Opens the override when one is set.</summary>
+    [Fact]
+    public void OpenOutputFolderCommandOpensTheOverrideWhenSet()
+    {
+        var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
+        var openedPaths = new List<string>();
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo");
+
+        viewModel.OpenOutputFolderCommand.Execute(null);
+
+        Assert.Equal([@"D:\custom-out"], openedPaths);
+    }
+
+    /// <summary>Opens the Release profile's default output root when there is no override.</summary>
+    [Fact]
+    public void OpenOutputFolderCommandOpensTheDefaultWithoutAnOverride()
+    {
+        var openedPaths = new List<string>();
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo");
+
+        viewModel.OpenOutputFolderCommand.Execute(null);
+
+        Assert.Equal([BuildProfile.Release.ToOutputRoot(@"D:\resolved-repo")], openedPaths);
+    }
+
     /// <summary>An in-memory <see cref="ISettingsStore"/>, avoiding real disk I/O for tests over Builder settings.</summary>
     private sealed class FakeSettingsStore : ISettingsStore
     {

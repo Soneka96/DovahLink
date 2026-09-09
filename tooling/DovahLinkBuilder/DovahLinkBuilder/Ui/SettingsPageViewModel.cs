@@ -71,6 +71,8 @@ public sealed class SettingsPageViewModel : ObservableObject
         ResetOutputPathCommand = new RelayCommand(() => OutputPath = null, () => OutputPath is not null);
         BrowseRepositoryPathCommand = new RelayCommand(OnBrowseRepositoryPath);
         OpenRepositoryFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveRepositoryPath));
+        BrowseOutputPathCommand = new RelayCommand(OnBrowseOutputPath);
+        OpenOutputFolderCommand = new RelayCommand(() => OpenFolderSafely(EffectiveOutputPath));
     }
 
     /// <summary>Gets or sets the repository path override, or <see langword="null"/> to use the auto-detected repository.</summary>
@@ -110,6 +112,7 @@ public sealed class SettingsPageViewModel : ObservableObject
         {
             if (SetProperty(ref outputPath, value))
             {
+                OnPropertyChanged(nameof(EffectiveOutputPath));
                 ResetOutputPathCommand.RaiseCanExecuteChanged();
                 Save();
             }
@@ -242,6 +245,28 @@ public sealed class SettingsPageViewModel : ObservableObject
         catch (Exception)
         {
             // Opening a folder is a convenience action; a failure here must not affect any reported state.
+        }
+    }
+
+    /// <summary>
+    /// Gets the build output path actually in effect: <see cref="OutputPath"/> when set, otherwise
+    /// <see cref="BuildProfile.Release"/>'s default output root (the profile every override, once set,
+    /// replaces regardless of which profile a build later targets). Always has a value.
+    /// </summary>
+    public string EffectiveOutputPath => OutputPath ?? BuildProfile.Release.ToOutputRoot(repositoryRoot);
+
+    /// <summary>Gets the command that opens a folder picker and sets the chosen folder as <see cref="OutputPath"/>. Any folder is accepted; nothing to validate against.</summary>
+    public RelayCommand BrowseOutputPathCommand { get; }
+
+    /// <summary>Gets the command that opens <see cref="EffectiveOutputPath"/> in the system file explorer.</summary>
+    public RelayCommand OpenOutputFolderCommand { get; }
+
+    /// <summary>Prompts for a folder and, when one is chosen, sets it as <see cref="OutputPath"/>. Does nothing when the picker is cancelled.</summary>
+    private void OnBrowseOutputPath()
+    {
+        if (folderPicker.PickFolder("Select the build output folder", EffectiveOutputPath) is { } picked)
+        {
+            OutputPath = picked;
         }
     }
 }

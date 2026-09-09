@@ -599,6 +599,36 @@ public sealed class AdapterHostBuildCoordinatorTests
             packagingEvents);
     }
 
+    /// <summary>Packages to the request's output root override instead of the profile's default output root.</summary>
+    [Fact]
+    public async Task PackagesToTheOutputRootOverrideWhenSet()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "custom-output");
+        var runner = new FakeCommandRunner();
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+
+        await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: outputOverride));
+
+        string adapterBuildOutputRoot = Path.Combine(temporaryDirectory.Path, "adapter", "build", "windows-x64-release");
+        Assert.Equal(
+            [
+                "tooling/package_adapter_host.py",
+                "--adapter-build-dir", adapterBuildOutputRoot,
+                "--output-dir", outputOverride,
+                "--console-admin-pex", Path.Combine(adapterBuildOutputRoot, "DovahLinkAdmin.pex"),
+                "--console-admin-yaml", Path.Combine(temporaryDirectory.Path, "console-admin", "dovahlink.yaml"),
+                "--configuration", "Release",
+                "--profile-label", "release",
+            ],
+            runner.Commands[4].Arguments);
+        Assert.True(Directory.Exists(outputOverride));
+    }
+
     /// <summary>Records command-runner inputs and returns a configured exit code and packaging output.</summary>
     private sealed class FakeCommandRunner : ICommandRunner
     {

@@ -1186,6 +1186,23 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(BuildProfile.Debug, buildCoordinator.LastRequest?.Profile);
     }
 
+    /// <summary>Passes the Settings page's output path override through to the build coordinator's request.</summary>
+    [Fact]
+    public async Task BuildCommandPassesTheOutputPathOverrideToTheCoordinator()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "custom-output");
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: outputOverride) };
+        var viewModel = BuildViewModel(repositoryRoot: temporaryDirectory.Path, buildCoordinator: buildCoordinator, settingsStore: settingsStore);
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(outputOverride, buildCoordinator.LastRequest?.OutputRootOverride);
+    }
+
     /// <summary>Deletes only the selected non-Release profile's own scoped output directories for a clean build.</summary>
     [Fact]
     public async Task CleanBuildForANonReleaseProfileDeletesThatProfilesOwnOutputDirectories()
@@ -1247,6 +1264,29 @@ public sealed class BuildPageViewModelTests
         await viewModel.RunningBuildTask!;
 
         Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+    }
+
+    /// <summary>Deletes under the output path override, not the default output root, for a clean build when one is set.</summary>
+    [Fact]
+    public async Task CleanBuildDeletesUnderTheOutputPathOverrideWhenSet()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string outputOverride = Path.Combine(repositoryRoot, "custom-output");
+        string overridePublishDir = Path.Combine(outputOverride, "publish");
+        string defaultPublishDir = Path.Combine(repositoryRoot, "tooling", "out", "publish");
+        CreateDirectoryWithMarkerFile(overridePublishDir);
+        CreateDirectoryWithMarkerFile(defaultPublishDir);
+        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: outputOverride) };
+        var viewModel = BuildViewModel(repositoryRoot: repositoryRoot, settingsStore: settingsStore);
+        await viewModel.InitializeAsync();
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(Directory.Exists(overridePublishDir));
+        Assert.True(Directory.Exists(defaultPublishDir));
     }
 
     /// <summary>Creates a directory containing a marker file, so an empty-directory quirk can't hide a real deletion bug.</summary>

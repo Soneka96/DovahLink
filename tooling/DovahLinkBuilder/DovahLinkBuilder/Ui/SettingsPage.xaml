@@ -36,11 +36,21 @@
                         <TextBox Text="{Binding SkyrimInstallPath, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Skyrim / Creation Kit install path override" />
                     </DockPanel>
 
-                    <TextBlock Text="Build output path override" FontSize="13" Margin="0,0,0,6" />
+                    <StackPanel Margin="0,0,0,6">
+                        <TextBlock Text="Build output path override" FontSize="13" />
+                        <TextBlock Text="Shown default is for a Release build; Debug and Beta use their own subfolder unless overridden here" Style="{StaticResource MutedTextStyle}" Margin="0,1,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
                     <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="Reset to auto-detect" Margin="8,0,0,0" Command="{Binding ResetOutputPathCommand}"
-                                AutomationProperties.Name="Reset build output path to auto-detect" />
-                        <TextBox Text="{Binding OutputPath, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Build output path override" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Browse&#8230;" Margin="8,0,0,0" Command="{Binding BrowseOutputPathCommand}"
+                                    AutomationProperties.Name="Browse for build output path" />
+                            <Button Content="Open folder" Margin="8,0,0,0" Command="{Binding OpenOutputFolderCommand}"
+                                    AutomationProperties.Name="Open build output folder" />
+                            <Button Content="Reset to auto-detect" Margin="8,0,0,0" Command="{Binding ResetOutputPathCommand}"
+                                    AutomationProperties.Name="Reset build output path to auto-detect" />
+                        </StackPanel>
+                        <TextBox Text="{Binding EffectiveOutputPath, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                                 AutomationProperties.Name="Build output path" />
                     </DockPanel>
                 </StackPanel>
             </Border>
