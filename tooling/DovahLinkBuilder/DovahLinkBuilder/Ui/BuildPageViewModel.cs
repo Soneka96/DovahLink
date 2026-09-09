@@ -140,7 +140,7 @@ public sealed class BuildPageViewModel : ObservableObject
         CancelConfirmationCommand = new RelayCommand(OnCancelConfirmation, () => IsAwaitingConfirmation);
         CancelCommand = new RelayCommand(OnCancel, () => IsBuilding && !IsCancelling);
         ViewArchiveContentsCommand = new RelayCommand(OnViewArchiveContents, () => ArchivePath is not null);
-        RebuildCommand = new RelayCommand(OnRebuild, () => !IsBuilding && !IsAwaitingConfirmation);
+        NewBuildCommand = new RelayCommand(OnNewBuild, () => !IsBuilding);
         CopyDiagnosticsCommand = new RelayCommand(OnCopyDiagnostics);
         OpenArchiveFolderCommand = new RelayCommand(OnOpenArchiveFolder, () => ArchivePath is not null);
         CopyArchivePathCommand = new RelayCommand(OnCopyArchivePath, () => ArchivePath is not null);
@@ -434,24 +434,23 @@ public sealed class BuildPageViewModel : ObservableObject
         buildCancellation?.Cancel();
     }
 
-    /// <summary>Re-checks preflight and git status, then starts a build (or opens the acknowledgement prompt) exactly as a fresh Build click would.</summary>
-    private void OnRebuild()
-    {
-        RunningBuildTask = RebuildAsync();
-    }
-
     /// <summary>
-    /// Re-enters the full preflight+git gate before starting a build (correction #9: Rebuild must
-    /// never bypass the gate, since the environment or source may have changed since the referenced
-    /// build).
+    /// Returns to the idle build form and refreshes preflight/git status in the background, doing
+    /// nothing while a build is currently running. Guards <see cref="IsBuilding"/> itself rather than
+    /// relying on <see cref="NewBuildCommand"/>'s own eligibility check, since <see
+    /// cref="RelayCommand.Execute"/> does not re-verify it: without this guard, a direct call here
+    /// while a build is in flight would reset the log/stages/archive state that build is still
+    /// writing to.
     /// </summary>
-    private async Task RebuildAsync()
+    private void OnNewBuild()
     {
-        await InitializeAsync();
-        if (StartBuildOrRequestConfirmation() is { } buildTask)
+        if (IsBuilding)
         {
-            await buildTask;
+            return;
         }
+
+        ResetBuildResultState();
+        RunningBuildTask = InitializeAsync();
     }
 
     /// <summary>
@@ -481,16 +480,7 @@ public sealed class BuildPageViewModel : ObservableObject
         string? noteForThisBuild = string.IsNullOrWhiteSpace(BuildNote) ? null : BuildNote.Trim();
         BuildNote = null;
         IsBuilding = true;
-        LastOutcome = null;
-        LastOutcomeMessage = null;
-        LastBuildDuration = null;
-        ArchivePath = null;
-        ArchiveSha256 = null;
-        ArchiveSizeText = null;
-        ArchiveEntries = [];
-        IsShowingArchiveContents = false;
-        ResetStages();
-        Log.Clear();
+        ResetBuildResultState();
         buildCancellation = new CancellationTokenSource();
         DateTimeOffset startedAt = DateTimeOffset.Now;
         var stopwatch = Stopwatch.StartNew();
@@ -534,6 +524,21 @@ public sealed class BuildPageViewModel : ObservableObject
             IsBuilding = false;
             IsCancelling = false;
         }
+    }
+
+    /// <summary>Clears the previous build's outcome, archive, stages, and log back to a fresh, no-result state.</summary>
+    private void ResetBuildResultState()
+    {
+        LastOutcome = null;
+        LastOutcomeMessage = null;
+        LastBuildDuration = null;
+        ArchivePath = null;
+        ArchiveSha256 = null;
+        ArchiveSizeText = null;
+        ArchiveEntries = [];
+        IsShowingArchiveContents = false;
+        ResetStages();
+        Log.Clear();
     }
 
     /// <summary>Formats a byte count as a human-readable KB/MB size.</summary>
@@ -594,7 +599,7 @@ public sealed class BuildPageViewModel : ObservableObject
         ConfirmBuildCommand.RaiseCanExecuteChanged();
         CancelConfirmationCommand.RaiseCanExecuteChanged();
         CancelCommand.RaiseCanExecuteChanged();
-        RebuildCommand.RaiseCanExecuteChanged();
+        NewBuildCommand.RaiseCanExecuteChanged();
     }
 
     /// <summary>Gets the pipeline's stages in order, one segment per <see cref="BuildStage"/> value.</summary>
@@ -784,11 +789,12 @@ public sealed class BuildPageViewModel : ObservableObject
     public RelayCommand ToggleShowAllRecentBuildsCommand { get; }
 
     /// <summary>
-    /// Gets the command that re-checks preflight and git status and then builds (or opens the
-    /// acknowledgement prompt), the same as a fresh Build click -- never bypassing the gate
-    /// (correction #9).
+    /// Gets the command that returns from a finished build's result view to the idle build form
+    /// without starting a build. Refreshes preflight and git status in the background so the form's
+    /// gate reflects current reality by the time the user presses Build themselves, rather than
+    /// trusting a check that may be stale by however long the previous build took.
     /// </summary>
-    public RelayCommand RebuildCommand { get; }
+    public RelayCommand NewBuildCommand { get; }
 
     /// <summary>
     /// Opens the archive's containing folder when <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>

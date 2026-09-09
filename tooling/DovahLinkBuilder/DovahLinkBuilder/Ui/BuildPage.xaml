@@ -224,7 +224,7 @@
                         <TextBlock Text="{Binding LastOutcomeMessage}" Style="{StaticResource SubtleTextStyle}" TextWrapping="Wrap" Margin="0,2,0,10" />
                         <StackPanel Orientation="Horizontal">
                             <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}" Margin="0,0,8,0" />
-                            <Button Content="Rebuild" Command="{Binding RebuildCommand}" />
+                            <Button Content="New build" Command="{Binding NewBuildCommand}" />
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -245,7 +245,7 @@
                     <StackPanel>
                         <TextBlock Text="{Binding ResultBannerText}" FontWeight="Medium" FontSize="13.5" Foreground="{StaticResource WarnBrush}" />
                         <TextBlock Text="No release package was produced." Style="{StaticResource SubtleTextStyle}" Margin="0,2,0,10" />
-                        <Button Content="Build again" Command="{Binding RebuildCommand}" />
+                        <Button Content="New build" Command="{Binding NewBuildCommand}" />
                     </StackPanel>
                 </Border>
 
@@ -280,7 +280,7 @@
                         <WrapPanel>
                             <Button Content="Open folder" Command="{Binding OpenArchiveFolderCommand}" Margin="0,0,8,8" />
                             <Button Content="Copy path" Command="{Binding CopyArchivePathCommand}" Margin="0,0,8,8" />
-                            <Button Content="Rebuild" Command="{Binding RebuildCommand}" Margin="0,0,8,8" />
+                            <Button Content="New build" Command="{Binding NewBuildCommand}" Margin="0,0,8,8" />
                             <Button Command="{Binding ViewArchiveContentsCommand}" Margin="0,0,8,8">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

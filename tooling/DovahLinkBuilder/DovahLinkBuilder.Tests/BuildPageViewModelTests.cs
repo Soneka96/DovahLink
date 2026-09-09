@@ -820,82 +820,119 @@ public sealed class BuildPageViewModelTests
         Assert.Null(recorded.ArtifactPath);
     }
 
-    /// <summary>Builds immediately when a re-check still finds every required check passing and the source clean and pushed.</summary>
+    /// <summary>Returns to the idle form and clears the previous result after a succeeded build, without starting a new one.</summary>
     [Fact]
-    public async Task RebuildCommandBuildsWhenChecksStillPass()
+    public async Task NewBuildCommandResetsToIdleFormFromASucceededResult()
     {
         var buildCoordinator = new FakeAdapterHostBuildCoordinator();
         var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
         await viewModel.InitializeAsync();
-
-        viewModel.RebuildCommand.Execute(null);
+        viewModel.BuildCommand.Execute(null);
         await viewModel.RunningBuildTask!;
 
-        Assert.Equal(1, buildCoordinator.CallCount);
-        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+        viewModel.NewBuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        AssertResetToIdleForm(viewModel, buildCoordinator, expectedCallCount: 1);
+    }
+
+    /// <summary>Returns to the idle form and clears the previous result after a failed build, without starting a new one.</summary>
+    [Fact]
+    public async Task NewBuildCommandResetsToIdleFormFromAFailedResult()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("the adapter build failed") };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        viewModel.NewBuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        AssertResetToIdleForm(viewModel, buildCoordinator, expectedCallCount: 1);
+    }
+
+    /// <summary>Returns to the idle form and clears the previous result after a cancelled build, without starting a new one.</summary>
+    [Fact]
+    public async Task NewBuildCommandResetsToIdleFormFromACancelledResult()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        viewModel.NewBuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        AssertResetToIdleForm(viewModel, buildCoordinator, expectedCallCount: 1);
+    }
+
+    /// <summary>Leaves a note the user has typed for the next build untouched, unlike an actual build starting, which consumes it.</summary>
+    [Fact]
+    public async Task NewBuildCommandLeavesBuildNoteUntouched()
+    {
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
+        await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+        viewModel.BuildNote = "for the next attempt";
+
+        viewModel.NewBuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal("for the next attempt", viewModel.BuildNote);
+    }
+
+    /// <summary>Asserts the idle form is showing with every previous result, archive, stage, and log line cleared.</summary>
+    /// <param name="viewModel">The view model under test.</param>
+    /// <param name="buildCoordinator">The fake build coordinator, to assert no new build was started.</param>
+    /// <param name="expectedCallCount">The build coordinator's expected call count, unchanged by returning to idle.</param>
+    private static void AssertResetToIdleForm(BuildPageViewModel viewModel, FakeAdapterHostBuildCoordinator buildCoordinator, int expectedCallCount)
+    {
+        Assert.True(viewModel.ShowIdleForm);
+        Assert.Null(viewModel.LastOutcome);
+        Assert.Null(viewModel.LastOutcomeMessage);
+        Assert.False(viewModel.HasArchivePath);
+        Assert.Null(viewModel.ArchivePath);
+        Assert.Empty(viewModel.Log.Lines);
+        Assert.Equal(0, viewModel.CompletedStageCount);
+        Assert.Equal(expectedCallCount, buildCoordinator.CallCount);
     }
 
     /// <summary>
-    /// Re-checks preflight before rebuilding and blocks a newly-failing check, never bypassing the
-    /// gate with a stale, previously-passing result (correction #9).
+    /// Refreshes preflight and git status in the background when returning to the idle form, so a
+    /// newly-failing check is reflected before the user presses Build again, without itself starting
+    /// a build (correction #9's freshness intent, now decoupled from auto-building).
     /// </summary>
     [Fact]
-    public async Task RebuildCommandReChecksPreflightAndBlocksOnANewlyFailingCheck()
+    public async Task NewBuildCommandRefreshesPreflightAndGitStatusInTheBackground()
     {
         var preflightService = new FakePreflightService();
         var buildCoordinator = new FakeAdapterHostBuildCoordinator();
         var viewModel = BuildViewModel(preflightService: preflightService, buildCoordinator: buildCoordinator);
         await viewModel.InitializeAsync();
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
         Assert.True(viewModel.CanBuild);
 
         preflightService.Results = [new ToolchainCheckResult("CMake", ToolchainAvailability.Missing, null, "not on PATH")];
-        viewModel.RebuildCommand.Execute(null);
+        viewModel.NewBuildCommand.Execute(null);
         await viewModel.RunningBuildTask!;
 
         Assert.False(viewModel.CanBuild);
         Assert.Contains("CMake", viewModel.BuildBlockedReason!);
-        Assert.Equal(0, buildCoordinator.CallCount);
+        Assert.Equal(1, buildCoordinator.CallCount);
     }
 
-    /// <summary>Re-checks git status before rebuilding and opens the acknowledgement prompt for a source that became dirty (correction #9).</summary>
+    /// <summary>
+    /// Does nothing when New build is executed directly while a build is already running, protecting
+    /// the in-flight build's own log/stage/archive state from being reset out from under it.
+    /// </summary>
     [Fact]
-    public async Task RebuildCommandReChecksGitStatusAndOpensConfirmationForANewlyDirtySource()
-    {
-        var gitStatusService = new FakeGitStatusService();
-        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
-        var viewModel = BuildViewModel(gitStatusService: gitStatusService, buildCoordinator: buildCoordinator);
-        await viewModel.InitializeAsync();
-
-        gitStatusService.Status = new GitSourceStatus("main", WorkingTreeState.Dirty, RemoteSyncState.Pushed, "abc123");
-        viewModel.RebuildCommand.Execute(null);
-        await viewModel.RunningBuildTask!;
-
-        Assert.True(viewModel.IsAwaitingConfirmation);
-        Assert.Equal(0, buildCoordinator.CallCount);
-    }
-
-    /// <summary>Re-checks git status before rebuilding and blocks with the failure reason when it can no longer be determined (correction #9).</summary>
-    [Fact]
-    public async Task RebuildCommandReChecksGitStatusAndBlocksWhenItCanNoLongerBeDetermined()
-    {
-        var gitStatusService = new FakeGitStatusService();
-        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
-        var viewModel = BuildViewModel(gitStatusService: gitStatusService, buildCoordinator: buildCoordinator);
-        await viewModel.InitializeAsync();
-        Assert.True(viewModel.CanBuild);
-
-        gitStatusService.ThrownException = new InvalidOperationException("not a git repository");
-        viewModel.RebuildCommand.Execute(null);
-        await viewModel.RunningBuildTask!;
-
-        Assert.False(viewModel.CanBuild);
-        Assert.Contains("not a git repository", viewModel.BuildBlockedReason!);
-        Assert.Equal(0, buildCoordinator.CallCount);
-    }
-
-    /// <summary>Does nothing when Rebuild is executed directly while a build is already running.</summary>
-    [Fact]
-    public async Task RebuildCommandDoesNothingWhileABuildIsRunning()
+    public async Task NewBuildCommandDoesNothingWhileABuildIsRunning()
     {
         var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
         var viewModel = BuildViewModel(buildCoordinator: buildCoordinator);
@@ -903,9 +940,11 @@ public sealed class BuildPageViewModelTests
         viewModel.BuildCommand.Execute(null);
         Task originalBuildTask = viewModel.RunningBuildTask!;
 
-        viewModel.RebuildCommand.Execute(null);
+        Assert.False(viewModel.NewBuildCommand.CanExecute(null));
+        viewModel.NewBuildCommand.Execute(null);
 
-        Assert.Equal(1, buildCoordinator.CallCount);
+        Assert.Same(originalBuildTask, viewModel.RunningBuildTask);
+        Assert.True(viewModel.IsBuilding);
 
         viewModel.CancelCommand.Execute(null);
         await originalBuildTask;
