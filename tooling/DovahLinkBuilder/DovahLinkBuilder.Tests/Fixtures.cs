@@ -1,4 +1,5 @@
 using DovahLink.DovahLinkBuilder.Build;
+using DovahLink.DovahLinkBuilder.Persistence;
 
 namespace DovahLink.DovahLinkBuilder.Tests;
 
@@ -68,4 +69,23 @@ internal static class Fixtures
         File.WriteAllText(Path.Combine(consoleAdminRoot, "DovahLinkAdmin.psc"), "Scriptname DovahLinkAdmin Hidden");
         File.WriteAllText(Path.Combine(consoleAdminRoot, "dovahlink.yaml"), "name: dovahlink");
     }
+
+    // ---- Persistence ----
+
+    /// <summary>
+    /// Builds a representative successful <see cref="BuildHistoryEntry"/>; a test that wants the
+    /// default values calls this with no arguments, and a test that needs a different value overrides
+    /// only that parameter.
+    /// </summary>
+    /// <param name="version">The recorded build's product version.</param>
+    public static BuildHistoryEntry BuildBuildHistoryEntry(string version = "0.3.3") => new(
+        Timestamp: new DateTimeOffset(2026, 1, 5, 8, 31, 0, TimeSpan.Zero),
+        Result: BuildHistoryResult.Succeeded,
+        Version: version,
+        Profile: "Release",
+        Duration: TimeSpan.FromSeconds(48.2),
+        ArtifactPath: $@"C:\repo\tooling\out\DovahLink-Adapter-{version}.zip",
+        FailedStage: null,
+        Sha256: "89ae2f0c",
+        Note: null);
 }

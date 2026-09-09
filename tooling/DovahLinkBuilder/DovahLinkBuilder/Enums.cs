@@ -61,3 +61,16 @@ public enum ToolchainAvailability
     /// <summary>Availability could not be determined, for example because a search path could not be evaluated.</summary>
     CouldNotCheck,
 }
+
+/// <summary>Describes the outcome of one recorded build, for <see cref="Persistence.BuildHistoryEntry"/>.</summary>
+public enum BuildHistoryResult
+{
+    /// <summary>The build completed successfully and produced a validated package.</summary>
+    Succeeded,
+
+    /// <summary>The build failed before producing a package.</summary>
+    Failed,
+
+    /// <summary>The build was cancelled before producing a package.</summary>
+    Cancelled,
+}
