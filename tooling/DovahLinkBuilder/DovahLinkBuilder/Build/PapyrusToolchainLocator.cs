@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Locates a supported Creation Kit Papyrus compiler installation.</summary>

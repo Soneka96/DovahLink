@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Locates supported Visual Studio and bundled vcpkg installations.</summary>

@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace DovahLink.DovahLinkBuilder.Build;
 
 /// <summary>Describes one external process without shell-interpolating its executable, arguments, directory, or environment.</summary>

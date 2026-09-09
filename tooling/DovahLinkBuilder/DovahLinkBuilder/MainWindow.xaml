@@ -1,0 +1,26 @@
+<Window x:Class="DovahLink.DovahLinkBuilder.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:DovahLink.DovahLinkBuilder.Ui"
+        Title="DovahLink Builder"
+        Height="600" Width="900" MinHeight="460" MinWidth="720">
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type ui:BuildPageViewModel}">
+            <ui:BuildPage />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type ui:EnvironmentPageViewModel}">
+            <ui:EnvironmentPage />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type ui:SettingsPageViewModel}">
+            <ui:SettingsPage />
+        </DataTemplate>
+    </Window.Resources>
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Left" Width="200">
+            <Button Content="Build" Command="{Binding NavigateToBuildCommand}" />
+            <Button Content="Environment" Command="{Binding NavigateToEnvironmentCommand}" />
+            <Button Content="Settings" Command="{Binding NavigateToSettingsCommand}" />
+        </StackPanel>
+        <ContentControl Content="{Binding CurrentPage}" />
+    </DockPanel>
+</Window>
