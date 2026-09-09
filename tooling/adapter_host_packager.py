@@ -166,3 +166,64 @@ class AdapterHostPackager:
             str(output_zip_path_without_extension), "zip", root_dir=package_dir
         )
         return Path(archive_path)
+
+    def validate_package(
+        self,
+        package_dir: Path,
+        *,
+        console_admin_pex: Path | None = None,
+        console_admin_yaml: Path | None = None,
+    ) -> None:
+        """Validates the assembled `Data/` layout under `package_dir` before it is zipped.
+
+        Checks the files `assemble_package` actually wrote, not merely the sources it copied
+        them from, so a package damaged or partially assembled after that call still fails here
+        rather than being zipped and reported as a successful build.
+
+        Args:
+            package_dir: The assembled `Data/`-rooted package directory.
+            console_admin_pex: The same value passed to `assemble_package`, or `None` if the
+                optional console-admin PEX was omitted.
+            console_admin_yaml: The same value passed to `assemble_package`, or `None` if the
+                optional console-admin YAML was omitted.
+
+        Raises:
+            FileNotFoundError: A required file is missing from the assembled package.
+        """
+        plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+        adapter_plugin = plugins_dir / ADAPTER_PLUGIN_NAME
+        if not adapter_plugin.is_file():
+            raise FileNotFoundError(
+                f"Assembled adapter plugin not found: {adapter_plugin}"
+            )
+        for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+            dll_path = plugins_dir / dll_name
+            if not dll_path.is_file():
+                raise FileNotFoundError(
+                    f"Assembled adapter runtime dependency not found: {dll_path}"
+                )
+        host_executable = (
+            plugins_dir / HOST_EXECUTABLE_RELATIVE_DIR / HOST_EXECUTABLE_NAME
+        )
+        if not host_executable.is_file():
+            raise FileNotFoundError(
+                f"Assembled Host executable not found: {host_executable}"
+            )
+        if console_admin_pex is not None:
+            assembled_pex = package_dir / "Data" / "Scripts" / console_admin_pex.name
+            if not assembled_pex.is_file():
+                raise FileNotFoundError(
+                    f"Assembled console-admin PEX not found: {assembled_pex}"
+                )
+        if console_admin_yaml is not None:
+            assembled_yaml = (
+                package_dir
+                / "Data"
+                / "SKSE"
+                / "CustomConsole"
+                / console_admin_yaml.name
+            )
+            if not assembled_yaml.is_file():
+                raise FileNotFoundError(
+                    f"Assembled console-admin YAML not found: {assembled_yaml}"
+                )
