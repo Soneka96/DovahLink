@@ -106,11 +106,12 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// <summary>
     /// Runs the actual preflight-and-git-status refresh, shared by every concurrent
     /// <see cref="RefreshAsync"/> caller. Loops until a full check completes for whichever repository
-    /// root was current when that check started: the repository can change again while a check is
-    /// already running, and a concurrent <see cref="RefreshAsync"/> call made after that change
-    /// coalesces onto this same running refresh rather than starting its own -- without this loop, a
-    /// rapid second change could leave the store permanently reporting a stale root's results, since
-    /// nothing else would ever check the newer one.
+    /// root and output path override were current when that check started: either can change again
+    /// while a check is already running, and a concurrent <see cref="RefreshAsync"/> call or an
+    /// <see cref="OnOutputPathContextChanged"/> patch made after that change coalesces onto this same
+    /// running refresh rather than starting its own -- without this loop, a rapid second change could
+    /// leave the store permanently reporting stale results for whichever one changed, since nothing else
+    /// would ever check the newer value once this refresh's own result overwrites it.
     /// </summary>
     /// <param name="cancellationToken">The token used to cancel the refresh.</param>
     private async Task RunRefreshAsync(CancellationToken cancellationToken)
@@ -119,13 +120,15 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
         try
         {
             string rootCheckedThisPass;
+            string? outputPathCheckedThisPass;
             do
             {
                 rootCheckedThisPass = repositoryContext.RepositoryRoot;
-                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, outputPathContext.OutputPath, cancellationToken);
+                outputPathCheckedThisPass = outputPathContext.OutputPath;
+                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, outputPathCheckedThisPass, cancellationToken);
                 await gitStatusStore.RefreshAsync(cancellationToken);
             }
-            while (rootCheckedThisPass != repositoryContext.RepositoryRoot);
+            while (rootCheckedThisPass != repositoryContext.RepositoryRoot || outputPathCheckedThisPass != outputPathContext.OutputPath);
         }
         finally
         {

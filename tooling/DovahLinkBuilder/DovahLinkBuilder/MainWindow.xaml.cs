@@ -20,6 +20,16 @@ public partial class MainWindow : Window
     /// </summary>
     private TaskCompletionSource<bool>? closeConfirmation;
 
+    /// <summary>
+    /// Whether a confirmed close is currently waiting for the build it just cancelled to actually
+    /// finish terminating, between <see cref="closeConfirmation"/> resolving and <see cref="Close"/>
+    /// actually being called. <see cref="closeConfirmation"/> alone does not cover this window: it is
+    /// already cleared by the time this waits, but the window is still open and <c>IsBuilding</c> is
+    /// still true, so without this flag a second close attempt here would open a spurious second
+    /// confirmation dialog concurrently with the first attempt's own pending shutdown.
+    /// </summary>
+    private bool isAwaitingConfirmedBuildCancellation;
+
     /// <summary>Whether the window was maximized, captured at the very start of <see cref="OnClosing"/>; see <see cref="OnClosed"/> for why.</summary>
     private bool wasMaximizedOnClosing;
 
@@ -49,11 +59,15 @@ public partial class MainWindow : Window
     /// <see cref="boundsOnClosing"/> as its very first statement, before anything else runs: closing a
     /// maximized window makes Windows restore it as part of the close sequence, so <see cref="WindowState"/>
     /// already reads back as <see cref="WindowState.Normal"/> by the time <see cref="OnClosed"/> fires.
-    /// Blocks a re-entrant call (for example a second Alt+F4 while the dialog is already showing)
-    /// without replacing <see cref="closeConfirmation"/>: doing so would strand the first call's await
-    /// on a <see cref="TaskCompletionSource{TResult}"/> nothing can ever complete again, since
-    /// <see cref="OnKeepBuildingClick"/> and <see cref="OnCancelBuildAndCloseClick"/> only ever resolve
-    /// whichever instance this field currently holds.
+    /// Blocks a re-entrant call for the entire confirmed-close flow, not only while the dialog itself is
+    /// showing: <see cref="closeConfirmation"/> guards the dialog (a second Alt+F4 while it is open
+    /// would otherwise strand the first call's await on a <see cref="TaskCompletionSource{TResult}"/>
+    /// nothing can ever complete again, since <see cref="OnKeepBuildingClick"/> and
+    /// <see cref="OnCancelBuildAndCloseClick"/> only ever resolve whichever instance this field
+    /// currently holds), and <see cref="isAwaitingConfirmedBuildCancellation"/> guards the window after
+    /// the dialog resolves but before the cancelled build actually finishes -- <c>IsBuilding</c> is still
+    /// true there, so without it a close attempt in that window would open a spurious second dialog
+    /// whose own "keep building" answer this method's still-pending <c>Close()</c> would then override.
     /// </summary>
     /// <param name="sender">The unused event source.</param>
     /// <param name="e">Carries the cancel flag this handler sets to block the close.</param>
@@ -62,7 +76,7 @@ public partial class MainWindow : Window
         wasMaximizedOnClosing = WindowState == WindowState.Maximized;
         boundsOnClosing = wasMaximizedOnClosing ? RestoreBounds : new Rect(Left, Top, Width, Height);
 
-        if (closeConfirmation is not null)
+        if (closeConfirmation is not null || isAwaitingConfirmedBuildCancellation)
         {
             e.Cancel = true;
             return;
@@ -103,7 +117,15 @@ public partial class MainWindow : Window
         viewModel.BuildPage.CancelCommand.Execute(null);
         if (viewModel.BuildPage.RunningBuildTask is { } buildTask)
         {
-            await buildTask;
+            isAwaitingConfirmedBuildCancellation = true;
+            try
+            {
+                await buildTask;
+            }
+            finally
+            {
+                isAwaitingConfirmedBuildCancellation = false;
+            }
         }
 
         Close();

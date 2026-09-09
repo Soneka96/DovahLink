@@ -179,6 +179,12 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
             {
                 OnPropertyChanged(nameof(EffectiveRepositoryPath));
                 ResetRepositoryPathCommand.RaiseCanExecuteChanged();
+                // EffectiveOutputPath and ResetOutputPathCommand both derive from EffectiveRepositoryPath
+                // (through BuildProfile.Release.ToOutputRoot) whenever no output override is set -- without
+                // these, the displayed default output folder and the Reset-Output-Path button's enabled
+                // state would keep reflecting the previous repository until something else touched OutputPath.
+                OnPropertyChanged(nameof(EffectiveOutputPath));
+                ResetOutputPathCommand.RaiseCanExecuteChanged();
                 // Shares the new root with every other consumer before the best-effort persistence
                 // below, which can fail: the in-memory repository this page now displays must never
                 // disagree with the one everything else is already using, even if saving it for next

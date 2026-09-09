@@ -559,6 +559,42 @@ public sealed class SettingsPageViewModelTests
     }
 
     /// <summary>
+    /// Raises PropertyChanged for EffectiveOutputPath when the repository path changes, even though
+    /// OutputPath itself never changed -- EffectiveOutputPath's own default derives from
+    /// EffectiveRepositoryPath, so without this the bound output-path display would keep showing the
+    /// previous repository's default until something else happened to touch OutputPath.
+    /// </summary>
+    [Fact]
+    public void SettingRepositoryPathRaisesPropertyChangedForEffectiveOutputPath()
+    {
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null));
+        var raisedProperties = new List<string?>();
+        viewModel.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
+
+        viewModel.RepositoryPath = @"D:\override-repo";
+
+        Assert.Contains(nameof(SettingsPageViewModel.EffectiveOutputPath), raisedProperties);
+    }
+
+    /// <summary>
+    /// Raises ResetOutputPathCommand's CanExecuteChanged when the repository path changes, so a bound
+    /// button's enabled state actually re-queries instead of only being correct the next time something
+    /// else happens to re-evaluate it -- its own predicate compares against the same repository-derived
+    /// default EffectiveOutputPath falls back to.
+    /// </summary>
+    [Fact]
+    public void SettingRepositoryPathRaisesCanExecuteChangedForResetOutputPathCommand()
+    {
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null));
+        bool raised = false;
+        viewModel.ResetOutputPathCommand.CanExecuteChanged += (_, _) => raised = true;
+
+        viewModel.RepositoryPath = @"D:\override-repo";
+
+        Assert.True(raised);
+    }
+
+    /// <summary>
     /// Compares against the currently active repository's default, not the auto-detected repository a
     /// override just replaced, when deciding whether Reset would actually change anything.
     /// </summary>

@@ -127,6 +127,37 @@ public sealed class EnvironmentStoreTests
         Assert.Equal(@"C:\repo-c", preflightService.CapturedStartPaths[^1]);
     }
 
+    /// <summary>
+    /// Eventually settles on the latest output path override even when it changes again while a full
+    /// refresh for an earlier change is still running: without this, the in-flight refresh's own
+    /// eventually-resolved result (captured with the output path from before the change) would overwrite
+    /// whatever <see cref="EnvironmentStore.PreflightResults"/> the change's own narrow patch just set,
+    /// silently reverting to a stale Output Folder result.
+    /// </summary>
+    [Fact]
+    public async Task RefreshEventuallyChecksTheLatestOutputPathWhenItChangesAgainWhileARefreshIsInProgress()
+    {
+        var pauseSignal = new TaskCompletionSource();
+        var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var outputPathContext = new OutputPathContext(null);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+
+        Task refresh = store.RefreshAsync();
+        Assert.True(store.IsRefreshing);
+
+        // Changes while the refresh above is still paused mid-flight, coalescing onto it rather than
+        // starting an independent one.
+        outputPathContext.SetOutputPath(@"D:\new-out");
+
+        pauseSignal.SetResult();
+        await refresh;
+
+        Assert.False(store.IsRefreshing);
+        Assert.Equal(@"D:\new-out", preflightService.CapturedOutputPathOverrides[^1]);
+    }
+
     /// <summary>Passes the persisted output path override through to preflight, so it checks the actual configured destination.</summary>
     [Fact]
     public async Task RefreshAsyncPassesTheOutputPathOverrideToPreflight()
