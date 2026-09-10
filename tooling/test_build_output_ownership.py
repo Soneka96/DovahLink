@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from build_output_ownership import MARKER_FILE_NAME, BuildOutputOwnershipGuard
 
@@ -124,13 +125,22 @@ class EnsureOwnedTests(unittest.TestCase):
             self.assertTrue((output_root / "package").is_file())
 
     def test_normalizes_an_os_error_while_creating_a_custom_output_root(self) -> None:
-        """Normalizes an OSError raised while adopting a new custom output root -- here a path containing a colon outside the drive designator, which Windows rejects -- into RuntimeError."""
+        """Normalizes an OSError raised while adopting a new custom output root into RuntimeError.
+
+        Triggered with a mocked `Path.mkdir` failure rather than a platform-specific invalid path
+        (for example a colon outside the drive designator, which only Windows rejects): Repository
+        CI runs this suite on Linux, where such a path is perfectly legal, so a real invalid-path
+        trigger would not exercise this branch there at all.
+        """
         with tempfile.TemporaryDirectory() as temp_dir:
-            output_root = Path(temp_dir) / "custom-out:bad"
+            output_root = Path(temp_dir) / "custom-out"
             guard = BuildOutputOwnershipGuard()
 
-            with self.assertRaises(RuntimeError) as context:
-                guard.ensure_owned(output_root, Path(temp_dir) / "repo")
+            with mock.patch.object(
+                Path, "mkdir", side_effect=OSError("simulated mkdir failure")
+            ):
+                with self.assertRaises(RuntimeError) as context:
+                    guard.ensure_owned(output_root, Path(temp_dir) / "repo")
 
             self.assertIsInstance(context.exception.__cause__, OSError)
 
