@@ -107,8 +107,36 @@ public static class Constants
 
     // ---- Sessions ----
 
-    /// <summary>The maximum number of active client sessions admitted by the first host proof.</summary>
-    public const int MaxActiveSessions = 1;
+    /// <summary>
+    /// The shipped default maximum number of concurrent active client sessions and connections,
+    /// used when the user-editable settings file at <see cref="HostSettingsFilePath"/> supplies no
+    /// valid override. See <see cref="HostSettingsProvider"/>.
+    /// </summary>
+    public const int MaxActiveSessions = 4;
+
+    /// <summary>
+    /// The highest <c>maxActiveSessions</c> value <see cref="HostSettingsProvider"/> accepts from
+    /// the settings file before falling back to <see cref="MaxActiveSessions"/>. Generous headroom
+    /// over the shipped default so a legitimate household of devices is never blocked, while still
+    /// bounding a misconfigured value from defeating the bounded-resource design every per-connection
+    /// queue and byte budget assumes.
+    /// </summary>
+    public const int MaxActiveSessionsCeiling = 32;
+
+    /// <summary>The default per-Windows-user file the user-editable host settings are read from.</summary>
+    public static string HostSettingsFilePath
+    {
+        get
+        {
+            string localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localApplicationData))
+            {
+                throw new InvalidOperationException("The current Windows user has no local application-data directory.");
+            }
+
+            return Path.Combine(localApplicationData, "DovahLink", "host", "settings.json");
+        }
+    }
 
     // ---- Adapter IPC ----
 
