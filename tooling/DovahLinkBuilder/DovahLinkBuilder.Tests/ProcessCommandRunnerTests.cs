@@ -1,12 +1,29 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using DovahLink.DovahLinkBuilder.Build;
+using Xunit.Abstractions;
 
 namespace DovahLink.DovahLinkBuilder.Tests;
 
 /// <summary>Verifies structured child-process execution, output forwarding, and cancellation.</summary>
 public sealed class ProcessCommandRunnerTests
 {
+    /// <summary>
+    /// Captures diagnostic lines for this test run. Writing to this happens immediately, unlike an
+    /// assertion failure: if a later exception (for example <see cref="TemporaryDirectory.Dispose"/>
+    /// hitting a transient file lock during cleanup) replaces the exception a failed assertion would
+    /// otherwise have thrown, a line already written here still survives and is visible in the test's
+    /// captured output.
+    /// </summary>
+    private readonly ITestOutputHelper output;
+
+    /// <summary>Initializes this test class with xUnit's per-test output sink.</summary>
+    /// <param name="output">Writes diagnostic lines to this test's captured xUnit output.</param>
+    public ProcessCommandRunnerTests(ITestOutputHelper output)
+    {
+        this.output = output;
+    }
+
     /// <summary>Imports a validated batch path containing spaces and shell metacharacters as environment data.</summary>
     [Fact]
     public async Task ImportsToolchainPathsWithoutInterpolatingThemIntoTheShellScript()
@@ -193,7 +210,17 @@ public sealed class ProcessCommandRunnerTests
 
         Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
         await Task.Delay(TimeSpan.FromSeconds(1));
-        Assert.False(File.Exists(sentinelPath));
+
+        // Captured and logged before asserting, rather than passed directly to Assert.False: if this
+        // is false (the real proof the process tree was actually killed) but the temporary directory
+        // then fails to delete on a loaded CI runner, .NET discards this method's own exception in
+        // favor of the one TemporaryDirectory.Dispose() throws during the using statement's unwind --
+        // silently replacing "the assertion failed" with an unrelated-looking IOException. Logging the
+        // captured value first means a future failure's CI output still shows which one actually
+        // happened, even when the exception itself gets masked.
+        bool sentinelExists = File.Exists(sentinelPath);
+        output.WriteLine($"Sentinel file exists after cancellation: {sentinelExists}");
+        Assert.False(sentinelExists);
     }
 
     /// <summary>Preserves cancellation, without hanging, when tree termination reports a partial failure.</summary>
