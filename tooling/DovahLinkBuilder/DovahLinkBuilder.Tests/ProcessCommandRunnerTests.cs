@@ -133,12 +133,20 @@ public sealed class ProcessCommandRunnerTests
         var runner = new ProcessCommandRunner(_ => throw new Win32Exception("access denied"));
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
+        var elapsed = Stopwatch.StartNew();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => runner.RunAsync(command, null, null, cancellation.Token));
 
+        // A regression that waits for the child process to exit naturally (the "ping -n 3" above takes
+        // roughly 2-3 seconds) would still eventually throw OperationCanceledException and pass the
+        // assertion above alone; this threshold is what actually proves the runner gave up on
+        // termination promptly instead of hanging until natural exit.
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Expected a prompt return after a failed termination, took {elapsed.Elapsed}.");
+
         // The runner deliberately gives up on this un-terminated process rather than waiting for it (that's
         // the behaviour under test), so it's still holding the working directory open here; wait for it to
-        // exit naturally before the temporary directory is disposed below.
+        // exit naturally before the temporary directory is disposed below. Kept separate from the timing
+        // assertion above so this cleanup wait is never mistaken for the behavior under test.
         await Task.Delay(TimeSpan.FromSeconds(3));
     }
 
@@ -194,12 +202,18 @@ public sealed class ProcessCommandRunnerTests
         var runner = new ProcessCommandRunner(_ => throw new AggregateException(new Win32Exception("access denied")));
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
+        var elapsed = Stopwatch.StartNew();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => runner.RunAsync(command, null, null, cancellation.Token));
 
-        // As in CancellationIsNotMaskedWhenTerminationFails above, the runner gives up on this
-        // un-terminated process rather than waiting for it; wait for it to exit naturally before the
-        // temporary directory is disposed below.
+        // As in CancellationIsNotMaskedWhenTerminationFails above, a regression that waits for the
+        // child process to exit naturally would still eventually satisfy the assertion above alone;
+        // this threshold is what actually proves the runner returned promptly.
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Expected a prompt return after a failed termination, took {elapsed.Elapsed}.");
+
+        // The runner gives up on this un-terminated process rather than waiting for it; wait for it to
+        // exit naturally before the temporary directory is disposed below. Kept separate from the
+        // timing assertion above so this cleanup wait is never mistaken for the behavior under test.
         await Task.Delay(TimeSpan.FromSeconds(3));
     }
 }
