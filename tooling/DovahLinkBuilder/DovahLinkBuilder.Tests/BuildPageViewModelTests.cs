@@ -841,7 +841,7 @@ public sealed class BuildPageViewModelTests
         viewModel.BuildCommand.Execute(null);
         await viewModel.RunningBuildTask!;
 
-        Assert.Equal([Path.GetDirectoryName(archivePath)], openedFolders);
+        Assert.Equal([Path.GetDirectoryName(archivePath)!], openedFolders);
     }
 
     /// <summary>Does not open the output folder after a successful build when the setting is disabled.</summary>
