@@ -23,8 +23,8 @@ public class TrustAdminServiceTests
         var admin = new TrustAdminService(trustStore, Invalidator(new FakeSessionRegistry()), new FakePairingCoordinator());
 
         Assert.Equal([trusted, blocked], admin.List());
-        Assert.Equal([trusted], admin.List("trust"));
-        Assert.Equal([blocked], admin.List("block"));
+        Assert.Equal([trusted], admin.List("trusted"));
+        Assert.Equal([blocked], admin.List("blocked"));
     }
 
     /// <summary>Verifies that duplicate names receive presentation-only age-ordered suffixes.</summary>

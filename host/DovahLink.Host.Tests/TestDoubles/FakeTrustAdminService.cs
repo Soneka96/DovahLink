@@ -79,7 +79,7 @@ public sealed class FakeTrustAdminService : ITrustAdminService
     public KnownDeviceIncarnationId? TryCaptureTrustedIncarnation(ClientId clientId) => IncarnationToCapture;
 
     /// <inheritdoc/>
-    public IReadOnlyList<TrustRecord> List(string scope = "all")
+    public IReadOnlyList<TrustRecord> List(string scope = "known")
     {
         ListScopeCalls.Add(scope);
         return ListResult;
