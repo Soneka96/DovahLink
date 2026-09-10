@@ -101,6 +101,9 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     /// <summary>The shared build output path override every consumer reads, kept in sync with <see cref="OutputPath"/>.</summary>
     private readonly IOutputPathContext outputPathContext;
 
+    /// <summary>The shared runtime settings every consumer reads, kept in sync with <see cref="OpenOutputFolderAfterSuccessfulBuild"/> and <see cref="AutoScrollLogs"/>.</summary>
+    private readonly IRuntimeBuildSettingsContext runtimeBuildSettingsContext;
+
     /// <summary>The backing field for <see cref="RepositoryPath"/>.</summary>
     private string? repositoryPath;
 
@@ -132,13 +135,15 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     /// <param name="autoDetectedRepositoryRoot">The auto-detected repository root, used only when there is no override.</param>
     /// <param name="repositoryContext">The shared repository root every consumer reads.</param>
     /// <param name="outputPathContext">The shared build output path override every consumer reads.</param>
+    /// <param name="runtimeBuildSettingsContext">The shared runtime settings every consumer reads.</param>
     public SettingsPageViewModel(
         ISettingsStore settingsStore,
         IFolderPickerService folderPicker,
         Action<string> openFolder,
         string autoDetectedRepositoryRoot,
         IRepositoryContext repositoryContext,
-        IOutputPathContext outputPathContext)
+        IOutputPathContext outputPathContext,
+        IRuntimeBuildSettingsContext runtimeBuildSettingsContext)
     {
         this.settingsStore = settingsStore;
         this.folderPicker = folderPicker;
@@ -146,6 +151,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         this.autoDetectedRepositoryRoot = autoDetectedRepositoryRoot;
         this.repositoryContext = repositoryContext;
         this.outputPathContext = outputPathContext;
+        this.runtimeBuildSettingsContext = runtimeBuildSettingsContext;
         BuilderSettings settings = settingsStore.Load();
         repositoryPath = settings.RepositoryPath;
         skyrimInstallPath = settings.SkyrimInstallPath;
@@ -167,6 +173,8 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         OpenSkyrimInstallFolderCommand = new RelayCommand(() => OpenFolderSafely(SkyrimInstallPath!), () => SkyrimInstallPath is not null);
         repositoryContext.SetRepositoryRoot(EffectiveRepositoryPath);
         outputPathContext.SetOutputPath(OutputPath);
+        runtimeBuildSettingsContext.SetOpenOutputFolderAfterSuccessfulBuild(OpenOutputFolderAfterSuccessfulBuild);
+        runtimeBuildSettingsContext.SetAutoScrollLogs(AutoScrollLogs);
     }
 
     /// <inheritdoc/>
@@ -239,6 +247,11 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         {
             if (SetProperty(ref openOutputFolderAfterSuccessfulBuild, value))
             {
+                // Shares the new value with every other consumer before the best-effort
+                // persistence below, which can fail: the current session's behavior must never
+                // disagree with what this page now displays, even if saving it for next launch
+                // does not succeed.
+                runtimeBuildSettingsContext.SetOpenOutputFolderAfterSuccessfulBuild(value);
                 Save();
             }
         }
@@ -252,6 +265,11 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         {
             if (SetProperty(ref autoScrollLogs, value))
             {
+                // Shares the new value with every other consumer before the best-effort
+                // persistence below, which can fail: the current session's behavior must never
+                // disagree with what this page now displays, even if saving it for next launch
+                // does not succeed.
+                runtimeBuildSettingsContext.SetAutoScrollLogs(value);
                 Save();
             }
         }

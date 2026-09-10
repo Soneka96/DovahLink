@@ -28,6 +28,7 @@ public partial class App : Application
         (string activeRepositoryRoot, string autoDetectedRepositoryRoot) = ResolveRepositoryRoots(settings.RepositoryPath, discoveredRepositoryRoot);
         var repositoryContext = new RepositoryContext(activeRepositoryRoot);
         var outputPathContext = new OutputPathContext(settings.OutputPath);
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(settings.OpenOutputFolderAfterSuccessfulBuild, settings.AutoScrollLogs);
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
         var gitStatusService = new GitStatusService(commandRunner);
@@ -44,16 +45,17 @@ public partial class App : Application
             gitStatusStore,
             buildCoordinator,
             buildHistoryStore,
-            settingsStore,
             OpenFolderInExplorer,
             Clipboard.SetText,
             repositoryContext,
             outputPathContext,
             outputOwnershipGuard,
             logViewModel,
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            runtimeBuildSettingsContext);
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
-        var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext, outputPathContext);
+        var settingsPage = new SettingsPageViewModel(
+            settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext, outputPathContext, runtimeBuildSettingsContext);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         var mainWindow = new MainWindow(mainWindowViewModel, settingsStore);
         var virtualScreenBounds = new Rect(

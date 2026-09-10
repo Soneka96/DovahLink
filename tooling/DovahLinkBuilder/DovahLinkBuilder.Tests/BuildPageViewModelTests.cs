@@ -19,7 +19,6 @@ public sealed class BuildPageViewModelTests
         FakeGitStatusService? gitStatusService = null,
         FakeAdapterHostBuildCoordinator? buildCoordinator = null,
         FakeBuildHistoryStore? buildHistoryStore = null,
-        FakeSettingsStore? settingsStore = null,
         Action<string>? openOutputFolder = null,
         Action<string>? setClipboardText = null,
         string? repositoryRoot = null,
@@ -27,12 +26,12 @@ public sealed class BuildPageViewModelTests
         IOutputPathContext? outputPathContext = null,
         IBuildOutputOwnershipGuard? outputOwnershipGuard = null,
         ILogViewModel? log = null,
-        Func<BuildStage, IBuildStageViewModel>? buildStageViewModelFactory = null)
+        Func<BuildStage, IBuildStageViewModel>? buildStageViewModelFactory = null,
+        IRuntimeBuildSettingsContext? runtimeBuildSettingsContext = null)
     {
         string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
         IOutputPathContext resolvedOutputPathContext = outputPathContext ?? new OutputPathContext(null);
-        FakeSettingsStore resolvedSettingsStore = settingsStore ?? new FakeSettingsStore();
         var gitStatusStore = new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext);
         var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext, resolvedOutputPathContext);
         return new(
@@ -40,14 +39,14 @@ public sealed class BuildPageViewModelTests
             gitStatusStore,
             buildCoordinator ?? new FakeAdapterHostBuildCoordinator(),
             buildHistoryStore ?? new FakeBuildHistoryStore(),
-            resolvedSettingsStore,
             openOutputFolder ?? (_ => { }),
             setClipboardText ?? (_ => { }),
             resolvedRepositoryContext,
             resolvedOutputPathContext,
             outputOwnershipGuard ?? new FakeBuildOutputOwnershipGuard(),
             log ?? new LogViewModel(),
-            buildStageViewModelFactory ?? (stage => new BuildStageViewModel(stage)));
+            buildStageViewModelFactory ?? (stage => new BuildStageViewModel(stage)),
+            runtimeBuildSettingsContext ?? new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
     }
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -97,14 +96,14 @@ public sealed class BuildPageViewModelTests
             gitStatusStore,
             buildCoordinator,
             new FakeBuildHistoryStore(),
-            new FakeSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
         Assert.True(viewModel.CanBuild);
 
@@ -185,14 +184,14 @@ public sealed class BuildPageViewModelTests
             gitStatusStore,
             new FakeAdapterHostBuildCoordinator(),
             new FakeBuildHistoryStore(),
-            new FakeSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
         Assert.False(viewModel.GitNeedsAttention);
 
@@ -226,14 +225,14 @@ public sealed class BuildPageViewModelTests
             gitStatusStore,
             new FakeAdapterHostBuildCoordinator(),
             new FakeBuildHistoryStore(),
-            new FakeSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
         Assert.Equal("1.0.0", viewModel.RepositoryVersion);
 
@@ -830,13 +829,13 @@ public sealed class BuildPageViewModelTests
         Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
     }
 
-    /// <summary>Seeds the log panel's auto-scroll from the persisted setting at construction.</summary>
+    /// <summary>Seeds the log panel's auto-scroll from the runtime setting at construction.</summary>
     [Fact]
-    public void ConstructorSeedsLogAutoScrollFromSettings()
+    public void ConstructorSeedsLogAutoScrollFromTheRuntimeSetting()
     {
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: false) };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: false);
 
-        var viewModel = BuildViewModel(settingsStore: settingsStore);
+        var viewModel = BuildViewModel(runtimeBuildSettingsContext: runtimeBuildSettingsContext);
 
         Assert.False(viewModel.Log.AutoScroll);
     }
@@ -847,10 +846,10 @@ public sealed class BuildPageViewModelTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var openedFolders = new List<string>();
         var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
-        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, runtimeBuildSettingsContext: runtimeBuildSettingsContext, openOutputFolder: openedFolders.Add);
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -865,10 +864,10 @@ public sealed class BuildPageViewModelTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: false) };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: false, autoScrollLogs: true);
         var openedFolders = new List<string>();
         var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
-        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, runtimeBuildSettingsContext: runtimeBuildSettingsContext, openOutputFolder: openedFolders.Add);
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -881,10 +880,10 @@ public sealed class BuildPageViewModelTests
     [Fact]
     public async Task BuildCommandDoesNotOpenTheOutputFolderOnFailure()
     {
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var openedFolders = new List<string>();
         var buildCoordinator = new FakeAdapterHostBuildCoordinator { ThrownException = new InvalidOperationException("the adapter build failed") };
-        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, runtimeBuildSettingsContext: runtimeBuildSettingsContext, openOutputFolder: openedFolders.Add);
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -897,10 +896,10 @@ public sealed class BuildPageViewModelTests
     [Fact]
     public async Task CancelCommandDoesNotOpenTheOutputFolder()
     {
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var openedFolders = new List<string>();
         var buildCoordinator = new FakeAdapterHostBuildCoordinator { WaitForCancellation = true };
-        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore, openOutputFolder: openedFolders.Add);
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, runtimeBuildSettingsContext: runtimeBuildSettingsContext, openOutputFolder: openedFolders.Add);
         await viewModel.InitializeAsync();
         viewModel.BuildCommand.Execute(null);
 
@@ -916,11 +915,11 @@ public sealed class BuildPageViewModelTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         string archivePath = CreateRealZip(temporaryDirectory.Path, ("manifest.json", "{}"));
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(OpenOutputFolderAfterSuccessfulBuild: true) };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var buildCoordinator = new FakeAdapterHostBuildCoordinator { Result = new AdapterHostBuildResult(archivePath) };
         var viewModel = BuildViewModel(
             buildCoordinator: buildCoordinator,
-            settingsStore: settingsStore,
+            runtimeBuildSettingsContext: runtimeBuildSettingsContext,
             openOutputFolder: _ => throw new InvalidOperationException("explorer.exe could not be started"));
         await viewModel.InitializeAsync();
 
@@ -1083,14 +1082,14 @@ public sealed class BuildPageViewModelTests
             gitStatusStore,
             buildCoordinator,
             new FakeBuildHistoryStore(),
-            new FakeSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -1126,15 +1125,15 @@ public sealed class BuildPageViewModelTests
     [Fact]
     public async Task NewBuildCommandReSeedsAutoScrollFromTheCurrentSetting()
     {
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: true) };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var buildCoordinator = new FakeAdapterHostBuildCoordinator();
-        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, settingsStore: settingsStore);
+        var viewModel = BuildViewModel(buildCoordinator: buildCoordinator, runtimeBuildSettingsContext: runtimeBuildSettingsContext);
         await viewModel.InitializeAsync();
         viewModel.BuildCommand.Execute(null);
         await viewModel.RunningBuildTask!;
         Assert.True(viewModel.Log.AutoScroll);
 
-        settingsStore.Settings = settingsStore.Settings with { AutoScrollLogs = false };
+        runtimeBuildSettingsContext.SetAutoScrollLogs(false);
         viewModel.NewBuildCommand.Execute(null);
         await viewModel.RunningBuildTask!;
 
@@ -1149,9 +1148,9 @@ public sealed class BuildPageViewModelTests
     [Fact]
     public async Task BuildCommandReSeedsAutoScrollFromTheCurrentSettingAtStartup()
     {
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: true) };
-        var viewModel = BuildViewModel(settingsStore: settingsStore);
-        settingsStore.Settings = settingsStore.Settings with { AutoScrollLogs = false };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
+        var viewModel = BuildViewModel(runtimeBuildSettingsContext: runtimeBuildSettingsContext);
+        runtimeBuildSettingsContext.SetAutoScrollLogs(false);
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -1169,14 +1168,39 @@ public sealed class BuildPageViewModelTests
     [Fact]
     public async Task ALiveAutoScrollToggleSurvivesAnEnvironmentRefreshThatIsNotABuildBoundary()
     {
-        var settingsStore = new FakeSettingsStore { Settings = new BuilderSettings(AutoScrollLogs: true) };
-        var viewModel = BuildViewModel(settingsStore: settingsStore);
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
+        var viewModel = BuildViewModel(runtimeBuildSettingsContext: runtimeBuildSettingsContext);
         await viewModel.InitializeAsync();
         viewModel.Log.AutoScroll = false;
 
         await viewModel.InitializeAsync();
 
         Assert.False(viewModel.Log.AutoScroll);
+    }
+
+    /// <summary>
+    /// Composition test proving disk is no longer read as runtime authority for AutoScrollLogs: with
+    /// <see cref="SettingsPageViewModel"/> and this page sharing one real
+    /// <see cref="RuntimeBuildSettingsContext"/> instance (as they do in the real composition root),
+    /// a Settings-page change whose persistence fails still reaches this page's next build -- even
+    /// though the persisted settings on "disk" (a fake store here) disagree with it the whole time.
+    /// </summary>
+    [Fact]
+    public async Task BuildPageReflectsTheRuntimeContextsCurrentAutoScrollValueEvenWhenDiskDisagrees()
+    {
+        var settingsStore = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
+        var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
+        var settingsPage = new SettingsPageViewModel(
+            settingsStore, new FakeFolderPicker(), _ => { }, @"C:\repo", new RepositoryContext(@"C:\repo"), new OutputPathContext(null), runtimeBuildSettingsContext);
+        var viewModel = BuildViewModel(runtimeBuildSettingsContext: runtimeBuildSettingsContext);
+        await viewModel.InitializeAsync();
+
+        settingsPage.AutoScrollLogs = false;
+        viewModel.NewBuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.False(viewModel.Log.AutoScroll);
+        Assert.True(settingsStore.Settings.AutoScrollLogs);
     }
 
     /// <summary>Returns to the idle form and clears the previous result after a failed build, without starting a new one.</summary>
@@ -1485,14 +1509,14 @@ public sealed class BuildPageViewModelTests
             gitStatusStore,
             new FakeAdapterHostBuildCoordinator(),
             new FakeBuildHistoryStore(),
-            new FakeSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
         var pauseSignal = new TaskCompletionSource();
         preflightService.PauseSignal = pauseSignal;
@@ -2328,11 +2352,32 @@ public sealed class BuildPageViewModelTests
         /// <summary>Gets or sets the currently persisted settings; defaults to <see cref="BuilderSettings"/>'s own defaults.</summary>
         public BuilderSettings Settings { get; set; } = new();
 
+        /// <summary>Gets or sets the exception <see cref="Save"/> throws instead of persisting, or <see langword="null"/>.</summary>
+        public Exception? ThrownExceptionOnSave { get; set; }
+
         /// <inheritdoc/>
         public BuilderSettings Load() => Settings;
 
         /// <inheritdoc/>
-        public void Save(BuilderSettings settings) => Settings = settings;
+        public void Save(BuilderSettings settings)
+        {
+            if (ThrownExceptionOnSave is not null)
+            {
+                throw ThrownExceptionOnSave;
+            }
+
+            Settings = settings;
+        }
+    }
+
+    /// <summary>A scripted <see cref="IFolderPickerService"/>, avoiding a real OS dialog in tests.</summary>
+    private sealed class FakeFolderPicker : IFolderPickerService
+    {
+        /// <summary>Gets or sets the folder <see cref="PickFolder"/> returns, or <see langword="null"/> to simulate the user cancelling the dialog.</summary>
+        public string? NextPick { get; set; }
+
+        /// <inheritdoc/>
+        public string? PickFolder(string title, string? initialDirectory) => NextPick;
     }
 
     /// <summary>
@@ -2365,14 +2410,14 @@ public sealed class BuildPageViewModelTests
             gitStatusStore,
             new FakeAdapterHostBuildCoordinator(),
             new FakeBuildHistoryStore(),
-            new FakeSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
         Assert.False(viewModel.CanBuild);
 

@@ -27,14 +27,14 @@ public sealed class GitStatusSharingTests
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
-            new StubSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -60,14 +60,14 @@ public sealed class GitStatusSharingTests
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
-            new StubSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -95,14 +95,14 @@ public sealed class GitStatusSharingTests
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
-            new StubSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -137,14 +137,14 @@ public sealed class GitStatusSharingTests
             gitStatusStore,
             buildCoordinator,
             new StubBuildHistoryStore(),
-            new StubSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             outputPathContext,
             new StubBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
 
         await buildPage.InitializeAsync();
         Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
@@ -174,14 +174,14 @@ public sealed class GitStatusSharingTests
             gitStatusStore,
             new StubAdapterHostBuildCoordinator(),
             new StubBuildHistoryStore(),
-            new StubSettingsStore(),
             _ => { },
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
             new LogViewModel(),
-            stage => new BuildStageViewModel(stage));
+            stage => new BuildStageViewModel(stage),
+            new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -273,18 +273,6 @@ public sealed class GitStatusSharingTests
 
         /// <inheritdoc/>
         public void Add(BuildHistoryEntry entry)
-        {
-        }
-    }
-
-    /// <summary>Reports <see cref="BuilderSettings"/>'s own defaults and discards writes; a stub for tests that never inspect settings.</summary>
-    private sealed class StubSettingsStore : ISettingsStore
-    {
-        /// <inheritdoc/>
-        public BuilderSettings Load() => new();
-
-        /// <inheritdoc/>
-        public void Save(BuilderSettings settings)
         {
         }
     }

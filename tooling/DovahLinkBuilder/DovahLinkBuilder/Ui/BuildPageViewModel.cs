@@ -251,8 +251,8 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <summary>Persists and retrieves the Builder's recent build history.</summary>
     private readonly IBuildHistoryStore buildHistoryStore;
 
-    /// <summary>Loads the Builder's persisted settings.</summary>
-    private readonly ISettingsStore settingsStore;
+    /// <summary>The shared runtime settings this page reads for <see cref="ILogViewModel.AutoScroll"/> and opening the output folder after a successful build.</summary>
+    private readonly IRuntimeBuildSettingsContext runtimeBuildSettingsContext;
 
     /// <summary>Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</summary>
     private readonly Action<string> openOutputFolder;
@@ -334,7 +334,6 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="gitStatusStore">The shared git status both the Build and Environment pages read and refresh.</param>
     /// <param name="buildCoordinator">Builds and packages the production Adapter and Host.</param>
     /// <param name="buildHistoryStore">Persists and retrieves the Builder's recent build history.</param>
-    /// <param name="settingsStore">Loads the Builder's persisted settings.</param>
     /// <param name="openOutputFolder">Opens a folder in the system file explorer, for <see cref="BuilderSettings.OpenOutputFolderAfterSuccessfulBuild"/>.</param>
     /// <param name="setClipboardText">Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</param>
     /// <param name="repositoryContext">The shared repository root this page checks and builds.</param>
@@ -342,30 +341,31 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="outputOwnershipGuard">Verifies the resolved output root is safe for a build to destructively manage.</param>
     /// <param name="log">The Build page's log panel, kept alive for the application's lifetime.</param>
     /// <param name="buildStageViewModelFactory">Constructs one stage segment for a given pipeline stage, for <see cref="Stages"/>.</param>
+    /// <param name="runtimeBuildSettingsContext">The shared runtime settings this page reads.</param>
     public BuildPageViewModel(
         IEnvironmentStore environmentStore,
         IGitStatusStore gitStatusStore,
         IAdapterHostBuildCoordinator buildCoordinator,
         IBuildHistoryStore buildHistoryStore,
-        ISettingsStore settingsStore,
         Action<string> openOutputFolder,
         Action<string> setClipboardText,
         IRepositoryContext repositoryContext,
         IOutputPathContext outputPathContext,
         IBuildOutputOwnershipGuard outputOwnershipGuard,
         ILogViewModel log,
-        Func<BuildStage, IBuildStageViewModel> buildStageViewModelFactory)
+        Func<BuildStage, IBuildStageViewModel> buildStageViewModelFactory,
+        IRuntimeBuildSettingsContext runtimeBuildSettingsContext)
     {
         this.environmentStore = environmentStore;
         this.gitStatusStore = gitStatusStore;
         this.buildCoordinator = buildCoordinator;
         this.buildHistoryStore = buildHistoryStore;
-        this.settingsStore = settingsStore;
         this.openOutputFolder = openOutputFolder;
         this.setClipboardText = setClipboardText;
         this.repositoryContext = repositoryContext;
         this.outputPathContext = outputPathContext;
         this.outputOwnershipGuard = outputOwnershipGuard;
+        this.runtimeBuildSettingsContext = runtimeBuildSettingsContext;
         Log = log;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         environmentStore.PropertyChanged += OnEnvironmentStoreChanged;
@@ -380,7 +380,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         CopyArchivePathCommand = new RelayCommand(OnCopyArchivePath, () => ArchivePath is not null);
         ToggleShowAllRecentBuildsCommand = new RelayCommand(() => IsShowingAllRecentBuilds = !IsShowingAllRecentBuilds);
         Stages = Enum.GetValues<BuildStage>().Select(buildStageViewModelFactory).ToList();
-        Log.AutoScroll = settingsStore.Load().AutoScrollLogs;
+        Log.AutoScroll = runtimeBuildSettingsContext.AutoScrollLogs;
         recentBuilds = buildHistoryStore.GetRecent();
     }
 
@@ -838,7 +838,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         IsShowingArchiveContents = false;
         ResetStages();
         Log.Clear();
-        Log.AutoScroll = settingsStore.Load().AutoScrollLogs;
+        Log.AutoScroll = runtimeBuildSettingsContext.AutoScrollLogs;
     }
 
     /// <summary>Formats a byte count as a human-readable KB/MB size.</summary>
@@ -1130,7 +1130,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="archivePath">The successful build's produced archive path.</param>
     private void TryOpenOutputFolder(string archivePath)
     {
-        if (settingsStore.Load().OpenOutputFolderAfterSuccessfulBuild)
+        if (runtimeBuildSettingsContext.OpenOutputFolderAfterSuccessfulBuild)
         {
             OpenContainingFolderSafely(archivePath);
         }

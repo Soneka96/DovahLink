@@ -32,7 +32,9 @@ public sealed class MainWindowViewModelTests
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
     private MainWindowViewModel BuildViewModel() =>
         new(BuildStubBuildPage(), BuildStubEnvironmentPage(),
-            new SettingsPageViewModel(new StubSettingsStore(), new StubFolderPickerService(), _ => { }, @"C:\repo", repositoryContext, new OutputPathContext(null)));
+            new SettingsPageViewModel(
+                new StubSettingsStore(), new StubFolderPickerService(), _ => { }, @"C:\repo", repositoryContext, new OutputPathContext(null),
+                new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true)));
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
     private BuildPageViewModel BuildStubBuildPage() => new(
@@ -40,14 +42,14 @@ public sealed class MainWindowViewModelTests
         gitStatusStore,
         new StubAdapterHostBuildCoordinator(),
         new StubBuildHistoryStore(),
-        new StubSettingsStore(),
         _ => { },
         _ => { },
         repositoryContext,
         new OutputPathContext(null),
         new StubBuildOutputOwnershipGuard(),
         new LogViewModel(),
-        stage => new BuildStageViewModel(stage));
+        stage => new BuildStageViewModel(stage),
+        new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
 
     /// <summary>
     /// Treats every output root as already owned, doing nothing: these tests exercise navigation
