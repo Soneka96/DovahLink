@@ -5,10 +5,12 @@ using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
 
@@ -1814,7 +1816,7 @@ public class PublicHelloAdmissionTests
 
     // ---- Post-admission dispatch: subscribe and snapshot_request ----
 
-    /// <summary>Verifies that subscribe rejects every requested area, since no state area is currently registered.</summary>
+    /// <summary>Verifies that subscribe rejects every requested area when no subscription capability is available.</summary>
     [Fact]
     public void HandleMessageAsync_SubscribePostAdmission_RejectsEveryRequestedArea()
     {
@@ -1831,6 +1833,30 @@ public class PublicHelloAdmissionTests
         Assert.Equal("msg-2", ackEnvelope.CorrelationId);
         Assert.Empty(ack.AcceptedStateAreas);
         Assert.Equal(["area_one", "area_two"], ack.RejectedStateAreas);
+    }
+
+    /// <summary>
+    /// Verifies that subscribe accepts a registered area and rejects an unregistered one when a real
+    /// subscription capability is supplied, proving <see cref="PublicHelloAdmissionHandler"/> actually
+    /// delegates to it rather than only ever answering the stub-reject fallback.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_SubscribePostAdmission_WithSubscriptionCapability_DelegatesAcceptReject()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_one"));
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, clientId,
+            new SubscribePayload { StateAreas = ["area_one", "area_two"] });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, SubscriptionAckPayload ack) = DecodeSent<SubscriptionAckPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(["area_one"], ack.AcceptedStateAreas);
+        Assert.Equal(["area_two"], ack.RejectedStateAreas);
     }
 
     /// <summary>Verifies that a malformed post-admission subscribe message is rejected as malformed_message.</summary>
@@ -1870,7 +1896,7 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
     }
 
-    /// <summary>Verifies that snapshot_request is always rejected as unsupported_capability, since no state area is currently registered.</summary>
+    /// <summary>Verifies that snapshot_request is rejected as unsupported_capability when no subscription capability is available.</summary>
     [Fact]
     public void HandleMessageAsync_SnapshotRequestPostAdmission_RejectsAsUnsupported()
     {
@@ -1884,6 +1910,31 @@ public class PublicHelloAdmissionTests
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
         Assert.Equal(PublicProtocolErrorCode.UnsupportedCapability, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies that snapshot_request for a registered area with a real subscription capability
+    /// supplied sends nothing at all -- no error, and no fabricated snapshot since none is available
+    /// -- proving <see cref="PublicHelloAdmissionHandler"/> actually delegates to it rather than only
+    /// ever answering the stub-reject fallback.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_SnapshotRequestPostAdmission_WithRegisteredArea_SendsNothing()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_one"));
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+        int sentCountBeforeRequest = context.FakeConnection.SentPayloads.Count;
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.SnapshotRequest, "msg-2", sessionId, null, null, clientId,
+            new SnapshotRequestPayload { StateArea = "area_one" });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentCountBeforeRequest, context.FakeConnection.SentPayloads.Count);
+        Assert.Empty(context.FakeConnection.SentSnapshots);
     }
 
     /// <summary>Verifies that a malformed post-admission snapshot_request message is rejected as malformed_message.</summary>
@@ -2598,7 +2649,8 @@ public class PublicHelloAdmissionTests
         /// <summary>Creates a fresh handler and its collaborators.</summary>
         /// <param name="maxActiveSessions">The session registry's admission bound.</param>
         /// <param name="admissionDeadline">The handler's own pre-authentication admission deadline.</param>
-        public TestContext(int maxActiveSessions = int.MaxValue, TimeSpan? admissionDeadline = null)
+        /// <param name="subscription">The handler's own state-area subscription capability. Defaults to <see langword="null"/>, under which subscribe and snapshot_request reject every request.</param>
+        public TestContext(int maxActiveSessions = int.MaxValue, TimeSpan? admissionDeadline = null, IPublicStateSubscription? subscription = null)
         {
             SessionRegistry = new FakeSessionRegistry(maxActiveSessions);
             TokenAuthenticator = new LocalConnectionTokenAuthenticator(Clock);
@@ -2606,7 +2658,7 @@ public class PublicHelloAdmissionTests
             Connection = new PublicConnectionContext(FakeConnection);
             Handler = new PublicHelloAdmissionHandler(
                 Codec, SessionRegistry, TrustStore, TokenAuthenticator, CredentialThrottle, PlayContextTracker, Clock,
-                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), admissionDeadline);
+                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), admissionDeadline, subscription);
         }
     }
 
