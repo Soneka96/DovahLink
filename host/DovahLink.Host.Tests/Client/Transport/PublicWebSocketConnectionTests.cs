@@ -1754,11 +1754,11 @@ public class PublicWebSocketConnectionTests
         // block on the writer loop's own continuation after its send completes, which races the
         // peer's independent receive-completion continuation on the shared thread pool with no
         // ordering guarantee between the two. Poll the actual condition under test -- the slot
-        // becoming available again -- through the non-mutating HasSpareOutboundMessageCapacity check
-        // rather than TrySend itself: TrySend's own failure path requests this connection's forced
-        // close, so using it as the poll predicate would let the first failing poll tear down the very
+        // becoming available again -- through the non-mutating RemainingOutboundCapacity check rather
+        // than TrySend itself: TrySend's own failure path requests this connection's forced close, so
+        // using it as the poll predicate would let the first failing poll tear down the very
         // connection the test is waiting on.
-        await WaitUntilAsync(() => connection.HasSpareOutboundMessageCapacity(PublicOutboundLane.ControlOrRecovery), runTask);
+        await WaitUntilAsync(() => connection.RemainingOutboundCapacity(PublicOutboundLane.ControlOrRecovery) > 0, runTask);
         Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second"), PublicOutboundLane.ControlOrRecovery));
 
         listener.Stop();
@@ -1785,6 +1785,64 @@ public class PublicWebSocketConnectionTests
             .Select(index => Task.Run(() => connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery))));
 
         Assert.Equal(4, results.Count(succeeded => succeeded));
+    }
+
+    /// <summary>Verifies that a fresh connection reports each lane's full configured message bound as remaining capacity.</summary>
+    [Fact]
+    public void RemainingOutboundCapacity_FreshConnection_EqualsConfiguredMaxForEachLane()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 4, dataOutboundQueueMaxMessages: 7, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.Equal(4, connection.RemainingOutboundCapacity(PublicOutboundLane.ControlOrRecovery));
+        Assert.Equal(7, connection.RemainingOutboundCapacity(PublicOutboundLane.Data));
+    }
+
+    /// <summary>Verifies that each admitted message reduces its lane's remaining capacity by exactly one, independently of the other lane.</summary>
+    [Fact]
+    public void RemainingOutboundCapacity_AfterAdmittingMessages_DecreasesByAdmittedCount()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 4, dataOutboundQueueMaxMessages: 7, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+
+        Assert.Equal(3, connection.RemainingOutboundCapacity(PublicOutboundLane.ControlOrRecovery));
+        Assert.Equal(5, connection.RemainingOutboundCapacity(PublicOutboundLane.Data));
+    }
+
+    /// <summary>Verifies that a lane at its configured bound reports zero remaining capacity, never a negative value.</summary>
+    [Fact]
+    public void RemainingOutboundCapacity_ControlLaneAtBound_ReturnsZero()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 2, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+        Assert.False(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+
+        Assert.Equal(0, connection.RemainingOutboundCapacity(PublicOutboundLane.ControlOrRecovery));
+    }
+
+    /// <summary>Verifies that the Data lane at its configured bound reports zero remaining capacity, symmetric with the Control lane's own bound behavior.</summary>
+    [Fact]
+    public void RemainingOutboundCapacity_DataLaneAtBound_ReturnsZero()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(dataOutboundQueueMaxMessages: 2, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+        Assert.False(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+
+        Assert.Equal(0, connection.RemainingOutboundCapacity(PublicOutboundLane.Data));
     }
 
     /// <summary>

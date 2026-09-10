@@ -84,4 +84,10 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>Every lane passed to <see cref="TrySend"/> so far, in call order, index-aligned with <see cref="SentPayloads"/>.</summary>
     public List<PublicOutboundLane> SentLanes { get; } = [];
+
+    /// <summary>The value <see cref="RemainingOutboundCapacity"/> returns for every lane; defaults to <see cref="int.MaxValue"/>.</summary>
+    public int RemainingOutboundCapacityResult { get; set; } = int.MaxValue;
+
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => RemainingOutboundCapacityResult;
 }

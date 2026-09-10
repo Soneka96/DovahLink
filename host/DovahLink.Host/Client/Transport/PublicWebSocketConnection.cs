@@ -86,6 +86,17 @@ public interface IPublicWebSocketConnection
     /// every other reason this connection can end.
     /// </summary>
     void RequestClose();
+
+    /// <summary>
+    /// A non-mutating read of how many more messages <paramref name="lane"/> could currently admit
+    /// through <see cref="TrySend"/> or <see cref="TrySendSnapshot"/> before reaching its configured
+    /// bound, without either call's own side effect of requesting a forced close on a failed
+    /// reservation. Safe to call from any thread and at any point in the connection's lifetime. The
+    /// result can be stale by the time a caller acts on it under concurrent admission from other
+    /// callers; it is a capacity-planning read, not a reservation.
+    /// </summary>
+    /// <param name="lane">The lane to read remaining capacity for.</param>
+    int RemainingOutboundCapacity(PublicOutboundLane lane);
 }
 
 /// <inheritdoc cref="IPublicWebSocketConnection"/>
@@ -1033,15 +1044,8 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
     }
 
-    /// <summary>
-    /// Test-only, non-mutating check of whether <see cref="TrySend"/> currently has room to admit one
-    /// more <paramref name="lane"/> message under that lane's configured maximum, without
-    /// <see cref="TrySend"/>'s own side effect of requesting a forced close on a failed reservation.
-    /// Lets a test poll for an outbound slot actually becoming free again without every failing poll
-    /// attempt itself tearing down the connection under observation.
-    /// </summary>
-    /// <param name="lane">The lane to check spare capacity for.</param>
-    internal bool HasSpareOutboundMessageCapacity(PublicOutboundLane lane) => lane == PublicOutboundLane.ControlOrRecovery
-        ? Volatile.Read(ref controlOutstandingMessages) < options.ControlOutboundQueueMaxMessages
-        : dataLaneQueue.OutstandingMessages < options.DataOutboundQueueMaxMessages;
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => lane == PublicOutboundLane.ControlOrRecovery
+        ? Math.Max(0, options.ControlOutboundQueueMaxMessages - Volatile.Read(ref controlOutstandingMessages))
+        : Math.Max(0, options.DataOutboundQueueMaxMessages - dataLaneQueue.OutstandingMessages);
 }

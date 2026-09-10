@@ -79,6 +79,18 @@ public class PublicConnectionContextTests
         Assert.Equal(1, connection.RequestCloseCalls);
     }
 
+    /// <summary>Verifies that <see cref="PublicConnectionContext.RemainingOutboundCapacity"/> forwards the exact lane to the wrapped connection and returns its result.</summary>
+    [Fact]
+    public void RemainingOutboundCapacity_DelegatesLaneAndResultToConnection()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { RemainingOutboundCapacityResult = 5 };
+        var context = new PublicConnectionContext(connection);
+
+        int result = context.RemainingOutboundCapacity(PublicOutboundLane.Data);
+
+        Assert.Equal(5, result);
+    }
+
     /// <summary>
     /// Verifies that <see cref="IPublicConnectionContext"/>'s members expose no raw WebSocket, stream,
     /// or socket type -- nor any type that derives from one -- proving application code reached

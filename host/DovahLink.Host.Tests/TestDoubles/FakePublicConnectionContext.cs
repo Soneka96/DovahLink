@@ -37,4 +37,10 @@ public sealed class FakePublicConnectionContext : IPublicConnectionContext
 
     /// <inheritdoc/>
     public void RequestClose() => RequestCloseCalls++;
+
+    /// <summary>The value <see cref="RemainingOutboundCapacity"/> returns for every lane; defaults to <see cref="int.MaxValue"/>.</summary>
+    public int RemainingOutboundCapacityResult { get; set; } = int.MaxValue;
+
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => RemainingOutboundCapacityResult;
 }

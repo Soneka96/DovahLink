@@ -55,4 +55,7 @@ public sealed class ThrowingPublicWebSocketConnection : IPublicWebSocketConnecti
     public void RequestClose()
     {
     }
+
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => 0;
 }

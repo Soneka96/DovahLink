@@ -37,6 +37,14 @@ public interface IPublicConnectionContext
     /// this forwards to.
     /// </summary>
     void RequestClose();
+
+    /// <summary>
+    /// A non-mutating read of how many more messages <paramref name="lane"/> could currently admit.
+    /// See <see cref="IPublicWebSocketConnection.RemainingOutboundCapacity"/> for the exact contract
+    /// this forwards to.
+    /// </summary>
+    /// <param name="lane">The lane to read remaining capacity for.</param>
+    int RemainingOutboundCapacity(PublicOutboundLane lane);
 }
 
 /// <inheritdoc cref="IPublicConnectionContext"/>
@@ -60,4 +68,7 @@ public sealed class PublicConnectionContext : IPublicConnectionContext
 
     /// <inheritdoc/>
     public void RequestClose() => connection.RequestClose();
+
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => connection.RemainingOutboundCapacity(lane);
 }
