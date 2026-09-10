@@ -148,5 +148,57 @@ class EnsureOwnedTests(unittest.TestCase):
             self.assertIsInstance(context.exception.__cause__, ValueError)
 
 
+class MarkOwnedTests(unittest.TestCase):
+    """Tests for BuildOutputOwnershipGuard.mark_owned against real filesystem state."""
+
+    def test_marks_a_nonexistent_root(self) -> None:
+        """Creates a nonexistent root and marks it Builder-owned."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "custom-out"
+            guard = BuildOutputOwnershipGuard()
+
+            guard.mark_owned(output_root)
+
+            self.assertTrue(output_root.is_dir())
+            marker_path = output_root / MARKER_FILE_NAME
+            self.assertTrue(marker_path.is_file())
+            self.assertTrue(marker_path.read_text(encoding="utf-8"))
+
+    def test_marks_a_root_that_already_holds_real_unmarked_content(self) -> None:
+        """Marks a root even though it already holds real, unmarked content -- the exact state a caller's own prior destructive rebuild leaves the root in."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "custom-out"
+            output_root.mkdir()
+            (output_root / "real-output.txt").write_text("this run's real output")
+            guard = BuildOutputOwnershipGuard()
+
+            guard.mark_owned(output_root)
+
+            self.assertTrue((output_root / MARKER_FILE_NAME).is_file())
+            self.assertTrue((output_root / "real-output.txt").is_file())
+
+    def test_is_idempotent_across_repeated_calls(self) -> None:
+        """A second mark_owned call against the same root succeeds again without error."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "custom-out"
+            guard = BuildOutputOwnershipGuard()
+            guard.mark_owned(output_root)
+
+            guard.mark_owned(output_root)
+
+            self.assertTrue((output_root / MARKER_FILE_NAME).is_file())
+
+    def test_normalizes_a_value_error_while_marking_a_malformed_root(self) -> None:
+        """Normalizes a ValueError raised while marking a malformed root -- here an embedded null character, which mkdir rejects before touching the OS -- into RuntimeError."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "custom-out\0bad"
+            guard = BuildOutputOwnershipGuard()
+
+            with self.assertRaises(RuntimeError) as context:
+                guard.mark_owned(output_root)
+
+            self.assertIsInstance(context.exception.__cause__, ValueError)
+
+
 if __name__ == "__main__":
     unittest.main()

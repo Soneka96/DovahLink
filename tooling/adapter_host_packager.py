@@ -13,7 +13,6 @@ import shutil
 from pathlib import Path
 
 from adapter_host_process_runner import IProcessRunner
-from build_output_ownership import IBuildOutputOwnershipGuard
 
 # ---- Publish strategy ----
 
@@ -40,20 +39,13 @@ HOST_EXECUTABLE_RELATIVE_DIR = "DovahLink.Host"
 class AdapterHostPackager:
     """Publishes the Host and assembles the Vortex-installable Adapter+Host package."""
 
-    def __init__(
-        self,
-        process_runner: IProcessRunner,
-        ownership_guard: IBuildOutputOwnershipGuard,
-    ) -> None:
-        """Stores the injected process runner and output-ownership guard.
+    def __init__(self, process_runner: IProcessRunner) -> None:
+        """Stores the injected process runner.
 
         Args:
             process_runner: Runs the `dotnet publish` command.
-            ownership_guard: Verifies `assemble_package`'s `package_dir` is safe to
-                destructively replace before it is ever touched.
         """
         self._process_runner = process_runner
-        self._ownership_guard = ownership_guard
 
     def publish_host(
         self,
@@ -90,11 +82,14 @@ class AdapterHostPackager:
         adapter_build_dir: Path,
         host_publish_dir: Path,
         package_dir: Path,
-        repository_root: Path,
         console_admin_pex: Path | None = None,
         console_admin_yaml: Path | None = None,
     ) -> None:
         """Assembles the Vortex `Data/` layout under `package_dir` from already-built artifacts.
+
+        `package_dir` is treated as a known, always-rebuildable child of a root the caller has
+        already proven DovahLink Builder-owned (see `build_output_ownership.py`) before calling
+        this method; this method itself neither checks nor marks ownership of `package_dir`.
 
         The optional trust-administration console adapter files are included only when supplied;
         the package works completely normally without them, per `console-admin/README.md`.
@@ -105,10 +100,7 @@ class AdapterHostPackager:
             host_publish_dir: Directory `publish_host` wrote the published Host executable into.
             package_dir: Directory the `Data/` layout is assembled under. Any pre-existing content
                 is discarded first, so a file from a previous, differently-configured run never
-                survives into this one; verified by `ownership_guard` before that happens, so an
-                arbitrary unrelated folder is never silently adopted and destructively replaced.
-            repository_root: The repository root `package_dir` is resolved under, used by
-                `ownership_guard` to recognize the default `tooling/out` output location.
+                survives into this one.
             console_admin_pex: Path to an already-compiled `DovahLinkAdmin.pex`, or `None` to omit
                 the optional console-admin surface entirely.
             console_admin_yaml: Path to `dovahlink.yaml`, or `None` to omit it.
@@ -118,8 +110,6 @@ class AdapterHostPackager:
                 published Host executable, or a supplied console-admin file is missing. Every
                 source is validated before any existing `package_dir` content is removed, so a
                 valid previous package is never destroyed by a run that then fails.
-            RuntimeError: `package_dir` is not proven DovahLink Builder-owned; see
-                `build_output_ownership.BuildOutputOwnershipGuard`.
         """
         adapter_plugin = adapter_build_dir / ADAPTER_PLUGIN_NAME
         host_executable = host_publish_dir / HOST_EXECUTABLE_NAME
@@ -144,27 +134,14 @@ class AdapterHostPackager:
                 f"Console-admin YAML not found: {console_admin_yaml}"
             )
 
-        # Verified before package_dir is ever touched, on top of the source validation above: an
-        # arbitrary existing folder with unrelated content and no DovahLink Builder ownership mark
-        # must never be silently adopted and then destructively replaced below.
-        self._ownership_guard.ensure_owned(package_dir, repository_root)
-
         # A stale package_dir from a previous run could otherwise leave behind a file this run
         # never wrote -- for example a console-admin file omitted this time -- so every run starts
         # from a clean directory rather than accreting on top of whatever is already there. Every
         # source above is validated first, so this never destroys a valid previous package only to
-        # fail partway through reassembling it.
+        # fail partway through reassembling it. Safe unconditionally: the caller has already proven
+        # the root package_dir lives under is DovahLink Builder-owned before this method runs.
         if package_dir.exists():
             shutil.rmtree(package_dir)
-
-        # Re-verified immediately after the wipe above, before any real content is written: unlike
-        # the C# BuildOutputOwnershipGuard's own callers (which only ever clean subfolders under a
-        # stable output root the ownership mark lives in), this rmtree replaces package_dir itself,
-        # destroying whatever ownership mark it just carried. Calling ensure_owned again here -- now
-        # against an empty or nonexistent package_dir -- always takes its adopt branch and replants
-        # that mark before this run's own content lands, so ownership survives every rebuild rather
-        # than being valid only until the very first real run wipes it.
-        self._ownership_guard.ensure_owned(package_dir, repository_root)
 
         plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
         plugins_dir.mkdir(parents=True, exist_ok=True)

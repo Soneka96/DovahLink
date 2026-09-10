@@ -101,9 +101,16 @@ def main(argv: list[str]) -> int:
     """
     args = parse_args(argv)
 
-    packager = AdapterHostPackager(
-        SubprocessProcessRunner(), BuildOutputOwnershipGuard()
-    )
+    # Verified before any destructive or write work starts, against the one root this CLI actually
+    # owns: publish_host below already writes into args.output_dir, so checking ownership any later
+    # (for example only once assemble_package eventually touches its package/ subfolder) would let a
+    # direct run against an arbitrary, unrelated folder write into it first. Mirrors the check
+    # AdapterHostBuildCoordinator (the C# Builder GUI's caller of this script) already performs on
+    # the same output_dir before ever invoking this script, so direct CLI use gets the same
+    # protection.
+    BuildOutputOwnershipGuard().ensure_owned(args.output_dir, REPOSITORY_ROOT)
+
+    packager = AdapterHostPackager(SubprocessProcessRunner())
     host_publish_dir = args.output_dir / "publish"
     _print_stage(STAGE_HOST_PUBLISH, "start")
     packager.publish_host(
@@ -117,7 +124,6 @@ def main(argv: list[str]) -> int:
         adapter_build_dir=args.adapter_build_dir,
         host_publish_dir=host_publish_dir,
         package_dir=package_dir,
-        repository_root=REPOSITORY_ROOT,
         console_admin_pex=args.console_admin_pex,
         console_admin_yaml=args.console_admin_yaml,
     )

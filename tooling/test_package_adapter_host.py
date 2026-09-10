@@ -6,6 +6,7 @@ import contextlib
 import io
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -14,6 +15,7 @@ from adapter_host_packager import (
     ADAPTER_RUNTIME_DLL_NAMES,
     HOST_EXECUTABLE_NAME,
 )
+from build_output_ownership import MARKER_FILE_NAME
 from package_adapter_host import (
     STAGE_ARCHIVE,
     STAGE_HOST_PUBLISH,
@@ -296,6 +298,116 @@ class MainTests(unittest.TestCase):
             self.assertEqual(
                 captured_stdout.getvalue(), "\n".join(expected_lines) + "\n"
             )
+
+    def test_main_zip_does_not_contain_the_ownership_marker(self) -> None:
+        """Verifies the ownership marker is written directly under output_dir, not inside the zipped package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((output_dir / MARKER_FILE_NAME).is_file())
+            zips = list(output_dir.glob("DovahLink-Adapter-*.zip"))
+            self.assertEqual(len(zips), 1)
+            with zipfile.ZipFile(zips[0]) as archive:
+                names = set(archive.namelist())
+            self.assertNotIn(MARKER_FILE_NAME, names)
+
+
+class OwnershipTests(unittest.TestCase):
+    """Tests for main's output-directory ownership check."""
+
+    def test_main_refuses_an_unrelated_non_empty_output_dir_before_publishing(
+        self,
+    ) -> None:
+        """Verifies an unmarked, unrelated, non-empty output_dir is refused before dotnet publish ever runs."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "unrelated-user-folder"
+            unrelated_file = output_dir / "some-real-file.txt"
+            _write_file(unrelated_file, "the user's own real data, not DovahLink's")
+
+            with mock.patch("package_adapter_host.SubprocessProcessRunner.run") as run:
+                with self.assertRaises(RuntimeError):
+                    main(
+                        [
+                            "--adapter-build-dir",
+                            str(adapter_build_dir),
+                            "--output-dir",
+                            str(output_dir),
+                        ]
+                    )
+
+            run.assert_not_called()
+            self.assertFalse((output_dir / MARKER_FILE_NAME).is_file())
+            self.assertEqual(
+                "the user's own real data, not DovahLink's",
+                unrelated_file.read_text(encoding="utf-8"),
+            )
+
+    def test_main_succeeds_for_a_previously_marked_output_dir(self) -> None:
+        """Verifies a repeat Builder run against a previously-adopted custom output_dir still succeeds."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "previously-owned-output"
+            _write_file(output_dir / MARKER_FILE_NAME, "owned")
+            _write_file(output_dir / "package" / "stale-from-last-run.txt", "stale")
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            plugins_dir = output_dir / "package" / "Data" / "SKSE" / "Plugins"
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
 
 
 if __name__ == "__main__":

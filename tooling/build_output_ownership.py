@@ -39,6 +39,23 @@ class IBuildOutputOwnershipGuard(Protocol):
         """
         ...
 
+    def mark_owned(self, output_root: Path) -> None:
+        """Unconditionally (re-)writes the ownership marker directly inside `output_root`.
+
+        Performs no refusal check of its own: never call this against a root that has not
+        already passed `ensure_owned`, since doing so marks whatever is there -- unrelated
+        content included -- as Builder-owned without ever verifying it actually is.
+
+        Args:
+            output_root: The directory to mark, assumed already proven safe by an earlier
+                `ensure_owned` call against the same root.
+
+        Raises:
+            RuntimeError: The marker could not be written because the location could not be
+                accessed.
+        """
+        ...
+
 
 class BuildOutputOwnershipGuard:
     """Verifies or safely establishes DovahLink Builder's ownership of an output root."""
@@ -84,4 +101,33 @@ class BuildOutputOwnershipGuard:
             # rather than OSError on this platform.
             raise RuntimeError(
                 f"Could not create or mark the build output location: {output_root}"
+            ) from exception
+
+    def mark_owned(self, output_root: Path) -> None:
+        """Unconditionally (re-)writes the ownership marker directly inside `output_root`.
+
+        For a caller whose one owned root is also the exact directory a subsequent destructive
+        rebuild replaces wholesale (unlike this guard's usual callers, which only ever clean a
+        subfolder under a root the mark itself survives in): call `ensure_owned` first to refuse
+        an unrelated non-empty folder, then this method again once the rebuild that just
+        destroyed the mark it planted has finished, so a later run against the same root is still
+        recognized as owned rather than refused as an unrelated non-empty folder.
+
+        Args:
+            output_root: The directory to mark, assumed already proven safe by an earlier
+                `ensure_owned` call against the same root.
+
+        Raises:
+            RuntimeError: The marker could not be written because the location could not be
+                accessed.
+        """
+        try:
+            output_root.mkdir(parents=True, exist_ok=True)
+            (output_root / MARKER_FILE_NAME).write_text(
+                MARKER_CONTENTS, encoding="utf-8"
+            )
+        except (OSError, ValueError) as exception:
+            # See ensure_owned above for why ValueError is normalized the same as OSError here.
+            raise RuntimeError(
+                f"Could not mark the build output location: {output_root}"
             ) from exception

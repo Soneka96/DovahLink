@@ -14,7 +14,6 @@ from adapter_host_packager import (
     PUBLISH_ARGS,
     AdapterHostPackager,
 )
-from build_output_ownership import MARKER_FILE_NAME, BuildOutputOwnershipGuard
 
 
 class FakeProcessRunner:
@@ -27,20 +26,6 @@ class FakeProcessRunner:
     def run(self, args: list[str]) -> None:
         """Records `args` instead of running them."""
         self.invocations.append(args)
-
-
-class FakeBuildOutputOwnershipGuard:
-    """Treats every output root as already owned, doing nothing.
-
-    The real ownership behavior itself is covered by `test_build_output_ownership.py` and this
-    file's own ownership-specific tests, which construct a real `BuildOutputOwnershipGuard`
-    explicitly; every other test in this file uses this fake so it never refuses a `package_dir`
-    pre-populated with unrelated "stale file from a previous run" content that is not this
-    feature's concern.
-    """
-
-    def ensure_owned(self, output_root: Path, repository_root: Path) -> None:
-        """Does nothing."""
 
 
 def _write_file(path: Path, content: str = "") -> None:
@@ -58,7 +43,7 @@ class PublishHostTests(unittest.TestCase):
         """Verifies the production .NET publishing strategy's exact flags are passed, defaulting to a Release configuration."""
         with tempfile.TemporaryDirectory() as temp_dir:
             runner = FakeProcessRunner()
-            packager = AdapterHostPackager(runner, FakeBuildOutputOwnershipGuard())
+            packager = AdapterHostPackager(runner)
             host_project = Path(temp_dir) / "DovahLink.Host.csproj"
             publish_dir = Path(temp_dir) / "publish"
 
@@ -84,7 +69,7 @@ class PublishHostTests(unittest.TestCase):
         """Verifies a non-default configuration (for example a Debug build profile) is forwarded to dotnet publish."""
         with tempfile.TemporaryDirectory() as temp_dir:
             runner = FakeProcessRunner()
-            packager = AdapterHostPackager(runner, FakeBuildOutputOwnershipGuard())
+            packager = AdapterHostPackager(runner)
             host_project = Path(temp_dir) / "DovahLink.Host.csproj"
             publish_dir = Path(temp_dir) / "publish"
 
@@ -98,9 +83,7 @@ class PublishHostTests(unittest.TestCase):
     def test_publish_host_creates_the_output_directory(self) -> None:
         """Verifies the publish output directory is created before publishing."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             publish_dir = Path(temp_dir) / "nested" / "publish"
 
             packager.publish_host(Path(temp_dir) / "DovahLink.Host.csproj", publish_dir)
@@ -129,15 +112,12 @@ class AssemblePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
 
             plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
@@ -148,97 +128,6 @@ class AssemblePackageTests(unittest.TestCase):
                 (plugins_dir / "DovahLink.Host" / HOST_EXECUTABLE_NAME).is_file()
             )
 
-    def test_assemble_package_refuses_an_unrelated_non_empty_package_dir(self) -> None:
-        """
-        Refuses to assemble, before the existing content is ever touched, when `package_dir`
-        resolves to an arbitrary existing folder that already has unrelated content and no
-        DovahLink Builder ownership mark -- proving a NORMAL (not just a clean-flagged) run can
-        never delete an unrelated folder a caller happened to point it at. Uses a real
-        `BuildOutputOwnershipGuard`, unlike this file's other tests, since this is what actually
-        enforces the refusal.
-        """
-        with tempfile.TemporaryDirectory() as temp_dir_str:
-            temp_dir = Path(temp_dir_str)
-            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            package_dir = temp_dir / "unrelated-user-folder"
-            unrelated_file = package_dir / "some-real-file.txt"
-            _write_file(unrelated_file, "the user's own real data, not DovahLink's")
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), BuildOutputOwnershipGuard()
-            )
-
-            with self.assertRaises(RuntimeError):
-                packager.assemble_package(
-                    adapter_build_dir=adapter_build_dir,
-                    host_publish_dir=host_publish_dir,
-                    package_dir=package_dir,
-                    repository_root=temp_dir / "repo",
-                )
-
-            self.assertFalse((package_dir / MARKER_FILE_NAME).is_file())
-            self.assertEqual(
-                "the user's own real data, not DovahLink's",
-                unrelated_file.read_text(encoding="utf-8"),
-            )
-
-    def test_assemble_package_succeeds_for_an_already_marked_package_dir(self) -> None:
-        """
-        Assembles normally into a `package_dir` already marked as DovahLink Builder-owned from a
-        previous run, even though it already has real content from that previous run -- proving a
-        valid Builder-owned custom output can still be reassembled.
-        """
-        with tempfile.TemporaryDirectory() as temp_dir_str:
-            temp_dir = Path(temp_dir_str)
-            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            package_dir = temp_dir / "previously-owned-output"
-            _write_file(package_dir / MARKER_FILE_NAME, "owned")
-            _write_file(package_dir / "Data" / "stale-from-last-run.txt", "stale")
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), BuildOutputOwnershipGuard()
-            )
-
-            packager.assemble_package(
-                adapter_build_dir=adapter_build_dir,
-                host_publish_dir=host_publish_dir,
-                package_dir=package_dir,
-                repository_root=temp_dir / "repo",
-            )
-
-            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
-            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
-
-    def test_assemble_package_keeps_a_freshly_adopted_package_dir_owned_across_repeated_runs(
-        self,
-    ) -> None:
-        """
-        Regression test: `package_dir` itself -- unlike the C# BuildOutputOwnershipGuard's own
-        callers, which only ever clean subfolders under a stable marked root -- is entirely replaced
-        by this method's own rmtree every run, which would otherwise destroy the ownership mark a
-        first run had only just adopted, permanently locking a legitimate second run out of its own
-        previous output. Proves three consecutive runs against the same nonexistent-at-first custom
-        `package_dir` all succeed.
-        """
-        with tempfile.TemporaryDirectory() as temp_dir_str:
-            temp_dir = Path(temp_dir_str)
-            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            package_dir = temp_dir / "custom-out" / "package"
-            repository_root = temp_dir / "repo"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), BuildOutputOwnershipGuard()
-            )
-
-            for _ in range(3):
-                packager.assemble_package(
-                    adapter_build_dir=adapter_build_dir,
-                    host_publish_dir=host_publish_dir,
-                    package_dir=package_dir,
-                    repository_root=repository_root,
-                )
-
-            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
-            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
-            self.assertTrue((package_dir / MARKER_FILE_NAME).is_file())
-
     def test_assemble_package_raises_when_the_adapter_plugin_is_missing(self) -> None:
         """Verifies a missing adapter plugin DLL fails clearly rather than assembling a partial package."""
         with tempfile.TemporaryDirectory() as temp_dir_str:
@@ -246,16 +135,13 @@ class AssemblePackageTests(unittest.TestCase):
             _adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             adapter_build_dir = temp_dir / "empty_adapter_build"
             adapter_build_dir.mkdir()
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             with self.assertRaises(FileNotFoundError):
                 packager.assemble_package(
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=temp_dir / "package",
-                    repository_root=temp_dir / "repo",
                 )
 
     def test_assemble_package_raises_when_a_runtime_dll_is_missing(self) -> None:
@@ -264,16 +150,13 @@ class AssemblePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             (adapter_build_dir / ADAPTER_RUNTIME_DLL_NAMES[0]).unlink()
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             with self.assertRaises(FileNotFoundError):
                 packager.assemble_package(
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=temp_dir / "package",
-                    repository_root=temp_dir / "repo",
                 )
 
     def test_assemble_package_raises_when_the_published_host_executable_is_missing(
@@ -285,16 +168,13 @@ class AssemblePackageTests(unittest.TestCase):
             adapter_build_dir, _host_publish_dir = self._build_valid_inputs(temp_dir)
             host_publish_dir = temp_dir / "empty_host_publish"
             host_publish_dir.mkdir()
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             with self.assertRaises(FileNotFoundError):
                 packager.assemble_package(
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=temp_dir / "package",
-                    repository_root=temp_dir / "repo",
                 )
 
     def test_assemble_package_includes_console_admin_files_when_supplied(self) -> None:
@@ -307,15 +187,12 @@ class AssemblePackageTests(unittest.TestCase):
             _write_file(pex_path, "pex")
             _write_file(yaml_path, "yaml")
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
                 console_admin_pex=pex_path,
                 console_admin_yaml=yaml_path,
             )
@@ -339,15 +216,12 @@ class AssemblePackageTests(unittest.TestCase):
             pex_path = temp_dir / "DovahLinkAdmin.pex"
             _write_file(pex_path, "pex")
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
                 console_admin_pex=pex_path,
             )
 
@@ -366,15 +240,12 @@ class AssemblePackageTests(unittest.TestCase):
             yaml_path = temp_dir / "dovahlink.yaml"
             _write_file(yaml_path, "yaml")
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
                 console_admin_yaml=yaml_path,
             )
 
@@ -391,15 +262,12 @@ class AssemblePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
 
             self.assertFalse((package_dir / "Data" / "Scripts").exists())
@@ -415,14 +283,11 @@ class AssemblePackageTests(unittest.TestCase):
             pex_path = temp_dir / "DovahLinkAdmin.pex"
             _write_file(pex_path, "pex")
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
                 console_admin_pex=pex_path,
             )
             self.assertTrue(
@@ -433,7 +298,6 @@ class AssemblePackageTests(unittest.TestCase):
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
 
             self.assertFalse((package_dir / "Data" / "Scripts").exists())
@@ -445,16 +309,13 @@ class AssemblePackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             with self.assertRaises(FileNotFoundError):
                 packager.assemble_package(
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=temp_dir / "package",
-                    repository_root=temp_dir / "repo",
                     console_admin_pex=temp_dir / "missing.pex",
                 )
 
@@ -465,16 +326,13 @@ class AssemblePackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             with self.assertRaises(FileNotFoundError):
                 packager.assemble_package(
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=temp_dir / "package",
-                    repository_root=temp_dir / "repo",
                     console_admin_yaml=temp_dir / "missing.yaml",
                 )
 
@@ -486,14 +344,11 @@ class AssemblePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
             plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
             self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
@@ -504,7 +359,6 @@ class AssemblePackageTests(unittest.TestCase):
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=package_dir,
-                    repository_root=temp_dir / "repo",
                 )
 
             self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
@@ -522,14 +376,11 @@ class AssemblePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
             plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
             self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
@@ -540,7 +391,6 @@ class AssemblePackageTests(unittest.TestCase):
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=package_dir,
-                    repository_root=temp_dir / "repo",
                 )
 
             self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
@@ -553,14 +403,11 @@ class AssemblePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
             plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
 
@@ -569,7 +416,6 @@ class AssemblePackageTests(unittest.TestCase):
                     adapter_build_dir=adapter_build_dir,
                     host_publish_dir=host_publish_dir,
                     package_dir=package_dir,
-                    repository_root=temp_dir / "repo",
                     console_admin_pex=temp_dir / "missing.pex",
                 )
 
@@ -597,9 +443,7 @@ class ZipPackageTests(unittest.TestCase):
                 / HOST_EXECUTABLE_NAME,
                 "host",
             )
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
 
             archive_path = packager.zip_package(
                 package_dir, temp_dir / "DovahLink-Adapter-0.0.0"
@@ -638,14 +482,11 @@ class ValidatePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
 
             packager.validate_package(package_dir)
@@ -662,14 +503,11 @@ class ValidatePackageTests(unittest.TestCase):
             _write_file(pex_path, "pex")
             _write_file(yaml_path, "yaml")
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
                 console_admin_pex=pex_path,
                 console_admin_yaml=yaml_path,
             )
@@ -684,14 +522,11 @@ class ValidatePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
             (package_dir / "Data" / "SKSE" / "Plugins" / ADAPTER_PLUGIN_NAME).unlink()
 
@@ -704,14 +539,11 @@ class ValidatePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
             (
                 package_dir / "Data" / "SKSE" / "Plugins" / ADAPTER_RUNTIME_DLL_NAMES[0]
@@ -726,14 +558,11 @@ class ValidatePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
             (
                 package_dir
@@ -755,14 +584,11 @@ class ValidatePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
 
             with self.assertRaises(FileNotFoundError):
@@ -778,14 +604,11 @@ class ValidatePackageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
             )
 
             with self.assertRaises(FileNotFoundError):
@@ -801,14 +624,11 @@ class ValidatePackageTests(unittest.TestCase):
             pex_path = temp_dir / "DovahLinkAdmin.pex"
             _write_file(pex_path, "pex")
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
                 console_admin_pex=pex_path,
             )
 
@@ -822,14 +642,11 @@ class ValidatePackageTests(unittest.TestCase):
             yaml_path = temp_dir / "dovahlink.yaml"
             _write_file(yaml_path, "yaml")
             package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(
-                FakeProcessRunner(), FakeBuildOutputOwnershipGuard()
-            )
+            packager = AdapterHostPackager(FakeProcessRunner())
             packager.assemble_package(
                 adapter_build_dir=adapter_build_dir,
                 host_publish_dir=host_publish_dir,
                 package_dir=package_dir,
-                repository_root=temp_dir / "repo",
                 console_admin_yaml=yaml_path,
             )
 
