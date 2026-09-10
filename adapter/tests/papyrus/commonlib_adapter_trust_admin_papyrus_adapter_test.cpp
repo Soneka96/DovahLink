@@ -405,10 +405,11 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's List parses the "
     std::string source = Source();
 
     CHECK(source.find("scope.empty()") != std::string::npos);
-    CHECK(source.find("scope == \"all\"") != std::string::npos);
+    CHECK(source.find("scope == \"known\"") != std::string::npos);
     CHECK(source.find("scope == \"trusted\"") != std::string::npos);
     CHECK(source.find("scope == \"blocked\"") != std::string::npos);
     CHECK(source.find("\"Unrecognized list scope.\"") != std::string::npos);
+    CHECK(source.find("scope == \"all\"") == std::string::npos);
     CHECK(source.find("scope == \"trust\"") == std::string::npos);
     CHECK(source.find("scope == \"block\"") == std::string::npos);
 }

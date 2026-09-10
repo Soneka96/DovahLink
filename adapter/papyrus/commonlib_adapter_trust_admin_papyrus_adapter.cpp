@@ -71,8 +71,8 @@ constexpr const char* kMutatingRequestTimedOutMessage =
 constexpr const char* kInternalErrorMessage =
     "DovahLink trust admin failed unexpectedly.";
 
-///  Result returned when `List`'s scope argument is not one of "all",
-///  "trust", or "block".
+///  Result returned when `List`'s scope argument is not one of "known",
+///  "trusted", or "blocked".
 constexpr const char* kUnrecognizedScopeMessage = "Unrecognized list scope.";
 
 ///  Result returned when a short-id-targeted command's argument is not
@@ -93,9 +93,11 @@ bool IsFixedAsciiDigits(std::string_view text, std::size_t expectedLength) {
 
 ///  Parses `List`'s scope argument into its closed wire value. An empty scope -- ConsoleUtil
 ///  Extended's own representation of an omitted optional argument -- is treated the same as
-///  "all".
+///  "known". "all" was tried first but ConsoleUtil Extended appears to treat it as a reserved
+///  word of its own: it produced the same unrecognized-scope result as an omitted argument even
+///  when typed explicitly, while every other tried word passed through untouched.
 std::optional<ipc::TrustAdminListScope> ParseListScope(std::string_view scope) {
-    if (scope.empty() || scope == "all") {
+    if (scope.empty() || scope == "known") {
         return ipc::TrustAdminListScope::kAll;
     }
     if (scope == "trusted") {
