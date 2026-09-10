@@ -164,7 +164,13 @@ public sealed class PreflightService : IPreflightService
             Directory.CreateDirectory(outputRoot);
             return new ToolchainCheckResult(OutputFolderToolName, ToolchainAvailability.Found, outputRoot, null);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        // ArgumentException and NotSupportedException cover an invalid path value itself (for
+        // example characters Windows rejects, or a colon outside the drive designator) -- not just
+        // an inaccessible one: outputPathOverride flows here unvalidated from Settings' free-text
+        // OutputPathContext, and every value it can hold must resolve to a reported result rather
+        // than throwing out of this call, which OnOutputPathContextChanged invokes synchronously
+        // from a PropertyChanged handler with no exception boundary of its own.
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             return new ToolchainCheckResult(OutputFolderToolName, ToolchainAvailability.CouldNotCheck, outputRoot, exception.Message);
         }

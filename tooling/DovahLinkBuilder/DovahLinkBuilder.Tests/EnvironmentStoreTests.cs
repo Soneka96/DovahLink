@@ -229,6 +229,38 @@ public sealed class EnvironmentStoreTests
         Assert.DoesNotContain(nameof(EnvironmentStore.IsRefreshing), raisedProperties);
     }
 
+    /// <summary>
+    /// Regression test for the real chain an invalid Settings output path travels through:
+    /// <see cref="OutputPathContext.SetOutputPath"/> raises <see cref="OutputPathContext.PropertyChanged"/>
+    /// synchronously, which <see cref="EnvironmentStore"/> handles by calling a REAL
+    /// <see cref="PreflightService"/> (not <see cref="FakePreflightService"/>), so a value the real
+    /// filesystem check cannot create a directory for must still resolve to
+    /// <see cref="ToolchainAvailability.CouldNotCheck"/> rather than throwing out of this synchronous
+    /// property-change handler.
+    /// </summary>
+    [Fact]
+    public async Task ChangingTheOutputPathContextToAMalformedValueDoesNotThrowAndReportsCouldNotCheck()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = Path.Combine(temporaryDirectory.Path, "repo");
+        Directory.CreateDirectory(Path.Combine(repositoryRoot, "adapter"));
+        File.WriteAllText(Path.Combine(repositoryRoot, "adapter", "vcpkg.json"), "{}");
+        var repositoryContext = new RepositoryContext(repositoryRoot);
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var outputPathContext = new OutputPathContext(null);
+        var preflightService = new PreflightService(new StubCommandRunner(), TimeSpan.FromMilliseconds(200));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        await store.RefreshAsync();
+        string malformedOverride = Path.Combine(temporaryDirectory.Path, "custom-out\0bad");
+
+        Exception? thrown = Record.Exception(() => outputPathContext.SetOutputPath(malformedOverride));
+
+        Assert.Null(thrown);
+        ToolchainCheckResult outputFolderResult = Assert.Single(
+            store.PreflightResults, result => result.ToolName == "Output Folder");
+        Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
+    }
+
     /// <summary>Raises PropertyChanged for PreflightResults and IsRefreshing as a refresh starts and finishes.</summary>
     [Fact]
     public async Task RefreshAsyncRaisesPropertyChangedForPreflightResultsAndIsRefreshing()
@@ -375,5 +407,21 @@ public sealed class EnvironmentStoreTests
         await store.RefreshAsync();
 
         Assert.Contains(nameof(EnvironmentStore.RefreshError), raisedProperties);
+    }
+
+    /// <summary>
+    /// Succeeds every command immediately with no output, for a real <see cref="PreflightService"/>
+    /// constructed to prove its own output-folder check's real exception handling, where every other
+    /// probed tool's own result is irrelevant to the test.
+    /// </summary>
+    private sealed class StubCommandRunner : ICommandRunner
+    {
+        /// <inheritdoc/>
+        public Task<int> RunAsync(
+            BuildCommand command,
+            Action<string>? onStandardOutput,
+            Action<string>? onStandardError,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
     }
 }

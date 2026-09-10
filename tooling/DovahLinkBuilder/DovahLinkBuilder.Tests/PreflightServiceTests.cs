@@ -256,6 +256,42 @@ public sealed class PreflightServiceTests
         Assert.NotNull(outputFolderResult.RemediationHint);
     }
 
+    /// <summary>Reports the output folder as could-not-check, rather than throwing, when the configured override is a malformed path.</summary>
+    [Fact]
+    public async Task CheckAllReportsOutputFolderCouldNotCheckForAMalformedOverride()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = Path.Combine(temporaryDirectory.Path, "repo");
+        Directory.CreateDirectory(Path.Combine(repositoryRoot, "adapter"));
+        File.WriteAllText(Path.Combine(repositoryRoot, "adapter", "vcpkg.json"), "{}");
+        string malformedOverride = Path.Combine(temporaryDirectory.Path, "custom-out\0bad");
+        var service = new PreflightService(new FakeCommandRunner(), TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot, malformedOverride);
+
+        ToolchainCheckResult outputFolderResult = results[7];
+        Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
+        Assert.NotNull(outputFolderResult.RemediationHint);
+    }
+
+    /// <summary>Reports the output folder as could-not-check, rather than throwing, when the configured override has an invalid colon placement.</summary>
+    [Fact]
+    public async Task CheckAllReportsOutputFolderCouldNotCheckForAnOverrideWithAnInvalidColon()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = Path.Combine(temporaryDirectory.Path, "repo");
+        Directory.CreateDirectory(Path.Combine(repositoryRoot, "adapter"));
+        File.WriteAllText(Path.Combine(repositoryRoot, "adapter", "vcpkg.json"), "{}");
+        string invalidOverride = Path.Combine(temporaryDirectory.Path, "custom-out:bad");
+        var service = new PreflightService(new FakeCommandRunner(), TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot, invalidOverride);
+
+        ToolchainCheckResult outputFolderResult = results[7];
+        Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
+        Assert.NotNull(outputFolderResult.RemediationHint);
+    }
+
     /// <summary>Checks the configured output path override instead of the repository's default tooling/out.</summary>
     [Fact]
     public async Task CheckAllReportsOutputFolderFoundForTheConfiguredOverride()
