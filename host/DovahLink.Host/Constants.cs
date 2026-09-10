@@ -479,4 +479,14 @@ public static class Constants
     /// set bounded and prevents eviction-based replay."
     /// </summary>
     public const int PublicProtocolMaxSessionMessages = 10_000;
+
+    // ---- State ----
+
+    /// <summary>
+    /// The maximum number of state areas <see cref="State.RegisteredStateAreaPolicy"/> ever admits at
+    /// once, per <c>ai/context/protocol/security.md</c>'s "maximum registered state areas: 8
+    /// (kMaxRegisteredStateAreas)". Sized for a small number of near-term production character
+    /// domains with modest headroom; not itself a wire limit.
+    /// </summary>
+    public const int MaxRegisteredStateAreas = 8;
 }
