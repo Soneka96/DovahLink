@@ -274,6 +274,7 @@ public sealed class ProcessCommandRunnerTests
 
         Assert.NotNull(fakeJob.AssignedProcess);
         Assert.Equal(fakeJob.ActiveCallsBeforeEmpty + 1, fakeJob.HasActiveProcessesCallCount);
+        Assert.Equal(1, fakeJob.TerminateCallCount);
         Assert.True(fakeJob.Disposed);
     }
 
@@ -301,6 +302,82 @@ public sealed class ProcessCommandRunnerTests
         Assert.True(
             elapsed.Elapsed < Constants.ProcessTreeTerminationTimeout + TimeSpan.FromSeconds(2),
             $"Expected a bounded wait even when the tree never reports empty, took {elapsed.Elapsed}.");
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>
+    /// Terminates the tracked job even when the root process could not be terminated, so a detached
+    /// descendant outside the root's own kill is not left waited on for the full poll timeout.
+    /// </summary>
+    [Fact]
+    public async Task CancellationTerminatesTheTrackedJobWhenRootTerminationFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob();
+        var runner = new ProcessCommandRunner(_ => throw new Win32Exception("access denied"), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.True(fakeJob.Disposed);
+
+        // The runner gives up on this un-terminated process rather than waiting for it; wait for it to
+        // exit naturally before the temporary directory is disposed below.
+        await Task.Delay(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Terminates the tracked job even when tree termination itself reports a partial failure.</summary>
+    [Fact]
+    public async Task CancellationTerminatesTheTrackedJobWhenRootTerminationThrowsAnAggregateException()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob();
+        var runner = new ProcessCommandRunner(_ => throw new AggregateException(new Win32Exception("access denied")), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.True(fakeJob.Disposed);
+
+        // The runner gives up on this un-terminated process rather than waiting for it; wait for it to
+        // exit naturally before the temporary directory is disposed below.
+        await Task.Delay(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Preserves cancellation and still waits for the process tree to empty when job termination itself fails.</summary>
+    [Fact]
+    public async Task CancellationIsNotMaskedWhenJobTerminationFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ActiveCallsBeforeEmpty = 2, ThrowOnTerminate = new Win32Exception("access denied") };
+        var runner = new ProcessCommandRunner(process => process.Kill(), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.Equal(fakeJob.ActiveCallsBeforeEmpty + 1, fakeJob.HasActiveProcessesCallCount);
         Assert.True(fakeJob.Disposed);
     }
 
@@ -345,6 +422,12 @@ public sealed class ProcessCommandRunnerTests
         /// <summary>Whether <see cref="Dispose"/> has been called.</summary>
         public bool Disposed { get; private set; }
 
+        /// <summary>The number of times <see cref="Terminate"/> has been called.</summary>
+        public int TerminateCallCount { get; private set; }
+
+        /// <summary>The exception <see cref="Terminate"/> throws after recording the call, or <see langword="null"/> to succeed.</summary>
+        public Win32Exception? ThrowOnTerminate { get; set; }
+
         /// <inheritdoc/>
         public void Assign(Process process)
         {
@@ -362,6 +445,11 @@ public sealed class ProcessCommandRunnerTests
         /// <inheritdoc/>
         public void Terminate()
         {
+            TerminateCallCount++;
+            if (ThrowOnTerminate is not null)
+            {
+                throw ThrowOnTerminate;
+            }
         }
 
         /// <inheritdoc/>

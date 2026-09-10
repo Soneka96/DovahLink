@@ -132,6 +132,16 @@ public sealed class ProcessCommandRunner : ICommandRunner
                 terminated = false;
             }
 
+            try
+            {
+                job.Terminate();
+            }
+            catch (Win32Exception)
+            {
+                // The tracked tree could not be terminated this way. Cancellation still wins, below;
+                // this job's own kill-on-close on disposal remains the final fallback.
+            }
+
             if (terminated)
             {
                 await process.WaitForExitAsync(CancellationToken.None);
