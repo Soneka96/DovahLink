@@ -127,7 +127,14 @@ public sealed class ProcessCommandRunnerTests
         using var temporaryDirectory = new TemporaryDirectory();
         var command = new BuildCommand(
             Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            // Deliberately longer than the 2-second threshold below by a wide margin: a regression
+            // that waits for natural exit instead of giving up promptly must not be able to sneak
+            // under that threshold by coincidence. Not matched to the tree-kill test's 30-second
+            // child (CancellationTerminatesTheProcessTreeAndThrowsOperationCanceledException):
+            // that test's cancellation actually kills the real process within seconds, so its longer
+            // duration costs little; this test's injected termination failure never kills the real
+            // process at all, so its duration is real wall-clock cost paid below regardless.
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
             temporaryDirectory.Path,
             new Dictionary<string, string>());
         var runner = new ProcessCommandRunner(_ => throw new Win32Exception("access denied"));
@@ -137,8 +144,8 @@ public sealed class ProcessCommandRunnerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => runner.RunAsync(command, null, null, cancellation.Token));
 
-        // A regression that waits for the child process to exit naturally (the "ping -n 3" above takes
-        // roughly 2-3 seconds) would still eventually throw OperationCanceledException and pass the
+        // A regression that waits for the child process to exit naturally (the "ping -n 8" above takes
+        // roughly 7-8 seconds) would still eventually throw OperationCanceledException and pass the
         // assertion above alone; this threshold is what actually proves the runner gave up on
         // termination promptly instead of hanging until natural exit.
         Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Expected a prompt return after a failed termination, took {elapsed.Elapsed}.");
@@ -147,7 +154,7 @@ public sealed class ProcessCommandRunnerTests
         // the behaviour under test), so it's still holding the working directory open here; wait for it to
         // exit naturally before the temporary directory is disposed below. Kept separate from the timing
         // assertion above so this cleanup wait is never mistaken for the behavior under test.
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(TimeSpan.FromSeconds(10));
     }
 
     /// <summary>Terminates a real child process tree promptly while preserving cancellation.</summary>
@@ -196,7 +203,10 @@ public sealed class ProcessCommandRunnerTests
         using var temporaryDirectory = new TemporaryDirectory();
         var command = new BuildCommand(
             Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            // See CancellationIsNotMaskedWhenTerminationFails above for why this is deliberately
+            // longer than the 2-second threshold below, and deliberately not matched to the
+            // tree-kill test's 30-second child.
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
             temporaryDirectory.Path,
             new Dictionary<string, string>());
         var runner = new ProcessCommandRunner(_ => throw new AggregateException(new Win32Exception("access denied")));
@@ -214,6 +224,6 @@ public sealed class ProcessCommandRunnerTests
         // The runner gives up on this un-terminated process rather than waiting for it; wait for it to
         // exit naturally before the temporary directory is disposed below. Kept separate from the
         // timing assertion above so this cleanup wait is never mistaken for the behavior under test.
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(TimeSpan.FromSeconds(10));
     }
 }
