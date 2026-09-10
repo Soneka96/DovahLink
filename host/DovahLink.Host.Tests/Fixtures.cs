@@ -62,13 +62,15 @@ public static class Fixtures
         IPublicWebSocketMessageHandler messageHandler,
         IClock? clock = null,
         PublicWebSocketTransportOptions? options = null,
-        IPublicWebSocketTransportDiagnostics? diagnostics = null) =>
+        IPublicWebSocketTransportDiagnostics? diagnostics = null,
+        IDataLaneOutboundQueue? dataLaneQueue = null) =>
         new(
             stream,
             messageHandler,
             clock ?? new SystemClock(),
             options ?? BuildPublicWebSocketTransportOptions(),
-            diagnostics ?? new FakePublicWebSocketTransportDiagnostics());
+            diagnostics ?? new FakePublicWebSocketTransportDiagnostics(),
+            dataLaneQueue ?? new DataLaneOutboundQueue());
 
     // ---- Client dispatch ----
 

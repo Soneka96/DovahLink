@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Threading.Channels;
+using DovahLink.Host.State;
 using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Client.Transport;
@@ -35,15 +36,18 @@ public interface IPublicWebSocketConnection
 
     /// <summary>
     /// Attempts to enqueue an outbound message for the writer loop to send as a WebSocket text frame,
-    /// onto <paramref name="lane"/>'s own reserved capacity. The writer loop always drains
+    /// onto <paramref name="lane"/>'s own reserved capacity. Passing <see cref="PublicOutboundLane.Data"/>
+    /// admits an Event onto that lane's plain ordered FIFO; a Snapshot instead goes through
+    /// <see cref="TrySendSnapshot"/>. The writer loop always drains
     /// <see cref="PublicOutboundLane.ControlOrRecovery"/> ahead of <see cref="PublicOutboundLane.Data"/>,
     /// so a flood of admitted <see cref="PublicOutboundLane.Data"/> messages can never delay or evict
     /// an admitted <see cref="PublicOutboundLane.ControlOrRecovery"/> one; the two lanes share one
     /// byte budget. A message that cannot be admitted also requests this connection's own forced close
     /// (see <see cref="RequestClose"/> for the distinct orderly close a caller can request instead),
-    /// per the transport's contract that an unadmittable response must not be dropped silently while
-    /// the connection stays open; the caller does not need to close the connection itself after a
-    /// <see langword="false"/> result.
+    /// per the transport's contract that an unadmittable Event or control message must not be dropped
+    /// silently while the connection stays open; the caller does not need to close the connection
+    /// itself after a <see langword="false"/> result. <see cref="TrySendSnapshot"/> has a distinct,
+    /// non-closing contract for an unadmittable Snapshot -- see its own documentation.
     /// </summary>
     /// <param name="payload">The complete message payload to send.</param>
     /// <param name="lane">The reserved-capacity lane to admit this message onto.</param>
@@ -52,6 +56,26 @@ public interface IPublicWebSocketConnection
     /// outbound queue; otherwise <see langword="false"/>, and the connection is now closing.
     /// </returns>
     bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane);
+
+    /// <summary>
+    /// Attempts to enqueue a Snapshot value for <paramref name="areaId"/> onto
+    /// <see cref="PublicOutboundLane.Data"/>'s reserved capacity, replacing any already-admitted,
+    /// not-yet-sent Snapshot for the same area in place rather than queuing a second one. Unlike
+    /// <see cref="TrySend"/>, a value this call cannot admit -- because neither a replacement nor a
+    /// new slot fits within the lane's bound -- is silently deferred: this is not reported as an
+    /// error, and this call never requests the connection's close, per
+    /// <c>ai/context/protocol/security.md</c>'s "Snapshot pressure may replace or defer an
+    /// unsolicited value, while Event overflow closes the slow client rather than dropping an
+    /// Event."
+    /// </summary>
+    /// <param name="areaId">The state area this snapshot value belongs to.</param>
+    /// <param name="payload">The complete message payload to send.</param>
+    /// <returns>
+    /// <see langword="true"/> when the value is now the pending snapshot for
+    /// <paramref name="areaId"/>; otherwise <see langword="false"/>, and the connection remains open
+    /// with the previous value (if any) still pending.
+    /// </returns>
+    bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload);
 
     /// <summary>
     /// Requests this connection's own orderly close: the read loop stops serving further inbound
@@ -87,20 +111,21 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>
     /// The bounded <see cref="PublicOutboundLane.ControlOrRecovery"/> outbound frame queue, always
-    /// drained by the writer loop ahead of <see cref="dataOutbound"/>.
+    /// drained by the writer loop ahead of <see cref="dataLaneQueue"/>.
     /// </summary>
     private readonly Channel<byte[]> controlOutbound;
 
     /// <summary>
-    /// The bounded <see cref="PublicOutboundLane.Data"/> outbound frame queue, drained by the writer
-    /// loop only once <see cref="controlOutbound"/> has none pending.
+    /// The bounded <see cref="PublicOutboundLane.Data"/> outbound structure -- keyed-replaceable
+    /// Snapshot slots plus an ordered Event FIFO, per <see cref="DataLaneOutboundQueue"/> -- drained
+    /// by the writer loop only once <see cref="controlOutbound"/> has none pending.
     /// </summary>
-    private readonly Channel<byte[]> dataOutbound;
+    private readonly IDataLaneOutboundQueue dataLaneQueue;
 
     /// <summary>
     /// The total encoded byte size of frames this connection currently owns for outbound delivery,
     /// across both lanes -- admitted by <see cref="TrySend"/> and not yet released by the writer loop,
-    /// which covers a frame still waiting in <see cref="controlOutbound"/> or <see cref="dataOutbound"/>
+    /// which covers a frame still waiting in <see cref="controlOutbound"/> or <see cref="dataLaneQueue"/>
     /// as well as one the writer has already dequeued and is still sending. Not merely the bytes
     /// presently sitting in either channel.
     /// </summary>
@@ -196,13 +221,6 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private int controlOutstandingMessages;
 
     /// <summary>
-    /// The count of <see cref="PublicOutboundLane.Data"/> outbound frames this connection currently
-    /// owns, counted the same way as <see cref="controlOutstandingMessages"/> against
-    /// <see cref="dataOutbound"/> and <see cref="PublicWebSocketTransportOptions.DataOutboundQueueMaxMessages"/>.
-    /// </summary>
-    private int dataOutstandingMessages;
-
-    /// <summary>
     /// The <see cref="PublicWebSocketConnectionEndReason"/> reported through
     /// <see cref="ReportAbnormalEnd"/>, encoded as its underlying value plus one so zero can mean "no
     /// abnormal end ever reported" (an ordinary peer close, cancellation, or orderly close) without a
@@ -220,7 +238,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>
     /// Whether this connection's teardown has already begun, written by <see cref="RunAsync"/> before
-    /// it completes <see cref="controlOutbound"/>'s and <see cref="dataOutbound"/>'s writers, for any
+    /// it completes <see cref="controlOutbound"/>'s writer and <see cref="dataLaneQueue"/>, for any
     /// reason -- an orderly close, cancellation,
     /// a protocol violation, or a write failure. Checked alongside <see cref="orderlyCloseInProgress"/>
     /// by <see cref="RequestForcedCloseForUnadmittedMessage"/>, so a <see cref="TrySend"/> that arrives
@@ -241,22 +259,23 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <param name="clock">The clock used to enforce the inbound message rate.</param>
     /// <param name="options">The bounded configuration this connection enforces.</param>
     /// <param name="diagnostics">The Host-local abnormal-termination reporting sink this connection reports its root-cause end reason through, at most once.</param>
+    /// <param name="dataLaneQueue">The <see cref="PublicOutboundLane.Data"/> lane's own ordered admission and draining structure, scoped to this connection for its entire lifetime.</param>
     public PublicWebSocketConnection(
         Stream stream,
         IPublicWebSocketMessageHandler messageHandler,
         IClock clock,
         PublicWebSocketTransportOptions options,
-        IPublicWebSocketTransportDiagnostics diagnostics)
+        IPublicWebSocketTransportDiagnostics diagnostics,
+        IDataLaneOutboundQueue dataLaneQueue)
     {
         this.stream = stream;
         this.messageHandler = messageHandler;
         this.clock = clock;
         this.options = options;
         this.diagnostics = diagnostics;
+        this.dataLaneQueue = dataLaneQueue;
         controlOutbound = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(options.ControlOutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
-        dataOutbound = Channel.CreateBounded<byte[]>(
-            new BoundedChannelOptions(options.DataOutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
         connectionContext = new PublicConnectionContext(this);
     }
 
@@ -342,7 +361,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         {
             Volatile.Write(ref connectionEnded, true);
             controlOutbound.Writer.TryComplete();
-            dataOutbound.Writer.TryComplete();
+            dataLaneQueue.Complete();
             if (upgraded)
             {
                 InvalidateConnectionState();
@@ -473,37 +492,66 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <inheritdoc/>
     public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane)
     {
-        ref int outstandingCounter = ref (lane == PublicOutboundLane.ControlOrRecovery
-            ? ref controlOutstandingMessages
-            : ref dataOutstandingMessages);
-        Channel<byte[]> channel = lane == PublicOutboundLane.ControlOrRecovery ? controlOutbound : dataOutbound;
-        int maxMessages = lane == PublicOutboundLane.ControlOrRecovery
-            ? options.ControlOutboundQueueMaxMessages
-            : options.DataOutboundQueueMaxMessages;
-
-        int outstandingAfterReserve = Interlocked.Increment(ref outstandingCounter);
-        if (outstandingAfterReserve > maxMessages)
+        if (lane == PublicOutboundLane.ControlOrRecovery)
         {
-            Interlocked.Decrement(ref outstandingCounter);
+            int outstandingAfterReserve = Interlocked.Increment(ref controlOutstandingMessages);
+            if (outstandingAfterReserve > options.ControlOutboundQueueMaxMessages)
+            {
+                Interlocked.Decrement(ref controlOutstandingMessages);
+                RequestForcedCloseForUnadmittedMessage();
+                return false;
+            }
+
+            if (!TryReserveSharedBytes(payload.Length))
+            {
+                Interlocked.Decrement(ref controlOutstandingMessages);
+                RequestForcedCloseForUnadmittedMessage();
+                return false;
+            }
+
+            byte[] controlFrame = payload.ToArray();
+            if (!controlOutbound.Writer.TryWrite(controlFrame))
+            {
+                Interlocked.Add(ref outboundQueuedBytes, -controlFrame.Length);
+                Interlocked.Decrement(ref controlOutstandingMessages);
+                RequestForcedCloseForUnadmittedMessage();
+                return false;
+            }
+
+            return true;
+        }
+
+        byte[] eventFrame = payload.ToArray();
+        if (!dataLaneQueue.TryAdmitEvent(eventFrame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes))
+        {
             RequestForcedCloseForUnadmittedMessage();
             return false;
         }
 
-        long queuedAfterReserve = Interlocked.Add(ref outboundQueuedBytes, payload.Length);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload)
+    {
+        byte[] frame = payload.ToArray();
+        return dataLaneQueue.TryAdmitSnapshot(areaId, frame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
+    }
+
+    /// <summary>
+    /// Reserves <paramref name="byteDelta"/> against the shared outbound byte budget, rolling back
+    /// and reporting failure if it would exceed <see cref="PublicWebSocketTransportOptions.OutboundQueueMaxBytes"/>.
+    /// <paramref name="byteDelta"/> may be negative -- releasing bytes a Snapshot replacement no
+    /// longer needs always succeeds, since a negative delta can never push the shared total upward.
+    /// </summary>
+    /// <param name="byteDelta">The byte count to reserve, or release if negative.</param>
+    /// <returns><see langword="true"/> when the reservation was applied; otherwise <see langword="false"/>, and the shared budget is unchanged.</returns>
+    private bool TryReserveSharedBytes(long byteDelta)
+    {
+        long queuedAfterReserve = Interlocked.Add(ref outboundQueuedBytes, byteDelta);
         if (queuedAfterReserve > options.OutboundQueueMaxBytes)
         {
-            Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
-            Interlocked.Decrement(ref outstandingCounter);
-            RequestForcedCloseForUnadmittedMessage();
-            return false;
-        }
-
-        byte[] frame = payload.ToArray();
-        if (!channel.Writer.TryWrite(frame))
-        {
-            Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
-            Interlocked.Decrement(ref outstandingCounter);
-            RequestForcedCloseForUnadmittedMessage();
+            Interlocked.Add(ref outboundQueuedBytes, -byteDelta);
             return false;
         }
 
@@ -550,7 +598,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     {
         Volatile.Write(ref orderlyCloseInProgress, true);
         controlOutbound.Writer.TryComplete();
-        dataOutbound.Writer.TryComplete();
+        dataLaneQueue.Complete();
         _ = InterruptReadOnceOutboundDrainsAsync();
     }
 
@@ -866,7 +914,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>
     /// Drains the outbound queues and sends each frame as a WebSocket text message in order, until
     /// both queues are completed. Always sends every currently available <see cref="controlOutbound"/>
-    /// frame before considering <see cref="dataOutbound"/>, so a flood of admitted
+    /// frame before considering <see cref="dataLaneQueue"/>, so a flood of admitted
     /// <see cref="PublicOutboundLane.Data"/> messages can never delay or evict an admitted
     /// <see cref="PublicOutboundLane.ControlOrRecovery"/> one. Tolerates transport faults by cancelling
     /// <paramref name="writerCancellation"/> and ending the loop rather than throwing, so a broken
@@ -896,15 +944,16 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                     frame = controlFrame;
                     lane = PublicOutboundLane.ControlOrRecovery;
                 }
-                else if (dataOutbound.Reader.TryRead(out byte[]? dataFrame))
+                else if (dataLaneQueue.TryDequeue(out byte[]? dataFrame))
                 {
                     frame = dataFrame;
                     lane = PublicOutboundLane.Data;
                 }
-                else if (controlOutbound.Reader.Completion.IsCompleted && dataOutbound.Reader.Completion.IsCompleted)
+                else if (controlOutbound.Reader.Completion.IsCompleted && dataLaneQueue.IsCompletedAndEmpty)
                 {
-                    // Both lanes are completed (Writer.TryComplete was called) and fully drained --
-                    // neither can ever produce another frame, so this loop has nothing left to wait for.
+                    // Both lanes are completed (Writer.TryComplete/Complete was called) and fully
+                    // drained -- neither can ever produce another frame, so this loop has nothing left
+                    // to wait for.
                     return;
                 }
                 else
@@ -913,7 +962,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                     // as soon as either lane's state changes -- a new admission or that lane completing
                     // -- then loop back to the top, which re-checks control-first priority from scratch.
                     Task<bool> controlWaitTask = controlOutbound.Reader.WaitToReadAsync(writerCancellation.Token).AsTask();
-                    Task<bool> dataWaitTask = dataOutbound.Reader.WaitToReadAsync(writerCancellation.Token).AsTask();
+                    Task dataWaitTask = dataLaneQueue.WaitForReadyAsync(writerCancellation.Token);
                     await Task.WhenAny(controlWaitTask, dataWaitTask).ConfigureAwait(false);
                     continue;
                 }
@@ -954,7 +1003,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                     }
                     else
                     {
-                        Interlocked.Decrement(ref dataOutstandingMessages);
+                        dataLaneQueue.ReleaseOutstanding();
                     }
                 }
             }
@@ -994,5 +1043,5 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <param name="lane">The lane to check spare capacity for.</param>
     internal bool HasSpareOutboundMessageCapacity(PublicOutboundLane lane) => lane == PublicOutboundLane.ControlOrRecovery
         ? Volatile.Read(ref controlOutstandingMessages) < options.ControlOutboundQueueMaxMessages
-        : Volatile.Read(ref dataOutstandingMessages) < options.DataOutboundQueueMaxMessages;
+        : dataLaneQueue.OutstandingMessages < options.DataOutboundQueueMaxMessages;
 }

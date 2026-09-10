@@ -1,4 +1,5 @@
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.State;
 
 namespace DovahLink.Host.Tests.TestDoubles;
 
@@ -44,6 +45,13 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
         return TrySendResult;
     }
 
+    /// <inheritdoc/>
+    public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload)
+    {
+        SentSnapshots.Add((areaId, payload.ToArray()));
+        return TrySendSnapshotResult;
+    }
+
     /// <summary>Ends <see cref="RunAsync"/> as cancelled after <see cref="teardownDelayAfterCancellation"/>, simulating bounded teardown work.</summary>
     /// <param name="cancellationToken">The token <see cref="RunAsync"/> was cancelled with.</param>
     private async Task EndAfterTeardownDelayAsync(CancellationToken cancellationToken)
@@ -59,8 +67,14 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The value <see cref="TrySend"/> returns; defaults to <see langword="false"/>.</summary>
     public bool TrySendResult { get; set; }
 
+    /// <summary>The value <see cref="TrySendSnapshot"/> returns; defaults to <see langword="false"/>.</summary>
+    public bool TrySendSnapshotResult { get; set; }
+
     /// <summary>Every payload passed to <see cref="TrySend"/> so far, in call order.</summary>
     public List<byte[]> SentPayloads { get; } = [];
+
+    /// <summary>Every area/payload pair passed to <see cref="TrySendSnapshot"/> so far, in call order.</summary>
+    public List<(StateAreaId AreaId, byte[] Payload)> SentSnapshots { get; } = [];
 
     /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
     public int RequestCloseCalls { get; private set; }

@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Client.Transport;
@@ -35,6 +36,35 @@ public class PublicConnectionContextTests
         Assert.False(result);
         Assert.Equal(payload, Assert.Single(connection.SentPayloads));
         Assert.Equal(PublicOutboundLane.ControlOrRecovery, Assert.Single(connection.SentLanes));
+    }
+
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySendSnapshot"/> forwards the exact area and payload to the wrapped connection and returns its result when the connection admits the value.</summary>
+    [Fact]
+    public void TrySendSnapshot_ConnectionAdmitsValue_ForwardsAreaAndPayloadAndReturnsTrue()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendSnapshotResult = true };
+        var context = new PublicConnectionContext(connection);
+        var areaId = new StateAreaId("example_area");
+        byte[] payload = "snapshot"u8.ToArray();
+
+        bool result = context.TrySendSnapshot(areaId, payload);
+
+        Assert.True(result);
+        (StateAreaId SentAreaId, byte[] SentPayload) sent = Assert.Single(connection.SentSnapshots);
+        Assert.Equal(areaId, sent.SentAreaId);
+        Assert.Equal(payload, sent.SentPayload);
+    }
+
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySendSnapshot"/> returns <see langword="false"/> when the wrapped connection declines the value, rather than swallowing that outcome.</summary>
+    [Fact]
+    public void TrySendSnapshot_ConnectionDeclinesValue_ReturnsFalse()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendSnapshotResult = false };
+        var context = new PublicConnectionContext(connection);
+
+        bool result = context.TrySendSnapshot(new StateAreaId("example_area"), "snapshot"u8.ToArray());
+
+        Assert.False(result);
     }
 
     /// <summary>Verifies that <see cref="PublicConnectionContext.RequestClose"/> forwards to the wrapped connection.</summary>

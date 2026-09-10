@@ -1,4 +1,5 @@
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.State;
 
 namespace DovahLink.Host.Tests.TestDoubles;
 
@@ -46,6 +47,9 @@ public sealed class ThrowingPublicWebSocketConnection : IPublicWebSocketConnecti
 
     /// <inheritdoc/>
     public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane) => false;
+
+    /// <inheritdoc/>
+    public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload) => false;
 
     /// <inheritdoc/>
     public void RequestClose()

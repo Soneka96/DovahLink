@@ -530,7 +530,13 @@ public enum PublicOutboundLane
     /// </summary>
     ControlOrRecovery,
 
-    /// <summary>Bulk state-publication traffic -- for example Snapshot and Event messages.</summary>
+    /// <summary>
+    /// Bulk state-publication traffic. Passed to <see cref="Client.Transport.IPublicWebSocketConnection.TrySend"/>
+    /// only for an Event message; a Snapshot message instead goes through
+    /// <see cref="Client.Transport.IPublicWebSocketConnection.TrySendSnapshot"/>, which admits it
+    /// onto this same lane's reserved capacity but with keyed-replaceable rather than plain FIFO
+    /// semantics.
+    /// </summary>
     Data,
 }
 

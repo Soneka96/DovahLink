@@ -9,6 +9,7 @@ using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Sessions;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 
@@ -1380,6 +1381,141 @@ public class PublicWebSocketConnectionTests
 
         Assert.True(connection.TrySend(new byte[6], PublicOutboundLane.ControlOrRecovery));
         Assert.False(connection.TrySend(new byte[6], PublicOutboundLane.Data));
+    }
+
+    /// <summary>Verifies that an Event that cannot be admitted reports an abnormal end -- the closing side of the Snapshot/Event contrast the tests below prove for Snapshot.</summary>
+    [Fact]
+    public void TrySend_EventBeyondMessageCountBound_ReportsOutboundCapacityExceeded()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(dataOutboundQueueMaxMessages: 1);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options, diagnostics: diagnostics);
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+        Assert.False(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+
+        Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
+    }
+
+    /// <summary>Verifies that a new area's snapshot is admitted onto the Data lane.</summary>
+    [Fact]
+    public void TrySendSnapshot_NewArea_Admits()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler);
+
+        Assert.True(connection.TrySendSnapshot(new StateAreaId("example_area"), new byte[1]));
+    }
+
+    /// <summary>Verifies that a second snapshot for an already-pending area replaces it in place, without consuming the data lane's one remaining message-count slot.</summary>
+    [Fact]
+    public void TrySendSnapshot_ReplaceExistingAreaAtMessageCountBound_StillSucceeds()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(dataOutboundQueueMaxMessages: 1);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options);
+        var areaId = new StateAreaId("example_area");
+        Assert.True(connection.TrySendSnapshot(areaId, new byte[1]));
+
+        Assert.True(connection.TrySendSnapshot(areaId, new byte[1]));
+    }
+
+    /// <summary>
+    /// Verifies that a snapshot declined because the data lane's message-count bound is already
+    /// reached by an unrelated area is silently deferred -- unlike an unadmittable Event or control
+    /// message, it never reports an abnormal end or requests the connection's close.
+    /// </summary>
+    [Fact]
+    public void TrySendSnapshot_DeclinedByMessageCountBound_DoesNotReportAbnormalEnd()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(dataOutboundQueueMaxMessages: 1);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options, diagnostics: diagnostics);
+        Assert.True(connection.TrySendSnapshot(new StateAreaId("area_a"), new byte[1]));
+
+        bool result = connection.TrySendSnapshot(new StateAreaId("area_b"), new byte[1]);
+
+        Assert.False(result);
+        Assert.Empty(diagnostics.Reports);
+    }
+
+    /// <summary>
+    /// Verifies that a snapshot declined because it would exceed the shared byte budget is silently
+    /// deferred, the same non-closing way a message-count decline is.
+    /// </summary>
+    [Fact]
+    public void TrySendSnapshot_DeclinedByByteBudget_DoesNotReportAbnormalEnd()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxBytes: 4);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options, diagnostics: diagnostics);
+
+        bool result = connection.TrySendSnapshot(new StateAreaId("example_area"), new byte[8]);
+
+        Assert.False(result);
+        Assert.Empty(diagnostics.Reports);
+    }
+
+    /// <summary>
+    /// Verifies that a snapshot replacement declined by the shared byte budget leaves the connection
+    /// still able to admit an unrelated control message -- the connection was never force-closed.
+    /// </summary>
+    [Fact]
+    public void TrySendSnapshot_DeclinedByByteBudget_ConnectionStaysOpenForControlLane()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxBytes: 4);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options);
+        connection.TrySendSnapshot(new StateAreaId("example_area"), new byte[8]);
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+    }
+
+    /// <summary>
+    /// Verifies end-to-end that replacing a pending snapshot before the writer loop drains it sends
+    /// only the latest value over the wire, never the stale one it replaced.
+    /// </summary>
+    [Fact]
+    public async Task TrySendSnapshot_ReplacedBeforeDrain_OnlyLatestValueIsSentOverWire()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream());
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            blockingStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this control-lane message is the second and
+        // blocks the writer loop before it ever reaches the data lane, so the snapshot admitted below
+        // is provably still queued -- never yet reached by the writer -- when it is replaced.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("control-first"), PublicOutboundLane.ControlOrRecovery));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var areaId = new StateAreaId("example_area");
+        Assert.True(connection.TrySendSnapshot(areaId, Encoding.UTF8.GetBytes("stale")));
+        Assert.True(connection.TrySendSnapshot(areaId, Encoding.UTF8.GetBytes("fresh")));
+
+        blockingStream.Release();
+
+        var buffer = new byte[64];
+        WebSocketReceiveResult controlResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("control-first", Encoding.UTF8.GetString(buffer, 0, controlResult.Count));
+
+        WebSocketReceiveResult dataResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("fresh", Encoding.UTF8.GetString(buffer, 0, dataResult.Count));
+
+        listener.Stop();
+        connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>Verifies that <see cref="IPublicWebSocketConnection.RequestClose"/> completes both outbound lanes, not only the one a prior send happened to use.</summary>

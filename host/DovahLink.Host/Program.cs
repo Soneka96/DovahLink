@@ -157,7 +157,8 @@ internal static class Program
                         playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry),
                     clock,
                     new PublicWebSocketTransportOptions(),
-                    NullPublicWebSocketTransportDiagnostics.Instance),
+                    NullPublicWebSocketTransportDiagnostics.Instance,
+                    new DataLaneOutboundQueue()),
                 hostSettings.MaxActiveSessions)
             : null;
 
