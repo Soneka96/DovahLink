@@ -120,7 +120,7 @@
                                         <Run Text="{Binding ToolName, Mode=OneWay}" /><Run Text=" was not found" />
                                     </TextBlock>
                                     <TextBlock Text="{Binding RemediationHint}" Style="{StaticResource SubtleTextStyle}" TextWrapping="Wrap" Margin="0,2,0,8" />
-                                    <Button Content="{Binding RemediationActionLabel}" HorizontalAlignment="Left" />
+                                    <TextBlock Text="{Binding RemediationActionLabel}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource BadBrush}" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
