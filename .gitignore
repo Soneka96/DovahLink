@@ -10,6 +10,7 @@ tooling/out/
 # never committed, regardless of which project they belong to.
 *.csproj.user
 *.pubxml.user
+*_wpftmp.csproj
 
 # Generated Dart files
 *.g.dart
