@@ -114,9 +114,17 @@ class EnvelopeValidator {
     }
   }
 
-  /// Returns whether [messageType] requires a non-`null` envelope-level `clientId`: every message
-  /// type except `hello` itself, whose `clientId` travels in its payload instead because the
-  /// envelope-level identity is not yet established.
+  /// Returns whether [messageType] carries a non-`null` envelope-level `clientId`, per
+  /// `protocol/schema/README.md`. True for the bridge's own `hello_ack`, and for every currently
+  /// implemented client-originated request past `hello` (the pairing messages, `rename_request`,
+  /// `subscribe`, `snapshot_request`, `ping`). False both for `hello` itself -- whose `clientId`
+  /// travels in its payload instead, because envelope-level identity is not yet established -- and
+  /// for every session-scoped reply/event type that carries no per-client identity at all
+  /// (`pairing_status`, `pairing_outcome`, `rename_outcome`, `subscription_ack`, `state_snapshot`,
+  /// `state_event`, `error`, `session_invalidated`, `pong`). `capabilities` is deliberately in
+  /// neither branch: it is bidirectional per the schema, so [validate] exempts it from this
+  /// method's null/non-null rule above rather than this method encoding a direction-dependent
+  /// answer for it.
   static bool isClientIdRequired(ProtocolMessageType messageType) =>
       switch (messageType) {
         ProtocolMessageType.helloAck ||
