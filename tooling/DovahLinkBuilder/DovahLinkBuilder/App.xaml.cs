@@ -38,7 +38,7 @@ public partial class App : Application
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find, outputOwnershipGuard);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
-        var logViewModel = new LogViewModel();
+        var logViewModel = new LogViewModel(Clipboard.SetText);
 
         var buildPage = new BuildPageViewModel(
             environmentStore,
