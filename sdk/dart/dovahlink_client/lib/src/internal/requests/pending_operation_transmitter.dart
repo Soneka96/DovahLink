@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope_validator.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
@@ -26,16 +28,24 @@ class PendingOperationTransmitter {
   /// Owns registration and terminal failure of the pending operation.
   final PendingOperationBookkeeping _bookkeeping;
 
-  /// Creates a transmitter for one request service's transport and pending-operation bookkeeping.
+  /// Shares this installation's resolved `clientId`, stamped onto every outgoing envelope whose
+  /// message type requires one, per `client_id_cache.dart`'s documented reason a direct dependency
+  /// on `AuthenticationService` is impossible.
+  final ClientIdCache _clientIdCache;
+
+  /// Creates a transmitter for one request service's transport, pending-operation bookkeeping, and
+  /// resolved-clientId cache.
   PendingOperationTransmitter({
     required IDovahLinkTransport transport,
     required Map<TimeoutClass, Duration> timeoutDurations,
     required ISessionService sessionService,
     required PendingOperationBookkeeping bookkeeping,
+    required ClientIdCache clientIdCache,
   }) : _transport = transport,
        _timeoutDurations = timeoutDurations,
        _sessionService = sessionService,
-       _bookkeeping = bookkeeping;
+       _bookkeeping = bookkeeping,
+       _clientIdCache = clientIdCache;
 
   /// Generates message IDs for wire attempts.
   final RandomIdGenerator _randomIdGenerator = RandomIdGenerator();
@@ -66,7 +76,9 @@ class PendingOperationTransmitter {
       payload: operation.payload,
       bridgeInstanceId: null,
       playContextId: null,
-      clientId: null,
+      clientId: EnvelopeValidator.isClientIdRequired(operation.messageType)
+          ? _clientIdCache.clientId
+          : null,
     );
     unawaited(
       _transport.send(jsonEncode(outgoing.toJson())).catchError((Object error) {

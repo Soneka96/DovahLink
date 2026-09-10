@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
@@ -25,6 +26,10 @@ class MockSessionService extends Mock implements ISessionService {}
 class MockPendingOperationBookkeeping extends Mock
     implements PendingOperationBookkeeping {}
 
+/// Mock client ID cache -- its own get/set behavior is `client_id_cache_test.dart`'s
+/// responsibility; this file only proves [PendingOperationTransmitter] reads it correctly.
+class MockClientIdCache extends Mock implements ClientIdCache {}
+
 /// Short timeout durations used to exercise timeout reporting deterministically.
 const Map<TimeoutClass, Duration> _shortTimeouts = <TimeoutClass, Duration>{
   TimeoutClass.short: Duration(milliseconds: 20),
@@ -37,12 +42,14 @@ PendingOperationTransmitter buildTransmitter({
   required IDovahLinkTransport transport,
   required ISessionService sessionService,
   required PendingOperationBookkeeping bookkeeping,
+  required ClientIdCache clientIdCache,
   Map<TimeoutClass, Duration> timeoutDurations = _shortTimeouts,
 }) => PendingOperationTransmitter(
   transport: transport,
   timeoutDurations: timeoutDurations,
   sessionService: sessionService,
   bookkeeping: bookkeeping,
+  clientIdCache: clientIdCache,
 );
 
 /// Runs pending-operation transmission behavior tests.
@@ -50,6 +57,7 @@ void main() {
   late MockDovahLinkTransport transport;
   late MockSessionService sessionService;
   late MockPendingOperationBookkeeping bookkeeping;
+  late MockClientIdCache clientIdCache;
 
   setUpAll(() {
     registerFallbackValue(
@@ -61,8 +69,10 @@ void main() {
     transport = MockDovahLinkTransport();
     sessionService = MockSessionService();
     bookkeeping = MockPendingOperationBookkeeping();
+    clientIdCache = MockClientIdCache();
     when(() => sessionService.currentSessionId).thenReturn('session-1');
     when(() => transport.send(any())).thenAnswer((_) async {});
+    when(() => clientIdCache.clientId).thenReturn('client-1');
   });
 
   group('Method transmit behaves correctly', () {
@@ -74,6 +84,7 @@ void main() {
           transport: transport,
           sessionService: sessionService,
           bookkeeping: bookkeeping,
+          clientIdCache: clientIdCache,
         );
 
         transmitter.transmit(operation);
@@ -93,6 +104,35 @@ void main() {
         expect(envelope['messageId'], registeredMessageId);
         expect(envelope['sessionId'], 'session-1');
         expect(envelope['payload'], <String, dynamic>{});
+        expect(envelope['clientId'], 'client-1');
+        operation.timer?.cancel();
+      },
+    );
+
+    test(
+      'Method transmit sends a null clientId for a message type that must not carry one, even '
+      'when the cache holds a value',
+      () async {
+        final PendingOperation operation = Fixtures.buildPendingOperation(
+          messageType: ProtocolMessageType.hello,
+        );
+        final PendingOperationTransmitter transmitter = buildTransmitter(
+          transport: transport,
+          sessionService: sessionService,
+          bookkeeping: bookkeeping,
+          clientIdCache: clientIdCache,
+        );
+
+        transmitter.transmit(operation);
+        await pumpEventQueue();
+
+        final JsonMap envelope =
+            jsonDecode(
+                  verify(() => transport.send(captureAny())).captured.single,
+                )
+                as JsonMap;
+        expect(envelope['clientId'], isNull);
+        verifyNever(() => clientIdCache.clientId);
         operation.timer?.cancel();
       },
     );
@@ -105,6 +145,7 @@ void main() {
           transport: transport,
           sessionService: sessionService,
           bookkeeping: bookkeeping,
+          clientIdCache: clientIdCache,
         );
 
         transmitter.transmit(operation);
@@ -133,6 +174,7 @@ void main() {
           transport: transport,
           sessionService: sessionService,
           bookkeeping: bookkeeping,
+          clientIdCache: clientIdCache,
         );
 
         transmitter.transmit(operation);

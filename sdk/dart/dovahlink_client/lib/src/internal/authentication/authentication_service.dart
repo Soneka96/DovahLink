@@ -1,5 +1,6 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
@@ -60,7 +61,7 @@ abstract interface class IAuthenticationService {
 
 /// Implements [IAuthenticationService], per `ai/context/sdk/architecture.md`'s "Internal
 /// composition". Every collaborator ([ISessionService], [ISessionAdmissionService], [IRequestService],
-/// [IClientStorage], [ClientIdResolver]) is supplied by the caller per
+/// [IClientStorage], [ClientIdResolver], `ClientIdCache`) is supplied by the caller per
 /// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
 /// its own dependencies, including [ClientIdResolver], despite it being a small, otherwise
 /// dependency-free collaborator.
@@ -81,22 +82,25 @@ class AuthenticationService implements IAuthenticationService {
   /// Resolves this installation's persisted client ID on first use.
   final ClientIdResolver _clientIdResolver;
 
+  /// Shares this installation's resolved `clientId` with `PendingOperationTransmitter`, per
+  /// `client_id_cache.dart`'s documented reason a direct dependency between them is impossible.
+  final ClientIdCache _clientIdCache;
+
   /// Creates an authentication service over [sessionService], [sessionAdmissionService],
-  /// [requestService], [storage], and [clientIdResolver].
+  /// [requestService], [storage], [clientIdResolver], and [clientIdCache].
   AuthenticationService({
     required ISessionService sessionService,
     required ISessionAdmissionService sessionAdmissionService,
     required IRequestService requestService,
     required IClientStorage storage,
     required ClientIdResolver clientIdResolver,
+    required ClientIdCache clientIdCache,
   }) : _sessionService = sessionService,
        _sessionAdmissionService = sessionAdmissionService,
        _requestService = requestService,
        _storage = storage,
-       _clientIdResolver = clientIdResolver;
-
-  /// This installation's stable client ID, or `null` before [hello] has resolved it.
-  String? _clientId;
+       _clientIdResolver = clientIdResolver,
+       _clientIdCache = clientIdCache;
 
   /// The DovahLink Bridge/mod release version reported by the last successful [hello], or `null`
   /// before [hello] succeeds. Cached so [authenticate] can report it again without re-sending
@@ -105,7 +109,7 @@ class AuthenticationService implements IAuthenticationService {
 
   /// Implements [IAuthenticationService.clientId].
   @override
-  String? get clientId => _clientId;
+  String? get clientId => _clientIdCache.clientId;
 
   /// Implements [IAuthenticationService.hello].
   @override
@@ -115,7 +119,7 @@ class AuthenticationService implements IAuthenticationService {
     final String? credential = state.recoveryState == PairingRecoveryState.none
         ? state.credential
         : null;
-    _clientId = clientId;
+    _clientIdCache.set(clientId);
 
     final HelloPayload payload = HelloPayload(
       clientId: clientId,

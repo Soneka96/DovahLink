@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
@@ -133,11 +134,17 @@ class DovahLinkClient {
 
     final PendingOperationBookkeeping bookkeeping =
         PendingOperationBookkeeping();
+    // Built before `_authenticationService` -- which caches the resolved `clientId` here too --
+    // because `AuthenticationService` depends on `IRequestService`, which privately owns this
+    // transmitter; a direct dependency on `AuthenticationService` from here would be a
+    // construction-order cycle. See `client_id_cache.dart`.
+    final ClientIdCache clientIdCache = ClientIdCache();
     final PendingOperationTransmitter transmitter = PendingOperationTransmitter(
       transport: transport,
       timeoutDurations: timeoutDurations,
       sessionService: _sessionService,
       bookkeeping: bookkeeping,
+      clientIdCache: clientIdCache,
     );
     final MessageRouter messageRouter = MessageRouter(
       bookkeeping: bookkeeping,
@@ -166,6 +173,7 @@ class DovahLinkClient {
       requestService: _requestService,
       storage: _storage,
       clientIdResolver: clientIdResolver,
+      clientIdCache: clientIdCache,
     );
     _sessionService
         .onTeardown = (Exception reason, {required bool orphanRetrySafeOperations}) {
