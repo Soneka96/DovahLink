@@ -20,11 +20,13 @@ public partial class App : Application
         string appDataDirectory = GetAppDataDirectory();
         var settingsStore = new SettingsStore(appDataDirectory);
         BuilderSettings settings = settingsStore.Load();
-        // Resolved unconditionally, even when an override is already configured, so Settings always
-        // has a real auto-detected fallback to display and reset to (RepositoryContext.SetRepositoryRoot
-        // below then adopts the persisted override, if any, as the actually active root).
-        string autoDetectedRepositoryRoot = RepositoryRootLocator.Find(AppContext.BaseDirectory);
-        var repositoryContext = new RepositoryContext(settings.RepositoryPath ?? autoDetectedRepositoryRoot);
+        // Attempted unconditionally, even when an override is already configured, so Settings has a
+        // real auto-detected fallback to display and reset to whenever one actually exists. Unlike
+        // RepositoryRootLocator.Find, this never throws: a portable or published Builder run outside
+        // any real checkout must still start when a configured override is all it needs.
+        string? discoveredRepositoryRoot = TryFindRepositoryRoot(AppContext.BaseDirectory);
+        (string activeRepositoryRoot, string autoDetectedRepositoryRoot) = ResolveRepositoryRoots(settings.RepositoryPath, discoveredRepositoryRoot);
+        var repositoryContext = new RepositoryContext(activeRepositoryRoot);
         var outputPathContext = new OutputPathContext(settings.OutputPath);
         ICommandRunner commandRunner = new ProcessCommandRunner();
         var preflightService = new PreflightService(commandRunner);
@@ -90,5 +92,42 @@ public partial class App : Application
             ArgumentList = { folderPath },
             UseShellExecute = false,
         });
+    }
+
+    /// <summary>Locates the DovahLink repository root, reporting <see langword="null"/> instead of throwing when it cannot be found.</summary>
+    /// <param name="startPath">The path from which to begin the search.</param>
+    /// <returns>The located repository root, or <see langword="null"/> when none was found.</returns>
+    internal static string? TryFindRepositoryRoot(string startPath)
+    {
+        try
+        {
+            return RepositoryRootLocator.Find(startPath);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the repository root actually used at startup, and the fallback Settings displays and
+    /// resets to. A configured override is used whenever one exists, even if real discovery failed --
+    /// the Builder must still start on a valid override alone. When an override exists but discovery
+    /// failed, the override doubles as the auto-detected fallback too, since no other value is
+    /// available; Settings' Reset affordance then becomes a no-op rather than resetting to a location
+    /// this Builder was never able to verify.
+    /// </summary>
+    /// <param name="configuredOverride">The persisted repository path override, or <see langword="null"/> when none is configured.</param>
+    /// <param name="discoveredRoot">The result of <see cref="TryFindRepositoryRoot"/>, or <see langword="null"/> when discovery failed.</param>
+    /// <returns>The active repository root, and the fallback Settings displays and resets to.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when neither a configured override nor a discovered root is available.</exception>
+    internal static (string ActiveRepositoryRoot, string AutoDetectedRepositoryRoot) ResolveRepositoryRoots(string? configuredOverride, string? discoveredRoot)
+    {
+        string activeRepositoryRoot = configuredOverride ?? discoveredRoot
+            ?? throw new InvalidOperationException(
+                "Could not find the DovahLink repository, and no repository override is configured. " +
+                "Keep this builder inside the repository or its tooling output folder, or configure a " +
+                "repository path override on the Settings page.");
+        return (activeRepositoryRoot, discoveredRoot ?? activeRepositoryRoot);
     }
 }
