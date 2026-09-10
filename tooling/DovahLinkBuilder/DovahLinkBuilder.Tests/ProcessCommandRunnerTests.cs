@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using DovahLink.DovahLinkBuilder;
 using DovahLink.DovahLinkBuilder.Build;
 using Xunit.Abstractions;
 
@@ -252,5 +253,87 @@ public sealed class ProcessCommandRunnerTests
         // exit naturally before the temporary directory is disposed below. Kept separate from the
         // timing assertion above so this cleanup wait is never mistaken for the behavior under test.
         await Task.Delay(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Assigns the started process to the tracking job and waits for it to report empty before returning from cancellation.</summary>
+    [Fact]
+    public async Task CancellationAssignsTheProcessToTheTrackingJobAndWaitsForItToEmpty()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ActiveCallsBeforeEmpty = 2 };
+        var runner = new ProcessCommandRunner(process => process.Kill(), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.NotNull(fakeJob.AssignedProcess);
+        Assert.Equal(fakeJob.ActiveCallsBeforeEmpty + 1, fakeJob.HasActiveProcessesCallCount);
+        Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>Gives up waiting on a process tree that never reports empty, rather than hanging forever.</summary>
+    [Fact]
+    public async Task CancellationGivesUpWaitingOnATreeThatNeverReportsEmpty()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ActiveCallsBeforeEmpty = int.MaxValue };
+        var runner = new ProcessCommandRunner(process => process.Kill(), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var elapsed = Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        // Proves the wait is actually bounded by Constants.ProcessTreeTerminationTimeout, not that
+        // this specific run happened to be fast: a regression that polls forever would never reach
+        // this assertion at all.
+        Assert.True(
+            elapsed.Elapsed < Constants.ProcessTreeTerminationTimeout + TimeSpan.FromSeconds(2),
+            $"Expected a bounded wait even when the tree never reports empty, took {elapsed.Elapsed}.");
+        Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>
+    /// A controllable fake of <see cref="IProcessTreeJob"/> proving <see cref="ProcessCommandRunner"/>'s
+    /// own orchestration -- assign, poll until empty, dispose -- without a real process tree.
+    /// </summary>
+    private sealed class FakeProcessTreeJob : IProcessTreeJob
+    {
+        /// <summary>The number of leading <see cref="HasActiveProcesses"/> calls that report an active process before reporting empty.</summary>
+        public int ActiveCallsBeforeEmpty { get; set; }
+
+        /// <summary>The process passed to <see cref="Assign"/>, or <see langword="null"/> before it is ever called.</summary>
+        public Process? AssignedProcess { get; private set; }
+
+        /// <summary>The number of times <see cref="HasActiveProcesses"/> has been called.</summary>
+        public int HasActiveProcessesCallCount { get; private set; }
+
+        /// <summary>Whether <see cref="Dispose"/> has been called.</summary>
+        public bool Disposed { get; private set; }
+
+        /// <inheritdoc/>
+        public void Assign(Process process) => AssignedProcess = process;
+
+        /// <inheritdoc/>
+        public bool HasActiveProcesses() => ++HasActiveProcessesCallCount <= ActiveCallsBeforeEmpty;
+
+        /// <inheritdoc/>
+        public void Terminate()
+        {
+        }
+
+        /// <inheritdoc/>
+        public void Dispose() => Disposed = true;
     }
 }
