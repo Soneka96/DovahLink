@@ -60,7 +60,7 @@ public sealed class PublicSessionTerminationNotifier : ISessionTerminationNotifi
                 snapshot.Current?.ToString(),
                 null,
                 payload);
-            connection.TrySend(bytes);
+            connection.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
         }
         catch
         {

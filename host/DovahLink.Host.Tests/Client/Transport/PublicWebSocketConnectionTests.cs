@@ -195,7 +195,7 @@ public class PublicWebSocketConnectionTests
 
         // Connection A has now fully ended. Its captured context must fail safely rather than
         // reaching into whatever connection happens to be current next.
-        Assert.False(staleContext.TrySend("late"u8.ToArray()));
+        Assert.False(staleContext.TrySend("late"u8.ToArray(), PublicOutboundLane.ControlOrRecovery));
         staleContext.RequestClose(); // must not throw even though connection A is already torn down
 
         var handlerB = new FakePublicWebSocketMessageHandler();
@@ -1178,7 +1178,7 @@ public class PublicWebSocketConnectionTests
         }
 
         await Task.WhenAll(sentPayloads.Select(payload =>
-            Task.Run(() => Assert.True(connection.TrySend(Encoding.UTF8.GetBytes(payload))))));
+            Task.Run(() => Assert.True(connection.TrySend(Encoding.UTF8.GetBytes(payload), PublicOutboundLane.Data)))));
 
         var receivedPayloads = new HashSet<string>();
         var buffer = new byte[256];
@@ -1223,7 +1223,7 @@ public class PublicWebSocketConnectionTests
 
         const int messageCount = 25;
         await Task.WhenAll(Enumerable.Range(0, messageCount).Select(index =>
-            Task.Run(() => Assert.True(connection.TrySend(Encoding.UTF8.GetBytes($"message-{index}"))))));
+            Task.Run(() => Assert.True(connection.TrySend(Encoding.UTF8.GetBytes($"message-{index}"), PublicOutboundLane.Data)))));
 
         var buffer = new byte[256];
         for (int index = 0; index < messageCount; index++)
@@ -1267,11 +1267,11 @@ public class PublicWebSocketConnectionTests
         // The handshake response was the first write; A is the second and blocks until released, so B
         // and C are provably still sitting in the channel -- never yet reached by the writer loop --
         // when they are admitted.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("A")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("A"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("B")));
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("C")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("B"), PublicOutboundLane.ControlOrRecovery));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("C"), PublicOutboundLane.ControlOrRecovery));
 
         blockingStream.Release();
 
@@ -1290,15 +1290,132 @@ public class PublicWebSocketConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that <see cref="PublicOutboundLane.ControlOrRecovery"/> is always drained ahead of
+    /// <see cref="PublicOutboundLane.Data"/>, even when the data-lane frame was admitted first. Blocks
+    /// the writer mid-send on the already-dequeued first frame so the control-lane frame admitted
+    /// after it -- but before a second, later data-lane frame -- is provably still sitting in its own
+    /// channel when both are released together, proving this is genuine priority and not merely FIFO
+    /// admission order.
+    /// </summary>
+    [Fact]
+    public async Task TrySend_ControlLaneFrameAdmittedAfterDataLaneFrame_StillDrainsFirst()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream());
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            blockingStream, handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this data-lane frame is the second and blocks
+        // until released, so the two frames admitted below are provably still queued -- never yet
+        // reached by the writer loop -- when they are admitted.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("data-first"), PublicOutboundLane.Data));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Admitted in data-then-control order: a plain FIFO writer would send these in that same
+        // order, so control-lane priority is what must reorder them back to control-first below.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("data-out-of-order"), PublicOutboundLane.Data));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("control-priority"), PublicOutboundLane.ControlOrRecovery));
+
+        blockingStream.Release();
+
+        var buffer = new byte[64];
+        var received = new List<string>();
+        for (int index = 0; index < 3; index++)
+        {
+            WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            received.Add(Encoding.UTF8.GetString(buffer, 0, result.Count));
+        }
+
+        Assert.Equal(["data-first", "control-priority", "data-out-of-order"], received);
+
+        listener.Stop();
+        connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a data-lane overflow force-closes the connection without consuming the control lane's own separately reserved capacity.</summary>
+    [Fact]
+    public void TrySend_DataLaneAtCapacity_ControlLaneStillAdmitsMessage()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 16, dataOutboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+        Assert.False(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+    }
+
+    /// <summary>Verifies that a control-lane overflow force-closes the connection without consuming the data lane's own separately reserved capacity.</summary>
+    [Fact]
+    public void TrySend_ControlLaneAtCapacity_DataLaneStillAdmitsMessage()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 1, dataOutboundQueueMaxMessages: 112, outboundQueueMaxBytes: 1024);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+        Assert.False(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
+
+        Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.Data));
+    }
+
+    /// <summary>Verifies that the outbound byte budget is shared across both lanes rather than tracked separately, so a control-lane admission can push a later data-lane send over the combined budget even though the data lane's own message-count and byte allowance individually have room.</summary>
+    [Fact]
+    public void TrySend_ControlAndDataLanesTogetherExceedSharedByteBudget_SecondSendReturnsFalse()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 100, dataOutboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
+        var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
+
+        Assert.True(connection.TrySend(new byte[6], PublicOutboundLane.ControlOrRecovery));
+        Assert.False(connection.TrySend(new byte[6], PublicOutboundLane.Data));
+    }
+
+    /// <summary>Verifies that <see cref="IPublicWebSocketConnection.RequestClose"/> completes both outbound lanes, not only the one a prior send happened to use.</summary>
+    [Fact]
+    public async Task RequestClose_CompletesBothLanes_TrySendFailsOnEitherLaneAfterward()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            serverTcpClient.GetStream(), handler, new SystemClock(), Fixtures.BuildPublicWebSocketTransportOptions());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        connection.RequestClose();
+
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("too-late-control"), PublicOutboundLane.ControlOrRecovery));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("too-late-data"), PublicOutboundLane.Data));
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+    }
+
     /// <summary>Verifies that a payload exactly at the outbound byte-budget bound is accepted, proving the budget rejects only what exceeds it.</summary>
     [Fact]
     public void TrySend_ExactlyAtOutboundQueueMaxBytes_ReturnsTrue()
     {
         var handler = new FakePublicWebSocketMessageHandler();
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
         var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
-        Assert.True(connection.TrySend(new byte[10]));
+        Assert.True(connection.TrySend(new byte[10], PublicOutboundLane.ControlOrRecovery));
     }
 
     /// <summary>Verifies that a payload exactly at the outbound message-count bound is accepted, proving the bound rejects only what exceeds it.</summary>
@@ -1306,12 +1423,12 @@ public class PublicWebSocketConnectionTests
     public void TrySend_ExactlyAtOutboundQueueMaxMessages_ReturnsTrue()
     {
         var handler = new FakePublicWebSocketMessageHandler();
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         for (int index = 0; index < 3; index++)
         {
-            Assert.True(connection.TrySend(new byte[1]));
+            Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
         }
     }
 
@@ -1326,7 +1443,7 @@ public class PublicWebSocketConnectionTests
         // No handshake request is ever sent, so the connection ends via the handshake timeout.
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.False(connection.TrySend(new byte[1]));
+        Assert.False(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
         client.Dispose();
     }
 
@@ -1348,7 +1465,7 @@ public class PublicWebSocketConnectionTests
         // Overflow the queue before RunAsync is ever called. The client never sends a handshake
         // request, so if this request were lost, RunAsync would otherwise sit waiting for the full
         // 30-second handshake timeout with nothing else ever cancelling it.
-        Assert.False(connection.TrySend(new byte[8]));
+        Assert.False(connection.TrySend(new byte[8], PublicOutboundLane.ControlOrRecovery));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
@@ -1368,15 +1485,15 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var diagnostics = new FakePublicWebSocketTransportDiagnostics();
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 3, outboundQueueMaxBytes: 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options, diagnostics: diagnostics);
 
         for (int index = 0; index < 3; index++)
         {
-            Assert.True(connection.TrySend(new byte[1]));
+            Assert.True(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
         }
 
-        Assert.False(connection.TrySend(new byte[1]));
+        Assert.False(connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery));
         Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
     }
 
@@ -1386,11 +1503,11 @@ public class PublicWebSocketConnectionTests
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var diagnostics = new FakePublicWebSocketTransportDiagnostics();
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 100, outboundQueueMaxBytes: 10);
         var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, options: options, diagnostics: diagnostics);
 
-        Assert.True(connection.TrySend(new byte[6]));
-        Assert.False(connection.TrySend(new byte[6]));
+        Assert.True(connection.TrySend(new byte[6], PublicOutboundLane.ControlOrRecovery));
+        Assert.False(connection.TrySend(new byte[6], PublicOutboundLane.ControlOrRecovery));
         Assert.Equal([PublicWebSocketConnectionEndReason.OutboundCapacityExceeded], diagnostics.Reports);
     }
 
@@ -1404,11 +1521,11 @@ public class PublicWebSocketConnectionTests
     public void TrySend_RejectedByByteBudget_DoesNotLeakMessageCountReservation()
     {
         var handler = new FakePublicWebSocketMessageHandler();
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 4);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 1, outboundQueueMaxBytes: 4);
         var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
-        Assert.False(connection.TrySend(new byte[8]));
-        Assert.True(connection.TrySend(new byte[4]));
+        Assert.False(connection.TrySend(new byte[8], PublicOutboundLane.ControlOrRecovery));
+        Assert.True(connection.TrySend(new byte[4], PublicOutboundLane.ControlOrRecovery));
     }
 
     /// <summary>
@@ -1435,7 +1552,7 @@ public class PublicWebSocketConnectionTests
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
-            outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
+            controlOutboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
         var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1443,11 +1560,11 @@ public class PublicWebSocketConnectionTests
         // The first frame is picked up by the writer and blocks in SendAsync -- dequeued, so the
         // channel itself is now empty, but still owned by this connection and still consuming the
         // single allowed message slot. The second must be rejected on that basis alone.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second"), PublicOutboundLane.ControlOrRecovery));
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1479,7 +1596,7 @@ public class PublicWebSocketConnectionTests
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         Stream serverStream = serverTcpClient.GetStream();
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1487,7 +1604,7 @@ public class PublicWebSocketConnectionTests
         // The handshake response was the first write; this send is the second and blocks until
         // released, so the frame is dequeued -- freeing the channel's own capacity -- without yet
         // having actually finished sending.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         blockingStream.Release();
@@ -1505,8 +1622,8 @@ public class PublicWebSocketConnectionTests
         // rather than TrySend itself: TrySend's own failure path requests this connection's forced
         // close, so using it as the poll predicate would let the first failing poll tear down the very
         // connection the test is waiting on.
-        await WaitUntilAsync(() => connection.HasSpareOutboundMessageCapacity, runTask);
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+        await WaitUntilAsync(() => connection.HasSpareOutboundMessageCapacity(PublicOutboundLane.ControlOrRecovery), runTask);
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("second"), PublicOutboundLane.ControlOrRecovery));
 
         listener.Stop();
         connection.RequestClose();
@@ -1524,12 +1641,12 @@ public class PublicWebSocketConnectionTests
     public async Task TrySend_ConcurrentCallsWithUndrainedQueue_NeverAdmitMoreThanTheConfiguredMessageLimit()
     {
         var handler = new FakePublicWebSocketMessageHandler();
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 4, outboundQueueMaxBytes: 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 4, outboundQueueMaxBytes: 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(new MemoryStream(), handler, new SystemClock(), options);
 
         const int attempts = 50;
         bool[] results = await Task.WhenAll(Enumerable.Range(0, attempts)
-            .Select(index => Task.Run(() => connection.TrySend(new byte[1]))));
+            .Select(index => Task.Run(() => connection.TrySend(new byte[1], PublicOutboundLane.ControlOrRecovery))));
 
         Assert.Equal(4, results.Count(succeeded => succeeded));
     }
@@ -1553,7 +1670,7 @@ public class PublicWebSocketConnectionTests
         var blockingStream = new BlockingAfterFirstWriteStream(serverStream);
         // A generous message-count bound ensures only the byte budget can ever reject a send here.
         var options = Fixtures.BuildPublicWebSocketTransportOptions(
-            outboundQueueMaxMessages: 100, outboundQueueMaxBytes: 6, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
+            controlOutboundQueueMaxMessages: 100, outboundQueueMaxBytes: 6, gracefulCloseTimeout: TimeSpan.FromSeconds(30));
         var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1561,11 +1678,11 @@ public class PublicWebSocketConnectionTests
         // "first" (5 bytes) is picked up by the writer and blocks in SendAsync; its bytes stay
         // reserved in the budget the whole time it is in flight, so "second" (6 bytes) alone already
         // exceeds the 6-byte budget once added to those still-reserved 5 bytes.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second"), PublicOutboundLane.ControlOrRecovery));
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1666,7 +1783,7 @@ public class PublicWebSocketConnectionTests
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         // The handshake response was the first write; this TrySend's frame is the second and fails.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("boom")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("boom"), PublicOutboundLane.ControlOrRecovery));
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1706,7 +1823,7 @@ public class PublicWebSocketConnectionTests
         // The handshake response was the first write; this TrySend's frame is the second and blocks
         // until either released or its own per-write deadline elapses -- neither of which this test
         // ever triggers externally, so only the new per-write timeout can end the connection.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -1745,7 +1862,7 @@ public class PublicWebSocketConnectionTests
         Task runTask = connection.RunAsync(cancellation.Token);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -1840,14 +1957,14 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         connection.RequestClose();
         connection.RequestClose();
-        connection.TrySend(new byte[2000]); // exceeds the byte budget, triggering the distinct forced-close path too
+        connection.TrySend(new byte[2000], PublicOutboundLane.ControlOrRecovery); // exceeds the byte budget, triggering the distinct forced-close path too
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -1876,7 +1993,7 @@ public class PublicWebSocketConnectionTests
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         byte[] terminalPayload = Encoding.UTF8.GetBytes("terminal");
-        Assert.True(connection.TrySend(terminalPayload));
+        Assert.True(connection.TrySend(terminalPayload, PublicOutboundLane.ControlOrRecovery));
         connection.RequestClose();
 
         var buffer = new byte[64];
@@ -1885,6 +2002,87 @@ public class PublicWebSocketConnectionTests
         Assert.Equal(terminalPayload, buffer[..result.Count]);
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that when both lanes hold an already-admitted frame at the moment
+    /// <see cref="IPublicWebSocketConnection.RequestClose"/> is called, the control-lane frame still
+    /// gets its drain opportunity ahead of the data-lane one, matching
+    /// <see cref="TrySend_ControlLaneFrameAdmittedAfterDataLaneFrame_StillDrainsFirst"/>'s priority
+    /// proof but through the close path rather than ordinary draining.
+    /// </summary>
+    [Fact]
+    public async Task RequestClose_BothLanesHaveAdmittedFrames_DrainsControlLaneFrameFirst()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(2));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Admitted data-then-control, matching the ordinary-draining priority test above.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("data-terminal"), PublicOutboundLane.Data));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("control-terminal"), PublicOutboundLane.ControlOrRecovery));
+        connection.RequestClose();
+
+        var buffer = new byte[64];
+        var received = new List<string>();
+        for (int index = 0; index < 2; index++)
+        {
+            WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            received.Add(Encoding.UTF8.GetString(buffer, 0, result.Count));
+        }
+
+        Assert.Equal(["control-terminal", "data-terminal"], received);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="IPublicWebSocketConnection.RequestClose"/> wakes the writer loop
+    /// promptly through both channels' completion while it is idle-waiting with nothing admitted on
+    /// either lane, rather than only ending once <see cref="PublicWebSocketConnection.RunAsync"/>'s
+    /// unrelated graceful-close fallback timeout elapses. The writer loop's own wait spans both lanes via
+    /// <see cref="Task.WhenAny(Task[])"/> rather than the single-channel <c>ReadAllAsync</c> this
+    /// transport used before the two-lane split, so this proves that replacement wait genuinely reacts
+    /// to channel completion instead of only ever being rescued by the slower fallback.
+    /// </summary>
+    [Fact]
+    public async Task RequestClose_WriterIdleWaitingOnBothEmptyLanes_EndsPromptlyWithoutGracefulCloseFallback()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(30));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Nothing admitted on either lane: the writer loop is parked inside its Task.WhenAny wait with
+        // both channels empty. If RequestClose's Writer.TryComplete() on both channels did not wake
+        // that wait, RunAsync would only end once the 30-second graceful-close fallback elapsed.
+        var stopwatch = Stopwatch.StartNew();
+        connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"RequestClose took {stopwatch.Elapsed} to end RunAsync; the writer's idle wait on both " +
+            "empty lanes must wake immediately on channel completion, not fall back to the 30-second " +
+            "graceful-close timeout.");
+
         listener.Stop();
     }
 
@@ -1916,11 +2114,11 @@ public class PublicWebSocketConnectionTests
         // until released, simulating a peer that has not yet drained it when the late send below
         // arrives -- the exact window in which the late send could otherwise abort it.
         byte[] terminalPayload = Encoding.UTF8.GetBytes("terminal");
-        Assert.True(connection.TrySend(terminalPayload));
+        Assert.True(connection.TrySend(terminalPayload, PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         connection.RequestClose();
-        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late")));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late"), PublicOutboundLane.ControlOrRecovery));
 
         // With the bug, the late send above would force-cancel the shared writer token, which would
         // abort the still-blocked terminal send and end the connection almost immediately -- far
@@ -1956,7 +2154,7 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 200, outboundQueueMaxBytes: 1024 * 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 200, outboundQueueMaxBytes: 1024 * 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1965,7 +2163,7 @@ public class PublicWebSocketConnectionTests
         {
             for (int index = 0; index < 100; index++)
             {
-                connection.TrySend(Encoding.UTF8.GetBytes($"message-{index}"));
+                connection.TrySend(Encoding.UTF8.GetBytes($"message-{index}"), PublicOutboundLane.ControlOrRecovery);
             }
         });
         Task closeCall = Task.Run(connection.RequestClose);
@@ -1994,7 +2192,7 @@ public class PublicWebSocketConnectionTests
 
         connection.RequestClose();
 
-        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("too-late")));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("too-late"), PublicOutboundLane.ControlOrRecovery));
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
         listener.Stop();
@@ -2043,7 +2241,7 @@ public class PublicWebSocketConnectionTests
 
         // The handshake response was the first write; this send is the second and blocks forever
         // (never released), so the outbound queue can never actually drain.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -2137,7 +2335,7 @@ public class PublicWebSocketConnectionTests
             // The handshake response was the first write; this TrySend's frame is the second and
             // blocks until Release() or disposal, ignoring every cancellation RunAsync's own teardown
             // could otherwise use to unblock it.
-            Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck")));
+            Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("stuck"), PublicOutboundLane.ControlOrRecovery));
             await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
             // An ordinary peer-initiated close (not a protocol violation, not RequestClose()) starts
@@ -2194,7 +2392,7 @@ public class PublicWebSocketConnectionTests
         await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late")));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("late"), PublicOutboundLane.ControlOrRecovery));
         Assert.Empty(diagnostics.Reports);
         listener.Stop();
     }
@@ -2545,7 +2743,7 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream(), ignoreCancellation: true);
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options, diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -2553,13 +2751,13 @@ public class PublicWebSocketConnectionTests
         // The handshake response was the first write; this send is the second and blocks until
         // released below, holding the single allowed message slot forever so the next TrySend
         // deterministically overflows rather than racing a real drain.
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         // Synchronous and sequential: by the time this call returns, OutboundCapacityExceeded has
         // already been published and the connection's own self-requested close already triggered --
         // strictly before anything below can reach termination classification.
-        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second")));
+        Assert.False(connection.TrySend(Encoding.UTF8.GetBytes("second"), PublicOutboundLane.ControlOrRecovery));
 
         blockingStream.Release();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -2596,12 +2794,12 @@ public class PublicWebSocketConnectionTests
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
         var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream(), ignoreCancellation: true);
-        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(controlOutboundQueueMaxMessages: 1, outboundQueueMaxBytes: 1024);
         var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options, diagnostics);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first")));
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("first"), PublicOutboundLane.ControlOrRecovery));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         const int overflowingSenderCount = 8;
@@ -2610,7 +2808,7 @@ public class PublicWebSocketConnectionTests
             .Select(index => new Thread(() =>
             {
                 barrier.SignalAndWait();
-                connection.TrySend(Encoding.UTF8.GetBytes($"overflow-{index}"));
+                connection.TrySend(Encoding.UTF8.GetBytes($"overflow-{index}"), PublicOutboundLane.ControlOrRecovery);
             }))
             .ToArray();
         foreach (Thread sender in overflowingSenders)

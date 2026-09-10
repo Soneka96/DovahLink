@@ -7,18 +7,19 @@ namespace DovahLink.Host.Tests.Client.Transport;
 /// <summary>Tests for <see cref="PublicConnectionContext"/>.</summary>
 public class PublicConnectionContextTests
 {
-    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> forwards the exact payload to the wrapped connection and returns its result when the connection admits the message.</summary>
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> forwards the exact payload and lane to the wrapped connection and returns its result when the connection admits the message.</summary>
     [Fact]
-    public void TrySend_ConnectionAdmitsMessage_ForwardsPayloadAndReturnsTrue()
+    public void TrySend_ConnectionAdmitsMessage_ForwardsPayloadAndLaneAndReturnsTrue()
     {
         var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendResult = true };
         var context = new PublicConnectionContext(connection);
         byte[] payload = "response"u8.ToArray();
 
-        bool result = context.TrySend(payload);
+        bool result = context.TrySend(payload, PublicOutboundLane.Data);
 
         Assert.True(result);
         Assert.Equal(payload, Assert.Single(connection.SentPayloads));
+        Assert.Equal(PublicOutboundLane.Data, Assert.Single(connection.SentLanes));
     }
 
     /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> returns <see langword="false"/> when the wrapped connection does not admit the message, rather than swallowing that outcome.</summary>
@@ -29,10 +30,11 @@ public class PublicConnectionContextTests
         var context = new PublicConnectionContext(connection);
         byte[] payload = "response"u8.ToArray();
 
-        bool result = context.TrySend(payload);
+        bool result = context.TrySend(payload, PublicOutboundLane.ControlOrRecovery);
 
         Assert.False(result);
         Assert.Equal(payload, Assert.Single(connection.SentPayloads));
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, Assert.Single(connection.SentLanes));
     }
 
     /// <summary>Verifies that <see cref="PublicConnectionContext.RequestClose"/> forwards to the wrapped connection.</summary>

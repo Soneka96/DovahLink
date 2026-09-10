@@ -15,8 +15,9 @@ public interface IPublicConnectionContext
     /// contract this forwards to.
     /// </summary>
     /// <param name="payload">The complete message payload to send.</param>
-    /// <returns><see langword="true"/> when the message was accepted onto the bounded outbound queue.</returns>
-    bool TrySend(ReadOnlyMemory<byte> payload);
+    /// <param name="lane">The reserved-capacity lane to admit this message onto.</param>
+    /// <returns><see langword="true"/> when the message was accepted onto <paramref name="lane"/>'s bounded outbound queue.</returns>
+    bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane);
 
     /// <summary>
     /// Requests the owning connection's own orderly close. See
@@ -40,7 +41,7 @@ public sealed class PublicConnectionContext : IPublicConnectionContext
     }
 
     /// <inheritdoc/>
-    public bool TrySend(ReadOnlyMemory<byte> payload) => connection.TrySend(payload);
+    public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane) => connection.TrySend(payload, lane);
 
     /// <inheritdoc/>
     public void RequestClose() => connection.RequestClose();

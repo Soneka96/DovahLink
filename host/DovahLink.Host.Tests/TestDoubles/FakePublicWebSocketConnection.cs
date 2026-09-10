@@ -37,9 +37,10 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     public void Complete() => completionSource.TrySetResult();
 
     /// <inheritdoc/>
-    public bool TrySend(ReadOnlyMemory<byte> payload)
+    public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane)
     {
         SentPayloads.Add(payload.ToArray());
+        SentLanes.Add(lane);
         return TrySendResult;
     }
 
@@ -66,4 +67,7 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <inheritdoc/>
     public void RequestClose() => RequestCloseCalls++;
+
+    /// <summary>Every lane passed to <see cref="TrySend"/> so far, in call order, index-aligned with <see cref="SentPayloads"/>.</summary>
+    public List<PublicOutboundLane> SentLanes { get; } = [];
 }

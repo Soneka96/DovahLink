@@ -34,19 +34,24 @@ public interface IPublicWebSocketConnection
     Task RunAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Attempts to enqueue an outbound message for the writer loop to send as a WebSocket text frame.
-    /// A message that cannot be admitted also requests this connection's own forced close (see
-    /// <see cref="RequestClose"/> for the distinct orderly close a caller can request instead), per
-    /// the transport's contract that an unadmittable response must not be dropped silently while the
-    /// connection stays open; the caller does not need to close the connection itself after a
+    /// Attempts to enqueue an outbound message for the writer loop to send as a WebSocket text frame,
+    /// onto <paramref name="lane"/>'s own reserved capacity. The writer loop always drains
+    /// <see cref="PublicOutboundLane.ControlOrRecovery"/> ahead of <see cref="PublicOutboundLane.Data"/>,
+    /// so a flood of admitted <see cref="PublicOutboundLane.Data"/> messages can never delay or evict
+    /// an admitted <see cref="PublicOutboundLane.ControlOrRecovery"/> one; the two lanes share one
+    /// byte budget. A message that cannot be admitted also requests this connection's own forced close
+    /// (see <see cref="RequestClose"/> for the distinct orderly close a caller can request instead),
+    /// per the transport's contract that an unadmittable response must not be dropped silently while
+    /// the connection stays open; the caller does not need to close the connection itself after a
     /// <see langword="false"/> result.
     /// </summary>
     /// <param name="payload">The complete message payload to send.</param>
+    /// <param name="lane">The reserved-capacity lane to admit this message onto.</param>
     /// <returns>
-    /// <see langword="true"/> when the message was accepted onto the bounded outbound queue;
-    /// otherwise <see langword="false"/>, and the connection is now closing.
+    /// <see langword="true"/> when the message was accepted onto <paramref name="lane"/>'s bounded
+    /// outbound queue; otherwise <see langword="false"/>, and the connection is now closing.
     /// </returns>
-    bool TrySend(ReadOnlyMemory<byte> payload);
+    bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane);
 
     /// <summary>
     /// Requests this connection's own orderly close: the read loop stops serving further inbound
@@ -80,14 +85,24 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The Host-local abnormal-termination reporting sink this connection reports its root-cause end reason through, at most once.</summary>
     private readonly IPublicWebSocketTransportDiagnostics diagnostics;
 
-    /// <summary>The bounded outbound frame queue drained by the writer loop.</summary>
-    private readonly Channel<byte[]> outbound;
+    /// <summary>
+    /// The bounded <see cref="PublicOutboundLane.ControlOrRecovery"/> outbound frame queue, always
+    /// drained by the writer loop ahead of <see cref="dataOutbound"/>.
+    /// </summary>
+    private readonly Channel<byte[]> controlOutbound;
 
     /// <summary>
-    /// The total encoded byte size of frames this connection currently owns for outbound delivery --
-    /// admitted by <see cref="TrySend"/> and not yet released by the writer loop, which covers a frame
-    /// still waiting in <see cref="outbound"/> as well as one the writer has already dequeued and is
-    /// still sending. Not merely the bytes presently sitting in the channel.
+    /// The bounded <see cref="PublicOutboundLane.Data"/> outbound frame queue, drained by the writer
+    /// loop only once <see cref="controlOutbound"/> has none pending.
+    /// </summary>
+    private readonly Channel<byte[]> dataOutbound;
+
+    /// <summary>
+    /// The total encoded byte size of frames this connection currently owns for outbound delivery,
+    /// across both lanes -- admitted by <see cref="TrySend"/> and not yet released by the writer loop,
+    /// which covers a frame still waiting in <see cref="controlOutbound"/> or <see cref="dataOutbound"/>
+    /// as well as one the writer has already dequeued and is still sending. Not merely the bytes
+    /// presently sitting in either channel.
     /// </summary>
     private long outboundQueuedBytes;
 
@@ -169,15 +184,23 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     private Task writerTask = Task.CompletedTask;
 
     /// <summary>
-    /// The count of outbound frames this connection currently owns, mirroring
-    /// <see cref="outboundQueuedBytes"/>: reserved by <see cref="TrySend"/> on admission and released
-    /// only once the writer loop has fully relinquished ownership of that frame (successful send,
-    /// failed send, or cancellation). A bounded <see cref="Channel{T}"/> alone would under-count this --
-    /// its capacity frees the instant a frame is dequeued, before that frame's send over the wire has
-    /// actually finished -- so this field, not <see cref="outbound"/>'s own capacity, is what
-    /// <see cref="PublicWebSocketTransportOptions.OutboundQueueMaxMessages"/> actually bounds.
+    /// The count of <see cref="PublicOutboundLane.ControlOrRecovery"/> outbound frames this connection
+    /// currently owns, mirroring <see cref="outboundQueuedBytes"/>: reserved by <see cref="TrySend"/>
+    /// on admission and released only once the writer loop has fully relinquished ownership of that
+    /// frame (successful send, failed send, or cancellation). A bounded <see cref="Channel{T}"/> alone
+    /// would under-count this -- its capacity frees the instant a frame is dequeued, before that
+    /// frame's send over the wire has actually finished -- so this field, not <see cref="controlOutbound"/>'s
+    /// own capacity, is what <see cref="PublicWebSocketTransportOptions.ControlOutboundQueueMaxMessages"/>
+    /// actually bounds.
     /// </summary>
-    private int outboundOutstandingMessages;
+    private int controlOutstandingMessages;
+
+    /// <summary>
+    /// The count of <see cref="PublicOutboundLane.Data"/> outbound frames this connection currently
+    /// owns, counted the same way as <see cref="controlOutstandingMessages"/> against
+    /// <see cref="dataOutbound"/> and <see cref="PublicWebSocketTransportOptions.DataOutboundQueueMaxMessages"/>.
+    /// </summary>
+    private int dataOutstandingMessages;
 
     /// <summary>
     /// The <see cref="PublicWebSocketConnectionEndReason"/> reported through
@@ -197,7 +220,8 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>
     /// Whether this connection's teardown has already begun, written by <see cref="RunAsync"/> before
-    /// it completes <see cref="outbound"/>'s writer, for any reason -- an orderly close, cancellation,
+    /// it completes <see cref="controlOutbound"/>'s and <see cref="dataOutbound"/>'s writers, for any
+    /// reason -- an orderly close, cancellation,
     /// a protocol violation, or a write failure. Checked alongside <see cref="orderlyCloseInProgress"/>
     /// by <see cref="RequestForcedCloseForUnadmittedMessage"/>, so a <see cref="TrySend"/> that arrives
     /// after teardown has already ended the connection fails silently instead of reporting a spurious
@@ -229,8 +253,10 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         this.clock = clock;
         this.options = options;
         this.diagnostics = diagnostics;
-        outbound = Channel.CreateBounded<byte[]>(
-            new BoundedChannelOptions(options.OutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
+        controlOutbound = Channel.CreateBounded<byte[]>(
+            new BoundedChannelOptions(options.ControlOutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
+        dataOutbound = Channel.CreateBounded<byte[]>(
+            new BoundedChannelOptions(options.DataOutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
         connectionContext = new PublicConnectionContext(this);
     }
 
@@ -315,7 +341,8 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         finally
         {
             Volatile.Write(ref connectionEnded, true);
-            outbound.Writer.TryComplete();
+            controlOutbound.Writer.TryComplete();
+            dataOutbound.Writer.TryComplete();
             if (upgraded)
             {
                 InvalidateConnectionState();
@@ -444,12 +471,20 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     }
 
     /// <inheritdoc/>
-    public bool TrySend(ReadOnlyMemory<byte> payload)
+    public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane)
     {
-        int outstandingAfterReserve = Interlocked.Increment(ref outboundOutstandingMessages);
-        if (outstandingAfterReserve > options.OutboundQueueMaxMessages)
+        ref int outstandingCounter = ref (lane == PublicOutboundLane.ControlOrRecovery
+            ? ref controlOutstandingMessages
+            : ref dataOutstandingMessages);
+        Channel<byte[]> channel = lane == PublicOutboundLane.ControlOrRecovery ? controlOutbound : dataOutbound;
+        int maxMessages = lane == PublicOutboundLane.ControlOrRecovery
+            ? options.ControlOutboundQueueMaxMessages
+            : options.DataOutboundQueueMaxMessages;
+
+        int outstandingAfterReserve = Interlocked.Increment(ref outstandingCounter);
+        if (outstandingAfterReserve > maxMessages)
         {
-            Interlocked.Decrement(ref outboundOutstandingMessages);
+            Interlocked.Decrement(ref outstandingCounter);
             RequestForcedCloseForUnadmittedMessage();
             return false;
         }
@@ -458,16 +493,16 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         if (queuedAfterReserve > options.OutboundQueueMaxBytes)
         {
             Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
-            Interlocked.Decrement(ref outboundOutstandingMessages);
+            Interlocked.Decrement(ref outstandingCounter);
             RequestForcedCloseForUnadmittedMessage();
             return false;
         }
 
         byte[] frame = payload.ToArray();
-        if (!outbound.Writer.TryWrite(frame))
+        if (!channel.Writer.TryWrite(frame))
         {
             Interlocked.Add(ref outboundQueuedBytes, -payload.Length);
-            Interlocked.Decrement(ref outboundOutstandingMessages);
+            Interlocked.Decrement(ref outstandingCounter);
             RequestForcedCloseForUnadmittedMessage();
             return false;
         }
@@ -514,7 +549,8 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     public void RequestClose()
     {
         Volatile.Write(ref orderlyCloseInProgress, true);
-        outbound.Writer.TryComplete();
+        controlOutbound.Writer.TryComplete();
+        dataOutbound.Writer.TryComplete();
         _ = InterruptReadOnceOutboundDrainsAsync();
     }
 
@@ -522,7 +558,8 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// Gives the writer loop a bounded opportunity to actually finish sending whatever was already
     /// admitted before <see cref="RequestClose"/> was called -- so an admitted terminal frame is not
     /// abandoned mid-send the instant an orderly close is requested -- before interrupting the read
-    /// loop. Waits on <see cref="writerTask"/> itself rather than <c>outbound.Reader.Completion</c>:
+    /// loop. Waits on <see cref="writerTask"/> itself rather than either channel's own
+    /// <c>Reader.Completion</c>:
     /// the latter completes the moment a frame is dequeued, which can happen well before that
     /// frame's send over the wire actually finishes on a slow or blocked peer, making it too early a
     /// signal here. Interrupting the read before the send truly finishes would not merely skip the
@@ -827,12 +864,15 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     }
 
     /// <summary>
-    /// Drains the outbound queue and sends each frame as a WebSocket text message in order, until the
-    /// queue is completed. Tolerates transport faults by cancelling <paramref name="writerCancellation"/>
-    /// and ending the loop rather than throwing, so a broken connection cannot leave this task running
-    /// or crash the caller awaiting it. Each send carries its own <see
-    /// cref="PublicWebSocketTransportOptions.GracefulCloseTimeout"/> deadline -- reused here rather
-    /// than adding a second timeout value, since a peer that cannot drain one send within a
+    /// Drains the outbound queues and sends each frame as a WebSocket text message in order, until
+    /// both queues are completed. Always sends every currently available <see cref="controlOutbound"/>
+    /// frame before considering <see cref="dataOutbound"/>, so a flood of admitted
+    /// <see cref="PublicOutboundLane.Data"/> messages can never delay or evict an admitted
+    /// <see cref="PublicOutboundLane.ControlOrRecovery"/> one. Tolerates transport faults by cancelling
+    /// <paramref name="writerCancellation"/> and ending the loop rather than throwing, so a broken
+    /// connection cannot leave this task running or crash the caller awaiting it. Each send carries
+    /// its own <see cref="PublicWebSocketTransportOptions.GracefulCloseTimeout"/> deadline -- reused
+    /// here rather than adding a second timeout value, since a peer that cannot drain one send within a
     /// close-handshake-sized window is not one a close handshake could complete with either -- so a
     /// peer that stops reading cannot block this loop indefinitely even while the connection is
     /// otherwise healthy and <paramref name="writerCancellation"/> is not itself cancelled.
@@ -841,14 +881,43 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <param name="writerCancellation">
     /// Cancelled by this loop when a write fails, so the reader stops too; deliberately never linked
     /// to an orderly close request (see <see cref="orderlyCloseRequested"/>), so this loop keeps
-    /// draining whatever the outbound queue already holds when only an orderly close is in progress.
+    /// draining whatever the outbound queues already hold when only an orderly close is in progress.
     /// </param>
     private async Task WriterLoopAsync(WebSocket webSocket, CancellationTokenSource writerCancellation)
     {
         try
         {
-            await foreach (byte[] frame in outbound.Reader.ReadAllAsync(writerCancellation.Token).ConfigureAwait(false))
+            while (true)
             {
+                byte[] frame;
+                PublicOutboundLane lane;
+                if (controlOutbound.Reader.TryRead(out byte[]? controlFrame))
+                {
+                    frame = controlFrame;
+                    lane = PublicOutboundLane.ControlOrRecovery;
+                }
+                else if (dataOutbound.Reader.TryRead(out byte[]? dataFrame))
+                {
+                    frame = dataFrame;
+                    lane = PublicOutboundLane.Data;
+                }
+                else if (controlOutbound.Reader.Completion.IsCompleted && dataOutbound.Reader.Completion.IsCompleted)
+                {
+                    // Both lanes are completed (Writer.TryComplete was called) and fully drained --
+                    // neither can ever produce another frame, so this loop has nothing left to wait for.
+                    return;
+                }
+                else
+                {
+                    // Neither lane has a frame ready right now, but at least one is still open. Wake up
+                    // as soon as either lane's state changes -- a new admission or that lane completing
+                    // -- then loop back to the top, which re-checks control-first priority from scratch.
+                    Task<bool> controlWaitTask = controlOutbound.Reader.WaitToReadAsync(writerCancellation.Token).AsTask();
+                    Task<bool> dataWaitTask = dataOutbound.Reader.WaitToReadAsync(writerCancellation.Token).AsTask();
+                    await Task.WhenAny(controlWaitTask, dataWaitTask).ConfigureAwait(false);
+                    continue;
+                }
+
                 try
                 {
                     using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(writerCancellation.Token);
@@ -879,7 +948,14 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 finally
                 {
                     Interlocked.Add(ref outboundQueuedBytes, -frame.Length);
-                    Interlocked.Decrement(ref outboundOutstandingMessages);
+                    if (lane == PublicOutboundLane.ControlOrRecovery)
+                    {
+                        Interlocked.Decrement(ref controlOutstandingMessages);
+                    }
+                    else
+                    {
+                        Interlocked.Decrement(ref dataOutstandingMessages);
+                    }
                 }
             }
         }
@@ -910,11 +986,13 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>
     /// Test-only, non-mutating check of whether <see cref="TrySend"/> currently has room to admit one
-    /// more message under <see cref="PublicWebSocketTransportOptions.OutboundQueueMaxMessages"/>,
-    /// without <see cref="TrySend"/>'s own side effect of requesting a forced close on a failed
-    /// reservation. Lets a test poll for the outbound slot actually becoming free again without every
-    /// failing poll attempt itself tearing down the connection under observation.
+    /// more <paramref name="lane"/> message under that lane's configured maximum, without
+    /// <see cref="TrySend"/>'s own side effect of requesting a forced close on a failed reservation.
+    /// Lets a test poll for an outbound slot actually becoming free again without every failing poll
+    /// attempt itself tearing down the connection under observation.
     /// </summary>
-    internal bool HasSpareOutboundMessageCapacity =>
-        Volatile.Read(ref outboundOutstandingMessages) < options.OutboundQueueMaxMessages;
+    /// <param name="lane">The lane to check spare capacity for.</param>
+    internal bool HasSpareOutboundMessageCapacity(PublicOutboundLane lane) => lane == PublicOutboundLane.ControlOrRecovery
+        ? Volatile.Read(ref controlOutstandingMessages) < options.ControlOutboundQueueMaxMessages
+        : Volatile.Read(ref dataOutstandingMessages) < options.DataOutboundQueueMaxMessages;
 }

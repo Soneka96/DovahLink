@@ -45,7 +45,7 @@ public sealed class ThrowingPublicWebSocketConnection : IPublicWebSocketConnecti
     }
 
     /// <inheritdoc/>
-    public bool TrySend(ReadOnlyMemory<byte> payload) => false;
+    public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane) => false;
 
     /// <inheritdoc/>
     public void RequestClose()

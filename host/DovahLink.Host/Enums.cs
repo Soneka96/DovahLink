@@ -514,6 +514,26 @@ public enum HandshakeRejectReason
     UnsupportedVersion,
 }
 
+/// <summary>
+/// The reserved-capacity lane one outbound message is admitted onto, per
+/// <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy: a small slice reserved for
+/// connection-level control and recovery traffic, kept separate from bulk data-publication traffic so
+/// a slow client under data-publication pressure cannot delay or crowd out timely control-message
+/// delivery.
+/// </summary>
+public enum PublicOutboundLane
+{
+    /// <summary>
+    /// Connection-level control and recovery traffic -- for example pairing, rename, error, and
+    /// session-invalidation messages, and current-state resynchronization responses. Always drained
+    /// ahead of <see cref="Data"/> traffic.
+    /// </summary>
+    ControlOrRecovery,
+
+    /// <summary>Bulk state-publication traffic -- for example Snapshot and Event messages.</summary>
+    Data,
+}
+
 // ---- Client protocol ----
 
 /// <summary>

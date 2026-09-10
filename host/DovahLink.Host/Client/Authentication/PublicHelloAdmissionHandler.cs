@@ -483,7 +483,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             null,
             ackPayload);
-        connectionContext.TrySend(bytes);
+        connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>Answers a <c>snapshot_request</c>: always rejected as unsupported, since no state area is currently registered.</summary>
@@ -611,7 +611,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             null,
             payload);
-        connectionContext.TrySend(bytes);
+        connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>Validates a decoded <c>hello</c> and dispatches to the presented authentication method.</summary>
@@ -909,7 +909,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             admittedClientId.ToString(),
             ackPayload);
-        connectionContext.TrySend(ackBytes);
+        connectionContext.TrySend(ackBytes, PublicOutboundLane.ControlOrRecovery);
 
         var capabilitiesPayload = new CapabilitiesPayload { Capabilities = [] };
         byte[] capabilitiesBytes = codec.Encode(
@@ -920,7 +920,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             null,
             capabilitiesPayload);
-        connectionContext.TrySend(capabilitiesBytes);
+        connectionContext.TrySend(capabilitiesBytes, PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <inheritdoc/>

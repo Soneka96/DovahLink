@@ -343,14 +343,27 @@ public static class Constants
     public static readonly TimeSpan PublicWebSocketMessageRateWindow = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// The maximum number of outbound messages queued per public connection, per
-    /// <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy.
+    /// The maximum number of control-or-recovery-lane outbound messages queued per public connection,
+    /// per <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy: 16 reserved
+    /// control/recovery slots out of the 128-message total, kept separate from the data lane so a slow
+    /// client under data-publication pressure cannot delay or crowd out timely control-message
+    /// delivery.
     /// </summary>
-    public const int PublicWebSocketOutboundQueueMaxMessages = 128;
+    public const int PublicWebSocketControlOutboundQueueMaxMessages = 16;
 
     /// <summary>
-    /// The maximum total encoded byte size of the outbound queue per public connection, per
-    /// <c>ai/context/protocol/security.md</c>'s "outbound queue byte budget: 2 MiB per client".
+    /// The maximum number of data-lane (state-publication) outbound messages queued per public
+    /// connection, per <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy: the
+    /// remaining 112 of the 128-message total not reserved for the control-or-recovery lane. Not yet
+    /// sub-split into the policy's own Normal/Heavy classification, since no Snapshot or Event payload
+    /// type is published over this transport yet.
+    /// </summary>
+    public const int PublicWebSocketDataOutboundQueueMaxMessages = 112;
+
+    /// <summary>
+    /// The maximum total encoded byte size of the outbound queue per public connection, shared across
+    /// both lanes, per <c>ai/context/protocol/security.md</c>'s "outbound queue byte budget: 2 MiB per
+    /// client", enforced independently of the per-lane message-count bounds above.
     /// </summary>
     public const long PublicWebSocketOutboundQueueMaxBytes = 2L * 1024 * 1024;
 
