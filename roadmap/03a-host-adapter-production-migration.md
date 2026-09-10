@@ -4,7 +4,7 @@
 
 ## 3A. Host/Adapter Production Migration
 
-**Status:** Active. This is the current interstitial architectural migration gate between the released Stage 3 baseline and further Stage 4 product development; 3A.3 is the next implementation work. See 3A.1-3A.3 below.
+**Status:** Active. This is the current interstitial architectural migration gate between the released Stage 3 baseline and further Stage 4 product development. 3A.1 and 3A.2 are complete; 3A.3 (Repository Normalization) is the remaining implementation work. See 3A.1-3A.3 below.
 
 ### Outcome
 
@@ -42,6 +42,8 @@ directly.
 
 ### 3A.1 — Host/Adapter Production Cutover
 
+**Status:** Complete
+
 **Purpose:** Make Host + Adapter the real production implementation before deleting the Bridge source.
 
 **Acceptance criteria:**
@@ -78,6 +80,8 @@ No Product Stage 4 live-state feature development belongs here.
 **Depends on:** Stage 3 (released baseline). Does not depend on Stage 4's live-state work.
 
 ### 3A.2 — Legacy Bridge Removal
+
+**Status:** Complete
 
 **Purpose:** Remove the obsolete implementation and Bridge-only validation/build infrastructure after
 Host + Adapter are already proven as production by 3A.1.

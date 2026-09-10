@@ -871,7 +871,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 9)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 11)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
@@ -890,8 +890,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         # other undone phase uses.
         phase_3a_status = (
             "**Status:** Active. This is the current interstitial architectural migration gate "
-            "between the released Stage 3 baseline and further Stage 4 product development; 3A.3 "
-            "is the next implementation work. See 3A.1-3A.3 below."
+            "between the released Stage 3 baseline and further Stage 4 product development. 3A.1 "
+            "and 3A.2 are complete; 3A.3 (Repository Normalization) is the remaining "
+            "implementation work. See 3A.1-3A.3 below."
         )
         self.assertEqual(roadmap.count(phase_3a_status), 1)
 
@@ -918,7 +919,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 # 3.1-3.3 are.
                 expected_statuses = [phase_4_status, "**Status:** Complete"]
             elif heading == "3A. Host/Adapter Production Migration":
-                expected_statuses = [phase_3a_status]
+                # 3A.1 and 3A.2 each carry their own "**Status:** Complete" line now that they are
+                # done; 3A.3 remains undone and carries no status line of its own, matching how
+                # Stage 4's still-undone subphases (4.2 onward) carry none either.
+                expected_statuses = [
+                    phase_3a_status,
+                    "**Status:** Complete",
+                    "**Status:** Complete",
+                ]
             elif heading.startswith("5. "):
                 expected_statuses = [phase_5_status]
             elif heading.startswith("28. "):
