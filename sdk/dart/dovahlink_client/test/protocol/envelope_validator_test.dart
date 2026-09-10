@@ -198,4 +198,33 @@ void main() {
       );
     });
   });
+
+  group('Method isClientIdRequired behaves correctly', () {
+    test(
+      'Method isClientIdRequired returns true only for every message type that carries an '
+      'envelope-level clientId',
+      () {
+        const Set<ProtocolMessageType> requiresClientId = <ProtocolMessageType>{
+          ProtocolMessageType.helloAck,
+          ProtocolMessageType.pairingRequest,
+          ProtocolMessageType.pairingConfirm,
+          ProtocolMessageType.pairingAck,
+          ProtocolMessageType.pairingRenotify,
+          ProtocolMessageType.pairingCancel,
+          ProtocolMessageType.renameRequest,
+          ProtocolMessageType.subscribe,
+          ProtocolMessageType.snapshotRequest,
+          ProtocolMessageType.ping,
+        };
+        for (final ProtocolMessageType messageType
+            in ProtocolMessageType.values) {
+          expect(
+            EnvelopeValidator.isClientIdRequired(messageType),
+            requiresClientId.contains(messageType),
+            reason: 'unexpected isClientIdRequired($messageType)',
+          );
+        }
+      },
+    );
+  });
 }

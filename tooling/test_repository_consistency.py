@@ -1199,8 +1199,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         canonical_commands = (
             "dovahlink list",
-            "dovahlink list trust",
-            "dovahlink list block",
+            "dovahlink list trusted",
+            "dovahlink list blocked",
             "dovahlink help",
             "dovahlink revoke -id <shortId>",
             "dovahlink reset-trust",
@@ -1282,7 +1282,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("        required: true", command_blocks["confirm-reset"])
         self.assertIn("name: scope", yaml)
         self.assertIn("required: false", yaml)
-        self.assertIn("default: all", yaml)
+        self.assertIn("default: known", yaml)
+        self.assertIn('help: "known, trusted, or blocked."', yaml)
+        self.assertNotIn("default: all", yaml)
         self.assertIn("help: Use dovahlink help for full details.", yaml)
         self.assertNotRegex(yaml, r"(?m)^[ \t]+help:\s*[|>]")
         help_values = re.findall(r"(?m)^[ \t]+help:\s?(.*)$", yaml)

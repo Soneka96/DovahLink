@@ -89,9 +89,9 @@ public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestH
     /// <summary>Formats the known-device listing for the requested scope.</summary>
     private string FormatList(TrustAdminListScope scope) => scope switch
     {
-        TrustAdminListScope.All => FormatKnownDeviceListing(trustAdminService.List("all"), "known device", includeState: true),
-        TrustAdminListScope.Trust => FormatKnownDeviceListing(trustAdminService.List("trust"), "trusted client", includeState: false),
-        TrustAdminListScope.Block => FormatKnownDeviceListing(trustAdminService.List("block"), "blocked device", includeState: true),
+        TrustAdminListScope.All => FormatKnownDeviceListing(trustAdminService.List("known"), "known device", includeState: true),
+        TrustAdminListScope.Trust => FormatKnownDeviceListing(trustAdminService.List("trusted"), "trusted client", includeState: false),
+        TrustAdminListScope.Block => FormatKnownDeviceListing(trustAdminService.List("blocked"), "blocked device", includeState: true),
         _ => "Unrecognized list scope.",
     };
 
@@ -165,7 +165,7 @@ public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestH
     /// <summary>Captures a known device's display name before a mutation that may remove its record.</summary>
     /// <param name="shortId">The short ID to look up.</param>
     private string CaptureDisplayName(string shortId) =>
-        trustAdminService.List("all").FirstOrDefault(record => record.ShortId == shortId) is { DisplayName: { Length: > 0 } displayName }
+        trustAdminService.List("known").FirstOrDefault(record => record.ShortId == shortId) is { DisplayName: { Length: > 0 } displayName }
             ? displayName
             : "(no display name)";
 

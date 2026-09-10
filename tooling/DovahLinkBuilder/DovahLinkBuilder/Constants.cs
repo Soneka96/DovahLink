@@ -18,4 +18,15 @@ public static class Constants
     /// reported as <see cref="RemoteSyncState.CouldNotVerify"/>.
     /// </summary>
     public static readonly TimeSpan GitFetchTimeout = TimeSpan.FromSeconds(10);
+
+    // ---- Process ----
+
+    /// <summary>
+    /// The maximum time <c>ProcessCommandRunner.RunAsync</c> waits, after a cancelled command's
+    /// process tree has been signaled to terminate, for every process in that tree to actually
+    /// finish exiting -- not only the root process itself, which
+    /// <see cref="System.Diagnostics.Process.WaitForExitAsync(System.Threading.CancellationToken)"/>
+    /// already covers.
+    /// </summary>
+    public static readonly TimeSpan ProcessTreeTerminationTimeout = TimeSpan.FromSeconds(10);
 }

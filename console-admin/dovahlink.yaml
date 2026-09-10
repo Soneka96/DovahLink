@@ -15,8 +15,8 @@ subs:
       - name: scope
         type: String
         required: false
-        default: all
-        help: "all, trust, or block."
+        default: known
+        help: "known, trusted, or blocked."
   - name: help
     func: Help
     help: Show full help.

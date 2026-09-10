@@ -655,6 +655,29 @@ void main() {
       },
     );
 
+    test(
+      'Method requestPairing stamps the resolved clientId on the outgoing envelope, unlike hello',
+      () async {
+        await _connectAndHello(transport, client);
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-status-available.json'),
+        );
+
+        await client.requestPairing();
+
+        expect(transport.sent, hasLength(2));
+        final JsonMap helloEnvelope =
+            jsonDecode(transport.sent.first) as JsonMap;
+        final JsonMap pairingRequestEnvelope =
+            jsonDecode(transport.sent.last) as JsonMap;
+        expect(helloEnvelope['messageType'], 'hello');
+        expect(helloEnvelope['clientId'], isNull);
+        expect(pairingRequestEnvelope['messageType'], 'pairing_request');
+        expect(pairingRequestEnvelope['clientId'], isNotNull);
+        expect(pairingRequestEnvelope['clientId'], client.clientId);
+      },
+    );
+
     test('Method requestPairing a transport failure mid-request resets connection state, not just hello\'s, for a '
         'non-retry-safe operation', () async {
       // pairing_confirm is not retrySafe (unlike pairing_request): a send failure must fail it

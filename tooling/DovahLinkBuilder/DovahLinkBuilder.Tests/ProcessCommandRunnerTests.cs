@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using DovahLink.DovahLinkBuilder;
 using DovahLink.DovahLinkBuilder.Build;
 using Xunit.Abstractions;
 
@@ -252,5 +253,206 @@ public sealed class ProcessCommandRunnerTests
         // exit naturally before the temporary directory is disposed below. Kept separate from the
         // timing assertion above so this cleanup wait is never mistaken for the behavior under test.
         await Task.Delay(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Assigns the started process to the tracking job and waits for it to report empty before returning from cancellation.</summary>
+    [Fact]
+    public async Task CancellationAssignsTheProcessToTheTrackingJobAndWaitsForItToEmpty()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ActiveCallsBeforeEmpty = 2 };
+        var runner = new ProcessCommandRunner(process => process.Kill(), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.NotNull(fakeJob.AssignedProcess);
+        Assert.Equal(fakeJob.ActiveCallsBeforeEmpty + 1, fakeJob.HasActiveProcessesCallCount);
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>Gives up waiting on a process tree that never reports empty, rather than hanging forever.</summary>
+    [Fact]
+    public async Task CancellationGivesUpWaitingOnATreeThatNeverReportsEmpty()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ActiveCallsBeforeEmpty = int.MaxValue };
+        var runner = new ProcessCommandRunner(process => process.Kill(), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var elapsed = Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        // Proves the wait is actually bounded by Constants.ProcessTreeTerminationTimeout, not that
+        // this specific run happened to be fast: a regression that polls forever would never reach
+        // this assertion at all.
+        Assert.True(
+            elapsed.Elapsed < Constants.ProcessTreeTerminationTimeout + TimeSpan.FromSeconds(2),
+            $"Expected a bounded wait even when the tree never reports empty, took {elapsed.Elapsed}.");
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>
+    /// Terminates the tracked job even when the root process could not be terminated, so a detached
+    /// descendant outside the root's own kill is not left waited on for the full poll timeout.
+    /// </summary>
+    [Fact]
+    public async Task CancellationTerminatesTheTrackedJobWhenRootTerminationFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob();
+        var runner = new ProcessCommandRunner(_ => throw new Win32Exception("access denied"), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.True(fakeJob.Disposed);
+
+        // The runner gives up on this un-terminated process rather than waiting for it; wait for it to
+        // exit naturally before the temporary directory is disposed below.
+        await Task.Delay(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Terminates the tracked job even when tree termination itself reports a partial failure.</summary>
+    [Fact]
+    public async Task CancellationTerminatesTheTrackedJobWhenRootTerminationThrowsAnAggregateException()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob();
+        var runner = new ProcessCommandRunner(_ => throw new AggregateException(new Win32Exception("access denied")), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.True(fakeJob.Disposed);
+
+        // The runner gives up on this un-terminated process rather than waiting for it; wait for it to
+        // exit naturally before the temporary directory is disposed below.
+        await Task.Delay(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Preserves cancellation and still waits for the process tree to empty when job termination itself fails.</summary>
+    [Fact]
+    public async Task CancellationIsNotMaskedWhenJobTerminationFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ActiveCallsBeforeEmpty = 2, ThrowOnTerminate = new Win32Exception("access denied") };
+        var runner = new ProcessCommandRunner(process => process.Kill(), () => fakeJob);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        Assert.Equal(1, fakeJob.TerminateCallCount);
+        Assert.Equal(fakeJob.ActiveCallsBeforeEmpty + 1, fakeJob.HasActiveProcessesCallCount);
+        Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>Terminates the already-started process and rethrows when job assignment fails.</summary>
+    [Fact]
+    public async Task AssignFailureTerminatesTheStartedProcessAndRethrows()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ThrowOnAssign = new Win32Exception("access denied") };
+        bool terminateCalled = false;
+        var runner = new ProcessCommandRunner(process => { terminateCalled = true; process.Kill(); }, () => fakeJob);
+
+        await Assert.ThrowsAsync<Win32Exception>(() => runner.RunAsync(command, null, null));
+
+        Assert.True(terminateCalled);
+        Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>
+    /// A controllable fake of <see cref="IProcessTreeJob"/> proving <see cref="ProcessCommandRunner"/>'s
+    /// own orchestration -- assign, poll until empty, dispose -- without a real process tree.
+    /// </summary>
+    private sealed class FakeProcessTreeJob : IProcessTreeJob
+    {
+        /// <summary>The number of leading <see cref="HasActiveProcesses"/> calls that report an active process before reporting empty.</summary>
+        public int ActiveCallsBeforeEmpty { get; set; }
+
+        /// <summary>The exception <see cref="Assign"/> throws instead of recording the process, or <see langword="null"/> to assign normally.</summary>
+        public Win32Exception? ThrowOnAssign { get; set; }
+
+        /// <summary>The process passed to <see cref="Assign"/>, or <see langword="null"/> before it is ever called.</summary>
+        public Process? AssignedProcess { get; private set; }
+
+        /// <summary>The number of times <see cref="HasActiveProcesses"/> has been called.</summary>
+        public int HasActiveProcessesCallCount { get; private set; }
+
+        /// <summary>Whether <see cref="Dispose"/> has been called.</summary>
+        public bool Disposed { get; private set; }
+
+        /// <summary>The number of times <see cref="Terminate"/> has been called.</summary>
+        public int TerminateCallCount { get; private set; }
+
+        /// <summary>The exception <see cref="Terminate"/> throws after recording the call, or <see langword="null"/> to succeed.</summary>
+        public Win32Exception? ThrowOnTerminate { get; set; }
+
+        /// <inheritdoc/>
+        public void Assign(Process process)
+        {
+            if (ThrowOnAssign is not null)
+            {
+                throw ThrowOnAssign;
+            }
+
+            AssignedProcess = process;
+        }
+
+        /// <inheritdoc/>
+        public bool HasActiveProcesses() => ++HasActiveProcessesCallCount <= ActiveCallsBeforeEmpty;
+
+        /// <inheritdoc/>
+        public void Terminate()
+        {
+            TerminateCallCount++;
+            if (ThrowOnTerminate is not null)
+            {
+                throw ThrowOnTerminate;
+            }
+        }
+
+        /// <inheritdoc/>
+        public void Dispose() => Disposed = true;
     }
 }

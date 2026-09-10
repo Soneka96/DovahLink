@@ -11,8 +11,8 @@ namespace DovahLink.Host.Trust;
 /// </summary>
 public interface ITrustAdminService
 {
-    /// <summary>Lists known devices using the all, trust, or block scope.</summary>
-    IReadOnlyList<TrustRecord> List(string scope = "all");
+    /// <summary>Lists known devices using the known, trusted, or blocked scope.</summary>
+    IReadOnlyList<TrustRecord> List(string scope = "known");
 
     /// <summary>Returns the canonical trust-administration command help.</summary>
     string Help();
@@ -99,15 +99,15 @@ public sealed class TrustAdminService : ITrustAdminService
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<TrustRecord> List(string scope = "all")
+    public IReadOnlyList<TrustRecord> List(string scope = "known")
     {
         ArgumentNullException.ThrowIfNull(scope);
         IReadOnlyList<TrustRecord> records = scope.ToLowerInvariant() switch
         {
-            "all" or "" => trustStore.List().OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
-            "trust" => trustStore.List().Where(record => record.State == KnownDeviceState.Trusted).OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
-            "block" => trustStore.List().Where(record => record.State == KnownDeviceState.Blocked).OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
-            _ => throw new ArgumentException("Scope must be all, trust, or block.", nameof(scope)),
+            "known" or "" => trustStore.List().OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
+            "trusted" => trustStore.List().Where(record => record.State == KnownDeviceState.Trusted).OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
+            "blocked" => trustStore.List().Where(record => record.State == KnownDeviceState.Blocked).OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
+            _ => throw new ArgumentException("Scope must be known, trusted, or blocked.", nameof(scope)),
         };
 
         Dictionary<string, int> counts = records
@@ -133,7 +133,7 @@ public sealed class TrustAdminService : ITrustAdminService
     /// <inheritdoc/>
     public string Help() =>
         "DovahLink commands:\n" +
-        " list [all|trust|block]\n" +
+        " list [known|trusted|blocked]\n" +
         " revoke -id <id> | block -id <id> | unblock -id <id> | forget -id <id>\n" +
         " reset-trust | reset | confirm-reset -confirm <code> | help";
 

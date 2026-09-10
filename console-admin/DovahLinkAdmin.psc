@@ -5,7 +5,7 @@ Scriptname DovahLinkAdmin Hidden
 ; its own -- every function below is implemented natively by the bridge plugin, not in Papyrus.
 ; See ../README.md and ai/context/protocol/security.md's "Trust administration surface".
 
-; Lists known devices for an empty/all, trust, or block scope as a formatted, multi-line string.
+; Lists known devices for an empty/known, trusted, or blocked scope as a formatted, multi-line string.
 String Function List(String akScope) global native
 
 ; Shows the canonical trust-administration commands and their descriptions.

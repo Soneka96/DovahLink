@@ -5,6 +5,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
@@ -37,6 +38,10 @@ class MockClientStorage extends Mock implements IClientStorage {}
 /// `client_id_resolver_test.dart`'s responsibility; this file only proves
 /// [AuthenticationService] uses its resolved value.
 class MockClientIdResolver extends Mock implements ClientIdResolver {}
+
+/// Mock client ID cache -- its own get/set behavior is `client_id_cache_test.dart`'s
+/// responsibility; this file only proves [AuthenticationService] writes and reads through it.
+class MockClientIdCache extends Mock implements ClientIdCache {}
 
 /// Builds a decoded `hello_ack` reply envelope from the shared envelope fixture.
 Envelope buildHelloAckEnvelope({
@@ -75,6 +80,7 @@ void main() {
   late MockRequestService requestService;
   late MockClientStorage storage;
   late MockClientIdResolver clientIdResolver;
+  late MockClientIdCache clientIdCache;
   late AuthenticationService service;
 
   setUpAll(() {
@@ -97,6 +103,7 @@ void main() {
     requestService = MockRequestService();
     storage = MockClientStorage();
     clientIdResolver = MockClientIdResolver();
+    clientIdCache = MockClientIdCache();
     when(() => sessionService.connect(any())).thenAnswer((_) async {});
     when(
       () => sessionService.disconnect(
@@ -126,6 +133,7 @@ void main() {
       requestService: requestService,
       storage: storage,
       clientIdResolver: clientIdResolver,
+      clientIdCache: clientIdCache,
     );
   });
 
@@ -213,7 +221,7 @@ void main() {
         await service.hello();
 
         verify(() => clientIdResolver.resolve(loaded)).called(1);
-        expect(service.clientId, 'existing-client');
+        verify(() => clientIdCache.set('existing-client')).called(1);
       },
     );
 
@@ -534,7 +542,10 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionService.connect(any())).called(1);
+        verifyInOrder([
+          () => sessionService.disconnect(orphanRetrySafeOperations: false),
+          () => sessionService.connect(any()),
+        ]);
         verify(
           () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
@@ -569,7 +580,10 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionService.connect(any())).called(1);
+        verifyInOrder([
+          () => sessionService.disconnect(orphanRetrySafeOperations: false),
+          () => sessionService.connect(any()),
+        ]);
         verify(
           () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
@@ -600,6 +614,11 @@ void main() {
         );
 
         verify(() => sessionService.connect(any())).called(1);
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
         expect(result.bridgeVersion, '2.0');
       },
     );
@@ -615,6 +634,36 @@ void main() {
           service.authenticate(Uri.parse('ws://127.0.0.1:1/')),
           throwsA(isA<DovahLinkConnectionException>()),
         );
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate propagates a disconnect() failure from the reconnect guard without '
+      'ever connecting or sending hello',
+      () async {
+        when(
+          () => sessionService.connectionState,
+        ).thenReturn(DovahLinkConnectionState.connected);
+        when(
+          () => sessionService.currentTrustState,
+        ).thenReturn(DovahLinkTrustState.unpaired);
+        when(
+          () => sessionService.disconnect(orphanRetrySafeOperations: false),
+        ).thenThrow(const DovahLinkConnectionException('close failed'));
+
+        await expectLater(
+          service.authenticate(Uri.parse('ws://127.0.0.1:1/')),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => sessionService.connect(any()));
         verifyNever(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -979,5 +1028,19 @@ void main() {
         ).called(1);
       },
     );
+  });
+
+  group('Property clientId behaves correctly', () {
+    test('Property clientId reads through to the cache', () {
+      when(() => clientIdCache.clientId).thenReturn('cached-client');
+
+      expect(service.clientId, 'cached-client');
+    });
+
+    test('Property clientId is null before the cache holds a value', () {
+      when(() => clientIdCache.clientId).thenReturn(null);
+
+      expect(service.clientId, isNull);
+    });
   });
 }

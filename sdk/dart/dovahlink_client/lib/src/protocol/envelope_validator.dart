@@ -93,19 +93,7 @@ class EnvelopeValidator {
         'clientId must be null or non-empty.',
       );
     }
-    final bool clientIdIsRequired = switch (messageType) {
-      ProtocolMessageType.helloAck ||
-      ProtocolMessageType.pairingRequest ||
-      ProtocolMessageType.pairingConfirm ||
-      ProtocolMessageType.pairingAck ||
-      ProtocolMessageType.pairingRenotify ||
-      ProtocolMessageType.pairingCancel ||
-      ProtocolMessageType.renameRequest ||
-      ProtocolMessageType.subscribe ||
-      ProtocolMessageType.snapshotRequest ||
-      ProtocolMessageType.ping => true,
-      _ => false,
-    };
+    final bool clientIdIsRequired = isClientIdRequired(messageType);
     if (clientIdIsRequired && clientId == null) {
       throw ProtocolFormatException(
         'clientId must be non-empty for $messageType.',
@@ -125,4 +113,30 @@ class EnvelopeValidator {
       );
     }
   }
+
+  /// Returns whether [messageType] carries a non-`null` envelope-level `clientId`, per
+  /// `protocol/schema/README.md`. True for the bridge's own `hello_ack`, and for every currently
+  /// implemented client-originated request past `hello` (the pairing messages, `rename_request`,
+  /// `subscribe`, `snapshot_request`, `ping`). False both for `hello` itself -- whose `clientId`
+  /// travels in its payload instead, because envelope-level identity is not yet established -- and
+  /// for every session-scoped reply/event type that carries no per-client identity at all
+  /// (`pairing_status`, `pairing_outcome`, `rename_outcome`, `subscription_ack`, `state_snapshot`,
+  /// `state_event`, `error`, `session_invalidated`, `pong`). `capabilities` is deliberately in
+  /// neither branch: it is bidirectional per the schema, so [validate] exempts it from this
+  /// method's null/non-null rule above rather than this method encoding a direction-dependent
+  /// answer for it.
+  static bool isClientIdRequired(ProtocolMessageType messageType) =>
+      switch (messageType) {
+        ProtocolMessageType.helloAck ||
+        ProtocolMessageType.pairingRequest ||
+        ProtocolMessageType.pairingConfirm ||
+        ProtocolMessageType.pairingAck ||
+        ProtocolMessageType.pairingRenotify ||
+        ProtocolMessageType.pairingCancel ||
+        ProtocolMessageType.renameRequest ||
+        ProtocolMessageType.subscribe ||
+        ProtocolMessageType.snapshotRequest ||
+        ProtocolMessageType.ping => true,
+        _ => false,
+      };
 }

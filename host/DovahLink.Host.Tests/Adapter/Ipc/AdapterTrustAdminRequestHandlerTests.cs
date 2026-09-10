@@ -43,9 +43,9 @@ public class AdapterTrustAdminRequestHandlerTests
 
     /// <summary>Verifies that the correct wire scope is translated to the service's own scope string.</summary>
     [Theory]
-    [InlineData(TrustAdminListScope.All, "all")]
-    [InlineData(TrustAdminListScope.Trust, "trust")]
-    [InlineData(TrustAdminListScope.Block, "block")]
+    [InlineData(TrustAdminListScope.All, "known")]
+    [InlineData(TrustAdminListScope.Trust, "trusted")]
+    [InlineData(TrustAdminListScope.Block, "blocked")]
     public async Task HandleAsync_List_PassesExpectedScopeString(TrustAdminListScope scope, string expectedScope)
     {
         var trustAdminService = new FakeTrustAdminService();
@@ -584,7 +584,7 @@ public class AdapterTrustAdminRequestHandlerTests
     /// <summary>An <see cref="ITrustAdminService"/> whose every member throws, carrying a secret that must never reach the caller.</summary>
     private sealed class ThrowingTrustAdminService : ITrustAdminService
     {
-        public IReadOnlyList<TrustRecord> List(string scope = "all") => throw new InvalidOperationException("Secret: DPAPI failure at C:\\Users\\redacted\\trust-store.dat");
+        public IReadOnlyList<TrustRecord> List(string scope = "known") => throw new InvalidOperationException("Secret: DPAPI failure at C:\\Users\\redacted\\trust-store.dat");
         public string Help() => throw new InvalidOperationException("Secret: DPAPI failure at C:\\Users\\redacted\\trust-store.dat");
         public Task RenameAsync(ClientId clientId, string displayName, KnownDeviceIncarnationId expectedIncarnation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public KnownDeviceIncarnationId? TryCaptureTrustedIncarnation(ClientId clientId) => throw new NotSupportedException();
