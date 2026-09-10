@@ -93,19 +93,7 @@ class EnvelopeValidator {
         'clientId must be null or non-empty.',
       );
     }
-    final bool clientIdIsRequired = switch (messageType) {
-      ProtocolMessageType.helloAck ||
-      ProtocolMessageType.pairingRequest ||
-      ProtocolMessageType.pairingConfirm ||
-      ProtocolMessageType.pairingAck ||
-      ProtocolMessageType.pairingRenotify ||
-      ProtocolMessageType.pairingCancel ||
-      ProtocolMessageType.renameRequest ||
-      ProtocolMessageType.subscribe ||
-      ProtocolMessageType.snapshotRequest ||
-      ProtocolMessageType.ping => true,
-      _ => false,
-    };
+    final bool clientIdIsRequired = isClientIdRequired(messageType);
     if (clientIdIsRequired && clientId == null) {
       throw ProtocolFormatException(
         'clientId must be non-empty for $messageType.',
@@ -125,4 +113,22 @@ class EnvelopeValidator {
       );
     }
   }
+
+  /// Returns whether [messageType] requires a non-`null` envelope-level `clientId`: every message
+  /// type except `hello` itself, whose `clientId` travels in its payload instead because the
+  /// envelope-level identity is not yet established.
+  static bool isClientIdRequired(ProtocolMessageType messageType) =>
+      switch (messageType) {
+        ProtocolMessageType.helloAck ||
+        ProtocolMessageType.pairingRequest ||
+        ProtocolMessageType.pairingConfirm ||
+        ProtocolMessageType.pairingAck ||
+        ProtocolMessageType.pairingRenotify ||
+        ProtocolMessageType.pairingCancel ||
+        ProtocolMessageType.renameRequest ||
+        ProtocolMessageType.subscribe ||
+        ProtocolMessageType.snapshotRequest ||
+        ProtocolMessageType.ping => true,
+        _ => false,
+      };
 }
