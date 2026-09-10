@@ -44,7 +44,7 @@ public sealed class BuildPageViewModelTests
             resolvedRepositoryContext,
             resolvedOutputPathContext,
             outputOwnershipGuard ?? new FakeBuildOutputOwnershipGuard(),
-            log ?? new LogViewModel(),
+            log ?? new LogViewModel(_ => { }),
             buildStageViewModelFactory ?? (stage => new BuildStageViewModel(stage)),
             runtimeBuildSettingsContext ?? new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
     }
@@ -101,7 +101,7 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
@@ -189,7 +189,7 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
@@ -230,7 +230,7 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
@@ -1087,7 +1087,7 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
@@ -1514,7 +1514,7 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();
@@ -2415,7 +2415,7 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         await viewModel.InitializeAsync();

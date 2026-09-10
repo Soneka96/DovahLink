@@ -52,13 +52,7 @@ public sealed class LogViewModel : ObservableObject, ILogViewModel
     /// <summary>The backing field for <see cref="AutoScroll"/>.</summary>
     private bool autoScroll = true;
 
-    /// <summary>Initializes the log panel, writing copied text to the real system clipboard.</summary>
-    public LogViewModel()
-        : this(System.Windows.Clipboard.SetText)
-    {
-    }
-
-    /// <summary>Initializes the log panel with a controllable clipboard-write seam.</summary>
+    /// <summary>Initializes the log panel with an injected clipboard-write collaborator.</summary>
     /// <param name="setClipboardText">Writes text to the clipboard for <see cref="CopyAllCommand"/>.</param>
     internal LogViewModel(Action<string> setClipboardText)
     {

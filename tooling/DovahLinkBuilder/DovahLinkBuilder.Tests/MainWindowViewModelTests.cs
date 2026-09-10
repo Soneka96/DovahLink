@@ -47,7 +47,7 @@ public sealed class MainWindowViewModelTests
         repositoryContext,
         new OutputPathContext(null),
         new StubBuildOutputOwnershipGuard(),
-        new LogViewModel(),
+        new LogViewModel(_ => { }),
         stage => new BuildStageViewModel(stage),
         new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
 

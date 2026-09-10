@@ -32,7 +32,7 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
@@ -65,7 +65,7 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
@@ -100,7 +100,7 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
@@ -142,7 +142,7 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             outputPathContext,
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
 
@@ -179,7 +179,7 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel(),
+            new LogViewModel(_ => { }),
             stage => new BuildStageViewModel(stage),
             new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
