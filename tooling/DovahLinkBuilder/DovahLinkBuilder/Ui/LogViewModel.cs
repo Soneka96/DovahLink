@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
@@ -8,7 +9,36 @@ namespace DovahLink.DovahLinkBuilder.Ui;
 /// clear/copy-all actions. Never cleared by a build's own status transitions -- only an explicit
 /// <see cref="ClearCommand"/> or the start of a new build clears it.
 /// </summary>
-public sealed class LogViewModel : ObservableObject
+public interface ILogViewModel : INotifyPropertyChanged
+{
+    /// <summary>Gets the accumulated log lines, oldest first.</summary>
+    IReadOnlyList<string> Lines { get; }
+
+    /// <summary>Gets or sets whether the log panel is expanded.</summary>
+    bool IsExpanded { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the log panel scrolls to the newest line automatically. Defaults to
+    /// <see cref="Persistence.BuilderSettings.AutoScrollLogs"/>'s own default.
+    /// </summary>
+    bool AutoScroll { get; set; }
+
+    /// <summary>Gets the command that clears the log panel.</summary>
+    RelayCommand ClearCommand { get; }
+
+    /// <summary>Gets the command that copies every log line to the clipboard.</summary>
+    RelayCommand CopyAllCommand { get; }
+
+    /// <summary>Appends one line to the log panel.</summary>
+    /// <param name="line">The line to append.</param>
+    void AppendLine(string line);
+
+    /// <summary>Clears every accumulated log line.</summary>
+    void Clear();
+}
+
+/// <inheritdoc cref="ILogViewModel"/>
+public sealed class LogViewModel : ObservableObject, ILogViewModel
 {
     /// <summary>The backing collection for <see cref="Lines"/>.</summary>
     private readonly ObservableCollection<string> lines = [];
@@ -37,40 +67,36 @@ public sealed class LogViewModel : ObservableObject
         CopyAllCommand = new RelayCommand(OnCopyAll);
     }
 
-    /// <summary>Gets the accumulated log lines, oldest first.</summary>
+    /// <inheritdoc/>
     public IReadOnlyList<string> Lines => lines;
 
-    /// <summary>Gets or sets whether the log panel is expanded.</summary>
+    /// <inheritdoc/>
     public bool IsExpanded
     {
         get => isExpanded;
         set => SetProperty(ref isExpanded, value);
     }
 
-    /// <summary>
-    /// Gets or sets whether the log panel scrolls to the newest line automatically. Defaults to
-    /// <see cref="Persistence.BuilderSettings.AutoScrollLogs"/>'s own default.
-    /// </summary>
+    /// <inheritdoc/>
     public bool AutoScroll
     {
         get => autoScroll;
         set => SetProperty(ref autoScroll, value);
     }
 
-    /// <summary>Gets the command that clears the log panel.</summary>
+    /// <inheritdoc/>
     public RelayCommand ClearCommand { get; }
 
-    /// <summary>Gets the command that copies every log line to the clipboard.</summary>
+    /// <inheritdoc/>
     public RelayCommand CopyAllCommand { get; }
 
-    /// <summary>Appends one line to the log panel.</summary>
-    /// <param name="line">The line to append.</param>
+    /// <inheritdoc/>
     public void AppendLine(string line)
     {
         lines.Add(line);
     }
 
-    /// <summary>Clears every accumulated log line.</summary>
+    /// <inheritdoc/>
     public void Clear()
     {
         lines.Clear();

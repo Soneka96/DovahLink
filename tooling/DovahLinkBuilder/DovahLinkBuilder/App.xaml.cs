@@ -37,6 +37,7 @@ public partial class App : Application
         var buildCoordinator = new AdapterHostBuildCoordinator(
             commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find, outputOwnershipGuard);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
+        var logViewModel = new LogViewModel();
 
         var buildPage = new BuildPageViewModel(
             environmentStore,
@@ -48,7 +49,8 @@ public partial class App : Application
             Clipboard.SetText,
             repositoryContext,
             outputPathContext,
-            outputOwnershipGuard);
+            outputOwnershipGuard,
+            logViewModel);
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext, outputPathContext);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);

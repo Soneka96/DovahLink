@@ -133,7 +133,7 @@ public interface IBuildPageViewModel : INotifyPropertyChanged
     string StageProgressText { get; }
 
     /// <summary>Gets the Build page's log panel, kept alive for the application's lifetime.</summary>
-    LogViewModel Log { get; }
+    ILogViewModel Log { get; }
 
     /// <summary>Gets the produced archive's path on success; <see langword="null"/> otherwise.</summary>
     string? ArchivePath { get; }
@@ -340,6 +340,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="repositoryContext">The shared repository root this page checks and builds.</param>
     /// <param name="outputPathContext">The shared build output path override this page checks and builds.</param>
     /// <param name="outputOwnershipGuard">Verifies the resolved output root is safe for a build to destructively manage.</param>
+    /// <param name="log">The Build page's log panel, kept alive for the application's lifetime.</param>
     public BuildPageViewModel(
         IEnvironmentStore environmentStore,
         IGitStatusStore gitStatusStore,
@@ -350,7 +351,8 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         Action<string> setClipboardText,
         IRepositoryContext repositoryContext,
         IOutputPathContext outputPathContext,
-        IBuildOutputOwnershipGuard outputOwnershipGuard)
+        IBuildOutputOwnershipGuard outputOwnershipGuard,
+        ILogViewModel log)
     {
         this.environmentStore = environmentStore;
         this.gitStatusStore = gitStatusStore;
@@ -362,6 +364,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         this.repositoryContext = repositoryContext;
         this.outputPathContext = outputPathContext;
         this.outputOwnershipGuard = outputOwnershipGuard;
+        Log = log;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         environmentStore.PropertyChanged += OnEnvironmentStoreChanged;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
@@ -375,7 +378,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         CopyArchivePathCommand = new RelayCommand(OnCopyArchivePath, () => ArchivePath is not null);
         ToggleShowAllRecentBuildsCommand = new RelayCommand(() => IsShowingAllRecentBuilds = !IsShowingAllRecentBuilds);
         Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
-        Log = new LogViewModel { AutoScroll = settingsStore.Load().AutoScrollLogs };
+        Log.AutoScroll = settingsStore.Load().AutoScrollLogs;
         recentBuilds = buildHistoryStore.GetRecent();
     }
 
@@ -957,7 +960,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     }
 
     /// <inheritdoc/>
-    public LogViewModel Log { get; }
+    public ILogViewModel Log { get; }
 
     /// <inheritdoc/>
     public string? ArchivePath

@@ -32,7 +32,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
-            new StubBuildOutputOwnershipGuard());
+            new StubBuildOutputOwnershipGuard(),
+            new LogViewModel());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -63,7 +64,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
-            new StubBuildOutputOwnershipGuard());
+            new StubBuildOutputOwnershipGuard(),
+            new LogViewModel());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -96,7 +98,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
-            new StubBuildOutputOwnershipGuard());
+            new StubBuildOutputOwnershipGuard(),
+            new LogViewModel());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -136,7 +139,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             repositoryContext,
             outputPathContext,
-            new StubBuildOutputOwnershipGuard());
+            new StubBuildOutputOwnershipGuard(),
+            new LogViewModel());
 
         await buildPage.InitializeAsync();
         Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
@@ -171,7 +175,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             repositoryContext,
             new OutputPathContext(null),
-            new StubBuildOutputOwnershipGuard());
+            new StubBuildOutputOwnershipGuard(),
+            new LogViewModel());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();

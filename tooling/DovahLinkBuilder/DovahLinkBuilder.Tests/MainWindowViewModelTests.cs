@@ -45,7 +45,8 @@ public sealed class MainWindowViewModelTests
         _ => { },
         repositoryContext,
         new OutputPathContext(null),
-        new StubBuildOutputOwnershipGuard());
+        new StubBuildOutputOwnershipGuard(),
+        new LogViewModel());
 
     /// <summary>
     /// Treats every output root as already owned, doing nothing: these tests exercise navigation
