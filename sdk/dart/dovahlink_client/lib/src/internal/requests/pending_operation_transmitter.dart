@@ -56,7 +56,25 @@ class PendingOperationTransmitter {
   /// connection-teardown path as every other pending operation on the connection, per
   /// [RequestPolicy.retrySafe] -- not force-failed ahead of its siblings merely because its own
   /// timer happened to be the one that fired.
+  ///
+  /// Throws [StateError], without registering [operation] or arming its timeout, if
+  /// [EnvelopeValidator.isClientIdRequired] requires a `clientId` for [operation]'s message type
+  /// but [ClientIdCache.clientId] has not been resolved yet -- a wire-invariant guard against ever
+  /// constructing an envelope [EnvelopeValidator.validate] itself would reject. Not a path any
+  /// current caller can reach: every implemented client-ID-required request already requires a
+  /// trust state only a prior successful `hello` (which always resolves the cache first) can
+  /// produce.
   void transmit(PendingOperation operation) {
+    final bool requiresClientId = EnvelopeValidator.isClientIdRequired(
+      operation.messageType,
+    );
+    final String? clientId = requiresClientId ? _clientIdCache.clientId : null;
+    if (requiresClientId && clientId == null) {
+      throw StateError(
+        'Cannot transmit ${operation.messageType}: clientId has not been resolved yet.',
+      );
+    }
+
     final String messageId = _randomIdGenerator.generateMessageId();
     _bookkeeping.register(messageId, operation);
     operation.timer = Timer(
@@ -76,9 +94,7 @@ class PendingOperationTransmitter {
       payload: operation.payload,
       bridgeInstanceId: null,
       playContextId: null,
-      clientId: EnvelopeValidator.isClientIdRequired(operation.messageType)
-          ? _clientIdCache.clientId
-          : null,
+      clientId: clientId,
     );
     unawaited(
       _transport.send(jsonEncode(outgoing.toJson())).catchError((Object error) {

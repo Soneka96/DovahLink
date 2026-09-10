@@ -63,6 +63,7 @@ void main() {
     registerFallbackValue(
       const DovahLinkConnectionException('fallback for any()'),
     );
+    registerFallbackValue(Fixtures.buildPendingOperation());
   });
 
   setUp(() {
@@ -134,6 +135,35 @@ void main() {
         expect(envelope['clientId'], isNull);
         verifyNever(() => clientIdCache.clientId);
         operation.timer?.cancel();
+      },
+    );
+
+    test(
+      'Method transmit throws StateError for a required-clientId message type when the cache is '
+      'empty, without registering, arming a timeout, or sending anything',
+      () {
+        when(() => clientIdCache.clientId).thenReturn(null);
+        final PendingOperation operation = Fixtures.buildPendingOperation();
+        final PendingOperationTransmitter transmitter = buildTransmitter(
+          transport: transport,
+          sessionService: sessionService,
+          bookkeeping: bookkeeping,
+          clientIdCache: clientIdCache,
+        );
+
+        expect(
+          () => transmitter.transmit(operation),
+          throwsA(
+            isA<StateError>().having(
+              (StateError error) => error.message,
+              'message',
+              contains('pairingRequest'),
+            ),
+          ),
+        );
+        verifyNever(() => bookkeeping.register(any(), any()));
+        verifyNever(() => transport.send(any()));
+        expect(operation.timer, isNull);
       },
     );
 
