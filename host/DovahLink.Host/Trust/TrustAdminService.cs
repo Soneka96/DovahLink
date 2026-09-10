@@ -133,7 +133,7 @@ public sealed class TrustAdminService : ITrustAdminService
     /// <inheritdoc/>
     public string Help() =>
         "DovahLink commands:\n" +
-        " list [all|trust|block]\n" +
+        " list [all|trusted|blocked]\n" +
         " revoke -id <id> | block -id <id> | unblock -id <id> | forget -id <id>\n" +
         " reset-trust | reset | confirm-reset -confirm <code> | help";
 

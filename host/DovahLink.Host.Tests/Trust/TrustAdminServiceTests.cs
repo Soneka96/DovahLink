@@ -55,6 +55,8 @@ public class TrustAdminServiceTests
 
         string help = admin.Help();
 
+        Assert.Contains("list [all|trusted|blocked]", help);
+        Assert.DoesNotContain("[all|trust|block]", help);
         Assert.Contains("unblock", help);
         Assert.Contains("forget", help);
         Assert.Contains("reset-trust", help);
