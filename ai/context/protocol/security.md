@@ -222,7 +222,7 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     parses in-game console text into named commands/subcommands/arguments from a YAML config and
     calls a matching Papyrus `global` function per subcommand. Its documented syntax
     (`commandName subcommandName -argumentName value`) covers `dovahlink list`,
-    `dovahlink list trust`, `dovahlink list block`, `dovahlink help`,
+    `dovahlink list trusted`, `dovahlink list blocked`, `dovahlink help`,
     `dovahlink revoke -id <shortId>`, `dovahlink block -id <shortId>`,
     `dovahlink unblock -id <shortId>`, `dovahlink forget -id <shortId>`, `dovahlink reset-trust`
     (Reset Trust, immediate, no confirmation), `dovahlink reset` (starts the Factory Reset
@@ -242,7 +242,7 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     to version-check at bridge startup); a registration failure is logged and remains isolated to
     this optional adapter; every other bridge behavior -- connection, pairing, trust
     persistence -- is entirely unaffected if ConsoleUtil Extended, the glue script, or its YAML
-    config are absent. Without them, `dovahlink list`/`dovahlink list trust`/`dovahlink list block`/
+    config are absent. Without them, `dovahlink list`/`dovahlink list trusted`/`dovahlink list blocked`/
     `dovahlink help` and the mutation commands are simply unrecognized
     console commands, exactly like any other unknown input; there is no error path and no degraded
     core behavior to account for.

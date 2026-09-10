@@ -17,8 +17,8 @@ Once installed (see below), the following work at Skyrim's console:
 
 ```text
 dovahlink list
-dovahlink list trust
-dovahlink list block
+dovahlink list trusted
+dovahlink list blocked
 dovahlink help
 dovahlink revoke -id <shortId>
 dovahlink block -id <shortId>
@@ -36,8 +36,8 @@ short because ConsoleUtil Extended can crash while printing long generated help 
 `<shortId>` is the five-digit administration-only identifier printed by `dovahlink list` — never
 the client's real (long) identity, and never a credential. `dovahlink list` lists every known device
 with its current state, sorted oldest-to-newest by creation time; repeated display names receive
-temporary `#1`, `#2`, ... suffixes in that presentation only. `dovahlink list trust` shows only
-trusted devices, and `dovahlink list block` shows only blocked devices. `dovahlink help` prints
+temporary `#1`, `#2`, ... suffixes in that presentation only. `dovahlink list trusted` shows only
+trusted devices, and `dovahlink list blocked` shows only blocked devices. `dovahlink help` prints
 descriptions for every command. `block` targets a trusted or revoked known device by `<shortId>` —
 an unpaired device is not eligible; `unblock` targets a blocked device by `<shortId>`, returning it
 to unpaired.
@@ -59,7 +59,7 @@ invalidation" for the full Reset Trust/Factory Reset distinction.
 This adapter requires [ConsoleUtil Extended](https://github.com/KrisV-777/ConsoleUtil-Extended), a
 third-party SKSE plugin, installed separately as its own mod. DovahLink Bridge does not bundle it
 and does not check for its presence at plugin load — if it (or the files in this directory) are
-missing, `dovahlink list`/`dovahlink list trust`/`dovahlink list block`/`dovahlink help` and the
+missing, `dovahlink list`/`dovahlink list trusted`/`dovahlink list blocked`/`dovahlink help` and the
 mutation commands are simply unrecognized console commands, exactly like any other unknown input;
 nothing else about the bridge is affected.
 
@@ -96,7 +96,7 @@ cannot exercise a live Papyrus VM or a third-party plugin
 ([`ai/context/skse/testing.md`](../ai/context/skse/testing.md)'s "Manual verification"). Before
 relying on this adapter, confirm in-game that:
 
-- `dovahlink list`, `dovahlink list trust`, `dovahlink list block`, `dovahlink help`,
+- `dovahlink list`, `dovahlink list trusted`, `dovahlink list blocked`, `dovahlink help`,
   `dovahlink revoke -id <shortId>`, `dovahlink reset-trust`, `dovahlink reset`,
   `dovahlink confirm-reset -confirm <code>`, `dovahlink block -id <shortId>`,
   `dovahlink unblock -id <shortId>`, and `dovahlink forget -id <shortId>` are recognized and

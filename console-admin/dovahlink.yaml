@@ -16,7 +16,7 @@ subs:
         type: String
         required: false
         default: all
-        help: "all, trust, or block."
+        help: "all, trusted, or blocked."
   - name: help
     func: Help
     help: Show full help.
