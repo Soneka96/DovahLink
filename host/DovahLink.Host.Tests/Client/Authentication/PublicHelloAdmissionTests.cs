@@ -2555,6 +2555,95 @@ public class PublicHelloAdmissionTests
         await context.Handler.HandleDisconnectedAsync(CancellationToken.None);
     }
 
+    /// <summary>
+    /// Verifies that ending a connection unsubscribes it: a later event for an area it had accepted
+    /// never reaches it, proving <see cref="PublicHelloAdmissionHandler.HandleConnectionEnded"/>
+    /// actually calls <see cref="IPublicStateSubscription.Unsubscribe"/> rather than leaving a
+    /// disconnected connection's subscription listening indefinitely.
+    /// </summary>
+    [Fact]
+    public void HandleConnectionEnded_AfterSubscribing_StopsForwardingLaterEvents()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_a"));
+        var feed = new FakeStatePublicationFeed();
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+        byte[] subscribeMessage = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, clientId, new SubscribePayload { StateAreas = ["area_a"] });
+        context.Handler.HandleMessageAsync(context.Connection, subscribeMessage, CancellationToken.None);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a"));
+        int sentCountBeforeDisconnect = context.FakeConnection.SentPayloads.Count;
+
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+        feed.RaiseEvent(BuildStateEventPublication("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Equal(sentCountBeforeDisconnect, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>
+    /// Verifies that a reconnect -- a second connection admitted after the first ended -- never
+    /// inherits the first connection's subscription or receives events published while it was
+    /// disconnected, per <c>protocol/schema/README.md</c>'s "The client must not apply messages from
+    /// its previous session. Queued state from that session is not replayed; a fresh snapshot
+    /// establishes each new baseline." Both connections' subscriptions share the same host-wide
+    /// <see cref="RegisteredStateAreaPolicy"/> and <see cref="FakeStatePublicationFeed"/>, matching
+    /// how <c>Program.cs</c> composes them as host-wide singletons while constructing a fresh
+    /// <see cref="PublicStateSubscription"/> per connection.
+    /// </summary>
+    [Fact]
+    public void Reconnect_SecondConnection_DoesNotInheritFirstConnectionsSubscriptionOrMissedEvents()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_a"));
+        var feed = new FakeStatePublicationFeed();
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a", revision: 1));
+
+        // First connection subscribes and receives its own snapshot, then disconnects.
+        var firstSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var firstContext = new TestContext(subscription: firstSubscription);
+        AdmitViaTrustedDeviceCredentialHello(firstContext, out string firstSessionId, out string firstClientId);
+        byte[] firstSubscribeMessage = firstContext.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", firstSessionId, null, null, firstClientId, new SubscribePayload { StateAreas = ["area_a"] });
+        firstContext.Handler.HandleMessageAsync(firstContext.Connection, firstSubscribeMessage, CancellationToken.None);
+        Assert.Single(firstContext.FakeConnection.SentSnapshots);
+        firstContext.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+
+        // An event published while no client is connected must never reach the now-ended first
+        // connection.
+        feed.RaiseEvent(BuildStateEventPublication("area_a", baseRevision: 1, revision: 2));
+
+        // The reconnect: a fresh connection, fresh PublicStateSubscription, over the same shared
+        // policy/feed. It never subscribed, so it must not have received anything either.
+        var secondSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var secondContext = new TestContext(subscription: secondSubscription);
+        AdmitViaTrustedDeviceCredentialHello(secondContext, out string secondSessionId, out string secondClientId);
+
+        Assert.NotEqual(firstSessionId, secondSessionId); // a reconnect is a genuinely fresh session, never a resumed one
+        Assert.Empty(secondContext.FakeConnection.SentSnapshots);
+
+        // Subscribing now gets the fresh, current baseline (revision 2, post-event) -- not a replay
+        // of the event that was missed while disconnected.
+        byte[] secondSubscribeMessage = secondContext.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", secondSessionId, null, null, secondClientId, new SubscribePayload { StateAreas = ["area_a"] });
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a", revision: 2));
+        secondContext.Handler.HandleMessageAsync(secondContext.Connection, secondSubscribeMessage, CancellationToken.None);
+
+        (_, byte[] snapshotBytes) = Assert.Single(secondContext.FakeConnection.SentSnapshots);
+        Assert.True(secondContext.Codec.TryDecode(snapshotBytes, out PublicEnvelope? envelope));
+        Assert.True(secondContext.Codec.TryDecodePayload(envelope!, out StateSnapshotPayload? payload));
+        Assert.Equal(2UL, payload!.Revision);
+    }
+
+    /// <summary>Builds a representative snapshot value for the given area.</summary>
+    private static StateSnapshotPublication BuildStateSnapshotPublication(string area, ulong revision = 1) =>
+        new(new StateAreaId(area), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 42 }));
+
+    /// <summary>Builds a representative event value for the given area.</summary>
+    private static StateEventPublication BuildStateEventPublication(string area, ulong baseRevision, ulong revision) =>
+        new(new StateAreaId(area), new RevisionNumber(baseRevision), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 99 }));
+
     // ---- Helpers ----
 
     /// <summary>Builds a complete wire-encoded <c>hello</c> message with the given clientId, messageId, and auth payload.</summary>

@@ -433,6 +433,8 @@ discarded.
 
 #### Host-owned state, publication, and bounded delivery
 
+**Status:** Complete
+
 Implement host-owned authoritative state, subscriptions, revisions, publication ordering, recovery,
 per-session bounded queues, latest-value Snapshot behavior, reliable Event behavior, reserved control
 capacity, and serialized WebSocket writing. Use typed host messages internally and map to the public

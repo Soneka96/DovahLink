@@ -871,7 +871,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 11)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 12)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
@@ -914,10 +914,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
-                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line, since
-                # 4.1-4.5 are subsections of this stage rather than independent headings the way
-                # 3.1-3.3 are.
-                expected_statuses = [phase_4_status, "**Status:** Complete"]
+                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line and the
+                # Host/Adapter continuation's "Host-owned state, publication, and bounded delivery"
+                # subsection's own, since these are subsections of this stage rather than
+                # independent headings the way 3.1-3.3 are.
+                expected_statuses = [
+                    phase_4_status,
+                    "**Status:** Complete",
+                    "**Status:** Complete",
+                ]
             elif heading == "3A. Host/Adapter Production Migration":
                 # 3A.1 and 3A.2 each carry their own "**Status:** Complete" line now that they are
                 # done; 3A.3 remains undone and carries no status line of its own, matching how

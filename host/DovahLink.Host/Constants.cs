@@ -382,9 +382,13 @@ public static class Constants
     /// <summary>
     /// The maximum number of data-lane (state-publication) outbound messages queued per public
     /// connection, per <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy: the
-    /// remaining 112 of the 128-message total not reserved for the control-or-recovery lane. Not yet
-    /// sub-split into the policy's own Normal/Heavy classification, since no Snapshot or Event payload
-    /// type is published over this transport yet.
+    /// remaining 112 of the 128-message total not reserved for the control-or-recovery lane, shared
+    /// between one replaceable keyed Snapshot slot per subscribed state area and the remaining
+    /// ordered Event FIFO capacity -- see <see cref="Client.Transport.DataLaneOutboundQueue"/>. Not
+    /// yet sub-split further into the policy's own Normal/Heavy byte-size classification: per
+    /// <c>ai/context/protocol/security.md</c>'s own note, that threshold is "not yet profiled against
+    /// a real character-domain payload" -- no real Skyrim domain is registered yet, so there is
+    /// nothing to profile it against.
     /// </summary>
     public const int PublicWebSocketDataOutboundQueueMaxMessages = 112;
 
