@@ -44,7 +44,10 @@ abstract interface class IAuthenticationService {
   /// connected and trusted -- the bridge's one-session-per-connection limit
   /// (`handshake_handler.cpp`'s `TryCreateSession`) rejects a second `hello` on a socket that
   /// already holds a session, so re-authenticating an already-trusted, still-open connection must
-  /// not re-send one.
+  /// not re-send one. Otherwise disconnects first whenever a connection is already open --
+  /// [hello]'s own admission can leave one behind without trust yet established, for example when a
+  /// caller's post-admission operation fails without disconnecting -- since the transport rejects a
+  /// second [ISessionService.connect] on a socket it has not closed.
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
@@ -203,6 +206,13 @@ class AuthenticationService implements IAuthenticationService {
         bridgeVersion: cachedBridgeVersion,
         trustState: DovahLinkTrustState.trusted,
       );
+    }
+    // A connection this method (or an earlier hello()) already admitted, but that never reached
+    // the cached-and-trusted shortcut above, must be closed before reconnecting -- the transport
+    // rejects a second connect() on a socket it has not closed.
+    if (_sessionService.connectionState !=
+        DovahLinkConnectionState.disconnected) {
+      await _sessionService.disconnect(orphanRetrySafeOperations: false);
     }
     await _sessionService.connect(uri);
     try {

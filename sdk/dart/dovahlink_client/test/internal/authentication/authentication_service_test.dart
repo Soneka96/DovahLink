@@ -542,7 +542,10 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionService.connect(any())).called(1);
+        verifyInOrder([
+          () => sessionService.disconnect(orphanRetrySafeOperations: false),
+          () => sessionService.connect(any()),
+        ]);
         verify(
           () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
@@ -577,7 +580,10 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionService.connect(any())).called(1);
+        verifyInOrder([
+          () => sessionService.disconnect(orphanRetrySafeOperations: false),
+          () => sessionService.connect(any()),
+        ]);
         verify(
           () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
@@ -608,6 +614,11 @@ void main() {
         );
 
         verify(() => sessionService.connect(any())).called(1);
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
         expect(result.bridgeVersion, '2.0');
       },
     );
@@ -623,6 +634,36 @@ void main() {
           service.authenticate(Uri.parse('ws://127.0.0.1:1/')),
           throwsA(isA<DovahLinkConnectionException>()),
         );
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate propagates a disconnect() failure from the reconnect guard without '
+      'ever connecting or sending hello',
+      () async {
+        when(
+          () => sessionService.connectionState,
+        ).thenReturn(DovahLinkConnectionState.connected);
+        when(
+          () => sessionService.currentTrustState,
+        ).thenReturn(DovahLinkTrustState.unpaired);
+        when(
+          () => sessionService.disconnect(orphanRetrySafeOperations: false),
+        ).thenThrow(const DovahLinkConnectionException('close failed'));
+
+        await expectLater(
+          service.authenticate(Uri.parse('ws://127.0.0.1:1/')),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => sessionService.connect(any()));
         verifyNever(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
