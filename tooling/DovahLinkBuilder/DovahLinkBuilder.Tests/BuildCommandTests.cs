@@ -11,9 +11,10 @@ public sealed class BuildCommandTests
     {
         var environment = new Dictionary<string, string> { ["VCPKG_ROOT"] = @"C:\VS & tools\vcpkg" };
 
-        IReadOnlyList<BuildCommand> commands = BuildCommand.CreateReleaseBuild(
+        IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(
             @"C:\repository & workspace\adapter",
-            environment);
+            environment,
+            "windows-x64-release");
 
         Assert.Collection(
             commands,
@@ -33,6 +34,25 @@ public sealed class BuildCommandTests
                 Assert.Equal(Path.GetFullPath(@"C:\repository & workspace\adapter"), build.WorkingDirectory);
                 Assert.Same(environment, build.EnvironmentVariables);
             });
+    }
+
+    /// <summary>Builds direct CMake commands for a different preset, proving the preset name is not hardcoded.</summary>
+    [Fact]
+    public void BuildsStructuredCommandsForTheSuppliedPreset()
+    {
+        var environment = new Dictionary<string, string>();
+
+        IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(
+            @"C:\repository\adapter",
+            environment,
+            "windows-x64-debug");
+
+        Assert.Collection(
+            commands,
+            configure => Assert.Equal(["--fresh", "--preset", "windows-x64-debug"], configure.Arguments),
+            build => Assert.Equal(
+                ["--build", "--preset", "windows-x64-debug", "--target", "dovahlink_adapter_plugin"],
+                build.Arguments));
     }
 
     /// <summary>Builds a direct Papyrus compiler command with named arguments and the compiler's own directory.</summary>

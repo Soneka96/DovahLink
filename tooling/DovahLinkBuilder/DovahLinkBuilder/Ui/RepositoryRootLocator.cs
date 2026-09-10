@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace DovahLink.DovahLinkBuilder.Ui;
 
 /// <summary>Finds the repository root used by the DovahLink Builder.</summary>

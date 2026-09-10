@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 
 namespace DovahLink.DovahLinkBuilder.Build;
 
@@ -74,6 +76,11 @@ public sealed class ProcessCommandRunner : ICommandRunner
         }
         catch (OperationCanceledException)
         {
+            // Whether termination is believed to have actually taken effect: false only when Kill
+            // itself failed and the process is presumed still running, since waiting below for a
+            // process nothing has actually terminated would otherwise hang this cancellation --
+            // and every reader of a still-open stdout/stderr pipe -- indefinitely.
+            bool terminated = true;
             try
             {
                 if (!process.HasExited)
@@ -85,9 +92,27 @@ public sealed class ProcessCommandRunner : ICommandRunner
             {
                 // The process exited between the state check and termination.
             }
+            catch (Win32Exception)
+            {
+                // The process could not be terminated (for example access denied). Still reported as
+                // cancelled, not failed, below -- this call simply stops waiting on a process (and its
+                // output) it could not actually stop, rather than hanging on one that may never exit.
+                terminated = false;
+            }
+            catch (AggregateException)
+            {
+                // Process.Kill(entireProcessTree: true) reports a partial tree-kill failure this way.
+                // Treated exactly like the Win32Exception case above: cancellation still wins, and this
+                // call stops waiting on a tree it could not fully stop.
+                terminated = false;
+            }
 
-            await process.WaitForExitAsync(CancellationToken.None);
-            await Task.WhenAll(outputTask, errorTask);
+            if (terminated)
+            {
+                await process.WaitForExitAsync(CancellationToken.None);
+                await Task.WhenAll(outputTask, errorTask);
+            }
+
             throw;
         }
 

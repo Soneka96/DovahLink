@@ -1,11 +1,29 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using DovahLink.DovahLinkBuilder.Build;
+using Xunit.Abstractions;
 
 namespace DovahLink.DovahLinkBuilder.Tests;
 
 /// <summary>Verifies structured child-process execution, output forwarding, and cancellation.</summary>
 public sealed class ProcessCommandRunnerTests
 {
+    /// <summary>
+    /// Captures diagnostic lines for this test run. Writing to this happens immediately, unlike an
+    /// assertion failure: if a later exception (for example <see cref="TemporaryDirectory.Dispose"/>
+    /// hitting a transient file lock during cleanup) replaces the exception a failed assertion would
+    /// otherwise have thrown, a line already written here still survives and is visible in the test's
+    /// captured output.
+    /// </summary>
+    private readonly ITestOutputHelper output;
+
+    /// <summary>Initializes this test class with xUnit's per-test output sink.</summary>
+    /// <param name="output">Writes diagnostic lines to this test's captured xUnit output.</param>
+    public ProcessCommandRunnerTests(ITestOutputHelper output)
+    {
+        this.output = output;
+    }
+
     /// <summary>Imports a validated batch path containing spaces and shell metacharacters as environment data.</summary>
     [Fact]
     public async Task ImportsToolchainPathsWithoutInterpolatingThemIntoTheShellScript()
@@ -119,6 +137,43 @@ public sealed class ProcessCommandRunnerTests
             () => runner.RunAsync(command, null, null, cancellation.Token));
     }
 
+    /// <summary>Preserves cancellation, without hanging, when process termination itself fails.</summary>
+    [Fact]
+    public async Task CancellationIsNotMaskedWhenTerminationFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            // Deliberately longer than the 2-second threshold below by a wide margin: a regression
+            // that waits for natural exit instead of giving up promptly must not be able to sneak
+            // under that threshold by coincidence. Not matched to the tree-kill test's 30-second
+            // child (CancellationTerminatesTheProcessTreeAndThrowsOperationCanceledException):
+            // that test's cancellation actually kills the real process within seconds, so its longer
+            // duration costs little; this test's injected termination failure never kills the real
+            // process at all, so its duration is real wall-clock cost paid below regardless.
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var runner = new ProcessCommandRunner(_ => throw new Win32Exception("access denied"));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var elapsed = Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        // A regression that waits for the child process to exit naturally (the "ping -n 8" above takes
+        // roughly 7-8 seconds) would still eventually throw OperationCanceledException and pass the
+        // assertion above alone; this threshold is what actually proves the runner gave up on
+        // termination promptly instead of hanging until natural exit.
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Expected a prompt return after a failed termination, took {elapsed.Elapsed}.");
+
+        // The runner deliberately gives up on this un-terminated process rather than waiting for it (that's
+        // the behaviour under test), so it's still holding the working directory open here; wait for it to
+        // exit naturally before the temporary directory is disposed below. Kept separate from the timing
+        // assertion above so this cleanup wait is never mistaken for the behavior under test.
+        await Task.Delay(TimeSpan.FromSeconds(10));
+    }
+
     /// <summary>Terminates a real child process tree promptly while preserving cancellation.</summary>
     [Fact]
     public async Task CancellationTerminatesTheProcessTreeAndThrowsOperationCanceledException()
@@ -155,7 +210,47 @@ public sealed class ProcessCommandRunnerTests
 
         Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
         await Task.Delay(TimeSpan.FromSeconds(1));
-        Assert.False(File.Exists(sentinelPath));
+
+        // Captured and logged before asserting, rather than passed directly to Assert.False: if this
+        // is false (the real proof the process tree was actually killed) but the temporary directory
+        // then fails to delete on a loaded CI runner, .NET discards this method's own exception in
+        // favor of the one TemporaryDirectory.Dispose() throws during the using statement's unwind --
+        // silently replacing "the assertion failed" with an unrelated-looking IOException. Logging the
+        // captured value first means a future failure's CI output still shows which one actually
+        // happened, even when the exception itself gets masked.
+        bool sentinelExists = File.Exists(sentinelPath);
+        output.WriteLine($"Sentinel file exists after cancellation: {sentinelExists}");
+        Assert.False(sentinelExists);
     }
 
+    /// <summary>Preserves cancellation, without hanging, when tree termination reports a partial failure.</summary>
+    [Fact]
+    public async Task CancellationIsNotMaskedWhenTerminationThrowsAnAggregateException()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            // See CancellationIsNotMaskedWhenTerminationFails above for why this is deliberately
+            // longer than the 2-second threshold below, and deliberately not matched to the
+            // tree-kill test's 30-second child.
+            ["/d", "/s", "/c", "ping -n 8 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var runner = new ProcessCommandRunner(_ => throw new AggregateException(new Win32Exception("access denied")));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var elapsed = Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(command, null, null, cancellation.Token));
+
+        // As in CancellationIsNotMaskedWhenTerminationFails above, a regression that waits for the
+        // child process to exit naturally would still eventually satisfy the assertion above alone;
+        // this threshold is what actually proves the runner returned promptly.
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(2), $"Expected a prompt return after a failed termination, took {elapsed.Elapsed}.");
+
+        // The runner gives up on this un-terminated process rather than waiting for it; wait for it to
+        // exit naturally before the temporary directory is disposed below. Kept separate from the
+        // timing assertion above so this cleanup wait is never mistaken for the behavior under test.
+        await Task.Delay(TimeSpan.FromSeconds(10));
+    }
 }

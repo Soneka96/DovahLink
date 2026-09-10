@@ -71,4 +71,46 @@ public sealed class VisualStudioToolchainTests
             new VisualStudioToolchain(vcvarsallPath, Path.Combine(temporaryDirectory.Path, "missing-vcpkg"))));
     }
 
+    /// <summary>Reports <see cref="ToolchainAvailability.Found"/> for an installation with the required files.</summary>
+    [Fact]
+    public void TryFindReturnsFoundForAnInstallationWithTheRequiredFiles()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string installationRoot = Path.Combine(temporaryDirectory.Path, "Community");
+        string vcvarsallPath = Path.Combine(installationRoot, "VC", "Auxiliary", "Build", "vcvarsall.bat");
+        string vcpkgRoot = Path.Combine(installationRoot, "VC", "vcpkg");
+        Directory.CreateDirectory(Path.GetDirectoryName(vcvarsallPath)!);
+        Directory.CreateDirectory(vcpkgRoot);
+        File.WriteAllText(vcvarsallPath, "@echo off");
+
+        ToolchainCheckResult result = VisualStudioToolchainLocator.TryFind([installationRoot]);
+
+        Assert.Equal(ToolchainAvailability.Found, result.Availability);
+        Assert.Equal(vcvarsallPath, result.Detail);
+        Assert.Null(result.RemediationHint);
+    }
+
+    /// <summary>Reports <see cref="ToolchainAvailability.Missing"/> when no root has the required files.</summary>
+    [Fact]
+    public void TryFindReturnsMissingWhenNoInstallationHasTheRequiredFiles()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+
+        ToolchainCheckResult result = VisualStudioToolchainLocator.TryFind([temporaryDirectory.Path]);
+
+        Assert.Equal(ToolchainAvailability.Missing, result.Availability);
+        Assert.Null(result.Detail);
+        Assert.NotNull(result.RemediationHint);
+    }
+
+    /// <summary>Reports <see cref="ToolchainAvailability.CouldNotCheck"/> when a root cannot be evaluated.</summary>
+    [Fact]
+    public void TryFindReturnsCouldNotCheckWhenARootCannotBeEvaluated()
+    {
+        ToolchainCheckResult result = VisualStudioToolchainLocator.TryFind([null!]);
+
+        Assert.Equal(ToolchainAvailability.CouldNotCheck, result.Availability);
+        Assert.Null(result.Detail);
+        Assert.NotNull(result.RemediationHint);
+    }
 }

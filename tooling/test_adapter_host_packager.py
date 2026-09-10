@@ -40,7 +40,7 @@ class PublishHostTests(unittest.TestCase):
     def test_publish_host_invokes_dotnet_publish_with_the_self_contained_flags(
         self,
     ) -> None:
-        """Verifies the production .NET publishing strategy's exact flags are passed."""
+        """Verifies the production .NET publishing strategy's exact flags are passed, defaulting to a Release configuration."""
         with tempfile.TemporaryDirectory() as temp_dir:
             runner = FakeProcessRunner()
             packager = AdapterHostPackager(runner)
@@ -56,9 +56,28 @@ class PublishHostTests(unittest.TestCase):
             self.assertEqual(invocation[2], str(host_project))
             for arg in PUBLISH_ARGS:
                 self.assertIn(arg, invocation)
+            self.assertIn("--configuration", invocation)
+            self.assertEqual(
+                invocation[invocation.index("--configuration") + 1], "Release"
+            )
             self.assertIn("--output", invocation)
             self.assertEqual(
                 invocation[invocation.index("--output") + 1], str(publish_dir)
+            )
+
+    def test_publish_host_passes_a_custom_configuration(self) -> None:
+        """Verifies a non-default configuration (for example a Debug build profile) is forwarded to dotnet publish."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner = FakeProcessRunner()
+            packager = AdapterHostPackager(runner)
+            host_project = Path(temp_dir) / "DovahLink.Host.csproj"
+            publish_dir = Path(temp_dir) / "publish"
+
+            packager.publish_host(host_project, publish_dir, configuration="Debug")
+
+            invocation = runner.invocations[0]
+            self.assertEqual(
+                invocation[invocation.index("--configuration") + 1], "Debug"
             )
 
     def test_publish_host_creates_the_output_directory(self) -> None:
@@ -438,6 +457,200 @@ class ZipPackageTests(unittest.TestCase):
             self.assertIn(
                 "Data/SKSE/Plugins/DovahLink.Host/" + HOST_EXECUTABLE_NAME, names
             )
+
+
+class ValidatePackageTests(unittest.TestCase):
+    """Tests for AdapterHostPackager.validate_package."""
+
+    def _build_valid_inputs(self, temp_dir: Path) -> tuple[Path, Path]:
+        """Creates a valid adapter build directory and host publish directory under `temp_dir`."""
+        adapter_build_dir = temp_dir / "adapter_build"
+        _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+        for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+            _write_file(adapter_build_dir / dll_name, "dll")
+
+        host_publish_dir = temp_dir / "host_publish"
+        _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+        return adapter_build_dir, host_publish_dir
+
+    def test_validate_package_succeeds_for_a_complete_package_without_console_admin_files(
+        self,
+    ) -> None:
+        """Verifies a package assembled without console-admin files validates cleanly."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+
+            packager.validate_package(package_dir)
+
+    def test_validate_package_succeeds_for_a_complete_package_with_console_admin_files(
+        self,
+    ) -> None:
+        """Verifies a package assembled with console-admin files validates cleanly."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            pex_path = temp_dir / "DovahLinkAdmin.pex"
+            yaml_path = temp_dir / "dovahlink.yaml"
+            _write_file(pex_path, "pex")
+            _write_file(yaml_path, "yaml")
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+                console_admin_pex=pex_path,
+                console_admin_yaml=yaml_path,
+            )
+
+            packager.validate_package(
+                package_dir, console_admin_pex=pex_path, console_admin_yaml=yaml_path
+            )
+
+    def test_validate_package_raises_when_the_adapter_plugin_is_missing(self) -> None:
+        """Verifies a package missing its assembled adapter plugin fails validation."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+            (package_dir / "Data" / "SKSE" / "Plugins" / ADAPTER_PLUGIN_NAME).unlink()
+
+            with self.assertRaises(FileNotFoundError):
+                packager.validate_package(package_dir)
+
+    def test_validate_package_raises_when_a_runtime_dll_is_missing(self) -> None:
+        """Verifies a package missing an assembled runtime dependency DLL fails validation."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+            (
+                package_dir / "Data" / "SKSE" / "Plugins" / ADAPTER_RUNTIME_DLL_NAMES[0]
+            ).unlink()
+
+            with self.assertRaises(FileNotFoundError):
+                packager.validate_package(package_dir)
+
+    def test_validate_package_raises_when_the_host_executable_is_missing(self) -> None:
+        """Verifies a package missing its assembled Host executable fails validation."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+            (
+                package_dir
+                / "Data"
+                / "SKSE"
+                / "Plugins"
+                / "DovahLink.Host"
+                / HOST_EXECUTABLE_NAME
+            ).unlink()
+
+            with self.assertRaises(FileNotFoundError):
+                packager.validate_package(package_dir)
+
+    def test_validate_package_raises_when_a_supplied_console_admin_pex_was_not_assembled(
+        self,
+    ) -> None:
+        """Verifies a package expected to include the console-admin PEX fails when it is absent."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                packager.validate_package(
+                    package_dir, console_admin_pex=temp_dir / "DovahLinkAdmin.pex"
+                )
+
+    def test_validate_package_raises_when_a_supplied_console_admin_yaml_was_not_assembled(
+        self,
+    ) -> None:
+        """Verifies a package expected to include the console-admin YAML fails when it is absent."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                packager.validate_package(
+                    package_dir, console_admin_yaml=temp_dir / "dovahlink.yaml"
+                )
+
+    def test_validate_package_succeeds_when_only_the_pex_was_supplied(self) -> None:
+        """Verifies validation does not require a YAML that was never expected."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            pex_path = temp_dir / "DovahLinkAdmin.pex"
+            _write_file(pex_path, "pex")
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+                console_admin_pex=pex_path,
+            )
+
+            packager.validate_package(package_dir, console_admin_pex=pex_path)
+
+    def test_validate_package_succeeds_when_only_the_yaml_was_supplied(self) -> None:
+        """Verifies validation does not require a PEX that was never expected."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            yaml_path = temp_dir / "dovahlink.yaml"
+            _write_file(yaml_path, "yaml")
+            package_dir = temp_dir / "package"
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+                console_admin_yaml=yaml_path,
+            )
+
+            packager.validate_package(package_dir, console_admin_yaml=yaml_path)
 
 
 if __name__ == "__main__":

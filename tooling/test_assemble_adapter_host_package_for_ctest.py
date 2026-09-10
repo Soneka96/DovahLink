@@ -17,6 +17,7 @@ from assemble_adapter_host_package_for_ctest import (
     main,
     parse_args,
 )
+from build_output_ownership import MARKER_FILE_NAME
 
 
 def _write_file(path: Path, content: str = "") -> None:
@@ -257,6 +258,79 @@ class MainTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             run.assert_not_called()
+
+    def test_main_refuses_an_unrelated_non_empty_package_dir(self) -> None:
+        """Verifies an unmarked, unrelated, non-empty --package-dir is refused before assembly ever runs."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_release_adapter_build_dir(adapter_build_dir)
+            host_publish_dir = temp_dir / "host_publish"
+            _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")
+            package_dir = temp_dir / "unrelated-user-folder"
+            unrelated_file = package_dir / "some-real-file.txt"
+            _write_file(unrelated_file, "the user's own real data, not DovahLink's")
+
+            with mock.patch(
+                "assemble_adapter_host_package_for_ctest.AdapterHostPackager.assemble_package"
+            ) as assemble_package:
+                with self.assertRaises(RuntimeError):
+                    main(
+                        [
+                            "--adapter-build-dir",
+                            str(adapter_build_dir),
+                            "--host-publish-dir",
+                            str(host_publish_dir),
+                            "--package-dir",
+                            str(package_dir),
+                            "--configuration",
+                            "Release",
+                        ]
+                    )
+
+            assemble_package.assert_not_called()
+            self.assertFalse((package_dir / MARKER_FILE_NAME).is_file())
+            self.assertEqual(
+                "the user's own real data, not DovahLink's",
+                unrelated_file.read_text(encoding="utf-8"),
+            )
+
+    def test_main_keeps_a_freshly_adopted_package_dir_owned_across_repeated_runs(
+        self,
+    ) -> None:
+        """
+        Regression test: assemble_package replaces package_dir itself -- the exact directory
+        main() just marked as owned -- so a naive implementation would destroy that mark on every
+        run, permanently locking a second, ordinary incremental CTest rebuild out of its own
+        previous output. Proves three consecutive runs against the same nonexistent-at-first
+        package_dir all succeed.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_release_adapter_build_dir(adapter_build_dir)
+            host_publish_dir = temp_dir / "host_publish"
+            _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")
+            package_dir = temp_dir / "package"
+
+            for _ in range(3):
+                exit_code = main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--host-publish-dir",
+                        str(host_publish_dir),
+                        "--package-dir",
+                        str(package_dir),
+                        "--configuration",
+                        "Release",
+                    ]
+                )
+                self.assertEqual(exit_code, 0)
+
+            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
+            self.assertTrue((package_dir / MARKER_FILE_NAME).is_file())
 
 
 if __name__ == "__main__":

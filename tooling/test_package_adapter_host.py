@@ -6,6 +6,7 @@ import contextlib
 import io
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -14,7 +15,17 @@ from adapter_host_packager import (
     ADAPTER_RUNTIME_DLL_NAMES,
     HOST_EXECUTABLE_NAME,
 )
-from package_adapter_host import main, parse_args, read_product_version
+from build_output_ownership import MARKER_FILE_NAME
+from package_adapter_host import (
+    STAGE_ARCHIVE,
+    STAGE_HOST_PUBLISH,
+    STAGE_PACKAGE_ASSEMBLY,
+    STAGE_PACKAGE_VALIDATION,
+    _print_stage,
+    main,
+    parse_args,
+    read_product_version,
+)
 
 
 def _write_file(path: Path, content: str = "") -> None:
@@ -52,6 +63,15 @@ class ParseArgsTests(unittest.TestCase):
         self.assertIsNone(args.console_admin_pex)
         self.assertIsNone(args.console_admin_yaml)
 
+    def test_parse_args_defaults_configuration_and_profile_label_to_release(
+        self,
+    ) -> None:
+        """Verifies the build-profile arguments default to a Release build when omitted."""
+        args = parse_args(["--adapter-build-dir", "build", "--output-dir", "out"])
+
+        self.assertEqual(args.configuration, "Release")
+        self.assertEqual(args.profile_label, "release")
+
     def test_parse_args_parses_every_supplied_argument(self) -> None:
         """Verifies every argument, including the optional ones, parses into its typed value."""
         args = parse_args(
@@ -71,11 +91,75 @@ class ParseArgsTests(unittest.TestCase):
         self.assertEqual(args.console_admin_yaml, Path("a.yaml"))
 
 
+class PrintStageTests(unittest.TestCase):
+    """Tests for _print_stage."""
+
+    def test_print_stage_flushes_immediately(self) -> None:
+        """Verifies each marker is flushed rather than left buffered.
+
+        DovahLinkBuilder launches this script with stdout redirected to a pipe, where Python's
+        stdout is fully buffered by default; an unflushed marker can sit in this process's buffer
+        while a later stage's own output (for example `dotnet publish`'s inherited stdout) already
+        reached DovahLinkBuilder, making live stage transitions and durations arrive late or out of
+        order.
+        """
+        with mock.patch("builtins.print") as mock_print:
+            _print_stage(STAGE_HOST_PUBLISH, "start")
+
+        mock_print.assert_called_once_with(
+            f"##stage {STAGE_HOST_PUBLISH} start", flush=True
+        )
+
+    def test_main_flushes_every_stage_marker(self) -> None:
+        """Verifies main() itself, not just _print_stage in isolation, flushes every stage marker.
+
+        Guards against a future stage call site bypassing _print_stage with a raw, unflushed
+        print() -- the concrete failure mode the buffering fix addresses.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                mock.patch("builtins.print") as mock_print,
+            ):
+                main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                    ]
+                )
+
+            stage_marker_calls = [
+                call
+                for call in mock_print.call_args_list
+                if call.args[0].startswith("##stage ")
+            ]
+            self.assertEqual(len(stage_marker_calls), 8)
+            self.assertTrue(
+                all(call.kwargs.get("flush") is True for call in stage_marker_calls)
+            )
+
+
 class MainTests(unittest.TestCase):
     """Tests for main, proving the production pipeline is wired in the correct order."""
 
-    def test_main_publishes_assembles_and_zips_in_order(self) -> None:
-        """Verifies main() publishes the Host, assembles the package, then zips it, in that order."""
+    def test_main_publishes_assembles_validates_and_zips_in_order(self) -> None:
+        """Verifies main() publishes, assembles, validates, then zips, reporting each as a stage."""
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
@@ -117,9 +201,213 @@ class MainTests(unittest.TestCase):
             zips = list(output_dir.glob("DovahLink-Adapter-*.zip"))
             self.assertEqual(len(zips), 1)
             # DovahLinkBuilder's coordinator locates the archive path by scanning this script's
-            # stdout for a line starting with "Wrote " (AdapterHostBuildCoordinator.WrittenArchivePrefix);
-            # this is the only place that cross-language contract is verified.
-            self.assertEqual(captured_stdout.getvalue(), f"Wrote {zips[0]}\n")
+            # stdout for a line starting with "Wrote " (AdapterHostBuildCoordinator.WrittenArchivePrefix)
+            # and parses the "##stage <name> <status>" lines into BuildStageEvents
+            # (BuildStageProgressParser); this is the only place that cross-language contract is
+            # verified.
+            expected_lines = [
+                f"##stage {STAGE_HOST_PUBLISH} start",
+                f"##stage {STAGE_HOST_PUBLISH} done",
+                f"##stage {STAGE_PACKAGE_ASSEMBLY} start",
+                f"##stage {STAGE_PACKAGE_ASSEMBLY} done",
+                f"##stage {STAGE_PACKAGE_VALIDATION} start",
+                f"##stage {STAGE_PACKAGE_VALIDATION} done",
+                f"##stage {STAGE_ARCHIVE} start",
+                f"##stage {STAGE_ARCHIVE} done",
+                f"Wrote {zips[0]}",
+            ]
+            self.assertEqual(
+                captured_stdout.getvalue(), "\n".join(expected_lines) + "\n"
+            )
+
+    def test_main_suffixes_the_archive_name_for_a_non_release_profile(self) -> None:
+        """Verifies a non-release profile label keeps its output from overwriting the release archive."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                        "--configuration",
+                        "Debug",
+                        "--profile-label",
+                        "debug",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            zips = list(output_dir.glob("DovahLink-Adapter-*-debug.zip"))
+            self.assertEqual(len(zips), 1)
+
+    def test_main_stops_after_the_start_marker_when_a_stage_fails(self) -> None:
+        """Verifies a failing stage reports its start marker but never its done marker."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            # publish_host "succeeds" without writing the Host executable, so the next stage
+            # (package_assembly) fails validating its own required source file.
+            def fake_run(_self: object, args: list[str]) -> None:
+                pass
+
+            captured_stdout = io.StringIO()
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(captured_stdout),
+            ):
+                with self.assertRaises(FileNotFoundError):
+                    main(
+                        [
+                            "--adapter-build-dir",
+                            str(adapter_build_dir),
+                            "--output-dir",
+                            str(output_dir),
+                        ]
+                    )
+
+            expected_lines = [
+                f"##stage {STAGE_HOST_PUBLISH} start",
+                f"##stage {STAGE_HOST_PUBLISH} done",
+                f"##stage {STAGE_PACKAGE_ASSEMBLY} start",
+            ]
+            self.assertEqual(
+                captured_stdout.getvalue(), "\n".join(expected_lines) + "\n"
+            )
+
+    def test_main_zip_does_not_contain_the_ownership_marker(self) -> None:
+        """Verifies the ownership marker is written directly under output_dir, not inside the zipped package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "out"
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((output_dir / MARKER_FILE_NAME).is_file())
+            zips = list(output_dir.glob("DovahLink-Adapter-*.zip"))
+            self.assertEqual(len(zips), 1)
+            with zipfile.ZipFile(zips[0]) as archive:
+                names = set(archive.namelist())
+            self.assertNotIn(MARKER_FILE_NAME, names)
+
+
+class OwnershipTests(unittest.TestCase):
+    """Tests for main's output-directory ownership check."""
+
+    def test_main_refuses_an_unrelated_non_empty_output_dir_before_publishing(
+        self,
+    ) -> None:
+        """Verifies an unmarked, unrelated, non-empty output_dir is refused before dotnet publish ever runs."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "unrelated-user-folder"
+            unrelated_file = output_dir / "some-real-file.txt"
+            _write_file(unrelated_file, "the user's own real data, not DovahLink's")
+
+            with mock.patch("package_adapter_host.SubprocessProcessRunner.run") as run:
+                with self.assertRaises(RuntimeError):
+                    main(
+                        [
+                            "--adapter-build-dir",
+                            str(adapter_build_dir),
+                            "--output-dir",
+                            str(output_dir),
+                        ]
+                    )
+
+            run.assert_not_called()
+            self.assertFalse((output_dir / MARKER_FILE_NAME).is_file())
+            self.assertEqual(
+                "the user's own real data, not DovahLink's",
+                unrelated_file.read_text(encoding="utf-8"),
+            )
+
+    def test_main_succeeds_for_a_previously_marked_output_dir(self) -> None:
+        """Verifies a repeat Builder run against a previously-adopted custom output_dir still succeeds."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir = temp_dir / "adapter_build"
+            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+                _write_file(adapter_build_dir / dll_name, "dll")
+            output_dir = temp_dir / "previously-owned-output"
+            _write_file(output_dir / MARKER_FILE_NAME, "owned")
+            _write_file(output_dir / "package" / "stale-from-last-run.txt", "stale")
+
+            def fake_run(_self: object, args: list[str]) -> None:
+                output_flag_index = args.index("--output")
+                publish_dir = Path(args[output_flag_index + 1])
+                _write_file(publish_dir / HOST_EXECUTABLE_NAME, "host")
+
+            with (
+                mock.patch(
+                    "package_adapter_host.SubprocessProcessRunner.run", fake_run
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "--adapter-build-dir",
+                        str(adapter_build_dir),
+                        "--output-dir",
+                        str(output_dir),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            plugins_dir = output_dir / "package" / "Data" / "SKSE" / "Plugins"
+            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
 
 
 if __name__ == "__main__":

@@ -16,10 +16,9 @@ from adapter_host_process_runner import IProcessRunner
 
 # ---- Publish strategy ----
 
-# Production .NET publishing strategy: self-contained, single-file, win-x64.
+# Production .NET publishing strategy: self-contained, single-file, win-x64. The build configuration
+# (Debug/Release) is passed separately by publish_host, since it varies by build profile.
 PUBLISH_ARGS = (
-    "--configuration",
-    "Release",
     "--runtime",
     "win-x64",
     "--self-contained",
@@ -41,19 +40,27 @@ class AdapterHostPackager:
     """Publishes the Host and assembles the Vortex-installable Adapter+Host package."""
 
     def __init__(self, process_runner: IProcessRunner) -> None:
-        """Stores the injected process runner used to publish the Host.
+        """Stores the injected process runner.
 
         Args:
             process_runner: Runs the `dotnet publish` command.
         """
         self._process_runner = process_runner
 
-    def publish_host(self, host_project: Path, publish_output_dir: Path) -> None:
+    def publish_host(
+        self,
+        host_project: Path,
+        publish_output_dir: Path,
+        *,
+        configuration: str = "Release",
+    ) -> None:
         """Publishes the Host self-contained, single-file, win-x64 to `publish_output_dir`.
 
         Args:
             host_project: Path to `DovahLink.Host.csproj`.
             publish_output_dir: Directory `dotnet publish` writes the published executable into.
+            configuration: The `dotnet publish --configuration` value, for example `"Debug"` or
+                `"Release"`, matching the selected build profile.
         """
         publish_output_dir.mkdir(parents=True, exist_ok=True)
         self._process_runner.run(
@@ -61,6 +68,8 @@ class AdapterHostPackager:
                 "dotnet",
                 "publish",
                 str(host_project),
+                "--configuration",
+                configuration,
                 *PUBLISH_ARGS,
                 "--output",
                 str(publish_output_dir),
@@ -77,6 +86,10 @@ class AdapterHostPackager:
         console_admin_yaml: Path | None = None,
     ) -> None:
         """Assembles the Vortex `Data/` layout under `package_dir` from already-built artifacts.
+
+        `package_dir` is treated as a known, always-rebuildable child of a root the caller has
+        already proven DovahLink Builder-owned (see `build_output_ownership.py`) before calling
+        this method; this method itself neither checks nor marks ownership of `package_dir`.
 
         The optional trust-administration console adapter files are included only when supplied;
         the package works completely normally without them, per `console-admin/README.md`.
@@ -125,7 +138,8 @@ class AdapterHostPackager:
         # never wrote -- for example a console-admin file omitted this time -- so every run starts
         # from a clean directory rather than accreting on top of whatever is already there. Every
         # source above is validated first, so this never destroys a valid previous package only to
-        # fail partway through reassembling it.
+        # fail partway through reassembling it. Safe unconditionally: the caller has already proven
+        # the root package_dir lives under is DovahLink Builder-owned before this method runs.
         if package_dir.exists():
             shutil.rmtree(package_dir)
 
@@ -166,3 +180,64 @@ class AdapterHostPackager:
             str(output_zip_path_without_extension), "zip", root_dir=package_dir
         )
         return Path(archive_path)
+
+    def validate_package(
+        self,
+        package_dir: Path,
+        *,
+        console_admin_pex: Path | None = None,
+        console_admin_yaml: Path | None = None,
+    ) -> None:
+        """Validates the assembled `Data/` layout under `package_dir` before it is zipped.
+
+        Checks the files `assemble_package` actually wrote, not merely the sources it copied
+        them from, so a package damaged or partially assembled after that call still fails here
+        rather than being zipped and reported as a successful build.
+
+        Args:
+            package_dir: The assembled `Data/`-rooted package directory.
+            console_admin_pex: The same value passed to `assemble_package`, or `None` if the
+                optional console-admin PEX was omitted.
+            console_admin_yaml: The same value passed to `assemble_package`, or `None` if the
+                optional console-admin YAML was omitted.
+
+        Raises:
+            FileNotFoundError: A required file is missing from the assembled package.
+        """
+        plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+        adapter_plugin = plugins_dir / ADAPTER_PLUGIN_NAME
+        if not adapter_plugin.is_file():
+            raise FileNotFoundError(
+                f"Assembled adapter plugin not found: {adapter_plugin}"
+            )
+        for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
+            dll_path = plugins_dir / dll_name
+            if not dll_path.is_file():
+                raise FileNotFoundError(
+                    f"Assembled adapter runtime dependency not found: {dll_path}"
+                )
+        host_executable = (
+            plugins_dir / HOST_EXECUTABLE_RELATIVE_DIR / HOST_EXECUTABLE_NAME
+        )
+        if not host_executable.is_file():
+            raise FileNotFoundError(
+                f"Assembled Host executable not found: {host_executable}"
+            )
+        if console_admin_pex is not None:
+            assembled_pex = package_dir / "Data" / "Scripts" / console_admin_pex.name
+            if not assembled_pex.is_file():
+                raise FileNotFoundError(
+                    f"Assembled console-admin PEX not found: {assembled_pex}"
+                )
+        if console_admin_yaml is not None:
+            assembled_yaml = (
+                package_dir
+                / "Data"
+                / "SKSE"
+                / "CustomConsole"
+                / console_admin_yaml.name
+            )
+            if not assembled_yaml.is_file():
+                raise FileNotFoundError(
+                    f"Assembled console-admin YAML not found: {assembled_yaml}"
+                )
