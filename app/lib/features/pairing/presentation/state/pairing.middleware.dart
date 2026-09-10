@@ -33,10 +33,12 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   final Duration reconnectDelay;
 
   /// The active subscription started by [_pairingSessionTrusted], or `null` before the first
-  /// trusted session this middleware instance has observed. Never cancelled: this middleware
-  /// lives for the app's whole process, the same as the trusted session it watches connection
-  /// status for, surviving navigation away from the pairing screen (see [_pairingDisposed]'s
-  /// `wasTrusted` handling).
+  /// trusted session this middleware instance has observed, or after the session it was watching
+  /// was administratively invalidated. Survives navigation away from the pairing screen (see
+  /// [_pairingDisposed]'s `wasTrusted` handling) for as long as the session it watches stays
+  /// trusted; cancelled and reset to `null` once that session is invalidated, so a later
+  /// [PairingSessionTrustedAction] for a new session starts a fresh subscription instead of
+  /// reusing one still delivering events for the session that is now gone.
   StreamSubscription<PairingConnectionStatus>? _connectionStatusSubscription;
 
   /// See [MiddlewareClass.call].
@@ -231,11 +233,15 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// [ObserveConnectionStatusUseCase], unless one is already running -- a later reconnect or
   /// re-pair dispatching this action again must not stack a second subscription onto the same
   /// underlying SDK stream. Dispatches by status: [PairingConnectionStatus.lost] as ordinary
-  /// transport loss ([PairingDisconnectedAction], distinct from a rejected pairing attempt),
-  /// [PairingConnectionStatus.restored] as recovery ([PairingConnectionRestoredAction]), and
-  /// [PairingConnectionStatus.invalidated] as an administrative failure
-  /// ([PairingFailedAction] carrying [SessionInvalidatedFailure.administrative]'s reason-agnostic
-  /// message).
+  /// transport loss ([PairingDisconnectedAction], distinct from a rejected pairing attempt), and
+  /// [PairingConnectionStatus.restored] as recovery ([PairingConnectionRestoredAction]) -- both
+  /// meaningful only while the session this subscription was started for is still the trusted one.
+  /// [PairingConnectionStatus.invalidated] ends that session, so alongside dispatching
+  /// [PairingFailedAction] (carrying [SessionInvalidatedFailure.administrative]'s reason-agnostic
+  /// message) it also cancels and clears [_connectionStatusSubscription]: without that, this same
+  /// subscription would keep delivering [PairingConnectionStatus.lost]/`restored` events raised by
+  /// an unrelated later pairing attempt's own connect/reconnect cycle, and a stray `restored` would
+  /// have the reducer falsely report the new attempt as trusted.
   void _pairingSessionTrusted(
     Store<AppState> store,
     PairingSessionTrustedAction action,
@@ -244,20 +250,23 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       return;
     }
     _connectionStatusSubscription =
-        sl<ObserveConnectionStatusUseCase>()(NoParams()).listen(
-          (PairingConnectionStatus status) => switch (status) {
-            PairingConnectionStatus.lost => store.dispatch(
-              const PairingDisconnectedAction(),
-            ),
-            PairingConnectionStatus.restored => store.dispatch(
-              const PairingConnectionRestoredAction(),
-            ),
-            PairingConnectionStatus.invalidated => store.dispatch(
-              PairingFailedAction(
-                SessionInvalidatedFailure.administrative.message,
-              ),
-            ),
-          },
-        );
+        sl<ObserveConnectionStatusUseCase>()(NoParams()).listen((
+          PairingConnectionStatus status,
+        ) {
+          switch (status) {
+            case PairingConnectionStatus.lost:
+              store.dispatch(const PairingDisconnectedAction());
+            case PairingConnectionStatus.restored:
+              store.dispatch(const PairingConnectionRestoredAction());
+            case PairingConnectionStatus.invalidated:
+              unawaited(_connectionStatusSubscription?.cancel());
+              _connectionStatusSubscription = null;
+              store.dispatch(
+                PairingFailedAction(
+                  SessionInvalidatedFailure.administrative.message,
+                ),
+              );
+          }
+        });
   }
 }

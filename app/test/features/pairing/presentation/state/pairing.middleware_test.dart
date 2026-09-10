@@ -863,5 +863,68 @@ void main() {
         ]);
       },
     );
+
+    test(
+      'PairingSessionTrustedAction does not dispatch for an event on the observation stream '
+      'after invalidated was already received',
+      () async {
+        final StreamController<PairingConnectionStatus> controller =
+            StreamController<PairingConnectionStatus>.broadcast();
+        addTearDown(controller.close);
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => controller.stream);
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+
+        controller.add(PairingConnectionStatus.invalidated);
+        await pumpEventQueue();
+        controller.add(PairingConnectionStatus.restored);
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingSessionTrustedAction(),
+          PairingFailedAction(SessionInvalidatedFailure.administrative.message),
+        ]);
+      },
+    );
+
+    test(
+      'PairingSessionTrustedAction starts a new observation when dispatched again after the '
+      'previous one was invalidated',
+      () async {
+        final StreamController<PairingConnectionStatus> firstController =
+            StreamController<PairingConnectionStatus>.broadcast();
+        addTearDown(firstController.close);
+        final StreamController<PairingConnectionStatus> secondController =
+            StreamController<PairingConnectionStatus>.broadcast();
+        addTearDown(secondController.close);
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => firstController.stream);
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+        firstController.add(PairingConnectionStatus.invalidated);
+        await pumpEventQueue();
+
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => secondController.stream);
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+        secondController.add(PairingConnectionStatus.restored);
+        await pumpEventQueue();
+
+        verify(() => mockObserveConnectionStatus(any())).called(2);
+        expect(actionLog, [
+          const PairingSessionTrustedAction(),
+          PairingFailedAction(SessionInvalidatedFailure.administrative.message),
+          const PairingSessionTrustedAction(),
+          const PairingConnectionRestoredAction(),
+        ]);
+      },
+    );
   });
 }
