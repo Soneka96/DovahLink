@@ -11,6 +11,7 @@ from pathlib import Path
 
 from adapter_host_packager import AdapterHostPackager
 from adapter_host_process_runner import SubprocessProcessRunner
+from build_output_ownership import BuildOutputOwnershipGuard
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 HOST_PROJECT_PATH = (
@@ -100,7 +101,9 @@ def main(argv: list[str]) -> int:
     """
     args = parse_args(argv)
 
-    packager = AdapterHostPackager(SubprocessProcessRunner())
+    packager = AdapterHostPackager(
+        SubprocessProcessRunner(), BuildOutputOwnershipGuard()
+    )
     host_publish_dir = args.output_dir / "publish"
     _print_stage(STAGE_HOST_PUBLISH, "start")
     packager.publish_host(
@@ -114,6 +117,7 @@ def main(argv: list[str]) -> int:
         adapter_build_dir=args.adapter_build_dir,
         host_publish_dir=host_publish_dir,
         package_dir=package_dir,
+        repository_root=REPOSITORY_ROOT,
         console_admin_pex=args.console_admin_pex,
         console_admin_yaml=args.console_admin_yaml,
     )

@@ -14,10 +14,13 @@ from pathlib import Path
 
 from adapter_host_packager import ADAPTER_RUNTIME_DLL_NAMES, AdapterHostPackager
 from adapter_host_process_runner import SubprocessProcessRunner
+from build_output_ownership import BuildOutputOwnershipGuard
 
 # The exit code CTest's SKIP_RETURN_CODE test property (set in adapter/CMakeLists.txt) recognizes
 # as "this test was skipped", not failed.
 MISSING_RELEASE_RUNTIME_DLLS_SKIP_CODE = 125
+
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -104,11 +107,14 @@ def main(argv: list[str]) -> int:
             "expected Debug/Release naming difference."
         )
 
-    packager = AdapterHostPackager(SubprocessProcessRunner())
+    packager = AdapterHostPackager(
+        SubprocessProcessRunner(), BuildOutputOwnershipGuard()
+    )
     packager.assemble_package(
         adapter_build_dir=args.adapter_build_dir,
         host_publish_dir=args.host_publish_dir,
         package_dir=args.package_dir,
+        repository_root=REPOSITORY_ROOT,
     )
     return 0
 
