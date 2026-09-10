@@ -1,9 +1,33 @@
+using System.ComponentModel;
 using DovahLink.DovahLinkBuilder.Build;
 
 namespace DovahLink.DovahLinkBuilder.Ui;
 
 /// <summary>Represents one segment of the build pipeline's honest, per-stage progress display.</summary>
-public sealed class BuildStageViewModel : ObservableObject
+public interface IBuildStageViewModel : INotifyPropertyChanged
+{
+    /// <summary>Gets the pipeline stage this segment represents.</summary>
+    BuildStage Stage { get; }
+
+    /// <summary>Gets the human-readable name shown for this stage.</summary>
+    string DisplayName { get; }
+
+    /// <summary>Gets this stage's current status.</summary>
+    BuildStageStatus Status { get; }
+
+    /// <summary>Gets how long this stage took, once it has succeeded or failed; otherwise <see langword="null"/>.</summary>
+    TimeSpan? Duration { get; }
+
+    /// <summary>Applies a reported status transition for this stage.</summary>
+    /// <param name="stageEvent">The reported transition; its <see cref="BuildStageEvent.Stage"/> is assumed to already match <see cref="Stage"/>.</param>
+    void Apply(BuildStageEvent stageEvent);
+
+    /// <summary>Resets this stage back to Pending with no recorded duration, before a new build starts.</summary>
+    void Reset();
+}
+
+/// <inheritdoc cref="IBuildStageViewModel"/>
+public sealed class BuildStageViewModel : ObservableObject, IBuildStageViewModel
 {
     /// <summary>The backing field for <see cref="Status"/>.</summary>
     private BuildStageStatus status = BuildStageStatus.Pending;
@@ -18,10 +42,10 @@ public sealed class BuildStageViewModel : ObservableObject
         Stage = stage;
     }
 
-    /// <summary>Gets the pipeline stage this segment represents.</summary>
+    /// <inheritdoc/>
     public BuildStage Stage { get; }
 
-    /// <summary>Gets the human-readable name shown for this stage.</summary>
+    /// <inheritdoc/>
     public string DisplayName => Stage switch
     {
         BuildStage.ValidateRepository => "Validate repository",
@@ -35,30 +59,29 @@ public sealed class BuildStageViewModel : ObservableObject
         _ => Stage.ToString(),
     };
 
-    /// <summary>Gets this stage's current status.</summary>
+    /// <inheritdoc/>
     public BuildStageStatus Status
     {
         get => status;
         private set => SetProperty(ref status, value);
     }
 
-    /// <summary>Gets how long this stage took, once it has succeeded or failed; otherwise <see langword="null"/>.</summary>
+    /// <inheritdoc/>
     public TimeSpan? Duration
     {
         get => duration;
         private set => SetProperty(ref duration, value);
     }
 
-    /// <summary>Applies a reported status transition for this stage.</summary>
-    /// <param name="stageEvent">The reported transition; its <see cref="BuildStageEvent.Stage"/> is assumed to already match <see cref="Stage"/>.</param>
-    internal void Apply(BuildStageEvent stageEvent)
+    /// <inheritdoc/>
+    public void Apply(BuildStageEvent stageEvent)
     {
         Status = stageEvent.Status;
         Duration = stageEvent.Duration;
     }
 
-    /// <summary>Resets this stage back to Pending with no recorded duration, before a new build starts.</summary>
-    internal void Reset()
+    /// <inheritdoc/>
+    public void Reset()
     {
         Status = BuildStageStatus.Pending;
         Duration = null;

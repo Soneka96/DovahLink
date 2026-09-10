@@ -33,7 +33,8 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -65,7 +66,8 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -99,7 +101,8 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -140,7 +143,8 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             outputPathContext,
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
 
         await buildPage.InitializeAsync();
         Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
@@ -176,7 +180,8 @@ public sealed class GitStatusSharingTests
             repositoryContext,
             new OutputPathContext(null),
             new StubBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();

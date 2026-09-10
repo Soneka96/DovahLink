@@ -124,7 +124,7 @@ public interface IBuildPageViewModel : INotifyPropertyChanged
     Task InitializeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Gets the pipeline's stages in order, one segment per <see cref="BuildStage"/> value.</summary>
-    IReadOnlyList<BuildStageViewModel> Stages { get; }
+    IReadOnlyList<IBuildStageViewModel> Stages { get; }
 
     /// <summary>Gets the number of stages that have actually succeeded in the current or most recent build.</summary>
     int CompletedStageCount { get; }
@@ -341,6 +341,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="outputPathContext">The shared build output path override this page checks and builds.</param>
     /// <param name="outputOwnershipGuard">Verifies the resolved output root is safe for a build to destructively manage.</param>
     /// <param name="log">The Build page's log panel, kept alive for the application's lifetime.</param>
+    /// <param name="buildStageViewModelFactory">Constructs one stage segment for a given pipeline stage, for <see cref="Stages"/>.</param>
     public BuildPageViewModel(
         IEnvironmentStore environmentStore,
         IGitStatusStore gitStatusStore,
@@ -352,7 +353,8 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         IRepositoryContext repositoryContext,
         IOutputPathContext outputPathContext,
         IBuildOutputOwnershipGuard outputOwnershipGuard,
-        ILogViewModel log)
+        ILogViewModel log,
+        Func<BuildStage, IBuildStageViewModel> buildStageViewModelFactory)
     {
         this.environmentStore = environmentStore;
         this.gitStatusStore = gitStatusStore;
@@ -377,7 +379,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         OpenArchiveFolderCommand = new RelayCommand(OnOpenArchiveFolder, () => ArchivePath is not null);
         CopyArchivePathCommand = new RelayCommand(OnCopyArchivePath, () => ArchivePath is not null);
         ToggleShowAllRecentBuildsCommand = new RelayCommand(() => IsShowingAllRecentBuilds = !IsShowingAllRecentBuilds);
-        Stages = Enum.GetValues<BuildStage>().Select(stage => new BuildStageViewModel(stage)).ToList();
+        Stages = Enum.GetValues<BuildStage>().Select(buildStageViewModelFactory).ToList();
         Log.AutoScroll = settingsStore.Load().AutoScrollLogs;
         recentBuilds = buildHistoryStore.GetRecent();
     }
@@ -924,7 +926,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<BuildStageViewModel> Stages { get; }
+    public IReadOnlyList<IBuildStageViewModel> Stages { get; }
 
     /// <inheritdoc/>
     public int CompletedStageCount => Stages.Count(stage => stage.Status == BuildStageStatus.Succeeded);
@@ -935,7 +937,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <summary>Resets every stage segment back to Pending before a new build starts.</summary>
     private void ResetStages()
     {
-        foreach (BuildStageViewModel stage in Stages)
+        foreach (IBuildStageViewModel stage in Stages)
         {
             stage.Reset();
         }
@@ -947,7 +949,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="stageEvent">The reported transition.</param>
     private void OnBuildStageEvent(BuildStageEvent stageEvent)
     {
-        BuildStageViewModel? stage = Stages.FirstOrDefault(candidate => candidate.Stage == stageEvent.Stage);
+        IBuildStageViewModel? stage = Stages.FirstOrDefault(candidate => candidate.Stage == stageEvent.Stage);
         stage?.Apply(stageEvent);
         NotifyStageProgressChanged();
     }

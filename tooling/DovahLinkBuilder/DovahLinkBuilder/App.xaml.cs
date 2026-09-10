@@ -50,7 +50,8 @@ public partial class App : Application
             repositoryContext,
             outputPathContext,
             outputOwnershipGuard,
-            logViewModel);
+            logViewModel,
+            stage => new BuildStageViewModel(stage));
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         var settingsPage = new SettingsPageViewModel(settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext, outputPathContext);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);

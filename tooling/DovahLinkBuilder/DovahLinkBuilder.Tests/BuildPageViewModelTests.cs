@@ -26,7 +26,8 @@ public sealed class BuildPageViewModelTests
         IRepositoryContext? repositoryContext = null,
         IOutputPathContext? outputPathContext = null,
         IBuildOutputOwnershipGuard? outputOwnershipGuard = null,
-        ILogViewModel? log = null)
+        ILogViewModel? log = null,
+        Func<BuildStage, IBuildStageViewModel>? buildStageViewModelFactory = null)
     {
         string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
@@ -45,7 +46,8 @@ public sealed class BuildPageViewModelTests
             resolvedRepositoryContext,
             resolvedOutputPathContext,
             outputOwnershipGuard ?? new FakeBuildOutputOwnershipGuard(),
-            log ?? new LogViewModel());
+            log ?? new LogViewModel(),
+            buildStageViewModelFactory ?? (stage => new BuildStageViewModel(stage)));
     }
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -101,7 +103,8 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         await viewModel.InitializeAsync();
         Assert.True(viewModel.CanBuild);
 
@@ -188,7 +191,8 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         await viewModel.InitializeAsync();
         Assert.False(viewModel.GitNeedsAttention);
 
@@ -228,7 +232,8 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         await viewModel.InitializeAsync();
         Assert.Equal("1.0.0", viewModel.RepositoryVersion);
 
@@ -1084,7 +1089,8 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -1485,7 +1491,8 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         await viewModel.InitializeAsync();
         var pauseSignal = new TaskCompletionSource();
         preflightService.PauseSignal = pauseSignal;
@@ -2364,7 +2371,8 @@ public sealed class BuildPageViewModelTests
             repositoryContext,
             new OutputPathContext(null),
             new FakeBuildOutputOwnershipGuard(),
-            new LogViewModel());
+            new LogViewModel(),
+            stage => new BuildStageViewModel(stage));
         await viewModel.InitializeAsync();
         Assert.False(viewModel.CanBuild);
 
