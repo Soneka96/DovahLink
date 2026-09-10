@@ -31,7 +31,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new StubBuildOutputOwnershipGuard());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -61,7 +62,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new StubBuildOutputOwnershipGuard());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -93,7 +95,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new StubBuildOutputOwnershipGuard());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -132,7 +135,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext,
-            outputPathContext);
+            outputPathContext,
+            new StubBuildOutputOwnershipGuard());
 
         await buildPage.InitializeAsync();
         Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
@@ -166,7 +170,8 @@ public sealed class GitStatusSharingTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new StubBuildOutputOwnershipGuard());
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         await buildPage.InitializeAsync();
         await environmentPage.InitializeAsync();
@@ -221,6 +226,20 @@ public sealed class GitStatusSharingTests
         {
             LastRequestedRepositoryRoot = repositoryRoot;
             return ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
+        }
+    }
+
+    /// <summary>
+    /// Treats every output root as already owned, doing nothing: these tests exercise how a
+    /// repository or output-path change propagates, not the ownership guard's own behavior (see
+    /// <see cref="BuildOutputOwnershipGuardTests"/>), and must never touch real disk at the
+    /// fabricated repository paths (for example <c>C:\repo</c>, <c>D:\custom-out</c>) they construct.
+    /// </summary>
+    private sealed class StubBuildOutputOwnershipGuard : IBuildOutputOwnershipGuard
+    {
+        /// <inheritdoc/>
+        public void EnsureOwned(string outputRoot, string repositoryRoot)
+        {
         }
     }
 

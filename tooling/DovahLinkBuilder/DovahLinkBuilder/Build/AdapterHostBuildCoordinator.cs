@@ -27,8 +27,8 @@ public interface IAdapterHostBuildCoordinator
     /// </exception>
     /// <exception cref="InvalidOperationException">
     /// Thrown when the Visual Studio or Papyrus toolchain cannot be validated, the build output
-    /// location cannot be created or accessed, the Adapter build fails, or the packaging script fails
-    /// or does not report a written archive path.
+    /// location is not safely owned by this Builder or cannot be created or accessed, the Adapter
+    /// build fails, or the packaging script fails or does not report a written archive path.
     /// </exception>
     Task<AdapterHostBuildResult> BuildAsync(
         AdapterHostBuildRequest request,
@@ -55,20 +55,26 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
     /// <summary>Provides the Papyrus compiler toolchain used to compile the console-admin script.</summary>
     private readonly Func<PapyrusToolchain> papyrusToolchainProvider;
 
+    /// <summary>Verifies the resolved output root is safe for this build to destructively manage before any packaging work touches it.</summary>
+    private readonly IBuildOutputOwnershipGuard outputOwnershipGuard;
+
     /// <summary>
     /// Initializes a coordinator for building the Adapter and packaging it with the Host.
     /// </summary>
     /// <param name="commandRunner">The command runner used to execute the build and packaging commands.</param>
     /// <param name="toolchainProvider">The provider used to obtain the Visual Studio toolchain.</param>
     /// <param name="papyrusToolchainProvider">The provider used to obtain the Papyrus compiler toolchain.</param>
+    /// <param name="outputOwnershipGuard">Verifies the resolved output root is safe for this build to destructively manage.</param>
     public AdapterHostBuildCoordinator(
         ICommandRunner commandRunner,
         Func<VisualStudioToolchain> toolchainProvider,
-        Func<PapyrusToolchain> papyrusToolchainProvider)
+        Func<PapyrusToolchain> papyrusToolchainProvider,
+        IBuildOutputOwnershipGuard outputOwnershipGuard)
     {
         this.commandRunner = commandRunner;
         this.toolchainProvider = toolchainProvider;
         this.papyrusToolchainProvider = papyrusToolchainProvider;
+        this.outputOwnershipGuard = outputOwnershipGuard;
     }
 
     /// <inheritdoc/>
@@ -125,11 +131,16 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                     throw new FileNotFoundException("Could not find the console-admin YAML configuration.", consoleAdminYamlPath);
                 }
 
+                // Verified before the directory is even created: a custom output root that turns out
+                // to be an arbitrary, unrelated, non-empty folder must be refused here, before any of
+                // this build's own destructive cleanup or packaging work ever runs against it.
+                outputOwnershipGuard.EnsureOwned(outputRoot, repositoryRoot);
+
                 try
                 {
                     Directory.CreateDirectory(outputRoot);
                 }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
                 {
                     throw new InvalidOperationException($"Could not create or access the build output location: {outputRoot}", exception);
                 }

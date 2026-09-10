@@ -44,7 +44,21 @@ public sealed class MainWindowViewModelTests
         _ => { },
         _ => { },
         repositoryContext,
-        new OutputPathContext(null));
+        new OutputPathContext(null),
+        new StubBuildOutputOwnershipGuard());
+
+    /// <summary>
+    /// Treats every output root as already owned, doing nothing: these tests exercise navigation
+    /// only and never start a build, but must never touch real disk at the fabricated repository
+    /// path (<c>C:\repo</c>) they construct if that were to change.
+    /// </summary>
+    private sealed class StubBuildOutputOwnershipGuard : IBuildOutputOwnershipGuard
+    {
+        /// <inheritdoc/>
+        public void EnsureOwned(string outputRoot, string repositoryRoot)
+        {
+        }
+    }
 
     /// <summary>Builds an <see cref="EnvironmentPageViewModel"/> over stub collaborators, since these tests never inspect its checks.</summary>
     private EnvironmentPageViewModel BuildStubEnvironmentPage() => new(environmentStore, gitStatusStore);

@@ -266,6 +266,9 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <summary>The shared build output path override this page checks and builds.</summary>
     private readonly IOutputPathContext outputPathContext;
 
+    /// <summary>Verifies the resolved output root is safe for a build to destructively manage before <see cref="CleanBuildOutputs"/> or the coordinator ever touches it.</summary>
+    private readonly IBuildOutputOwnershipGuard outputOwnershipGuard;
+
     /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
     private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
 
@@ -336,6 +339,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
     /// <param name="setClipboardText">Writes text to the system clipboard, for <see cref="CopyDiagnosticsCommand"/>.</param>
     /// <param name="repositoryContext">The shared repository root this page checks and builds.</param>
     /// <param name="outputPathContext">The shared build output path override this page checks and builds.</param>
+    /// <param name="outputOwnershipGuard">Verifies the resolved output root is safe for a build to destructively manage.</param>
     public BuildPageViewModel(
         IEnvironmentStore environmentStore,
         IGitStatusStore gitStatusStore,
@@ -345,7 +349,8 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         Action<string> openOutputFolder,
         Action<string> setClipboardText,
         IRepositoryContext repositoryContext,
-        IOutputPathContext outputPathContext)
+        IOutputPathContext outputPathContext,
+        IBuildOutputOwnershipGuard outputOwnershipGuard)
     {
         this.environmentStore = environmentStore;
         this.gitStatusStore = gitStatusStore;
@@ -356,6 +361,7 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         this.setClipboardText = setClipboardText;
         this.repositoryContext = repositoryContext;
         this.outputPathContext = outputPathContext;
+        this.outputOwnershipGuard = outputOwnershipGuard;
         gitStatusStore.PropertyChanged += OnGitStatusStoreChanged;
         environmentStore.PropertyChanged += OnEnvironmentStoreChanged;
         BuildCommand = new RelayCommand(OnBuild, () => CanBuild);
@@ -754,6 +760,18 @@ public sealed class BuildPageViewModel : ObservableObject, IBuildPageViewModel
         var stopwatch = Stopwatch.StartNew();
         try
         {
+            // Verified before any destructive work this build could do -- CleanBuildOutputs below,
+            // or the coordinator's own packaging -- ever touches the resolved output root: a custom
+            // output path that turns out to be an arbitrary, unrelated, non-empty folder must fail
+            // the whole build here rather than partway through either path. Not given buildCancellation's
+            // own token: this is a single fast, synchronous filesystem check with no internal
+            // cancellation point of its own, and a Task.Run scheduled with an already-cancelled token
+            // can be cancelled before its delegate ever starts running -- an immediate Cancel right
+            // after Build must not race this check out from under it and skip straight past the
+            // coordinator with nothing ever verified.
+            await Task.Run(() => outputOwnershipGuard.EnsureOwned(
+                snapshot.OutputPath ?? snapshot.Profile.ToOutputRoot(snapshot.RepositoryRoot), snapshot.RepositoryRoot));
+
             if (snapshot.IsCleanBuild)
             {
                 Log.AppendLine("Clean build: clearing generated Adapter and Host build outputs...");

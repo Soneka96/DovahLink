@@ -24,7 +24,8 @@ public sealed class BuildPageViewModelTests
         Action<string>? setClipboardText = null,
         string? repositoryRoot = null,
         IRepositoryContext? repositoryContext = null,
-        IOutputPathContext? outputPathContext = null)
+        IOutputPathContext? outputPathContext = null,
+        IBuildOutputOwnershipGuard? outputOwnershipGuard = null)
     {
         string resolvedRepositoryRoot = repositoryRoot ?? @"C:\repo";
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
@@ -41,7 +42,8 @@ public sealed class BuildPageViewModelTests
             openOutputFolder ?? (_ => { }),
             setClipboardText ?? (_ => { }),
             resolvedRepositoryContext,
-            resolvedOutputPathContext);
+            resolvedOutputPathContext,
+            outputOwnershipGuard ?? new FakeBuildOutputOwnershipGuard());
     }
 
     /// <summary>Creates a real ZIP archive under <paramref name="temporaryDirectoryPath"/> containing the given entries.</summary>
@@ -95,7 +97,8 @@ public sealed class BuildPageViewModelTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new FakeBuildOutputOwnershipGuard());
         await viewModel.InitializeAsync();
         Assert.True(viewModel.CanBuild);
 
@@ -180,7 +183,8 @@ public sealed class BuildPageViewModelTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new FakeBuildOutputOwnershipGuard());
         await viewModel.InitializeAsync();
         Assert.False(viewModel.GitNeedsAttention);
 
@@ -218,7 +222,8 @@ public sealed class BuildPageViewModelTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new FakeBuildOutputOwnershipGuard());
         await viewModel.InitializeAsync();
         Assert.Equal("1.0.0", viewModel.RepositoryVersion);
 
@@ -1059,7 +1064,8 @@ public sealed class BuildPageViewModelTests
         var buildCoordinator = new AdapterHostBuildCoordinator(
             new CancellingCommandRunner(),
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new FakeBuildOutputOwnershipGuard());
         var repositoryContext = new RepositoryContext(temporaryDirectory.Path);
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var viewModel = new BuildPageViewModel(
@@ -1071,7 +1077,8 @@ public sealed class BuildPageViewModelTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new FakeBuildOutputOwnershipGuard());
         await viewModel.InitializeAsync();
 
         viewModel.BuildCommand.Execute(null);
@@ -1470,7 +1477,8 @@ public sealed class BuildPageViewModelTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new FakeBuildOutputOwnershipGuard());
         await viewModel.InitializeAsync();
         var pauseSignal = new TaskCompletionSource();
         preflightService.PauseSignal = pauseSignal;
@@ -1746,6 +1754,192 @@ public sealed class BuildPageViewModelTests
     }
 
     /// <summary>
+    /// Refuses a normal (non-clean-flagged) build before any destructive work -- including before the
+    /// coordinator, and therefore its packaging, ever runs -- when the output path override resolves
+    /// to an arbitrary existing folder that already has unrelated content and no DovahLink Builder
+    /// ownership mark. Uses a real <see cref="BuildOutputOwnershipGuard"/>, unlike this file's other
+    /// tests, since this is what actually enforces the refusal.
+    /// </summary>
+    [Fact]
+    public async Task NormalBuildRefusesAnUnrelatedNonEmptyCustomOutputPathBeforeAnyDestructiveWork()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string outputOverride = Path.Combine(repositoryRoot, "unrelated-user-folder");
+        string unrelatedFilePath = Path.Combine(outputOverride, "package");
+        Directory.CreateDirectory(outputOverride);
+        byte[] unrelatedContent = "the user's own real data, not DovahLink's"u8.ToArray();
+        File.WriteAllBytes(unrelatedFilePath, unrelatedContent);
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var viewModel = BuildViewModel(
+            repositoryRoot: repositoryRoot,
+            buildCoordinator: buildCoordinator,
+            outputPathContext: outputPathContext,
+            outputOwnershipGuard: new BuildOutputOwnershipGuard());
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Failed, viewModel.LastOutcome);
+        Assert.Contains(outputOverride, viewModel.LastOutcomeMessage);
+        Assert.Equal(0, buildCoordinator.CallCount);
+        Assert.False(File.Exists(Path.Combine(outputOverride, BuildOutputOwnershipGuard.MarkerFileName)));
+        Assert.Equal(unrelatedContent, File.ReadAllBytes(unrelatedFilePath));
+    }
+
+    /// <summary>
+    /// Refuses a Clean build before <see cref="BuildPageViewModel"/>'s own output-clearing step deletes
+    /// anything, for the same unrelated, unmarked custom output path scenario as the normal-build
+    /// refusal above -- Clean must not be a way to route around the ownership check a normal build
+    /// already enforces.
+    /// </summary>
+    [Fact]
+    public async Task CleanBuildRefusesAnUnrelatedNonEmptyCustomOutputPathBeforeDeletingAnything()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string outputOverride = Path.Combine(repositoryRoot, "unrelated-user-folder");
+        string unrelatedPublishDir = Path.Combine(outputOverride, "publish");
+        string unrelatedPackageDir = Path.Combine(outputOverride, "package");
+        CreateDirectoryWithMarkerFile(unrelatedPublishDir);
+        CreateDirectoryWithMarkerFile(unrelatedPackageDir);
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var viewModel = BuildViewModel(
+            repositoryRoot: repositoryRoot,
+            outputPathContext: outputPathContext,
+            outputOwnershipGuard: new BuildOutputOwnershipGuard());
+        await viewModel.InitializeAsync();
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Failed, viewModel.LastOutcome);
+        Assert.True(Directory.Exists(unrelatedPublishDir));
+        Assert.True(Directory.Exists(unrelatedPackageDir));
+    }
+
+    /// <summary>
+    /// Still cleans a custom output path that is already marked as DovahLink Builder-owned from a
+    /// previous run, proving the ownership check only refuses an unproven folder -- it does not block
+    /// legitimate reuse of a custom output location across builds.
+    /// </summary>
+    [Fact]
+    public async Task CleanBuildStillWorksForAnAlreadyOwnedCustomOutputPath()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string outputOverride = Path.Combine(repositoryRoot, "previously-owned-output");
+        string ownedPublishDir = Path.Combine(outputOverride, "publish");
+        CreateDirectoryWithMarkerFile(ownedPublishDir);
+        File.WriteAllText(Path.Combine(outputOverride, BuildOutputOwnershipGuard.MarkerFileName), "owned");
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var viewModel = BuildViewModel(
+            repositoryRoot: repositoryRoot,
+            outputPathContext: outputPathContext,
+            outputOwnershipGuard: new BuildOutputOwnershipGuard());
+        await viewModel.InitializeAsync();
+        viewModel.IsCleanBuild = true;
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+        Assert.False(Directory.Exists(ownedPublishDir));
+    }
+
+    /// <summary>
+    /// A normal (non-clean-flagged) build also succeeds against a custom output path already marked
+    /// as DovahLink Builder-owned, symmetrically with the Clean-build case above -- the ownership
+    /// check gates both paths the same way, not just Clean.
+    /// </summary>
+    [Fact]
+    public async Task NormalBuildStillWorksForAnAlreadyOwnedCustomOutputPath()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string outputOverride = Path.Combine(repositoryRoot, "previously-owned-output");
+        Directory.CreateDirectory(outputOverride);
+        File.WriteAllText(Path.Combine(outputOverride, BuildOutputOwnershipGuard.MarkerFileName), "owned");
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var viewModel = BuildViewModel(
+            repositoryRoot: repositoryRoot,
+            buildCoordinator: buildCoordinator,
+            outputPathContext: outputPathContext,
+            outputOwnershipGuard: new BuildOutputOwnershipGuard());
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Succeeded, viewModel.LastOutcome);
+        Assert.Equal(1, buildCoordinator.CallCount);
+    }
+
+    /// <summary>
+    /// Fails, through the same normalized message, when the output path override is malformed --
+    /// here an embedded null character -- proving <see cref="BuildPageViewModel"/>'s own call site
+    /// into the ownership guard is protected the same way as the coordinator's.
+    /// </summary>
+    [Fact]
+    public async Task BuildFailsWithAnUnderstandableReasonForAMalformedOutputPathOverride()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string malformedOutputOverride = Path.Combine(repositoryRoot, "custom-out\0bad");
+        var outputPathContext = new OutputPathContext(malformedOutputOverride);
+        var viewModel = BuildViewModel(
+            repositoryRoot: repositoryRoot,
+            outputPathContext: outputPathContext,
+            outputOwnershipGuard: new BuildOutputOwnershipGuard());
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Failed, viewModel.LastOutcome);
+        Assert.NotNull(viewModel.LastOutcomeMessage);
+    }
+
+    /// <summary>
+    /// Regression test for the ownership check's own cancellation safety: cancelling immediately after
+    /// Build, before the check has had any chance to run, must not race it out and let the build reach
+    /// the coordinator with nothing ever verified. The check is a single fast, synchronous filesystem
+    /// operation not tied to the build's own cancellation token (see RunBuildAsync), so it always runs
+    /// to completion and reports Failed -- not Cancelled -- for an unowned custom output path.
+    /// </summary>
+    [Fact]
+    public async Task CancellingImmediatelyAfterBuildDoesNotSkipTheOwnershipCheck()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string repositoryRoot = temporaryDirectory.Path;
+        string outputOverride = Path.Combine(repositoryRoot, "unrelated-user-folder");
+        string unrelatedFilePath = Path.Combine(outputOverride, "package");
+        Directory.CreateDirectory(outputOverride);
+        byte[] unrelatedContent = "the user's own real data, not DovahLink's"u8.ToArray();
+        File.WriteAllBytes(unrelatedFilePath, unrelatedContent);
+        var buildCoordinator = new FakeAdapterHostBuildCoordinator();
+        var outputPathContext = new OutputPathContext(outputOverride);
+        var viewModel = BuildViewModel(
+            repositoryRoot: repositoryRoot,
+            buildCoordinator: buildCoordinator,
+            outputPathContext: outputPathContext,
+            outputOwnershipGuard: new BuildOutputOwnershipGuard());
+        await viewModel.InitializeAsync();
+
+        viewModel.BuildCommand.Execute(null);
+        viewModel.CancelCommand.Execute(null);
+        await viewModel.RunningBuildTask!;
+
+        Assert.Equal(BuildHistoryResult.Failed, viewModel.LastOutcome);
+        Assert.Equal(0, buildCoordinator.CallCount);
+        Assert.Equal(unrelatedContent, File.ReadAllBytes(unrelatedFilePath));
+    }
+
+    /// <summary>
     /// The core state-coherence invariant this build's snapshot exists to guarantee: once a clean build
     /// has started against repo A / Release / no output override, changing the active repository,
     /// selected profile, and output path override before that build finishes must not affect it in any
@@ -1993,6 +2187,21 @@ public sealed class BuildPageViewModelTests
             ThrownException is not null ? throw ThrownException : Task.FromResult(Status);
     }
 
+    /// <summary>
+    /// Treats every output root as already owned, doing nothing. The real ownership behavior itself
+    /// is covered by <see cref="BuildOutputOwnershipGuardTests"/> and this file's own
+    /// ownership-specific tests, which construct a real <see cref="BuildOutputOwnershipGuard"/>
+    /// explicitly; every other test in this file uses this fake so it never touches real disk at the
+    /// fabricated repository paths (for example <c>C:\repo</c>) those tests construct.
+    /// </summary>
+    private sealed class FakeBuildOutputOwnershipGuard : IBuildOutputOwnershipGuard
+    {
+        /// <inheritdoc/>
+        public void EnsureOwned(string outputRoot, string repositoryRoot)
+        {
+        }
+    }
+
     /// <summary>Returns a successful build result unless configured to throw, hang, or count invocations.</summary>
     private sealed class FakeAdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
     {
@@ -2146,7 +2355,8 @@ public sealed class BuildPageViewModelTests
             _ => { },
             _ => { },
             repositoryContext,
-            new OutputPathContext(null));
+            new OutputPathContext(null),
+            new FakeBuildOutputOwnershipGuard());
         await viewModel.InitializeAsync();
         Assert.False(viewModel.CanBuild);
 

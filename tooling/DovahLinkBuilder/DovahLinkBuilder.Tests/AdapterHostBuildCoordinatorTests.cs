@@ -15,7 +15,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         AdapterHostBuildResult result = await coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path));
@@ -70,7 +71,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, BuildProfile.Debug));
 
@@ -107,7 +109,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -125,7 +128,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -143,7 +147,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -162,7 +167,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -183,7 +189,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         AdapterHostBuildResult result = await coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path));
@@ -204,7 +211,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -225,7 +233,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -245,7 +254,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => papyrusToolchain);
+            () => papyrusToolchain,
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -269,7 +279,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: blockedOutputPath)));
@@ -289,7 +300,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: blockedOutputPath),
@@ -301,6 +313,90 @@ public sealed class AdapterHostBuildCoordinatorTests
                 (BuildStage.ValidateRepository, BuildStageStatus.Failed),
             ],
             stageEvents.Select(stageEvent => (stageEvent.Stage, stageEvent.Status)));
+    }
+
+    /// <summary>
+    /// Refuses to build, before any build command runs, when the output root override resolves to an
+    /// arbitrary existing folder that already has unrelated content and no DovahLink Builder
+    /// ownership mark -- proving normal (non-clean-flagged) packaging can never be pointed at, and
+    /// later delete from, a folder full of a user's real, unrelated data.
+    /// </summary>
+    [Fact]
+    public async Task RefusesToBuildWhenTheOutputRootOverrideIsAnUnrelatedNonEmptyFolder()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "unrelated-user-folder");
+        Directory.CreateDirectory(outputOverride);
+        string unrelatedFilePath = Path.Combine(outputOverride, "package");
+        byte[] unrelatedContent = "the user's own real data, not DovahLink's"u8.ToArray();
+        File.WriteAllBytes(unrelatedFilePath, unrelatedContent);
+        var runner = new FakeCommandRunner();
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: outputOverride)));
+
+        Assert.Empty(runner.Commands);
+        Assert.False(File.Exists(Path.Combine(outputOverride, BuildOutputOwnershipGuard.MarkerFileName)));
+        Assert.Equal(unrelatedContent, File.ReadAllBytes(unrelatedFilePath));
+    }
+
+    /// <summary>
+    /// Builds normally when the output root override is already marked as DovahLink Builder-owned
+    /// from a previous run, even though it already has real content from that previous build --
+    /// proving a valid Builder-owned custom output can still be built (and, by extension, cleaned).
+    /// </summary>
+    [Fact]
+    public async Task BuildsWhenTheOutputRootOverrideIsAlreadyMarkedAsBuilderOwned()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        string outputOverride = Path.Combine(temporaryDirectory.Path, "previously-owned-output");
+        Directory.CreateDirectory(outputOverride);
+        File.WriteAllText(Path.Combine(outputOverride, BuildOutputOwnershipGuard.MarkerFileName), "owned");
+        File.WriteAllText(Path.Combine(outputOverride, "package"), "a previous build's real output");
+        var runner = new FakeCommandRunner();
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
+
+        AdapterHostBuildResult result = await coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: outputOverride));
+
+        Assert.Equal(runner.ArchivePath, result.ArchivePath);
+        Assert.NotEmpty(runner.Commands);
+    }
+
+    /// <summary>
+    /// Normalizes a malformed output root override -- here an embedded null character, which
+    /// <see cref="System.IO.Path.GetFullPath(string)"/> itself rejects -- into the same documented
+    /// <see cref="InvalidOperationException"/> every other output-location failure reports, through
+    /// the full coordinator, not only the ownership guard in isolation.
+    /// </summary>
+    [Fact]
+    public async Task NormalizesAMalformedOutputRootOverrideIntoAnInvalidOperationException()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        string malformedOutputOverride = Path.Combine(temporaryDirectory.Path, "custom-out\0bad");
+        var runner = new FakeCommandRunner();
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: malformedOutputOverride)));
+
+        Assert.Empty(runner.Commands);
     }
 
     /// <summary>Creates each profile's own output root, before any build command runs, whether an override is set or not.</summary>
@@ -316,7 +412,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, profile));
 
@@ -335,7 +432,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => toolchain,
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -353,7 +451,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -372,7 +471,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -396,7 +496,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => toolchain,
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -413,7 +514,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => toolchain,
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -431,7 +533,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => toolchain,
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
@@ -447,7 +550,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -481,7 +585,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -508,7 +613,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -537,7 +643,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -572,7 +679,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -607,7 +715,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -649,7 +758,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -681,7 +791,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => papyrusToolchain);
+            () => papyrusToolchain,
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -719,7 +830,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -763,7 +875,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path),
@@ -792,7 +905,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, OutputRootOverride: outputOverride));
 
@@ -821,7 +935,8 @@ public sealed class AdapterHostBuildCoordinatorTests
         var coordinator = new AdapterHostBuildCoordinator(
             new FakeCommandRunner(),
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path));
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, BuildProfile.Debug, outputOverride));
 
