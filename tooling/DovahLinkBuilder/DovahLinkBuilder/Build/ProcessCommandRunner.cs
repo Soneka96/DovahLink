@@ -81,7 +81,18 @@ public sealed class ProcessCommandRunner : ICommandRunner
 
         using IProcessTreeJob job = createJob();
         process.Start();
-        job.Assign(process);
+        try
+        {
+            job.Assign(process);
+        }
+        catch (Win32Exception)
+        {
+            // The process is already running but not covered by the job's kill-on-close, so it must
+            // be terminated explicitly here rather than left running when this method throws.
+            terminateProcess(process);
+            throw;
+        }
+
         Task outputTask = ForwardLinesAsync(process.StandardOutput, onStandardOutput);
         Task errorTask = ForwardLinesAsync(process.StandardError, onStandardError);
         try

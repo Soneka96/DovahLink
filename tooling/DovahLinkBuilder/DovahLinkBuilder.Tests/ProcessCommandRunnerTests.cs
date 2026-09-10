@@ -304,6 +304,26 @@ public sealed class ProcessCommandRunnerTests
         Assert.True(fakeJob.Disposed);
     }
 
+    /// <summary>Terminates the already-started process and rethrows when job assignment fails.</summary>
+    [Fact]
+    public async Task AssignFailureTerminatesTheStartedProcessAndRethrows()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var command = new BuildCommand(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            ["/d", "/s", "/c", "ping -n 3 127.0.0.1 >nul"],
+            temporaryDirectory.Path,
+            new Dictionary<string, string>());
+        var fakeJob = new FakeProcessTreeJob { ThrowOnAssign = new Win32Exception("access denied") };
+        bool terminateCalled = false;
+        var runner = new ProcessCommandRunner(process => { terminateCalled = true; process.Kill(); }, () => fakeJob);
+
+        await Assert.ThrowsAsync<Win32Exception>(() => runner.RunAsync(command, null, null));
+
+        Assert.True(terminateCalled);
+        Assert.True(fakeJob.Disposed);
+    }
+
     /// <summary>
     /// A controllable fake of <see cref="IProcessTreeJob"/> proving <see cref="ProcessCommandRunner"/>'s
     /// own orchestration -- assign, poll until empty, dispose -- without a real process tree.
@@ -312,6 +332,9 @@ public sealed class ProcessCommandRunnerTests
     {
         /// <summary>The number of leading <see cref="HasActiveProcesses"/> calls that report an active process before reporting empty.</summary>
         public int ActiveCallsBeforeEmpty { get; set; }
+
+        /// <summary>The exception <see cref="Assign"/> throws instead of recording the process, or <see langword="null"/> to assign normally.</summary>
+        public Win32Exception? ThrowOnAssign { get; set; }
 
         /// <summary>The process passed to <see cref="Assign"/>, or <see langword="null"/> before it is ever called.</summary>
         public Process? AssignedProcess { get; private set; }
@@ -323,7 +346,15 @@ public sealed class ProcessCommandRunnerTests
         public bool Disposed { get; private set; }
 
         /// <inheritdoc/>
-        public void Assign(Process process) => AssignedProcess = process;
+        public void Assign(Process process)
+        {
+            if (ThrowOnAssign is not null)
+            {
+                throw ThrowOnAssign;
+            }
+
+            AssignedProcess = process;
+        }
 
         /// <inheritdoc/>
         public bool HasActiveProcesses() => ++HasActiveProcessesCallCount <= ActiveCallsBeforeEmpty;
