@@ -58,8 +58,8 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter stores the session "
           "[structural]") {
     std::string source = Source();
 
-    CHECK(source.find("ipc::IAdapterIpcSession *g_session") != std::string::npos);
-    CHECK(source.find("ipc::AdapterIpcSession *g_session") == std::string::npos);
+    CHECK(source.find("ipc::IAdapterIpcSession* g_session") != std::string::npos);
+    CHECK(source.find("ipc::AdapterIpcSession* g_session") == std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter stores the game-thread "
@@ -69,7 +69,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter stores the game-thread "
           "[structural]") {
     std::string source = Source();
 
-    CHECK(source.find("runtime::IAdapterTaskMarshaller *g_marshaller") !=
+    CHECK(source.find("runtime::IAdapterTaskMarshaller* g_marshaller") !=
           std::string::npos);
 
     std::size_t installStart =
@@ -146,7 +146,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter declares all nine "
         INFO("checking latent signature of " << functionName);
         std::string signatureStartMarker =
             std::string(functionName) +
-            "(RE::BSScript::Internal::VirtualMachine *a_vm,";
+            "(RE::BSScript::Internal::VirtualMachine* a_vm,";
         bool hasReturnType =
             source.find("RE::BSScript::LatentStatus " + signatureStartMarker) !=
                 std::string::npos ||
@@ -162,7 +162,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter declares all nine "
     //  List's own extra akScope parameter, following the same
     //  bounded-two-part pattern for the same line-wrap reason.
     std::size_t staticFunctionTagStart =
-        source.find("RE::StaticFunctionTag *,\n");
+        source.find("RE::StaticFunctionTag*,\n");
     REQUIRE(staticFunctionTagStart != std::string::npos);
     CHECK(source.find("RE::BSFixedString akScope) {", staticFunctionTagStart) !=
           std::string::npos);
@@ -218,7 +218,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's List validates its "
     //  parameter list is wrapped onto its own line by clang-format, so this is
     //  a bounded find() rather than one literal spanning the line break.
     std::size_t listStart =
-        source.find("List(RE::BSScript::Internal::VirtualMachine *a_vm,");
+        source.find("List(RE::BSScript::Internal::VirtualMachine* a_vm,");
     REQUIRE(listStart != std::string::npos);
     REQUIRE(source.find("RE::VMStackID a_stackID,", listStart) !=
             std::string::npos);
@@ -239,7 +239,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's ConfirmReset validates "
     std::string source = Source();
 
     std::size_t confirmResetStart =
-        source.find("ConfirmReset(RE::BSScript::Internal::VirtualMachine *a_vm,");
+        source.find("ConfirmReset(RE::BSScript::Internal::VirtualMachine* a_vm,");
     REQUIRE(confirmResetStart != std::string::npos);
     std::size_t digitsCheck =
         source.find("!IsFixedAsciiDigits(confirmationCode,", confirmResetStart);
@@ -263,7 +263,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's shared helpers "
     std::string source = Source();
 
     std::size_t sendWithShortIdStart = source.find(
-        "SendWithShortId(RE::BSScript::Internal::VirtualMachine *a_vm,");
+        "SendWithShortId(RE::BSScript::Internal::VirtualMachine* a_vm,");
     REQUIRE(sendWithShortIdStart != std::string::npos);
     std::size_t digitsCheck =
         source.find("!IsFixedAsciiDigits(shortId,", sendWithShortIdStart);
@@ -287,7 +287,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter's shared helpers "
     CHECK(sendCall < returnLatentResult);
 
     std::size_t sendNoArgumentStart = source.find(
-        "SendNoArgument(RE::BSScript::Internal::VirtualMachine *a_vm,");
+        "SendNoArgument(RE::BSScript::Internal::VirtualMachine* a_vm,");
     REQUIRE(sendNoArgumentStart != std::string::npos);
     CHECK(source.find("g_session->SendTrustAdminRequest(", sendNoArgumentStart) !=
           std::string::npos);
@@ -445,7 +445,7 @@ TEST_CASE("CommonLibAdapterTrustAdminPapyrusAdapter resumes every latent "
     //  rather than invoking it inline.
     std::size_t wrapperStart =
         source.find("void RespondLatentOnGameThread(RE::BSScript::Internal::"
-                    "VirtualMachine *a_vm,");
+                    "VirtualMachine* a_vm,");
     REQUIRE(wrapperStart != std::string::npos);
     CHECK(source.find("if (!g_marshaller)", wrapperStart) != std::string::npos);
     CHECK(source.find("runtime::RunOnGameThreadOrReportFailure(", wrapperStart) !=
