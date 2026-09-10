@@ -90,6 +90,12 @@ internal static class Program
     /// part of its own return value or a new production service. Never invoked by the production
     /// <see cref="Main"/> entry point.
     /// </param>
+    /// <param name="hostSettingsProvider">
+    /// The provider the user-configured device cap is resolved from. Defaults to the real
+    /// <see cref="HostSettingsProvider"/>, reading the production settings file. A test that calls
+    /// this method directly may override it to exercise a specific resolved cap without touching a
+    /// real file.
+    /// </param>
     /// <returns>A successful process exit code once <paramref name="shutdown"/> is cancelled and teardown completes.</returns>
     /// <exception cref="System.Net.Sockets.SocketException">A listener could not bind its configured port.</exception>
     /// <exception cref="InvalidDataException">The persisted trust store exists but could not be decrypted or parsed.</exception>
@@ -101,7 +107,8 @@ internal static class Program
         CancellationTokenSource shutdown,
         int? publicListenerPort = null,
         ITrustStorePersistence? trustStorePersistence = null,
-        Action<SessionRegistry, PairingCoordinator>? onComposed = null)
+        Action<SessionRegistry, PairingCoordinator>? onComposed = null,
+        IHostSettingsProvider? hostSettingsProvider = null)
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -109,12 +116,17 @@ internal static class Program
         var codec = new IpcFrameCodec();
         var clock = new SystemClock();
 
+        // Resolved once and reused for both the session registry and the public listener below, so
+        // one user-configured device cap governs exactly how many authenticated sessions and how
+        // many raw connections the host admits -- the two bounds never drift apart.
+        HostSettings hostSettings = (hostSettingsProvider ?? new HostSettingsProvider()).Load();
+
         // Trust-services composition: shared by adapter-originated trust-admin requests and by the
         // public client boundary composed below, over this same instance graph.
         var securityStateGate = new SecurityStateGate();
         ITrustStore trustStore = await TrustStore.CreateAsync(
             trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), clock, securityStateGate);
-        var sessionRegistry = new SessionRegistry(securityStateGate);
+        var sessionRegistry = new SessionRegistry(securityStateGate, hostSettings.MaxActiveSessions);
         var pairingCoordinator = new PairingCoordinator(trustStore, clock);
         onComposed?.Invoke(sessionRegistry, pairingCoordinator);
         var playContextTracker = new PlayContextTracker();
@@ -136,14 +148,17 @@ internal static class Program
             envelopeCodec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
 
         using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
-            ? new PublicWebSocketListener(boundPublicPort, stream => new PublicWebSocketConnection(
-                stream,
-                new PublicHelloAdmissionHandler(
-                    envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
-                    playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry),
-                clock,
-                new PublicWebSocketTransportOptions(),
-                NullPublicWebSocketTransportDiagnostics.Instance))
+            ? new PublicWebSocketListener(
+                boundPublicPort,
+                stream => new PublicWebSocketConnection(
+                    stream,
+                    new PublicHelloAdmissionHandler(
+                        envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
+                        playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry),
+                    clock,
+                    new PublicWebSocketTransportOptions(),
+                    NullPublicWebSocketTransportDiagnostics.Instance),
+                hostSettings.MaxActiveSessions)
             : null;
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
