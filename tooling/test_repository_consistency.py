@@ -1770,6 +1770,95 @@ class RepositoryConsistencyTests(unittest.TestCase):
             text = self._read(production_file)
             self.assertNotIn("bridge", text.lower(), production_file)
 
+    def test_no_stale_bridge_or_deleted_migration_references(self) -> None:
+        """Guard against reintroducing deleted migration docs or the two dead bridge/ files.
+
+        3A.3 deleted five migration-only paths, along with `bridge/README.md` and
+        `bridge/vcpkg.json`. This intentionally does not ban path-shaped references into other
+        `bridge/` subdirectories (`bridge/application/`, `bridge/game_state/`, and similar): several
+        `ai/context/skse/*.md` files and adapter/ source comments deliberately cite the retired
+        Bridge's real file layout as a worked-example precedent, and a broad ban would flag that
+        legitimate history alongside genuine regressions. It also does not ban the word "Bridge" --
+        the wire fields `bridgeInstanceId`/`bridgeVersion` and genuine history in
+        CHANGELOG.md/PLAN.md are legitimate and excluded below.
+        """
+        deleted_paths = (
+            "host/PLAN.md",
+            "ai/context/host/migration-audit.md",
+            "plans/stage-3-thin-native-adapter-private-ipc",
+            "plans/stage-3a.1-host-adapter-production-cutover",
+            "plans/stage-4-host-client-boundary-and-pairing",
+        )
+        for relative_path in deleted_paths:
+            self.assertFalse(
+                (REPOSITORY_ROOT / relative_path).exists(),
+                f"{relative_path} was deleted by 3A.3 and must not be reintroduced",
+            )
+
+        # CHANGELOG.md and root PLAN.md are intentionally frozen historical records; their dated
+        # entries stay truthful to what existed when they were written.
+        excluded_files = {REPOSITORY_ROOT / "CHANGELOG.md", REPOSITORY_ROOT / "PLAN.md"}
+        # adapter/'s vendored vcpkg tree and every language's build output are not our source and
+        # must never be walked -- vcpkg_installed alone can hold tens of thousands of vendor files.
+        excluded_dir_parts = {
+            "vcpkg_installed",
+            "build",
+            "bin",
+            "obj",
+            ".vs",
+            ".git",
+            ".claude",
+        }
+        adapter_source_subdirs = (
+            "capture",
+            "dispatch",
+            "identity",
+            "ipc",
+            "papyrus",
+            "plugin",
+            "process",
+            "runtime",
+            "tests",
+        )
+
+        candidate_paths: list[Path] = []
+        for pattern in (
+            "*.md",
+            "ai/context/**/*.md",
+            "roadmap/**/*.md",
+            "protocol/**/*.md",
+            "console-admin/**/*.md",
+            "host/**/*.cs",
+        ):
+            candidate_paths.extend(REPOSITORY_ROOT.glob(pattern))
+        for subdir in adapter_source_subdirs:
+            candidate_paths.extend(
+                (REPOSITORY_ROOT / "adapter" / subdir).glob("**/*.cpp")
+            )
+            candidate_paths.extend(
+                (REPOSITORY_ROOT / "adapter" / subdir).glob("**/*.hpp")
+            )
+
+        stale_literals = ("bridge/vcpkg.json", "bridge/README.md")
+        violations = []
+        for path in candidate_paths:
+            if not path.is_file() or path in excluded_files:
+                continue
+            if any(part in excluded_dir_parts for part in path.parts):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for literal in stale_literals:
+                if literal in text:
+                    violations.append(f"{path.relative_to(REPOSITORY_ROOT)}: {literal}")
+
+        self.assertEqual(
+            violations,
+            [],
+            "Found a reference to a file 3A.3 deleted (bridge/README.md or bridge/vcpkg.json). If "
+            "this is genuine project history, move it to CHANGELOG.md or add the file to this "
+            "test's excluded_files.",
+        )
+
     @classmethod
     def _roadmap_corpus(cls) -> str:
         """Read the ordered roadmap stage documents as one validation corpus."""
