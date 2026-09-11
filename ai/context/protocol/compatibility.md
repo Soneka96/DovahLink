@@ -94,3 +94,12 @@ counterpart to the host-observed `adapterInstanceId`) is deferred to this later 
 stage, not decided by the Host/Adapter migration. `ARCHITECTURE.md`'s "Runtime and identity model"
 fixes the four private identity lifetimes; it does not by itself require or forbid a public wire
 field for any of them.
+
+This is a hard gate, not a soft preference: `state_snapshot` and `state_event` publication must not
+go live until this decision is made. A state revision's identity is scoped to
+`(bridgeInstanceId, playContextId, stateArea)`, and clients rely on the instance component to reject
+state from an earlier authoritative-process lifetime; publishing live state before that component
+has a real, decided value would let a client silently accept state from the wrong lifetime. Do not
+substitute `adapterInstanceId`, an OS process ID, a port, a path, or an owner-lifetime ID for it --
+none of them identify the same thing this field must identify, per `ARCHITECTURE.md`'s "Runtime and
+identity model".

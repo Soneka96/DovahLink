@@ -438,6 +438,10 @@ per-session bounded queues, latest-value Snapshot behavior, reliable Event behav
 capacity, and serialized WebSocket writing. Use typed host messages internally and map to the public
 SDK contract only at the client boundary.
 
+Authoritative `state_snapshot`/`state_event` publication going live is gated on the deferred public
+instance identifier defined in `ai/context/protocol/compatibility.md`'s "Deferred: public instance
+identifier"; that section owns the gate condition and the prohibited substitutes.
+
 Acceptance criteria:
 
 - State capture updates are applied in one deterministic per-area ordering point.
