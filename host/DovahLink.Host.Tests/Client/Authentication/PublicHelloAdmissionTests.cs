@@ -1859,6 +1859,35 @@ public class PublicHelloAdmissionTests
         Assert.Equal(["area_two"], ack.RejectedStateAreas);
     }
 
+    /// <summary>
+    /// Verifies the ordering guarantee this handler exists to provide: <c>subscription_ack</c> is
+    /// always enqueued onto the Control/Recovery lane before the baseline snapshot for any area the
+    /// same <c>subscribe</c> call accepted, never after.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_AckAlwaysEnqueuedBeforeBaselineSnapshot()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_one"));
+        var feed = new FakeStatePublicationFeed();
+        feed.SetSnapshot(new StateAreaId("area_one"), BuildStateSnapshotPublication("area_one"));
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, clientId,
+            new SubscribePayload { StateAreas = ["area_one"] });
+        int sentBeforeSubscribe = context.FakeConnection.SentPayloads.Count;
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentBeforeSubscribe + 2, context.FakeConnection.SentPayloads.Count);
+        (PublicEnvelope ackEnvelope, _) = DecodeSent<SubscriptionAckPayload>(context.Codec, context.FakeConnection.SentPayloads[sentBeforeSubscribe]);
+        Assert.Equal(PublicMessageType.SubscriptionAck, ackEnvelope.MessageType);
+        (PublicEnvelope snapshotEnvelope, _) = DecodeSent<StateSnapshotPayload>(context.Codec, context.FakeConnection.SentPayloads[sentBeforeSubscribe + 1]);
+        Assert.Equal(PublicMessageType.StateSnapshot, snapshotEnvelope.MessageType);
+    }
+
     /// <summary>Verifies that a malformed post-admission subscribe message is rejected as malformed_message.</summary>
     [Fact]
     public void HandleMessageAsync_MalformedSubscribePostAdmission_RejectsAsMalformed()
@@ -2607,8 +2636,8 @@ public class PublicHelloAdmissionTests
             PublicMessageType.Subscribe, "msg-2", firstSessionId, null, null, firstClientId, new SubscribePayload { StateAreas = ["area_a"] });
         int sentBeforeFirstSubscribe = firstContext.FakeConnection.SentPayloads.Count;
         firstContext.Handler.HandleMessageAsync(firstContext.Connection, firstSubscribeMessage, CancellationToken.None);
-        Assert.Equal(sentBeforeFirstSubscribe + 2, firstContext.FakeConnection.SentPayloads.Count); // the baseline snapshot, then the subscription_ack
-        (PublicEnvelope firstSnapshotEnvelope, _) = DecodeSent<StateSnapshotPayload>(firstContext.Codec, firstContext.FakeConnection.SentPayloads[sentBeforeFirstSubscribe]);
+        Assert.Equal(sentBeforeFirstSubscribe + 2, firstContext.FakeConnection.SentPayloads.Count); // the subscription_ack, then the baseline snapshot
+        (PublicEnvelope firstSnapshotEnvelope, _) = DecodeSent<StateSnapshotPayload>(firstContext.Codec, firstContext.FakeConnection.SentPayloads[^1]);
         Assert.Equal(PublicMessageType.StateSnapshot, firstSnapshotEnvelope.MessageType);
         firstContext.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
 
@@ -2633,8 +2662,8 @@ public class PublicHelloAdmissionTests
         int sentBeforeSecondSubscribe = secondContext.FakeConnection.SentPayloads.Count;
         secondContext.Handler.HandleMessageAsync(secondContext.Connection, secondSubscribeMessage, CancellationToken.None);
 
-        Assert.Equal(sentBeforeSecondSubscribe + 2, secondContext.FakeConnection.SentPayloads.Count); // the baseline snapshot, then the subscription_ack
-        (_, StateSnapshotPayload payload) = DecodeSent<StateSnapshotPayload>(secondContext.Codec, secondContext.FakeConnection.SentPayloads[sentBeforeSecondSubscribe]);
+        Assert.Equal(sentBeforeSecondSubscribe + 2, secondContext.FakeConnection.SentPayloads.Count); // the subscription_ack, then the baseline snapshot
+        (_, StateSnapshotPayload payload) = DecodeSent<StateSnapshotPayload>(secondContext.Codec, secondContext.FakeConnection.SentPayloads[^1]);
         Assert.Equal(2UL, payload.Revision);
     }
 

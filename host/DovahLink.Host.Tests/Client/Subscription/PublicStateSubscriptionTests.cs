@@ -33,6 +33,25 @@ public class PublicStateSubscriptionTests
         return (subscription, policy, resolvedFeed);
     }
 
+    /// <summary>
+    /// Drives a full <c>subscribe</c> exchange the way a caller with no competing Control/Recovery
+    /// lane send of its own would: the decision-only <see cref="PublicStateSubscription.HandleSubscribe"/>
+    /// immediately followed by <see cref="PublicStateSubscription.EstablishAcceptedBaselines"/> for
+    /// whatever it accepted. Most tests care about the combined outcome, not the two-call split
+    /// itself -- that split is exercised directly by the tests that name it.
+    /// </summary>
+    /// <param name="subscription">The subscription under test.</param>
+    /// <param name="subscribeMessageId">The <c>subscribe</c> message's own id.</param>
+    /// <param name="requestedStateAreas">The state areas the client requested.</param>
+    /// <param name="reservedControlCapacity">Forwarded to <see cref="PublicStateSubscription.HandleSubscribe"/>; zero when omitted, since these tests send no competing message of their own.</param>
+    private static (IReadOnlyList<string> Accepted, IReadOnlyList<string> Rejected) Subscribe(
+        PublicStateSubscription subscription, string subscribeMessageId, IReadOnlyList<string> requestedStateAreas, int reservedControlCapacity = 0)
+    {
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe(requestedStateAreas, reservedControlCapacity);
+        subscription.EstablishAcceptedBaselines(accepted, subscribeMessageId);
+        return (accepted, rejected);
+    }
+
     /// <summary>Builds a representative snapshot value for the given area.</summary>
     private static StateSnapshotPublication BuildSnapshot(string area, ulong revision = 1) =>
         new(new StateAreaId(area), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 42 }));
@@ -49,7 +68,7 @@ public class PublicStateSubscriptionTests
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
 
-        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe("sub-1", ["area_a"]);
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = Subscribe(subscription, "sub-1", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);
         Assert.Empty(rejected);
@@ -63,7 +82,7 @@ public class PublicStateSubscriptionTests
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
 
-        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe("sub-1", ["area_a"]);
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = Subscribe(subscription, "sub-1", ["area_a"]);
 
         Assert.Empty(accepted);
         Assert.Equal(["area_a"], rejected);
@@ -77,7 +96,7 @@ public class PublicStateSubscriptionTests
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
 
-        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe("sub-1", ["area_a", "area_b"]);
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = Subscribe(subscription, "sub-1", ["area_a", "area_b"]);
 
         Assert.Equal(["area_a"], accepted);
         Assert.Equal(["area_b"], rejected);
@@ -93,7 +112,7 @@ public class PublicStateSubscriptionTests
         var sessionId = SessionId.NewId();
         subscription.Bind(connectionContext, sessionId);
 
-        subscription.HandleSubscribe("sub-1", ["area_a"]);
+        Subscribe(subscription, "sub-1", ["area_a"]);
 
         (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
         Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
@@ -106,6 +125,94 @@ public class PublicStateSubscriptionTests
         Assert.Equal(7UL, payload.Revision);
     }
 
+    /// <summary>
+    /// Verifies the core reason <see cref="PublicStateSubscription.HandleSubscribe"/> and
+    /// <see cref="PublicStateSubscription.EstablishAcceptedBaselines"/> are two separate calls: the
+    /// decision alone sends nothing, so a caller can guarantee its own message (a <c>subscription_ack</c>)
+    /// reaches the Control/Recovery lane first.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_DoesNotSendUntilEstablishAcceptedBaselinesCalled()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe(["area_a"], reservedControlCapacity: 0);
+        Assert.Empty(connectionContext.SentPayloads);
+
+        subscription.EstablishAcceptedBaselines(accepted, "sub-1");
+        Assert.Single(connectionContext.SentPayloads);
+    }
+
+    /// <summary>
+    /// Verifies that requesting more new areas than the Control/Recovery lane has spare capacity for
+    /// -- after reserving the caller's own upcoming send -- accepts only as many as fit and rejects
+    /// the rest, rather than accepting all of them and later overflowing the lane.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_MoreNewAreasThanControlCapacity_AcceptsOnlyWhatFitsAndRejectsTheRest()
+    {
+        (PublicStateSubscription subscription, _, _) = BuildSubscription(["area_a", "area_b", "area_c"]);
+        var connectionContext = new FakePublicConnectionContext { RemainingOutboundCapacityResult = 2 };
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe(
+            ["area_a", "area_b", "area_c"], reservedControlCapacity: 1); // budget = 2 - 1 = 1 area
+
+        Assert.Equal(["area_a"], accepted);
+        Assert.Equal(["area_b", "area_c"], rejected);
+    }
+
+    /// <summary>Verifies that a reservation already at or beyond the lane's remaining capacity clamps the budget to zero rather than going negative, rejecting every area that needs a baseline.</summary>
+    [Fact]
+    public void HandleSubscribe_ReservedCapacityAtOrBeyondRemaining_RejectsEveryAreaNeedingBaseline()
+    {
+        (PublicStateSubscription subscription, _, _) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext { RemainingOutboundCapacityResult = 0 };
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe(["area_a"], reservedControlCapacity: 1);
+
+        Assert.Empty(accepted);
+        Assert.Equal(["area_a"], rejected);
+    }
+
+    /// <summary>Verifies that an already-live area does not consume any of the reserved-capacity budget, since it needs no baseline resend.</summary>
+    [Fact]
+    public void HandleSubscribe_AlreadyLiveAreaAmongNewOnes_DoesNotConsumeCapacityBudget()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a", "area_b"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]); // area_a is now live
+
+        connectionContext.RemainingOutboundCapacityResult = 1;
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe(
+            ["area_a", "area_b"], reservedControlCapacity: 0); // budget = 1; area_a is free, area_b spends the only slot
+
+        Assert.Equal(["area_a", "area_b"], accepted);
+        Assert.Empty(rejected);
+    }
+
+    /// <summary>Verifies that <see cref="PublicStateSubscription.EstablishAcceptedBaselines"/> does not resend a baseline for an area that is already live.</summary>
+    [Fact]
+    public void EstablishAcceptedBaselines_AlreadyLiveArea_DoesNotResend()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]); // area_a is now live
+        int sentAfterFirstBaseline = connectionContext.SentPayloads.Count;
+
+        subscription.EstablishAcceptedBaselines(["area_a"], "sub-2");
+
+        Assert.Equal(sentAfterFirstBaseline, connectionContext.SentPayloads.Count);
+    }
+
     /// <summary>Verifies that an accepted area with no available snapshot sends nothing, without failing the subscribe call.</summary>
     [Fact]
     public void HandleSubscribe_RegisteredAreaWithNoSnapshotAvailable_AcceptsButSendsNothing()
@@ -114,7 +221,7 @@ public class PublicStateSubscriptionTests
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
 
-        (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe("sub-1", ["area_a"]);
+        (IReadOnlyList<string> accepted, _) = Subscribe(subscription, "sub-1", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);
         Assert.Empty(connectionContext.SentPayloads);
@@ -128,9 +235,9 @@ public class PublicStateSubscriptionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]);
+        Subscribe(subscription, "sub-1", ["area_a"]);
 
-        (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe("sub-2", ["area_a"]);
+        (IReadOnlyList<string> accepted, _) = Subscribe(subscription, "sub-2", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);
         Assert.Single(connectionContext.SentPayloads);
@@ -143,7 +250,7 @@ public class PublicStateSubscriptionTests
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
 
-        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe("sub-1", ["area_a"]);
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = Subscribe(subscription, "sub-1", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);
         Assert.Empty(rejected);
@@ -221,7 +328,7 @@ public class PublicStateSubscriptionTests
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]); // accepted, but no snapshot was available yet
+        Subscribe(subscription, "sub-1", ["area_a"]); // accepted, but no snapshot was available yet
 
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         subscription.HandleSnapshotRequest("area_a", "req-1"); // sends the baseline itself, on the Control/Recovery lane
@@ -248,7 +355,7 @@ public class PublicStateSubscriptionTests
         var connectionContext = new FakePublicConnectionContext { TrySendResult = false };
         subscription.Bind(connectionContext, SessionId.NewId());
 
-        (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe("sub-1", ["area_a"]);
+        (IReadOnlyList<string> accepted, _) = Subscribe(subscription, "sub-1", ["area_a"]);
         Assert.Equal(["area_a"], accepted);
 
         feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
@@ -284,7 +391,7 @@ public class PublicStateSubscriptionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         var connectionContext = new FakePublicConnectionContext { TrySendResult = false };
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]); // declined; area not live yet
+        Subscribe(subscription, "sub-1", ["area_a"]); // declined; area not live yet
 
         connectionContext.TrySendResult = true;
         subscription.HandleSnapshotRequest("area_a", "req-1");
@@ -301,7 +408,7 @@ public class PublicStateSubscriptionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]);
+        Subscribe(subscription, "sub-1", ["area_a"]);
 
         feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
 
@@ -324,7 +431,7 @@ public class PublicStateSubscriptionTests
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]); // accepted, but no snapshot was available to send
+        Subscribe(subscription, "sub-1", ["area_a"]); // accepted, but no snapshot was available to send
 
         feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
 
@@ -352,7 +459,7 @@ public class PublicStateSubscriptionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]);
+        Subscribe(subscription, "sub-1", ["area_a"]);
         int sentBeforeUnsubscribe = connectionContext.SentPayloads.Count;
 
         subscription.Unsubscribe();
@@ -375,7 +482,7 @@ public class PublicStateSubscriptionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]);
+        Subscribe(subscription, "sub-1", ["area_a"]);
         int sentBeforeTransition = connectionContext.SentPayloads.Count;
 
         tracker.NotifyTransition(PlayContextId.NewId());
@@ -400,10 +507,10 @@ public class PublicStateSubscriptionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
-        subscription.HandleSubscribe("sub-1", ["area_a"]);
+        Subscribe(subscription, "sub-1", ["area_a"]);
 
         tracker.NotifyTransition(PlayContextId.NewId());
-        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe("sub-2", ["area_a"]);
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = Subscribe(subscription, "sub-2", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);
         Assert.Empty(rejected);

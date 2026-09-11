@@ -30,18 +30,37 @@ public interface IPublicStateSubscription
     void Bind(IPublicConnectionContext connectionContext, SessionId sessionId);
 
     /// <summary>
-    /// Answers a <c>subscribe</c> request: accepts each requested area that is registered, sending
-    /// its current snapshot as this area's baseline (correlated to <paramref name="subscribeMessageId"/>)
-    /// when one is available and this area does not already have a live baseline, and rejects every
-    /// other requested area. Idempotent for an area this connection already has a live baseline for --
-    /// it is reported accepted again without resending. An already-accepted area that lost its live
-    /// baseline (a play-context transition) gets a fresh one the same as a newly accepted area.
+    /// Answers a <c>subscribe</c> request's accept/reject decision only -- it sends nothing. Accepts
+    /// each requested area that is both registered and, when it does not already have a live
+    /// baseline, fits within the reserved Control/Recovery lane's remaining capacity once
+    /// <paramref name="reservedControlCapacity"/> is set aside for the caller's own upcoming send;
+    /// rejects every other requested area, including one that would have been registered but did not
+    /// fit. Idempotent for an area this connection already has a live baseline for -- it is reported
+    /// accepted again without needing a fresh baseline. An already-accepted area that lost its live
+    /// baseline (a play-context transition) is treated the same as a newly accepted area for capacity
+    /// purposes. Call <see cref="EstablishAcceptedBaselines"/> with the accepted areas to actually send
+    /// their baselines, after the caller has sent whatever it reserved capacity for.
     /// </summary>
-    /// <param name="subscribeMessageId">The <c>subscribe</c> message's own id, correlated onto each snapshot this call sends.</param>
     /// <param name="requestedStateAreas">The state areas the client requested.</param>
+    /// <param name="reservedControlCapacity">
+    /// The number of Control/Recovery lane slots the caller itself is about to use for something else
+    /// (typically one, for its own <c>subscription_ack</c>) once this call returns -- excluded from
+    /// the budget available to accepted areas' baselines.
+    /// </param>
     /// <returns>The requested areas partitioned into accepted and rejected, for the caller's own <c>subscription_ack</c>.</returns>
     (IReadOnlyList<string> Accepted, IReadOnlyList<string> Rejected) HandleSubscribe(
-        string subscribeMessageId, IReadOnlyList<string> requestedStateAreas);
+        IReadOnlyList<string> requestedStateAreas, int reservedControlCapacity);
+
+    /// <summary>
+    /// Sends a baseline (correlated to <paramref name="correlationMessageId"/>) for each of
+    /// <paramref name="acceptedStateAreas"/> that does not already have a live baseline and has a
+    /// current value available -- the send <see cref="HandleSubscribe"/> itself never performs, so a
+    /// caller can guarantee its own <c>subscription_ack</c> is sent first. An area with no current
+    /// value available yet is skipped, never fabricated.
+    /// </summary>
+    /// <param name="acceptedStateAreas">The areas <see cref="HandleSubscribe"/> just reported accepted.</param>
+    /// <param name="correlationMessageId">The originating <c>subscribe</c> message's own id.</param>
+    void EstablishAcceptedBaselines(IReadOnlyList<string> acceptedStateAreas, string correlationMessageId);
 
     /// <summary>
     /// Answers a <c>snapshot_request</c>: sends a fresh baseline for <paramref name="stateArea"/>,
@@ -126,14 +145,16 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
     /// <inheritdoc/>
     public (IReadOnlyList<string> Accepted, IReadOnlyList<string> Rejected) HandleSubscribe(
-        string subscribeMessageId, IReadOnlyList<string> requestedStateAreas)
+        IReadOnlyList<string> requestedStateAreas, int reservedControlCapacity)
     {
         List<string> accepted = [];
         List<string> rejected = [];
-        List<(StateAreaId AreaId, StateSnapshotPublication Snapshot)> baselinesToSend = [];
 
         lock (gate)
         {
+            int rawCapacity = connectionContext?.RemainingOutboundCapacity(PublicOutboundLane.ControlOrRecovery) ?? int.MaxValue;
+            int budget = Math.Max(0, rawCapacity - reservedControlCapacity);
+
             foreach (string requested in requestedStateAreas)
             {
                 var areaId = new StateAreaId(requested);
@@ -143,10 +164,37 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     continue;
                 }
 
+                bool needsBaseline = !liveGenerationByArea.ContainsKey(areaId);
+                if (needsBaseline)
+                {
+                    if (budget <= 0)
+                    {
+                        rejected.Add(requested);
+                        continue;
+                    }
+
+                    budget--;
+                }
+
                 accepted.Add(requested);
-                bool isNewlyAccepted = acceptedAreas.Add(areaId);
-                bool needsBaseline = isNewlyAccepted || !liveGenerationByArea.ContainsKey(areaId);
-                if (needsBaseline && feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
+                acceptedAreas.Add(areaId);
+            }
+        }
+
+        return (accepted, rejected);
+    }
+
+    /// <inheritdoc/>
+    public void EstablishAcceptedBaselines(IReadOnlyList<string> acceptedStateAreas, string correlationMessageId)
+    {
+        List<(StateAreaId AreaId, StateSnapshotPublication Snapshot)> baselinesToSend = [];
+
+        lock (gate)
+        {
+            foreach (string accepted in acceptedStateAreas)
+            {
+                var areaId = new StateAreaId(accepted);
+                if (!liveGenerationByArea.ContainsKey(areaId) && feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
                 {
                     baselinesToSend.Add((areaId, snapshot));
                 }
@@ -155,10 +203,8 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
         foreach ((StateAreaId areaId, StateSnapshotPublication snapshot) in baselinesToSend)
         {
-            SendBaseline(areaId, snapshot, subscribeMessageId);
+            SendBaseline(areaId, snapshot, correlationMessageId);
         }
-
-        return (accepted, rejected);
     }
 
     /// <inheritdoc/>

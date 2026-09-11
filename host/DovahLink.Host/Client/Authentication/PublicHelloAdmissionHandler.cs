@@ -468,9 +468,11 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     }
 
     /// <summary>
-    /// Answers a <c>subscribe</c> request: delegates the accept/reject decision and any resulting
-    /// snapshot delivery to <see cref="subscription"/>, or rejects every requested area when no
-    /// subscription capability is available.
+    /// Answers a <c>subscribe</c> request: delegates the accept/reject decision to
+    /// <see cref="subscription"/>, or rejects every requested area when no subscription capability is
+    /// available. Always sends <c>subscription_ack</c> before requesting delivery of any accepted
+    /// area's baseline, so the client can never observe a baseline snapshot ahead of the ack that
+    /// admitted it.
     /// </summary>
     private void HandleSubscribe(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
     {
@@ -491,7 +493,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription is null
             ? ([], payload.StateAreas)
-            : subscription.HandleSubscribe(envelope.MessageId, payload.StateAreas);
+            : subscription.HandleSubscribe(payload.StateAreas, reservedControlCapacity: 1);
 
         var ackPayload = new SubscriptionAckPayload { AcceptedStateAreas = accepted, RejectedStateAreas = rejected };
         PlayContextSnapshot snapshot = playContextTracker.GetSnapshot();
@@ -504,6 +506,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             null,
             ackPayload);
         connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
+
+        subscription?.EstablishAcceptedBaselines(accepted, envelope.MessageId);
     }
 
     /// <summary>
