@@ -262,8 +262,8 @@ public static class Constants
 
     /// <summary>
     /// The public loopback port the production launch path binds its public WebSocket listener to,
-    /// per <c>ai/context/host/migration-audit.md</c>'s "Default loopback port 58231". A real
-    /// cross-process test launch overrides it with
+    /// carried forward from the retired native Bridge's own default. A real cross-process test
+    /// launch overrides it with
     /// <see cref="TestPublicListenerPortEnvironmentVariableName"/> instead, and test code that
     /// composes directly through <c>Program.ComposeAndRunAsync</c> injects its own explicit port.
     /// </summary>

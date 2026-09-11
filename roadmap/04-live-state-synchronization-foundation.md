@@ -470,6 +470,14 @@ sample. Gold/coins is not a Stage 4 domain and is not added here; the slow gold/
 deferred to a future domain-expansion phase, not silently folded into Stage 4's scope. No new
 gold/coins state-area contract, fixtures, or SDK surface is added by this document.
 
+Known risk carried forward, unresolved by the retired Bridge: reliable native-Event delivery under
+sustained capture-queue pressure was diagnosed but not prevented in the Bridge implementation --
+overflow is observable and disconnects the affected client, but nothing prevents the overflow
+itself under real load. No production Event-mode domain existed to measure actual load against, so
+this was deliberately left open rather than solved speculatively. `character_level`'s native-event
+registration in this phase is the first real load this criterion has to hold under; revisit the
+capture-queue capacity and admission policy if it does not.
+
 Acceptance criteria:
 
 - Native-event and sampled captures reach the host through owned typed IPC messages.

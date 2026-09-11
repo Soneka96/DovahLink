@@ -13,6 +13,11 @@ The canonical schema is `protocol/schema/README.md`. This file defines how that 
 - Once the Dart SDK exists, every SDK release declares an explicit supported Bridge-version range (for example a minimum and a maximum). Until then, the app-side Dart client documented in `ai/context/flutter/` follows this same policy.
 - If an SDK version declares support for a Bridge-version range, every public API that SDK version exposes must work across that entire declared range; a range must not silently exclude a public feature (for example "supports Bridge 0.5-0.8, but Inventory requires 0.7+"). A new public SDK feature that requires a newer Bridge contract raises that SDK version's declared minimum instead of narrowing which features work within the existing declared range. Encountering the declared-supported Bridge range without full support for the declared public surface is a contract/programming defect to fix, not a condition for the SDK to hide behind runtime feature negotiation.
 - SDK↔Bridge protocol compatibility is determined by the SDK's declared supported Bridge range, defined above. Runtime Skyrim/mod feature availability is represented separately by capabilities/mod-awareness where applicable, per the Capabilities section below. Runtime capability negotiation must not be used to hide an unsupported protocol version, and protocol-version compatibility does not imply that every runtime Skyrim capability is present.
+- Decided, not yet activated: once the Host's public compatibility boundary is activated, the host
+  release version replaces the retired native Bridge's release version as the compatibility
+  authority above. This is more than a label change -- the bootstrap, SDK range, fixtures,
+  incompatible-peer behavior, and this document must all move together when that cutover happens.
+  Until then, the model above (Bridge/mod release version) remains the current wire behavior.
 
 ## Compatibility bootstrap
 
@@ -81,3 +86,11 @@ The current recovery sequence and error codes belong to `protocol/schema/README.
 ## Future multi-contract support
 
 Simultaneous support for more than one historical contract generation is deferred, not prohibited. Revisit it only when a concrete requirement exists — established third-party clients, independently distributed components that cannot update together, a public backwards-compatibility guarantee, or a comparable constraint — and design that system from the requirements in force at that time.
+
+## Deferred: public instance identifier
+
+Whether the public protocol exposes an authoritative-process instance identifier (the public
+counterpart to the host-observed `adapterInstanceId`) is deferred to this later protocol revision
+stage, not decided by the Host/Adapter migration. `ARCHITECTURE.md`'s "Runtime and identity model"
+fixes the four private identity lifetimes; it does not by itself require or forbid a public wire
+field for any of them.
