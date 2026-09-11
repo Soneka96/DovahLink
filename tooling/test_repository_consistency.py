@@ -1106,7 +1106,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Normal users authenticate through pairing, not a configured long token",
             "Only one pairing challenge may be active at a time, globally",
             "Final confirmation is idempotent",
-            "scoped to the Windows user profile running the client and the Bridge",
+            "scoped to the Windows user profile running the client and the Host",
             "Do not invent cryptography",
             "the official client must not share one `clientId`/credential between different "
             "Windows user profiles",
@@ -1115,13 +1115,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Revocation is immediate: revoking a trusted client removes its active trust, "
             "invalidates its current authenticated session, closes that connection, and rejects "
             "reuse of the revoked credential",
-            "the Bridge must not claim pairing is available when the in-game confirmation cannot "
+            "the Host must not claim pairing is available when the in-game confirmation cannot "
             "actually be presented",
             "A client that fails before saving the credential creates no durable trust and may "
-            "pair again once the Bridge's pending challenge expires",
+            "pair again once the Host's pending challenge expires",
             "A client that saves the credential but crashes before confirming retries "
             "confirmation on restart",
-            "If the Bridge restarted while the credential was only pending, it reports the "
+            "If the Host restarted while the credential was only pending, it reports the "
             "pending credential as no longer known/valid; the client discards its incomplete "
             "local credential and returns to unpaired",
             "it never crashes Skyrim, never silently trusts a client, never invents or merges "
@@ -1160,7 +1160,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "invalidate `sessionId`, cancel or finish outstanding I/O, close the transport, then "
             "release the connection slot",
             "prefer bounded short retry/backoff over same-client connection takeover",
-            "rapid restart, timeout, and Bridge restart all recover cleanly under this policy",
+            "rapid restart, timeout, and Host restart all recover cleanly under this policy",
             "A dead `sessionId` can never become valid again",
         ):
             self.assertIn(required_phrase, normalized_liveness)
