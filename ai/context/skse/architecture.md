@@ -197,8 +197,9 @@ uses -- for every due key found in that tick, handing each to `CaptureDispatchWo
 chosen over hooking the engine's own update loop:
 `SKSE::TaskInterface` is SKSE's own supported mechanism for safely running code on the game thread and
 requires no new engine hook, memory patch, or Address Library offset, keeping with this document's
-general preference against engine hooking (the `bAchievementCompat` patch documented in
-`bridge/README.md` remains the narrow precedent for when a hook is genuinely unavoidable). Only the
+general preference against engine hooking (the `bAchievementCompat` patch implemented in
+`adapter/runtime/commonlib_adapter_game_behavior_compatibility.cpp` remains the narrow precedent for
+when a hook is genuinely unavoidable). Only the
 due-key evaluation and any resulting capture read happen on the game thread, through the marshaled
 task; the interval timing itself runs on an ordinary background thread. `CadenceTickDriver` depends
 on SKSE's task interface only through an injected `ITaskMarshaller` port, so it remains testable
