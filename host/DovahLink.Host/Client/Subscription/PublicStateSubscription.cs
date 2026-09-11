@@ -13,8 +13,10 @@ namespace DovahLink.Host.Client.Subscription;
 /// and <c>snapshot_request</c> against the host-wide <see cref="IRegisteredStateAreaPolicy"/> and
 /// <see cref="IStatePublicationFeed"/>, and forwards an accepted area's later
 /// <see cref="IStatePublicationFeed.EventOccurred"/> events only once this connection has actually
-/// received that area's snapshot -- per <c>protocol/schema/README.md</c>'s "the bridge sends a
-/// snapshot before events for each accepted state area."
+/// had a baseline snapshot admitted for that area under the play context currently active -- per
+/// <c>protocol/schema/README.md</c>'s "the bridge sends a snapshot before events for each accepted
+/// state area." A play-context transition invalidates every area's live baseline, so a later Event
+/// stops forwarding until this connection obtains a fresh one.
 /// </summary>
 public interface IPublicStateSubscription
 {
@@ -29,10 +31,11 @@ public interface IPublicStateSubscription
 
     /// <summary>
     /// Answers a <c>subscribe</c> request: accepts each requested area that is registered, sending
-    /// its current snapshot immediately (correlated to <paramref name="subscribeMessageId"/>) when
-    /// one is available, and rejects every other requested area. Idempotent for an area this
-    /// connection already accepted -- it is reported accepted again without resending its snapshot or
-    /// re-arming its event-forwarding gate.
+    /// its current snapshot as this area's baseline (correlated to <paramref name="subscribeMessageId"/>)
+    /// when one is available and this area does not already have a live baseline, and rejects every
+    /// other requested area. Idempotent for an area this connection already has a live baseline for --
+    /// it is reported accepted again without resending. An already-accepted area that lost its live
+    /// baseline (a play-context transition) gets a fresh one the same as a newly accepted area.
     /// </summary>
     /// <param name="subscribeMessageId">The <c>subscribe</c> message's own id, correlated onto each snapshot this call sends.</param>
     /// <param name="requestedStateAreas">The state areas the client requested.</param>
@@ -43,9 +46,10 @@ public interface IPublicStateSubscription
     /// <summary>
     /// Answers a <c>snapshot_request</c>: sends a fresh baseline for <paramref name="stateArea"/>,
     /// correlated to <paramref name="correlationMessageId"/>, when it is registered and a current
-    /// value is available, arming that area's event-forwarding gate the same way an initial
-    /// <c>subscribe</c> acceptance does. Sends nothing when the area is registered but no value is
-    /// available yet -- that value is deferred, never fabricated.
+    /// value is available, arming that area's event-forwarding gate only once the connection actually
+    /// admits the baseline -- the same successful-admission requirement <see cref="HandleSubscribe"/>
+    /// applies. Sends nothing when the area is registered but no value is available yet -- that value
+    /// is deferred, never fabricated.
     /// </summary>
     /// <param name="stateArea">The requested state area.</param>
     /// <param name="correlationMessageId">The <c>snapshot_request</c>'s own message id.</param>
@@ -77,8 +81,13 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <summary>Every state area this connection has accepted via <see cref="HandleSubscribe"/>.</summary>
     private readonly HashSet<StateAreaId> acceptedAreas = [];
 
-    /// <summary>Every state area this connection has actually received at least one snapshot for, gating event forwarding.</summary>
-    private readonly HashSet<StateAreaId> snapshotSentAreas = [];
+    /// <summary>
+    /// Every state area this connection currently has a live baseline for, mapped to the play-context
+    /// transition generation that baseline was established under. Absence means the area has no live
+    /// baseline -- either it never received one, or a play-context transition invalidated it -- and
+    /// gates <see cref="OnEventOccurred"/> from forwarding.
+    /// </summary>
+    private readonly Dictionary<StateAreaId, long> liveGenerationByArea = [];
 
     /// <summary>The connection to send through, once <see cref="Bind"/> has been called.</summary>
     private IPublicConnectionContext? connectionContext;
@@ -102,6 +111,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         this.codec = codec;
         this.playContextTracker = playContextTracker;
         feed.EventOccurred += OnEventOccurred;
+        playContextTracker.Transitioned += OnPlayContextTransitioned;
     }
 
     /// <inheritdoc/>
@@ -120,7 +130,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     {
         List<string> accepted = [];
         List<string> rejected = [];
-        List<(StateAreaId AreaId, StateSnapshotPublication Snapshot)> snapshotsToSend = [];
+        List<(StateAreaId AreaId, StateSnapshotPublication Snapshot)> baselinesToSend = [];
 
         lock (gate)
         {
@@ -134,17 +144,18 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 }
 
                 accepted.Add(requested);
-                if (acceptedAreas.Add(areaId) && feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
+                bool isNewlyAccepted = acceptedAreas.Add(areaId);
+                bool needsBaseline = isNewlyAccepted || !liveGenerationByArea.ContainsKey(areaId);
+                if (needsBaseline && feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
                 {
-                    snapshotSentAreas.Add(areaId);
-                    snapshotsToSend.Add((areaId, snapshot));
+                    baselinesToSend.Add((areaId, snapshot));
                 }
             }
         }
 
-        foreach ((StateAreaId areaId, StateSnapshotPublication snapshot) in snapshotsToSend)
+        foreach ((StateAreaId areaId, StateSnapshotPublication snapshot) in baselinesToSend)
         {
-            SendSnapshot(areaId, snapshot, subscribeMessageId);
+            SendBaseline(areaId, snapshot, subscribeMessageId);
         }
 
         return (accepted, rejected);
@@ -161,35 +172,56 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
         if (feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
         {
-            lock (gate)
-            {
-                snapshotSentAreas.Add(areaId);
-            }
-
-            SendSnapshot(areaId, snapshot, correlationMessageId);
+            SendBaseline(areaId, snapshot, correlationMessageId);
         }
 
         return true;
     }
 
     /// <inheritdoc/>
-    public void Unsubscribe() => feed.EventOccurred -= OnEventOccurred;
+    public void Unsubscribe()
+    {
+        feed.EventOccurred -= OnEventOccurred;
+        playContextTracker.Transitioned -= OnPlayContextTransitioned;
+    }
+
+    /// <summary>
+    /// Invalidates every area's live baseline: a baseline established under one play context must
+    /// never be treated as current once the context changes, so this connection must obtain a fresh
+    /// one -- via <see cref="HandleSnapshotRequest"/>, or a later <see cref="HandleSubscribe"/> for
+    /// the same area -- before it forwards another Event for that area. Leaves
+    /// <see cref="acceptedAreas"/> untouched; an already-accepted area does not need to be
+    /// re-subscribed.
+    /// </summary>
+    /// <param name="transition">The transition the tracker just committed.</param>
+    private void OnPlayContextTransitioned(PlayContextTransition transition)
+    {
+        lock (gate)
+        {
+            liveGenerationByArea.Clear();
+        }
+    }
 
     /// <summary>
     /// Forwards <paramref name="eventPublication"/> to this connection when its state area is both
-    /// accepted and has already received its first snapshot; otherwise silently ignores it.
+    /// accepted and currently has a live baseline under the play context active right now; otherwise
+    /// silently ignores it.
     /// </summary>
     /// <param name="eventPublication">The event the feed just published.</param>
     private void OnEventOccurred(StateEventPublication eventPublication)
     {
         IPublicConnectionContext? currentConnectionContext;
         SessionId? currentSessionId;
+        PlayContextSnapshot playContextSnapshot;
         bool shouldForward;
         lock (gate)
         {
             currentConnectionContext = connectionContext;
             currentSessionId = sessionId;
-            shouldForward = acceptedAreas.Contains(eventPublication.StateArea) && snapshotSentAreas.Contains(eventPublication.StateArea);
+            playContextSnapshot = playContextTracker.GetSnapshot();
+            shouldForward = acceptedAreas.Contains(eventPublication.StateArea)
+                && liveGenerationByArea.TryGetValue(eventPublication.StateArea, out long liveGeneration)
+                && liveGeneration == playContextSnapshot.TransitionGeneration;
         }
 
         if (!shouldForward || currentConnectionContext is null || currentSessionId is null)
@@ -210,24 +242,35 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             NewMessageId(),
             currentSessionId.Value.ToString(),
             null,
-            playContextTracker.GetSnapshot().Current?.ToString(),
+            playContextSnapshot.Current?.ToString(),
             null,
             payload);
         currentConnectionContext.TrySend(bytes, PublicOutboundLane.Data);
     }
 
-    /// <summary>Encodes and sends one snapshot, if this subscription is currently bound to a connection.</summary>
+    /// <summary>
+    /// Encodes and sends one snapshot as this area's authoritative baseline through the reserved
+    /// Control/Recovery lane, marking the area live under the play-context generation it was captured
+    /// against only once the connection actually admits it -- never before, so
+    /// <see cref="OnEventOccurred"/> can never forward an Event for an area whose baseline the client
+    /// never received. Makes no change when this subscription is not currently bound to a connection,
+    /// when the connection declines to admit the baseline, or when a play-context transition has
+    /// already superseded the generation this baseline was captured against by the time admission
+    /// succeeds.
+    /// </summary>
     /// <param name="areaId">The state area this snapshot belongs to.</param>
     /// <param name="snapshot">The value to send.</param>
     /// <param name="correlationMessageId">The message id this snapshot correlates to.</param>
-    private void SendSnapshot(StateAreaId areaId, StateSnapshotPublication snapshot, string correlationMessageId)
+    private void SendBaseline(StateAreaId areaId, StateSnapshotPublication snapshot, string correlationMessageId)
     {
         IPublicConnectionContext? currentConnectionContext;
         SessionId? currentSessionId;
+        PlayContextSnapshot playContextSnapshot;
         lock (gate)
         {
             currentConnectionContext = connectionContext;
             currentSessionId = sessionId;
+            playContextSnapshot = playContextTracker.GetSnapshot();
         }
 
         if (currentConnectionContext is null || currentSessionId is null)
@@ -247,10 +290,22 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             NewMessageId(),
             currentSessionId.Value.ToString(),
             correlationMessageId,
-            playContextTracker.GetSnapshot().Current?.ToString(),
+            playContextSnapshot.Current?.ToString(),
             null,
             payload);
-        currentConnectionContext.TrySendSnapshot(areaId, bytes);
+
+        if (!currentConnectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery))
+        {
+            return;
+        }
+
+        lock (gate)
+        {
+            if (playContextTracker.GetSnapshot().TransitionGeneration == playContextSnapshot.TransitionGeneration)
+            {
+                liveGenerationByArea[areaId] = playContextSnapshot.TransitionGeneration;
+            }
+        }
     }
 
     /// <summary>Generates a fresh, cryptographically random host-originated message identifier.</summary>

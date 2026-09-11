@@ -1934,7 +1934,6 @@ public class PublicHelloAdmissionTests
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         Assert.Equal(sentCountBeforeRequest, context.FakeConnection.SentPayloads.Count);
-        Assert.Empty(context.FakeConnection.SentSnapshots);
     }
 
     /// <summary>Verifies that a malformed post-admission snapshot_request message is rejected as malformed_message.</summary>
@@ -2606,8 +2605,11 @@ public class PublicHelloAdmissionTests
         AdmitViaTrustedDeviceCredentialHello(firstContext, out string firstSessionId, out string firstClientId);
         byte[] firstSubscribeMessage = firstContext.Codec.Encode(
             PublicMessageType.Subscribe, "msg-2", firstSessionId, null, null, firstClientId, new SubscribePayload { StateAreas = ["area_a"] });
+        int sentBeforeFirstSubscribe = firstContext.FakeConnection.SentPayloads.Count;
         firstContext.Handler.HandleMessageAsync(firstContext.Connection, firstSubscribeMessage, CancellationToken.None);
-        Assert.Single(firstContext.FakeConnection.SentSnapshots);
+        Assert.Equal(sentBeforeFirstSubscribe + 2, firstContext.FakeConnection.SentPayloads.Count); // the baseline snapshot, then the subscription_ack
+        (PublicEnvelope firstSnapshotEnvelope, _) = DecodeSent<StateSnapshotPayload>(firstContext.Codec, firstContext.FakeConnection.SentPayloads[sentBeforeFirstSubscribe]);
+        Assert.Equal(PublicMessageType.StateSnapshot, firstSnapshotEnvelope.MessageType);
         firstContext.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
 
         // An event published while no client is connected must never reach the now-ended first
@@ -2621,19 +2623,19 @@ public class PublicHelloAdmissionTests
         AdmitViaTrustedDeviceCredentialHello(secondContext, out string secondSessionId, out string secondClientId);
 
         Assert.NotEqual(firstSessionId, secondSessionId); // a reconnect is a genuinely fresh session, never a resumed one
-        Assert.Empty(secondContext.FakeConnection.SentSnapshots);
+        Assert.Equal(2, secondContext.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities so far; no snapshot before it ever subscribes
 
         // Subscribing now gets the fresh, current baseline (revision 2, post-event) -- not a replay
         // of the event that was missed while disconnected.
         byte[] secondSubscribeMessage = secondContext.Codec.Encode(
             PublicMessageType.Subscribe, "msg-2", secondSessionId, null, null, secondClientId, new SubscribePayload { StateAreas = ["area_a"] });
         feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a", revision: 2));
+        int sentBeforeSecondSubscribe = secondContext.FakeConnection.SentPayloads.Count;
         secondContext.Handler.HandleMessageAsync(secondContext.Connection, secondSubscribeMessage, CancellationToken.None);
 
-        (_, byte[] snapshotBytes) = Assert.Single(secondContext.FakeConnection.SentSnapshots);
-        Assert.True(secondContext.Codec.TryDecode(snapshotBytes, out PublicEnvelope? envelope));
-        Assert.True(secondContext.Codec.TryDecodePayload(envelope!, out StateSnapshotPayload? payload));
-        Assert.Equal(2UL, payload!.Revision);
+        Assert.Equal(sentBeforeSecondSubscribe + 2, secondContext.FakeConnection.SentPayloads.Count); // the baseline snapshot, then the subscription_ack
+        (_, StateSnapshotPayload payload) = DecodeSent<StateSnapshotPayload>(secondContext.Codec, secondContext.FakeConnection.SentPayloads[sentBeforeSecondSubscribe]);
+        Assert.Equal(2UL, payload.Revision);
     }
 
     /// <summary>Builds a representative snapshot value for the given area.</summary>

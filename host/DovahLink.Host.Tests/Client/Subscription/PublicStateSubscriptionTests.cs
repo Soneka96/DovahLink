@@ -18,8 +18,9 @@ public class PublicStateSubscriptionTests
     /// <summary>Builds a subscription over a fresh policy, feed, and play-context tracker, with the given areas pre-registered.</summary>
     /// <param name="registeredAreas">The state areas to register before the test runs.</param>
     /// <param name="feed">The feed the subscription reads from; a fresh <see cref="FakeStatePublicationFeed"/> when omitted.</param>
+    /// <param name="playContextTracker">The tracker the subscription reads and listens to; a fresh <see cref="FakePlayContextTracker"/> when omitted.</param>
     private (PublicStateSubscription Subscription, RegisteredStateAreaPolicy Policy, FakeStatePublicationFeed Feed) BuildSubscription(
-        IEnumerable<string>? registeredAreas = null, FakeStatePublicationFeed? feed = null)
+        IEnumerable<string>? registeredAreas = null, FakeStatePublicationFeed? feed = null, IPlayContextTracker? playContextTracker = null)
     {
         var policy = new RegisteredStateAreaPolicy();
         foreach (string area in registeredAreas ?? [])
@@ -28,7 +29,7 @@ public class PublicStateSubscriptionTests
         }
 
         FakeStatePublicationFeed resolvedFeed = feed ?? new FakeStatePublicationFeed();
-        var subscription = new PublicStateSubscription(policy, resolvedFeed, codec, new FakePlayContextTracker());
+        var subscription = new PublicStateSubscription(policy, resolvedFeed, codec, playContextTracker ?? new FakePlayContextTracker());
         return (subscription, policy, resolvedFeed);
     }
 
@@ -82,9 +83,9 @@ public class PublicStateSubscriptionTests
         Assert.Equal(["area_b"], rejected);
     }
 
-    /// <summary>Verifies that an accepted area with an available snapshot sends it, correlated to the subscribe message id, before returning.</summary>
+    /// <summary>Verifies that an accepted area with an available snapshot sends it as a baseline through the Control/Recovery lane, correlated to the subscribe message id.</summary>
     [Fact]
-    public void HandleSubscribe_RegisteredAreaWithAvailableSnapshot_SendsSnapshotCorrelatedToSubscribeMessageId()
+    public void HandleSubscribe_RegisteredAreaWithAvailableSnapshot_SendsBaselineOnControlLaneCorrelatedToSubscribeMessageId()
     {
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 7));
@@ -94,8 +95,8 @@ public class PublicStateSubscriptionTests
 
         subscription.HandleSubscribe("sub-1", ["area_a"]);
 
-        (StateAreaId areaId, byte[] bytes) = Assert.Single(connectionContext.SentSnapshots);
-        Assert.Equal(new StateAreaId("area_a"), areaId);
+        (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
         Assert.Equal("sub-1", envelope.CorrelationId);
@@ -116,12 +117,12 @@ public class PublicStateSubscriptionTests
         (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe("sub-1", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);
-        Assert.Empty(connectionContext.SentSnapshots);
+        Assert.Empty(connectionContext.SentPayloads);
     }
 
-    /// <summary>Verifies that subscribing to an already-accepted area again does not resend its snapshot.</summary>
+    /// <summary>Verifies that subscribing to an already-accepted, still-live area again does not resend its baseline.</summary>
     [Fact]
-    public void HandleSubscribe_AlreadyAcceptedArea_DoesNotResendSnapshot()
+    public void HandleSubscribe_AlreadyAcceptedAndLiveArea_DoesNotResendBaseline()
     {
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
@@ -132,7 +133,7 @@ public class PublicStateSubscriptionTests
         (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe("sub-2", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);
-        Assert.Single(connectionContext.SentSnapshots);
+        Assert.Single(connectionContext.SentPayloads);
     }
 
     /// <summary>Verifies that the accept/reject decision does not depend on <see cref="PublicStateSubscription.Bind"/> having been called, even though nothing can be sent yet.</summary>
@@ -148,9 +149,9 @@ public class PublicStateSubscriptionTests
         Assert.Empty(rejected);
     }
 
-    /// <summary>Verifies that a snapshot request for a registered area with an available value sends it, correlated to the request's own message id.</summary>
+    /// <summary>Verifies that a snapshot request for a registered area with an available value sends it as a baseline through the Control/Recovery lane, correlated to the request's own message id.</summary>
     [Fact]
-    public void HandleSnapshotRequest_RegisteredAreaWithSnapshot_SendsSnapshotCorrelatedToRequestId()
+    public void HandleSnapshotRequest_RegisteredAreaWithSnapshot_SendsBaselineOnControlLaneCorrelatedToRequestId()
     {
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 3));
@@ -160,8 +161,8 @@ public class PublicStateSubscriptionTests
         bool result = subscription.HandleSnapshotRequest("area_a", "req-1");
 
         Assert.True(result);
-        (StateAreaId areaId, byte[] bytes) = Assert.Single(connectionContext.SentSnapshots);
-        Assert.Equal(new StateAreaId("area_a"), areaId);
+        (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.Equal("req-1", envelope!.CorrelationId);
         Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
@@ -179,7 +180,7 @@ public class PublicStateSubscriptionTests
         bool result = subscription.HandleSnapshotRequest("area_a", "req-1");
 
         Assert.True(result);
-        Assert.Empty(connectionContext.SentSnapshots);
+        Assert.Empty(connectionContext.SentPayloads);
     }
 
     /// <summary>Verifies that a snapshot request for an unregistered area is reported as such.</summary>
@@ -193,7 +194,7 @@ public class PublicStateSubscriptionTests
         bool result = subscription.HandleSnapshotRequest("area_a", "req-1");
 
         Assert.False(result);
-        Assert.Empty(connectionContext.SentSnapshots);
+        Assert.Empty(connectionContext.SentPayloads);
     }
 
     /// <summary>Verifies that calling <see cref="PublicStateSubscription.HandleSnapshotRequest"/> before <see cref="PublicStateSubscription.Bind"/> still reports whether the area is registered, without throwing.</summary>
@@ -223,31 +224,73 @@ public class PublicStateSubscriptionTests
         subscription.HandleSubscribe("sub-1", ["area_a"]); // accepted, but no snapshot was available yet
 
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
-        subscription.HandleSnapshotRequest("area_a", "req-1");
+        subscription.HandleSnapshotRequest("area_a", "req-1"); // sends the baseline itself, on the Control/Recovery lane
         feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
 
-        (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
         Assert.Equal(PublicOutboundLane.Data, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.Equal(PublicMessageType.StateEvent, envelope!.MessageType);
     }
 
     /// <summary>
-    /// Verifies that the wrapped connection declining a snapshot -- the deferral contract
-    /// <see cref="IPublicConnectionContext.TrySendSnapshot"/> documents -- never throws or otherwise
-    /// disrupts the subscribe call that triggered it.
+    /// Verifies that the wrapped connection declining to admit a baseline onto the Control/Recovery
+    /// lane never throws or otherwise disrupts the subscribe call that triggered it, and -- the
+    /// regression this covers -- that the area is never treated as live: a later Event for it must
+    /// not be forwarded, since the client never actually received the baseline it depends on.
     /// </summary>
     [Fact]
-    public void HandleSubscribe_ConnectionDeclinesSnapshot_DoesNotThrow()
+    public void HandleSubscribe_ConnectionDeclinesControlAdmission_AreaStaysNotLive_LaterEventNotForwarded()
     {
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
-        var connectionContext = new FakePublicConnectionContext { TrySendSnapshotResult = false };
+        var connectionContext = new FakePublicConnectionContext { TrySendResult = false };
         subscription.Bind(connectionContext, SessionId.NewId());
 
         (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe("sub-1", ["area_a"]);
-
         Assert.Equal(["area_a"], accepted);
+
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.DoesNotContain(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
+    }
+
+    /// <summary>
+    /// Verifies the same regression as <see cref="HandleSubscribe_ConnectionDeclinesControlAdmission_AreaStaysNotLive_LaterEventNotForwarded"/>,
+    /// but through <see cref="PublicStateSubscription.HandleSnapshotRequest"/> instead of the initial subscribe.
+    /// </summary>
+    [Fact]
+    public void HandleSnapshotRequest_ConnectionDeclinesControlAdmission_AreaStaysNotLive_LaterEventNotForwarded()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext { TrySendResult = false };
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        bool result = subscription.HandleSnapshotRequest("area_a", "req-1");
+        Assert.True(result);
+
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.DoesNotContain(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
+    }
+
+    /// <summary>Verifies that a later, successful <see cref="PublicStateSubscription.HandleSnapshotRequest"/> can still arm an area whose first baseline attempt was declined by the connection.</summary>
+    [Fact]
+    public void HandleSnapshotRequest_AfterPriorBaselineDeclined_SuccessfullyArmsArea()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext { TrySendResult = false };
+        subscription.Bind(connectionContext, SessionId.NewId());
+        subscription.HandleSubscribe("sub-1", ["area_a"]); // declined; area not live yet
+
+        connectionContext.TrySendResult = true;
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Contains(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
     }
 
     /// <summary>Verifies that an event for an accepted area whose snapshot has already been sent is forwarded, decoding to the expected content.</summary>
@@ -262,7 +305,8 @@ public class PublicStateSubscriptionTests
 
         feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
 
-        (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(2, connectionContext.SentPayloads.Count); // the baseline sent by HandleSubscribe, then the event
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
         Assert.Equal(PublicOutboundLane.Data, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.Equal(PublicMessageType.StateEvent, envelope!.MessageType);
@@ -309,11 +353,60 @@ public class PublicStateSubscriptionTests
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
         subscription.HandleSubscribe("sub-1", ["area_a"]);
+        int sentBeforeUnsubscribe = connectionContext.SentPayloads.Count;
 
         subscription.Unsubscribe();
         feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
 
-        Assert.Empty(connectionContext.SentPayloads);
+        Assert.Equal(sentBeforeUnsubscribe, connectionContext.SentPayloads.Count);
+    }
+
+    /// <summary>
+    /// Verifies that a play-context transition invalidates a live area's baseline: an Event that
+    /// would otherwise have forwarded stops forwarding once the transition commits, until the area is
+    /// re-armed.
+    /// </summary>
+    [Fact]
+    public void OnEventOccurred_ContextTransitioned_StopsForwardingUntilReArmed()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId());
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        subscription.HandleSubscribe("sub-1", ["area_a"]);
+        int sentBeforeTransition = connectionContext.SentPayloads.Count;
+
+        tracker.NotifyTransition(PlayContextId.NewId());
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Equal(sentBeforeTransition, connectionContext.SentPayloads.Count);
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 2));
+        subscription.HandleSnapshotRequest("area_a", "req-1"); // re-arms under the new context
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 2, revision: 3));
+
+        Assert.Equal(sentBeforeTransition + 2, connectionContext.SentPayloads.Count); // the re-arm baseline, then the event
+    }
+
+    /// <summary>Verifies that a play-context transition invalidates a live baseline without un-accepting the area: a repeat subscribe still reports it accepted.</summary>
+    [Fact]
+    public void HandleSubscribe_AfterContextTransitioned_StillReportsAreaAccepted()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId());
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        subscription.HandleSubscribe("sub-1", ["area_a"]);
+
+        tracker.NotifyTransition(PlayContextId.NewId());
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe("sub-2", ["area_a"]);
+
+        Assert.Equal(["area_a"], accepted);
+        Assert.Empty(rejected);
     }
 
     /// <summary>Verifies that calling <see cref="PublicStateSubscription.Unsubscribe"/> more than once does not throw.</summary>
