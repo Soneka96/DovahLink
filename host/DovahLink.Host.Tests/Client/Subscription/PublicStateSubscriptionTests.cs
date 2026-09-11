@@ -404,6 +404,167 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>
+    /// Verifies the fix for the earlier window of the same event-loss race: an Event raised while the
+    /// baseline's own snapshot fetch is still in flight -- before the barrier revision is even known --
+    /// is held rather than discarded, since <see cref="AreaDeliveryPhase.Recovering"/> with an unknown
+    /// barrier still means "hold," not "not live yet." This is the window that remained open after the
+    /// first barrier implementation moved <c>Phase = Recovering</c> to after the fetch instead of
+    /// before it.
+    /// </summary>
+    [Fact]
+    public void OnEventOccurred_DuringSnapshotFetch_EventIsHeldNotDiscarded()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null; // the re-baseline this triggers must not itself re-enter this hook
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11));
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count); // the baseline, then the Event held during the fetch
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
+        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateEvent, envelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(envelope, out StateEventPayload? payload));
+        Assert.Equal(11UL, payload!.Revision);
+    }
+
+    /// <summary>
+    /// Verifies that a play-context transition landing while the snapshot fetch is still in flight --
+    /// bumping the recovery epoch before the second lock block re-validates it -- abandons the attempt
+    /// entirely: no baseline is sent under the now-superseded epoch at all, not merely one that fails
+    /// to commit live.
+    /// </summary>
+    [Fact]
+    public void TryEstablishBaseline_EpochSupersededDuringSnapshotFetch_AbandonsAttemptWithoutSending()
+    {
+        var tracker = new FakePlayContextTracker();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10, playContextGeneration: 0));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            tracker.NotifyTransition(PlayContextId.NewId()); // generation 1, mid-fetch: supersedes this attempt's epoch
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Empty(connectionContext.SentPayloads); // abandoned before ever reaching admission
+
+        // A later, legitimate attempt under the new generation still works normally.
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1, playContextGeneration: 1));
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        Assert.Single(connectionContext.SentPayloads);
+    }
+
+    /// <summary>
+    /// Verifies the fix for the second race: a brand-new Event arriving while previously-held Events
+    /// are being drained (after baseline admission, before the area commits Live) joins the same drain
+    /// instead of racing ahead of it through an independent, unordered send -- the final wire order
+    /// matches arrival order exactly.
+    /// </summary>
+    [Fact]
+    public void OnEventOccurred_NewEventArrivesWhileHeldEventsAreDraining_DeliveredAfterAllPreviouslyHeldEventsInOrder()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11));
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 11, revision: 12));
+        };
+        int trySendCount = 0;
+        connectionContext.OnTrySend = () =>
+        {
+            trySendCount++;
+            if (trySendCount == 2) // draining the first held Event (revision 11), not the baseline's own send
+            {
+                connectionContext.OnTrySend = null;
+                feed.RaiseEvent(BuildEvent("area_a", baseRevision: 12, revision: 13));
+            }
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Equal(4, connectionContext.SentPayloads.Count); // the baseline, then three Events
+        List<ulong> revisionsInOrder = connectionContext.SentPayloads
+            .Skip(1)
+            .Select(sent =>
+            {
+                Assert.True(codec.TryDecode(sent.Payload, out PublicEnvelope? envelope));
+                Assert.True(codec.TryDecodePayload(envelope, out StateEventPayload? payload));
+                return payload!.Revision;
+            })
+            .ToList();
+        Assert.Equal([11UL, 12UL, 13UL], revisionsInOrder);
+    }
+
+    /// <summary>
+    /// Verifies the guard the final epoch re-check exists for: a play-context transition landing
+    /// reentrantly while previously-held Events are still being drained -- with at least one more
+    /// still queued -- clears the queue and abandons the attempt; the drain loop must stop rather than
+    /// continue sending from a cleared list, and the attempt's own completion must not overwrite that
+    /// abandonment by still committing <see cref="AreaDeliveryPhase.Live"/> once the loop ends.
+    /// </summary>
+    [Fact]
+    public void TryEstablishBaseline_EpochSupersededMidDrainWithItemsStillQueued_StopsDrainingAndDoesNotOverwriteAbandonment()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10, playContextGeneration: 1));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11, playContextGeneration: 1)); // held
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 11, revision: 12, playContextGeneration: 1)); // held
+        };
+        int trySendCount = 0;
+        connectionContext.OnTrySend = () =>
+        {
+            trySendCount++;
+            if (trySendCount == 2) // draining the first held Event, with the second still queued behind it
+            {
+                connectionContext.OnTrySend = null;
+                tracker.NotifyTransition(PlayContextId.NewId()); // generation 2: clears the queue, abandons this attempt
+            }
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        // The baseline, then only the one held Event whose send was already in flight when the
+        // transition landed -- the still-queued second Event must never be sent under the old context.
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.DoesNotContain(
+            connectionContext.SentPayloads.Skip(1),
+            sent => codec.TryDecode(sent.Payload, out PublicEnvelope? envelope)
+                && codec.TryDecodePayload(envelope, out StateEventPayload? payload)
+                && payload!.Revision == 12UL);
+
+        // Re-arm under the new generation and confirm a fresh Event forwards -- proving the area
+        // recovered cleanly (AwaitingBaseline, not incorrectly left Live under the old generation).
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1, playContextGeneration: 2));
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2, playContextGeneration: 2));
+
+        Assert.Contains(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
+    }
+
+    /// <summary>
     /// Verifies the fix for the original event-loss race: an Event above the baseline's own revision,
     /// raised exactly while that baseline is being admitted onto the Control/Recovery lane, is held
     /// rather than discarded, and is released once the baseline actually lands -- instead of being

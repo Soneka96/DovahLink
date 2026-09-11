@@ -188,7 +188,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <inheritdoc/>
     public void EstablishAcceptedBaselines(IReadOnlyList<string> acceptedStateAreas, string correlationMessageId)
     {
-        List<(StateAreaId AreaId, StateSnapshotPublication Snapshot)> baselinesToSend = [];
+        List<StateAreaId> areasNeedingBaseline = [];
 
         lock (gate)
         {
@@ -196,16 +196,16 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             {
                 var areaId = new StateAreaId(accepted);
                 bool needsBaseline = !areaStates.TryGetValue(areaId, out AreaState? state) || state.Phase != AreaDeliveryPhase.Live;
-                if (needsBaseline && feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
+                if (needsBaseline)
                 {
-                    baselinesToSend.Add((areaId, snapshot));
+                    areasNeedingBaseline.Add(areaId);
                 }
             }
         }
 
-        foreach ((StateAreaId areaId, StateSnapshotPublication snapshot) in baselinesToSend)
+        foreach (StateAreaId areaId in areasNeedingBaseline)
         {
-            TryEstablishBaseline(areaId, snapshot, correlationMessageId);
+            TryEstablishBaseline(areaId, correlationMessageId);
         }
     }
 
@@ -218,11 +218,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             return false;
         }
 
-        if (feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
-        {
-            TryEstablishBaseline(areaId, snapshot, correlationMessageId);
-        }
-
+        TryEstablishBaseline(areaId, correlationMessageId);
         return true;
     }
 
@@ -252,6 +248,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             foreach (AreaState state in areaStates.Values)
             {
                 state.Phase = AreaDeliveryPhase.AwaitingBaseline;
+                state.BarrierRevision = null;
                 state.HeldEvents.Clear();
                 state.RecoveryEpoch++;
             }
@@ -261,17 +258,18 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <summary>
     /// Routes <paramref name="eventPublication"/> for this connection according to its state area's
     /// current recovery-barrier phase: discarded while <see cref="AreaDeliveryPhase.AwaitingBaseline"/>;
-    /// while <see cref="AreaDeliveryPhase.Recovering"/>, discarded if superseded by the barrier
-    /// revision, otherwise held until the baseline resolves (abandoning the held set and re-baselining
-    /// from the newest authoritative snapshot if the bounded hold fills up); forwarded immediately
-    /// while <see cref="AreaDeliveryPhase.Live"/>. Also discarded outright, regardless of phase, when
-    /// its own captured play-context generation does not match the tracker's current one -- a stale
-    /// value from before a transition this subscription has not yet been told to forward.
+    /// while <see cref="AreaDeliveryPhase.Recovering"/>, held if the barrier revision is not yet known
+    /// (a baseline fetch is still in flight) or the Event is above the barrier once it is known,
+    /// discarded if at or below it (abandoning the held set and re-baselining from the newest
+    /// authoritative snapshot if the bounded hold fills up); forwarded immediately, still under
+    /// <see cref="gate"/>, while <see cref="AreaDeliveryPhase.Live"/>. Also discarded outright,
+    /// regardless of phase, when its own captured play-context generation does not match the tracker's
+    /// current one -- a stale value from before a transition this subscription has not yet been told
+    /// to forward.
     /// </summary>
     /// <param name="eventPublication">The event the feed just published.</param>
     private void OnEventOccurred(StateEventPublication eventPublication)
     {
-        StateEventPublication? eventToForward = null;
         bool needsReBaseline = false;
 
         lock (gate)
@@ -293,9 +291,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     break;
 
                 case AreaDeliveryPhase.Recovering:
-                    if (eventPublication.Revision.Value <= state.BarrierRevision.Value)
+                    if (state.BarrierRevision is RevisionNumber barrier && eventPublication.Revision.Value <= barrier.Value)
                     {
-                        break;
+                        break; // superseded by the barrier
                     }
 
                     if (state.HeldEvents.Count >= Constants.MaxHeldRecoveryEventsPerArea)
@@ -303,6 +301,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                         state.HeldEvents.Clear();
                         state.RecoveryEpoch++;
                         state.Phase = AreaDeliveryPhase.AwaitingBaseline;
+                        state.BarrierRevision = null;
                         needsReBaseline = true;
                     }
                     else
@@ -313,44 +312,45 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     break;
 
                 case AreaDeliveryPhase.Live:
-                    if (eventPublication.PlayContextGeneration == state.PlayContextGeneration)
+                    if (eventPublication.PlayContextGeneration == state.PlayContextGeneration
+                        && connectionContext is not null && sessionId is not null)
                     {
-                        eventToForward = eventPublication;
+                        SendEventUnderGate(connectionContext, sessionId.Value, eventPublication);
                     }
 
                     break;
             }
         }
 
-        if (eventToForward is not null)
+        if (needsReBaseline)
         {
-            ForwardEvent(eventToForward);
-        }
-        else if (needsReBaseline && feed.TryGetSnapshot(eventPublication.StateArea, out StateSnapshotPublication? freshSnapshot))
-        {
-            TryEstablishBaseline(eventPublication.StateArea, freshSnapshot, correlationMessageId: NewMessageId());
+            TryEstablishBaseline(eventPublication.StateArea, correlationMessageId: NewMessageId());
         }
     }
 
     /// <summary>
-    /// Establishes <paramref name="snapshot"/> as <paramref name="areaId"/>'s new baseline through the
-    /// reserved Control/Recovery lane. Enters <see cref="AreaDeliveryPhase.Recovering"/> under a fresh
-    /// recovery epoch before sending, so a concurrent Event above the snapshot's own revision is held
-    /// by <see cref="OnEventOccurred"/> rather than discarded or forwarded ahead of the baseline that
-    /// establishes it. Commits <see cref="AreaDeliveryPhase.Live"/> and releases the held Events, in
-    /// arrival order, only once the connection actually admits the baseline and this remains the most
-    /// recent recovery attempt for the area -- a later attempt, or a play-context transition, bumps
-    /// the area's recovery epoch and makes this call's eventual result a no-op when it completes. Falls
-    /// back to <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, discarding any held Events, when
-    /// admission fails. Makes no change at all when this subscription is not currently bound to a
-    /// connection, or when <paramref name="snapshot"/>'s own captured play-context generation is
-    /// already stale relative to the tracker's current one -- treated the same as no value being
-    /// available yet, never sent under a label it was not actually captured under.
+    /// Establishes a fresh baseline for <paramref name="areaId"/> through the reserved Control/Recovery
+    /// lane. Enters <see cref="AreaDeliveryPhase.Recovering"/> under a fresh recovery epoch, with the
+    /// barrier revision still unknown, before reading <paramref name="areaId"/>'s current value from
+    /// <see cref="feed"/> -- deliberately outside <see cref="gate"/>, since a future real feed
+    /// implementation must not be called while this subscription's own lock is held, to avoid a
+    /// lock-order inversion against whatever synchronization the authoritative state store uses
+    /// internally. An Event for this area arriving during that fetch observes the unknown barrier and
+    /// is held rather than discarded, per <see cref="OnEventOccurred"/>. Once the fetch returns, every
+    /// remaining step -- validating the recovery epoch and the value's own play-context generation,
+    /// recording the barrier, encoding, admitting the baseline onto the Control/Recovery lane, and
+    /// draining every held Event above the barrier -- runs under <see cref="gate"/>, so nothing else
+    /// can observe or mutate this area's state until <see cref="AreaDeliveryPhase.Live"/> commits (or
+    /// this attempt is abandoned). A later recovery attempt, a held-Event overflow, or a play-context
+    /// transition bumps the area's recovery epoch and makes this call's eventual result a no-op at
+    /// whichever validation point next observes the mismatch. Falls back to
+    /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, discarding any held Events, when no current
+    /// value is available, the fetched value's play-context generation is already stale, or admission
+    /// fails. Makes no change at all when this subscription is not currently bound to a connection.
     /// </summary>
-    /// <param name="areaId">The state area this snapshot belongs to.</param>
-    /// <param name="snapshot">The value to establish as the new baseline.</param>
-    /// <param name="correlationMessageId">The message id this snapshot correlates to.</param>
-    private void TryEstablishBaseline(StateAreaId areaId, StateSnapshotPublication snapshot, string correlationMessageId)
+    /// <param name="areaId">The state area to establish a baseline for.</param>
+    /// <param name="correlationMessageId">The message id this baseline correlates to.</param>
+    private void TryEstablishBaseline(StateAreaId areaId, string correlationMessageId)
     {
         IPublicConnectionContext? currentConnectionContext;
         SessionId? currentSessionId;
@@ -359,16 +359,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         {
             currentConnectionContext = connectionContext;
             currentSessionId = sessionId;
-            if (snapshot.PlayContextGeneration != playContextTracker.GetSnapshot().TransitionGeneration)
-            {
-                return;
-            }
-
             AreaState state = GetOrCreateAreaState(areaId);
             state.Phase = AreaDeliveryPhase.Recovering;
-            state.BarrierRevision = snapshot.Revision;
-            state.PlayContextGeneration = snapshot.PlayContextGeneration;
-            state.HeldEvents.Clear();
+            state.BarrierRevision = null;
             myEpoch = ++state.RecoveryEpoch;
         }
 
@@ -377,25 +370,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             return;
         }
 
-        var payload = new StateSnapshotPayload
-        {
-            StateArea = areaId.Value,
-            Revision = snapshot.Revision.Value,
-            OccurredAt = snapshot.OccurredAt,
-            Data = snapshot.Data,
-        };
-        byte[] bytes = codec.Encode(
-            PublicMessageType.StateSnapshot,
-            NewMessageId(),
-            currentSessionId.Value.ToString(),
-            correlationMessageId,
-            snapshot.PlayContextId?.ToString(),
-            null,
-            payload);
+        bool hasSnapshot = feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot);
 
-        bool admitted = currentConnectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
-
-        List<StateEventPublication> releasedEvents = [];
+        byte[]? bytes = null;
         lock (gate)
         {
             if (!areaStates.TryGetValue(areaId, out AreaState? state) || state.RecoveryEpoch != myEpoch)
@@ -403,42 +380,83 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 return;
             }
 
-            if (admitted)
-            {
-                state.Phase = AreaDeliveryPhase.Live;
-                releasedEvents.AddRange(state.HeldEvents);
-                state.HeldEvents.Clear();
-            }
-            else
+            if (!hasSnapshot || snapshot!.PlayContextGeneration != playContextTracker.GetSnapshot().TransitionGeneration)
             {
                 state.Phase = AreaDeliveryPhase.AwaitingBaseline;
+                state.BarrierRevision = null;
                 state.HeldEvents.Clear();
+                return;
             }
+
+            state.BarrierRevision = snapshot.Revision;
+            state.PlayContextGeneration = snapshot.PlayContextGeneration;
+            state.HeldEvents.RemoveAll(held => held.Revision.Value <= snapshot.Revision.Value);
+
+            var payload = new StateSnapshotPayload
+            {
+                StateArea = areaId.Value,
+                Revision = snapshot.Revision.Value,
+                OccurredAt = snapshot.OccurredAt,
+                Data = snapshot.Data,
+            };
+            bytes = codec.Encode(
+                PublicMessageType.StateSnapshot,
+                NewMessageId(),
+                currentSessionId.Value.ToString(),
+                correlationMessageId,
+                snapshot.PlayContextId?.ToString(),
+                null,
+                payload);
         }
 
-        foreach (StateEventPublication heldEvent in releasedEvents)
-        {
-            ForwardEvent(heldEvent);
-        }
-    }
-
-    /// <summary>Encodes and sends one already-accepted, already-live Event on the Data lane, labeled with its own captured play context.</summary>
-    /// <param name="eventPublication">The event to forward.</param>
-    private void ForwardEvent(StateEventPublication eventPublication)
-    {
-        IPublicConnectionContext? currentConnectionContext;
-        SessionId? currentSessionId;
-        lock (gate)
-        {
-            currentConnectionContext = connectionContext;
-            currentSessionId = sessionId;
-        }
-
-        if (currentConnectionContext is null || currentSessionId is null)
+        if (bytes is null)
         {
             return;
         }
 
+        lock (gate)
+        {
+            if (!areaStates.TryGetValue(areaId, out AreaState? state) || state.RecoveryEpoch != myEpoch)
+            {
+                return;
+            }
+
+            if (!currentConnectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery))
+            {
+                state.Phase = AreaDeliveryPhase.AwaitingBaseline;
+                state.BarrierRevision = null;
+                state.HeldEvents.Clear();
+                return;
+            }
+
+            // Drains the live collection, not a copy: a reentrant Event admitted into HeldEvents while
+            // sending one of these (the transport contract precludes this in production, but a test
+            // may deliberately exercise it) is picked up by this same loop rather than lost.
+            while (state.HeldEvents.Count > 0)
+            {
+                StateEventPublication next = state.HeldEvents[0];
+                state.HeldEvents.RemoveAt(0);
+                SendEventUnderGate(currentConnectionContext, currentSessionId.Value, next);
+            }
+
+            // Re-validated rather than assumed: a reentrant abandonment during the send or the drain
+            // above must not be overwritten by this attempt committing Live regardless.
+            if (state.RecoveryEpoch == myEpoch)
+            {
+                state.Phase = AreaDeliveryPhase.Live;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Encodes and sends one Event on the Data lane, labeled with its own captured play context.
+    /// Must be called with <see cref="gate"/> already held by the calling thread.
+    /// </summary>
+    /// <param name="targetConnectionContext">The connection to send through.</param>
+    /// <param name="targetSessionId">The session identity to stamp onto the message.</param>
+    /// <param name="eventPublication">The event to send.</param>
+    private void SendEventUnderGate(IPublicConnectionContext targetConnectionContext, SessionId targetSessionId, StateEventPublication eventPublication)
+    {
         var payload = new StateEventPayload
         {
             StateArea = eventPublication.StateArea.Value,
@@ -450,12 +468,12 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         byte[] bytes = codec.Encode(
             PublicMessageType.StateEvent,
             NewMessageId(),
-            currentSessionId.Value.ToString(),
+            targetSessionId.ToString(),
             null,
             eventPublication.PlayContextId?.ToString(),
             null,
             payload);
-        currentConnectionContext.TrySend(bytes, PublicOutboundLane.Data);
+        targetConnectionContext.TrySend(bytes, PublicOutboundLane.Data);
     }
 
     /// <summary>Returns <paramref name="areaId"/>'s recovery-barrier bookkeeping, creating it on first use. Must be called under <see cref="gate"/>.</summary>
@@ -487,11 +505,13 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         public AreaDeliveryPhase Phase = AreaDeliveryPhase.AwaitingBaseline;
 
         /// <summary>
-        /// The current or most recently established baseline's revision. Meaningful only while
-        /// <see cref="Phase"/> is <see cref="AreaDeliveryPhase.Recovering"/> or
-        /// <see cref="AreaDeliveryPhase.Live"/>.
+        /// The current or most recently established baseline's revision. <see langword="null"/> while
+        /// <see cref="Phase"/> is <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, or while
+        /// <see cref="AreaDeliveryPhase.Recovering"/> before the baseline fetch this attempt is waiting
+        /// on has returned -- during which every Event for the area is held rather than compared
+        /// against a not-yet-known barrier.
         /// </summary>
-        public RevisionNumber BarrierRevision;
+        public RevisionNumber? BarrierRevision;
 
         /// <summary>
         /// The play-context transition generation the current or establishing baseline belongs to.

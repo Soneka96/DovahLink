@@ -47,7 +47,11 @@ public interface IPublicWebSocketConnection
     /// per the transport's contract that an unadmittable Event or control message must not be dropped
     /// silently while the connection stays open; the caller does not need to close the connection
     /// itself after a <see langword="false"/> result. <see cref="TrySendSnapshot"/> has a distinct,
-    /// non-closing contract for an unadmittable Snapshot -- see its own documentation.
+    /// non-closing contract for an unadmittable Snapshot -- see its own documentation. This call is
+    /// synchronous, bounded, non-blocking queue admission only -- it never performs the WebSocket
+    /// write itself (that happens later, on the writer loop) and must never synchronously invoke back
+    /// into application or subscription code. A caller may rely on this to admit a message while
+    /// holding its own coordination lock, without risking either a slow call or reentrancy through it.
     /// </summary>
     /// <param name="payload">The complete message payload to send.</param>
     /// <param name="lane">The reserved-capacity lane to admit this message onto.</param>
