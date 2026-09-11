@@ -404,10 +404,11 @@ public static class Constants
     public const int PublicProtocolMaxJsonObjectMembers = 64;
 
     /// <summary>
-    /// The transitional, non-empty <c>hello_ack.bridgeVersion</c> value this boundary reports while
-    /// <c>bridge/</c> remains the production implementation, matching <c>bridge/vcpkg.json</c>'s
-    /// <c>version-string</c>. Not bumped on this phase branch; see
-    /// <c>ai/context/host/architecture.md</c>'s "Public contract ownership".
+    /// The non-empty <c>hello_ack.bridgeVersion</c> value this boundary reports.
+    /// <c>bridgeVersion</c> is a legacy wire-field name retained for protocol compatibility; it
+    /// carries the DovahLink product release version, matching <c>adapter/vcpkg.json</c>'s
+    /// <c>version-string</c>. See <c>ai/context/host/architecture.md</c>'s "Public contract
+    /// ownership".
     /// </summary>
     public const string PublicProtocolTransitionalBridgeVersion = "0.3.3";
 

@@ -7,9 +7,10 @@ namespace DovahLink.Host.Client.Protocol;
 public sealed record HelloAckPayload
 {
     /// <summary>
-    /// The non-empty DovahLink Bridge/mod release version this transitional boundary reports,
-    /// matching <c>bridge/vcpkg.json</c>'s <c>version-string</c>. The host does not evaluate a
-    /// client-declared compatibility range itself.
+    /// <c>bridgeVersion</c> is a legacy wire-field name retained for protocol compatibility; it
+    /// carries the DovahLink product release version, matching <c>adapter/vcpkg.json</c>'s
+    /// <c>version-string</c>. The host does not evaluate a client-declared compatibility range
+    /// itself.
     /// </summary>
     public required string BridgeVersion { get; init; }
 

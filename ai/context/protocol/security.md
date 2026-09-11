@@ -228,14 +228,14 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     (Reset Trust, immediate, no confirmation), `dovahlink reset` (starts the Factory Reset
     confirmation challenge; performs no mutation itself), and `dovahlink confirm-reset -confirm <code>`
     (confirms it, executing the destructive wipe only on a matching code) directly.
-  - DovahLink Bridge registers a small set of native Papyrus functions
+  - The native Adapter registers a small set of native Papyrus functions
     (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
     memory patching, no offsets, version-independent) that a short Papyrus glue script forwards to.
-    The glue script and ConsoleUtil Extended's YAML config are kept outside `bridge/`: they are not
+    The glue script and ConsoleUtil Extended's YAML config are kept outside `adapter/`: they are not
     part of the native DovahLink core, only an optional way to reach it. Each native function does
     nothing but call `TrustAdminService` and return a formatted string; it owns no trust logic of its
     own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
-    introduce Papyrus into the core bridge" rule -- the Papyrus surface is glue only, never policy.
+    introduce Papyrus into the core bridge/adapter" rule -- the Papyrus surface is glue only, never policy.
   - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
     DovahLink Bridge itself. The bridge attempts native Papyrus-function registration
     unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing
@@ -292,10 +292,9 @@ message shape. This phase is that phase; this section is the filled-in decision.
   post-admission client message types this tier simply does not authorize, so they are rejected as
   `unauthorized`, distinct from a genuine protocol shape/direction violation
   (`malformed_message`) -- which is reserved for a message type no tier could ever authorize a
-  client to send (a server-originated type, or `hello` once a session already exists). This
-  mirrors `IsAllowedMessageType`'s existing allowlist mechanism in
-  `bridge/application/message_dispatcher.cpp`; a session's trust tier is a second, narrower
-  allowlist selector alongside "authenticated at all", not a parallel dispatch path.
+  client to send (a server-originated type, or `hello` once a session already exists). A session's
+  trust tier is a second, narrower allowlist selector alongside "authenticated at all", not a
+  parallel dispatch path.
 - `hello_ack.clientIdentityKind` is `"unpaired"` for both developer-authenticated and
   bootstrap-`unpaired` sessions (no wire-visible difference; a developer-authenticated session is
   simply never trust-restricted, since developer authentication already implies full access per
