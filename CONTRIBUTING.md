@@ -31,8 +31,8 @@ Direct commits, pushes, merges, and force-pushes to `main` are prohibited. Only 
 
 1. Create a branch from the current `main` branch.
 2. Keep the branch focused on one feature or one clearly related fix.
-3. Keep a cross-area feature in one branch when its protocol, bridge, and client changes must land
-   together.
+3. Keep a cross-area feature in one branch when its protocol, host/adapter, and client changes must
+   land together.
 4. Explain and document a new decision and its important trade-offs before encoding it in code or
    a shared contract.
 5. Make the smallest complete change that can be reviewed.

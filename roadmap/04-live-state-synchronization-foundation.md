@@ -4,14 +4,14 @@
 
 ## 4. Live State Synchronization Foundation
 
-**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining Bridge-authored phases below are paused pending Stage 3A and are not next; see `roadmap/03a-host-adapter-production-migration.md`. Stage 4 resumes exclusively on Host + Adapter once 3A completes, per this document's "Host/Adapter continuation (post-3A)" section below.
+**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining Bridge-authored phases below are permanently superseded, per `roadmap/03a-host-adapter-production-migration.md`; they are not next. Stage 4 continues exclusively on Host + Adapter, per this document's "Host/Adapter continuation (post-3A)" section below.
 
 Delivery is decomposed into protocol migration, Bridge publication, internal SDK synchronization,
 and final cross-boundary cutover. The protocol migration may temporarily read
 the previous contract to keep independently reviewable PRs green, but the completed stage supports
 only the redesigned contract. The Bridge publication and cross-boundary-cutover phases below (4.2
 onward) are retained as engineering specification and historical evidence; the Bridge implementation
-path they describe is superseded and will not be continued once Stage 3A begins.
+path they describe is superseded and was not continued once Stage 3A began.
 
 ### Outcome
 
@@ -174,10 +174,10 @@ temporary compatibility reader.
 
 #### 4.2 Bridge Live Publication and Bounded Transport
 
-**Paused pending Stage 3A.** Retained as the Bridge implementation's engineering specification and
-historical evidence; it is not being implemented further. This work is not "next" -- 3A.1 is. Once
-Stage 3A completes, Stage 4 resumes exclusively on Host + Adapter per the "Host/Adapter continuation
-(post-3A)" section below, which carries this same functional scope forward for that implementation.
+**Superseded.** Retained as the Bridge implementation's engineering specification and
+historical evidence; it was not implemented further once Stage 3A completed. Stage 4 continues
+exclusively on Host + Adapter per the "Host/Adapter continuation (post-3A)" section below, which
+carries this same functional scope forward for that implementation.
 
 Add the Bridge-side publisher path from authoritative state stores to the full-duplex session writer.
 Game callbacks capture trustworthy values and update owned stores; they do not serialize JSON or
@@ -266,7 +266,7 @@ unchanged. These are implementation gates, not new protocol fields.
 
 #### 4.3 Production Character State Domains and Synchronization Kernel
 
-**Paused pending Stage 3A**, for the same reason as 4.2 above. The narrow first Host/Adapter state
+**Superseded**, for the same reason as 4.2 above. The narrow first Host/Adapter state
 slice in the "Host/Adapter continuation (post-3A)" section below covers this same domain set for
 that implementation.
 
@@ -322,7 +322,7 @@ This kernel remains reusable and internal until Stage 5 exposes its curated publ
 
 #### 4.4 Cross-Boundary Cutover and Cleanup
 
-**Paused pending Stage 3A**, for the same reason as 4.2 above. This describes the redesigned
+**Superseded**, for the same reason as 4.2 above. This describes the redesigned
 protocol's cutover on Bridge specifically; it is not 3A's Host/Adapter production cutover (3A.1),
 which is a separate, unrelated cutover already covered in `roadmap/03a-host-adapter-production-migration.md`.
 
@@ -343,7 +343,7 @@ Run the cutover in this order:
 
 #### 4.5 Version-Impact Audit Foundation
 
-**Deferred alongside the rest of Stage 4 until Stage 3A completes.** Unlike 4.2-4.4, this phase is
+**No longer blocked: Stage 3A has completed.** Unlike 4.2-4.4, this phase is
 not Bridge-specific; it still runs at whichever point Stage 4 actually closes, on Host + Adapter.
 
 Create the manually invoked version-audit skill and its repository documentation before Stage 4
@@ -422,10 +422,10 @@ requirement, per the "Host/Adapter continuation (post-3A)" section below.
 ### Host/Adapter continuation (post-3A)
 
 The `character_xp`/`character_health`/`character_magicka`/`character_stamina`/`character_level`
-scope above is the Bridge implementation of Stage 4. Once
+scope above is the Bridge implementation of Stage 4. Now that
 [Stage 3A — Host/Adapter Production Migration](./03a-host-adapter-production-migration.md)
-completes, this same functional scope continues exclusively on `host/`/`adapter/`; it is not a 3A
-cutover prerequisite. The engineering already specified for the host/adapter replacement's own
+has completed, this same functional scope continues exclusively on `host/`/`adapter/`; it was not a
+3A cutover prerequisite. The engineering already specified for the host/adapter replacement's own
 live-state buildout — previously tracked as `host/PLAN.md`'s Stage 5 ("Host State, Publication, and
 Bounded Delivery") and Stage 6 ("Real Capture and Host Integration") — carries forward here as that
 continuation, re-homed from a migration document into this durable product-roadmap phase rather than
@@ -433,10 +433,16 @@ discarded.
 
 #### Host-owned state, publication, and bounded delivery
 
+**Status:** Active — next implementation work
+
 Implement host-owned authoritative state, subscriptions, revisions, publication ordering, recovery,
 per-session bounded queues, latest-value Snapshot behavior, reliable Event behavior, reserved control
 capacity, and serialized WebSocket writing. Use typed host messages internally and map to the public
 SDK contract only at the client boundary.
+
+Authoritative `state_snapshot`/`state_event` publication going live is gated on the deferred public
+instance identifier defined in `ai/context/protocol/compatibility.md`'s "Deferred: public instance
+identifier"; that section owns the gate condition and the prohibited substitutes.
 
 Acceptance criteria:
 
@@ -452,7 +458,17 @@ Acceptance criteria:
 
 Not in scope: adding new Skyrim domains beyond the set above.
 
+Stop boundary: this slice builds and proves the Host-side state, publication, recovery, and
+bounded-delivery machinery. Real Skyrim capture and native Adapter integration -- actual Skyrim
+runtime reads, native level-up registration, health/magicka/stamina/XP capture, new Adapter native
+hooks or callbacks, the real Adapter-to-IPC-to-host state capture flow, and runtime capture
+resynchronization -- belong to the following "Real capture and host integration" slice, not this
+one. Fake or synthetic capture inputs remain a valid way to prove this slice's machinery and are not
+removed merely because they are not real Skyrim data.
+
 #### Real capture and host integration
+
+**Status:** Planned — follows Host-owned state/publication/delivery
 
 Connect the real adapter capture stream and play-context lifecycle to the host state pipeline. Add
 the first production state flow through the host/adapter boundary, including current-state
@@ -469,6 +485,14 @@ The old `host/PLAN.md` Stage 6 slice this section is re-homed from also specifie
 sample. Gold/coins is not a Stage 4 domain and is not added here; the slow gold/coins sample is
 deferred to a future domain-expansion phase, not silently folded into Stage 4's scope. No new
 gold/coins state-area contract, fixtures, or SDK surface is added by this document.
+
+Known risk carried forward, unresolved by the retired Bridge: reliable native-Event delivery under
+sustained capture-queue pressure was diagnosed but not prevented in the Bridge implementation --
+overflow is observable and disconnects the affected client, but nothing prevents the overflow
+itself under real load. No production Event-mode domain existed to measure actual load against, so
+this was deliberately left open rather than solved speculatively. `character_level`'s native-event
+registration in this phase is the first real load this criterion has to hold under; revisit the
+capture-queue capacity and admission policy if it does not.
 
 Acceptance criteria:
 

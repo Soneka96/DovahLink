@@ -188,7 +188,7 @@ public class PublicEnvelopeCodecTests
     public static IEnumerable<object[]> AllMessageTypes() =>
         Enum.GetValues<PublicMessageType>().Select(value => new object[] { value });
 
-    /// <summary>Verifies that Encode always writes a null bridgeInstanceId, per the approved D1 transition-boundary limitation, regardless of caller intent.</summary>
+    /// <summary>Verifies that Encode always writes a null bridgeInstanceId, per the deferred public instance identifier in <c>ai/context/protocol/compatibility.md</c>, regardless of caller intent.</summary>
     [Fact]
     public void Encode_AlwaysWritesNullBridgeInstanceId()
     {

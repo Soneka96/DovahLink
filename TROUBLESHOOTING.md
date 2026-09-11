@@ -6,20 +6,28 @@
 
 **Root cause:** Skyrim Special Edition 1.6.1170 pauses the game when it loses focus.
 
-**Solution:** The Bridge handles this natively as of version `0.2.0` -- no separate mod needed. It
-forces Skyrim's `bAlwaysActive:General` setting on at startup by default, so the game keeps running
-while DovahLink has focus. If you previously installed a third-party "Always Active" mod for this,
-you can remove it; the Bridge's own setting takes effect regardless.
+**Solution:** The native Adapter handles this natively as of version `0.2.0` -- no separate mod
+needed. It forces Skyrim's `bAlwaysActive:General` setting on at startup by default, so the game
+keeps running while DovahLink has focus. If you previously installed a third-party "Always Active"
+mod for this, you can remove it; the Adapter's own setting takes effect regardless.
 
 To disable this (for example, to restore Skyrim's default pause-on-focus-loss behavior), create
-`Data/SKSE/Plugins/DovahLinkBridge.ini` next to your other SKSE plugin INI files with:
+`Data/SKSE/Plugins/DovahLinkAdapter.ini` next to your other SKSE plugin INI files with:
 
 ```ini
 [DovahLink]
 bAlwaysActive=0
 ```
 
-See [`bridge/README.md`](bridge/README.md)'s "Runtime compatibility options" for the full set of INI
-keys, including the achievement-compatibility patch this same file controls.
+The same file also controls the achievement-eligibility runtime patch that keeps achievements
+available with SKSE plugins loaded, through a second key in the same section:
+
+```ini
+[DovahLink]
+bAchievementCompat=0
+```
+
+Both keys default to enabled (`1`); a missing file, missing key, or malformed value falls back to
+that default per-key rather than failing plugin load.
 
 **Affected versions:** Skyrim Special Edition 1.6.1170 with SKSE64 2.2.6

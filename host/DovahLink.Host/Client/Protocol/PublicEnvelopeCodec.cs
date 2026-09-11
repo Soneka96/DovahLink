@@ -46,8 +46,10 @@ public interface IPublicEnvelopeCodec
 
     /// <summary>
     /// Encodes a host-originated message into its complete wire envelope.
-    /// <see cref="PublicEnvelope.BridgeInstanceId"/> is always encoded as <see langword="null"/>, per
-    /// the approved D1 transition-boundary limitation -- callers cannot override it.
+    /// <see cref="PublicEnvelope.BridgeInstanceId"/> is always encoded as <see langword="null"/> until
+    /// the deferred public instance identifier is resolved, per
+    /// <c>ai/context/protocol/compatibility.md</c>'s "Deferred: public instance identifier" -- callers
+    /// cannot override it.
     /// </summary>
     /// <typeparam name="TPayload">The message-specific payload type being encoded.</typeparam>
     /// <param name="messageType">The canonical message type.</param>

@@ -15,7 +15,9 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 - `ai/context/flutter/` — Flutter client conventions; read for client work
 - `ai/context/dart/` — shared Dart-language conventions; read for any Dart work, Flutter client or SDK
 - `ai/context/sdk/` — Dart Client SDK conventions; read for SDK work
-- `ai/context/skse/` — native Skyrim bridge conventions; read for SKSE work
+- `ai/context/skse/` — native SKSE/C++ conventions shared by all native work, including `adapter/`;
+  its `architecture.md` documents the retired native Bridge's design as reference only -- read
+  `ai/context/adapter/architecture.md` for current native-boundary ownership
 - `ai/context/host/` — C# host process conventions; read for `host/` work
 - `ai/context/adapter/` — native Skyrim adapter conventions; read for `adapter/` work
 - `ai/context/dotnet/` — C# conventions; read for .NET integration or tooling work

@@ -14,7 +14,7 @@ namespace DovahLink.Host.Client.Protocol;
 /// <param name="SessionId">The server-issued session identity, or <see langword="null"/> for a pre-authentication <c>hello</c> or a pre-session <c>error</c>.</param>
 /// <param name="CorrelationId">The message ID this message answers, or <see langword="null"/> when there is no correlation.</param>
 /// <param name="Payload">The message-specific data, decoded no further than a well-formed, bounded JSON object.</param>
-/// <param name="BridgeInstanceId">Identifies the running host process. Explicitly unavailable (always <see langword="null"/>) for this transition boundary; see D1.</param>
+/// <param name="BridgeInstanceId">Identifies the running host process. Explicitly unavailable (always <see langword="null"/>) until the deferred public instance identifier is resolved, per <c>ai/context/protocol/compatibility.md</c>'s "Deferred: public instance identifier".</param>
 /// <param name="PlayContextId">Identifies the currently loaded play context, or <see langword="null"/> outside an active play context.</param>
 /// <param name="ClientId">The logical client identity, or <see langword="null"/> on the client's own <c>hello</c> or on any host-originated message after <c>hello_ack</c>.</param>
 public sealed record PublicEnvelope(

@@ -6,8 +6,7 @@ The implementation is divided into explicit areas:
 
 ```text
 app/          Flutter client
-bridge/       native SKSE bridge (frozen reference; see "Host and native adapter migration" below)
-host/         standalone C# host process: client-facing and bridge-application behavior
+host/         standalone C# host process: client-facing application behavior
 adapter/      thin native SKSE adapter: the Skyrim boundary only
 protocol/     canonical cross-side schemas and shared fixtures
 sdk/          reusable supported client SDK implementations
@@ -17,14 +16,13 @@ ai/context/   AI development conventions
 
 These are ownership boundaries, not folders to pre-create. Add an area when its first real file is needed. Protocol schemas and shared fixtures belong only in `protocol/`; clients, the host, and the adapter consume them but do not redefine them. The intended first SDK implementation is `sdk/dart/dovahlink_client/`, added when the Dart Client SDK Foundation phase begins; see `sdk/README.md` for its current planned status.
 
-## Host and native adapter migration
+## Host and native adapter
 
-`host/` and `adapter/` are replacing `bridge/`'s client-facing and native responsibilities,
-per `host/PLAN.md`. The C# host is explicitly **out-of-process**: it runs as its own OS process
-communicating with the native adapter over a private IPC channel; embedding the CLR inside Skyrim
-is not part of the design.
+`host/` and `adapter/` are the production implementation. The C# host is explicitly
+**out-of-process**: it runs as its own OS process communicating with the native adapter over a
+private IPC channel; embedding the CLR inside Skyrim is not part of the design.
 
-Ownership split for the replacement:
+Ownership split:
 
 - `host/` owns WebSocket hosting and client session lifecycle; protocol mapping for the Dart SDK
   and other conforming clients; pairing, persistent trust, authentication, authorization, and
@@ -35,11 +33,6 @@ Ownership split for the replacement:
   lifecycle callbacks; synchronous game-thread reads and bounded capture handoff; play-context
   transition notifications and Skyrim-facing pairing/admin notifications; and a private, bounded,
   versioned IPC connection to the host. See `ai/context/adapter/architecture.md`.
-
-`bridge/` is frozen reference behavior during this migration: no new production feature is added
-there except a maintainer-approved compatibility or safety fix needed to keep the reference usable.
-It is not refactored as part of the migration and is removed only after the replacement passes the
-full conformance and runtime validation matrix, per "Bridge migration and cutover" below.
 
 The Vortex-installable mod package contains the native adapter and the standalone
 C# host executable together. When Skyrim loads the adapter, the adapter starts
@@ -52,58 +45,14 @@ mechanism and requests graceful shutdown when Skyrim closes; forced cleanup is
 the fallback if Skyrim crashes. The two remain independent OS processes: host
 failure must not crash or block the adapter, and adapter absence is a valid host
 state. OS process identifiers are diagnostic only and are not DovahLink
-identities. The durable migration plan is [host/PLAN.md](host/PLAN.md).
-
-## Bridge migration and cutover
-
-Final cutover to `host/`/`adapter/` and removal of `bridge/` follow explicit gate conditions,
-recorded here as durable project policy that
-[Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md)'s
-3A.1 and 3A.2 acceptance criteria implement. The compatibility target for cutover is the last
-released Stage 3 baseline, not unreleased Stage 4 Bridge development: Stage 4-equivalent live-state
-work (publication, capture, queues, revisions, recovery) is ordinary product work that continues on
-`host/`/`adapter/` after cutover, per `roadmap/04-live-state-synchronization-foundation.md`'s
-"Host/Adapter continuation (post-3A)" section, and is not a cutover prerequisite.
-
-- `bridge/` remains the production implementation, and every production path continues to link,
-  launch, and depend on it, until the replacement passes 3A.1's Stage-3-parity conformance,
-  security, pairing, reconnect, administration, lifecycle, and runtime validation criteria. A
-  failed or incomplete gate leaves `bridge/` as the production implementation; it does not fall
-  back to a partial cutover.
-- Every Stage-3-scoped retained semantic decision recorded in `ai/context/host/migration-audit.md`
-  must be proven equivalent (or an approved, documented difference) at the live boundary before the
-  gate is considered passed, not merely implemented in isolation. Stage-4-scoped decisions in that
-  same audit are not part of this gate; they are re-homed to the post-cutover continuation above.
-- Once the gate passes, production packaging starts the C# host and installs the native adapter
-  with the required lifecycle relationship; no production path may link, launch, or depend on the
-  old `bridge/` tree. `bridge/` itself is not deleted by this gate -- it remains frozen reference
-  evidence until 3A.2 removes it.
-- Deleting `bridge/` and its build/test wiring is 3A.2, a separately reviewable change from the 3A.1
-  cutover itself, opened only after 3A.1 has already passed and the replacement is already the
-  production implementation -- deletion never happens in the same change that first proves the
-  replacement works.
-
-This production-compatibility guarantee is not a development-time testing requirement. Ongoing App
-and Dart Client SDK development is not required to preserve forward compatibility with the frozen
-`bridge/` reference: App/SDK CI validates the current App/SDK architecture -- transport-independent
-SDK/App correctness, and, once 3A.1 lands, Host compatibility -- not continued operation against
-`bridge/`. The currently released App and the currently released `bridge/` remain a valid, frozen
-release pairing on their own; a new App/SDK change breaking that specific pairing's forward
-compatibility is acceptable when the Host migration requires it, and does not by itself indicate a
-defect. This does not excuse an unrelated App/SDK regression: transport-independent SDK/App behavior
-keeps being tested normally, and once the 3A.1/3A.2 cutover gates above pass, Host + SDK + App
-compatibility becomes mandatory again. `bridge-ci.yml` and `integration-ci.yml` continue validating
-`bridge/` itself against `protocol/` regressions until 3A.2 removes them; neither gates unrelated
-App/SDK development.
+identities.
 
 Host and Adapter configuration surfaces -- the trust-store file, the runtime-compatibility INI, and
-every other on-disk or environment-variable name -- are new, Host/Adapter-owned names, not reused
-from Bridge's own configuration or trust-store paths. This is an explicit decision, not an oversight:
-Bridge's persistent trust data is not read or migrated by the Host, and a client that was only ever
-paired against Bridge is not automatically recognized by the Host after cutover. A documented
-one-time re-pair against the Host is the accepted outcome, consistent with `ai/context/common.md`'s
+every other on-disk or environment-variable name -- are Host/Adapter-owned names. A client that was
+only ever paired against the retired native Bridge is not recognized by the Host; a one-time
+re-pair against the Host is the accepted outcome, consistent with `ai/context/common.md`'s
 pre-release compatibility policy -- no supported public DovahLink release has ever shipped, so
-preserving Bridge's own unreleased configuration and trust-store layout is not a compatibility
+preserving the retired Bridge's own configuration and trust-store layout was never a compatibility
 obligation.
 
 ## Target shape
