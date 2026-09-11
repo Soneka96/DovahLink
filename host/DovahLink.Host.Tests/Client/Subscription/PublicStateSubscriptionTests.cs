@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DovahLink.Host;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
@@ -402,6 +403,245 @@ public class PublicStateSubscriptionTests
         Assert.Contains(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
     }
 
+    /// <summary>
+    /// Verifies the fix for the original event-loss race: an Event above the baseline's own revision,
+    /// raised exactly while that baseline is being admitted onto the Control/Recovery lane, is held
+    /// rather than discarded, and is released once the baseline actually lands -- instead of being
+    /// silently lost because the area was not yet live at the moment the Event arrived.
+    /// </summary>
+    [Fact]
+    public void OnEventOccurred_DuringRecovering_HoldsEventAboveBarrierAndReleasesAfterAdmission()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null; // the released Event's own TrySend must not re-trigger this
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11));
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count); // the baseline, then the released Event
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
+        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateEvent, envelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(envelope, out StateEventPayload? payload));
+        Assert.Equal(11UL, payload!.Revision);
+    }
+
+    /// <summary>Verifies that an Event at or below the barrier revision, raised while the baseline that establishes that revision is being admitted, is discarded as superseded rather than held.</summary>
+    [Fact]
+    public void OnEventOccurred_DuringRecovering_DiscardsEventAtOrBelowBarrierRevision()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null;
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 9, revision: 10)); // == barrier revision
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Single(connectionContext.SentPayloads); // only the baseline; the superseded Event never forwards
+    }
+
+    /// <summary>Verifies that a fetched snapshot whose own captured play-context generation is already stale is treated as unavailable, never sent under a relabeled context.</summary>
+    [Fact]
+    public void HandleSubscribe_StalePublicationGeneration_TreatedAsUnavailable()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", playContextGeneration: 0)); // stale: tracker is already at generation 1
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Empty(connectionContext.SentPayloads);
+    }
+
+    /// <summary>
+    /// Verifies the recovery epoch's purpose: a play-context transition landing while a baseline send
+    /// is in flight must not let that send's eventual (successful) completion incorrectly commit the
+    /// area live under the now-superseded generation.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_ContextTransitionedDuringSend_CompletionIgnoredAreaStaysNotLive()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", playContextGeneration: 1));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null;
+            tracker.NotifyTransition(PlayContextId.NewId()); // generation 2, mid-send
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        Assert.Single(connectionContext.SentPayloads); // the stale-by-the-time-it-lands baseline still gets sent
+
+        // A fresh Event under the new generation must not forward: the superseded completion must not
+        // have marked the area live.
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2, playContextGeneration: 2));
+
+        Assert.Single(connectionContext.SentPayloads); // unchanged; the Event never forwards
+    }
+
+    /// <summary>
+    /// Verifies the held-Event overflow policy: once the bounded hold fills up, the current recovery
+    /// attempt is abandoned (its held Events discarded, never released) and a fresh baseline is
+    /// established from the newest authoritative snapshot instead of growing the hold unbounded.
+    /// </summary>
+    [Fact]
+    public void OnEventOccurred_HeldEventBufferOverflow_AbandonsHeldEventsAndReBaselines()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null; // the overflow's own re-baseline send must not re-trigger this flood
+            feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 99)); // the fresh value the re-baseline should pick up
+            for (ulong i = 0; i <= Constants.MaxHeldRecoveryEventsPerArea; i++)
+            {
+                feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10 + i, revision: 11 + i));
+            }
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        // The original baseline (revision 10), then the overflow-triggered re-baseline (revision 99) --
+        // proving a fresh authoritative read replaced the held set rather than releasing it.
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.DoesNotContain(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(99UL, payload!.Revision);
+    }
+
+    /// <summary>Verifies that a live area's Event is discarded, not forwarded, when its own captured play-context generation is already stale relative to the tracker's current one -- symmetric with the same check on a baseline snapshot.</summary>
+    [Fact]
+    public void OnEventOccurred_StaleEventGeneration_DoesNotForward()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", playContextGeneration: 1));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        int sentAfterBaseline = connectionContext.SentPayloads.Count;
+
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2, playContextGeneration: 0)); // stale generation
+
+        Assert.Equal(sentAfterBaseline, connectionContext.SentPayloads.Count);
+    }
+
+    /// <summary>Verifies that a held-Event overflow's re-baseline attempt leaves the area at <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, rather than stuck mid-recovery, when no current value is available yet to re-baseline from.</summary>
+    [Fact]
+    public void OnEventOccurred_HeldEventBufferOverflowWithNoSnapshotAvailable_AreaAwaitsFreshBaseline()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null;
+            for (ulong i = 0; i <= Constants.MaxHeldRecoveryEventsPerArea; i++)
+            {
+                feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10 + i, revision: 11 + i));
+            }
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        int sentBeforeReArm = connectionContext.SentPayloads.Count; // just the original baseline; no snapshot was available to re-baseline from
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 50));
+        subscription.HandleSnapshotRequest("area_a", "req-1"); // the area is still awaiting a baseline, so this re-arms it
+
+        Assert.Equal(sentBeforeReArm + 1, connectionContext.SentPayloads.Count);
+        (byte[] bytes, _) = connectionContext.SentPayloads[^1];
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(50UL, payload!.Revision);
+    }
+
+    /// <summary>Verifies that more than one held Event is released in the order it arrived once the establishing baseline is admitted.</summary>
+    [Fact]
+    public void OnEventOccurred_MultipleEventsHeldDuringRecovering_ReleasedInArrivalOrder()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null;
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11));
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 11, revision: 12));
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 12, revision: 13));
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Equal(4, connectionContext.SentPayloads.Count); // the baseline, then the three released Events
+        List<ulong> revisionsInOrder = connectionContext.SentPayloads
+            .Skip(1)
+            .Select(sent =>
+            {
+                Assert.True(codec.TryDecode(sent.Payload, out PublicEnvelope? envelope));
+                Assert.True(codec.TryDecodePayload(envelope, out StateEventPayload? payload));
+                return payload!.Revision;
+            })
+            .ToList();
+        Assert.Equal([11UL, 12UL, 13UL], revisionsInOrder);
+    }
+
+    /// <summary>Verifies that a play-context transition discards Events held for an area mid-recovery instead of releasing them once a later baseline for the new context establishes.</summary>
+    [Fact]
+    public void OnPlayContextTransitioned_DuringRecovering_DiscardsHeldEventsRatherThanReleasingThem()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10, playContextGeneration: 1));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null;
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11, playContextGeneration: 1)); // held while Recovering
+            tracker.NotifyTransition(PlayContextId.NewId()); // generation 2; must discard the held Event above, not release it
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.DoesNotContain(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
+
+        // Re-arm under the new generation and confirm a fresh Event forwards normally -- proving the
+        // area recovered cleanly rather than being left in a broken state by the discard.
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1, playContextGeneration: 2));
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2, playContextGeneration: 2));
+
+        Assert.Contains(connectionContext.SentPayloads, sent => sent.Lane == PublicOutboundLane.Data);
+    }
+
     /// <summary>Verifies that an event for an accepted area whose snapshot has already been sent is forwarded, decoding to the expected content.</summary>
     [Fact]
     public void OnEventOccurred_AcceptedAreaWithSnapshotSent_ForwardsEvent()
@@ -479,22 +719,22 @@ public class PublicStateSubscriptionTests
     public void OnEventOccurred_ContextTransitioned_StopsForwardingUntilReArmed()
     {
         var tracker = new FakePlayContextTracker();
-        tracker.NotifyTransition(PlayContextId.NewId());
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
-        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", playContextGeneration: 1));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
         Subscribe(subscription, "sub-1", ["area_a"]);
         int sentBeforeTransition = connectionContext.SentPayloads.Count;
 
-        tracker.NotifyTransition(PlayContextId.NewId());
-        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 2
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2, playContextGeneration: 2));
 
         Assert.Equal(sentBeforeTransition, connectionContext.SentPayloads.Count);
 
-        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 2));
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 2, playContextGeneration: 2));
         subscription.HandleSnapshotRequest("area_a", "req-1"); // re-arms under the new context
-        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 2, revision: 3));
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 2, revision: 3, playContextGeneration: 2));
 
         Assert.Equal(sentBeforeTransition + 2, connectionContext.SentPayloads.Count); // the re-arm baseline, then the event
     }
@@ -504,14 +744,14 @@ public class PublicStateSubscriptionTests
     public void HandleSubscribe_AfterContextTransitioned_StillReportsAreaAccepted()
     {
         var tracker = new FakePlayContextTracker();
-        tracker.NotifyTransition(PlayContextId.NewId());
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
         (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
-        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", playContextGeneration: 1));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
         Subscribe(subscription, "sub-1", ["area_a"]);
 
-        tracker.NotifyTransition(PlayContextId.NewId());
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 2
         (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = Subscribe(subscription, "sub-2", ["area_a"]);
 
         Assert.Equal(["area_a"], accepted);

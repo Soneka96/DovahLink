@@ -493,4 +493,14 @@ public static class Constants
     /// domains with modest headroom; not itself a wire limit.
     /// </summary>
     public const int MaxRegisteredStateAreas = 8;
+
+    /// <summary>
+    /// The maximum number of Events one connection's <see cref="Client.Subscription.PublicStateSubscription"/>
+    /// holds for one state area while its recovery barrier is establishing a new baseline, before
+    /// abandoning the held set and re-baselining from the newest authoritative snapshot instead.
+    /// Provisional: baseline admission is a single synchronous send, so the hold window is expected
+    /// to be microseconds and this bound is not expected to bind in practice; revisit if profiling
+    /// shows otherwise.
+    /// </summary>
+    public const int MaxHeldRecoveryEventsPerArea = 8;
 }

@@ -21,10 +21,21 @@ public sealed class FakePublicConnectionContext : IPublicConnectionContext
     /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
     public int RequestCloseCalls { get; private set; }
 
+    /// <summary>
+    /// Invoked synchronously by every <see cref="TrySend"/> call, once this call's own payload/lane is
+    /// already recorded in <see cref="SentPayloads"/> but before it resolves -- lets a test inject work
+    /// (for example raising a feed event, which may itself reentrantly call <see cref="TrySend"/>)
+    /// exactly while a caller's send is admitting a message, to exercise a race the caller's own
+    /// locking is meant to close, while keeping <see cref="SentPayloads"/> in the order each call
+    /// actually arrived rather than the order its own hook-triggered reentrancy happened to resolve.
+    /// </summary>
+    public Action? OnTrySend { get; set; }
+
     /// <inheritdoc/>
     public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane)
     {
         SentPayloads.Add((payload.ToArray(), lane));
+        OnTrySend?.Invoke();
         return TrySendResult;
     }
 

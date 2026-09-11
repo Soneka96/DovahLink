@@ -753,3 +753,25 @@ public enum RenameOutcomeWireValue
     /// <summary>The requesting identity is unrecognized or not currently trusted.</summary>
     NotTrusted,
 }
+
+// ---- Client subscription ----
+
+/// <summary>
+/// One connection's own per-area delivery phase within
+/// <see cref="Client.Subscription.PublicStateSubscription"/>'s recovery barrier.
+/// </summary>
+public enum AreaDeliveryPhase
+{
+    /// <summary>No live baseline exists yet; every Event for this area is discarded.</summary>
+    AwaitingBaseline,
+
+    /// <summary>
+    /// A baseline is being established: Events at or below the barrier revision are discarded as
+    /// superseded, and Events above it are held until the baseline is admitted or the attempt is
+    /// abandoned.
+    /// </summary>
+    Recovering,
+
+    /// <summary>A live baseline is established; Events for this area under the same play-context generation are forwarded immediately.</summary>
+    Live,
+}
