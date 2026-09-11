@@ -53,12 +53,14 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>Builds a representative snapshot value for the given area.</summary>
-    private static StateSnapshotPublication BuildSnapshot(string area, ulong revision = 1) =>
-        new(new StateAreaId(area), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 42 }));
+    private static StateSnapshotPublication BuildSnapshot(
+        string area, ulong revision = 1, PlayContextId? playContextId = null, long playContextGeneration = 0) =>
+        new(new StateAreaId(area), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 42 }), playContextId, playContextGeneration);
 
     /// <summary>Builds a representative event value for the given area.</summary>
-    private static StateEventPublication BuildEvent(string area, ulong baseRevision, ulong revision) =>
-        new(new StateAreaId(area), new RevisionNumber(baseRevision), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 99 }));
+    private static StateEventPublication BuildEvent(
+        string area, ulong baseRevision, ulong revision, PlayContextId? playContextId = null, long playContextGeneration = 0) =>
+        new(new StateAreaId(area), new RevisionNumber(baseRevision), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 99 }), playContextId, playContextGeneration);
 
     /// <summary>Verifies that a requested area which is registered is accepted.</summary>
     [Fact]

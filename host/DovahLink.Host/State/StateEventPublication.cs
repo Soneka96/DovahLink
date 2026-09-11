@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.State;
 
@@ -13,9 +14,22 @@ namespace DovahLink.Host.State;
 /// <param name="Revision">The revision this event advances the state area to.</param>
 /// <param name="OccurredAt">When this change was captured, for display and diagnostics only -- not an ordering source.</param>
 /// <param name="Data">The complete post-change state for this area, not a partial patch.</param>
+/// <param name="PlayContextId">
+/// The play context this event was captured under, established at the state area's own
+/// authoritative ordering point -- never re-derived later from a tracker read at delivery time, so
+/// a consumer can label outbound wire messages from this value alone. <see langword="null"/> when no
+/// play context was established yet at capture time.
+/// </param>
+/// <param name="PlayContextGeneration">
+/// The play-context transition generation this event was captured under, comparable against
+/// <see cref="PlayContext.IPlayContextTracker.GetSnapshot"/>'s own generation to detect an event that
+/// has already gone stale relative to a later transition.
+/// </param>
 public sealed record StateEventPublication(
     StateAreaId StateArea,
     RevisionNumber BaseRevision,
     RevisionNumber Revision,
     DateTimeOffset OccurredAt,
-    JsonElement Data);
+    JsonElement Data,
+    PlayContextId? PlayContextId,
+    long PlayContextGeneration);
