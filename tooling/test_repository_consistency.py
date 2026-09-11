@@ -1814,6 +1814,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ".vs",
             ".git",
             ".claude",
+            ".dart_tool",
         }
         adapter_source_subdirs = (
             "capture",
@@ -1829,11 +1830,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         candidate_paths: list[Path] = []
         for pattern in (
-            "*.md",
-            "ai/context/**/*.md",
-            "roadmap/**/*.md",
-            "protocol/**/*.md",
-            "console-admin/**/*.md",
+            "**/*.md",
             "host/**/*.cs",
         ):
             candidate_paths.extend(REPOSITORY_ROOT.glob(pattern))
@@ -1844,6 +1841,20 @@ class RepositoryConsistencyTests(unittest.TestCase):
             candidate_paths.extend(
                 (REPOSITORY_ROOT / "adapter" / subdir).glob("**/*.hpp")
             )
+
+        # Regression guard for the scan's own breadth: these READMEs sit outside every directory
+        # the previous, narrower pattern list named, so a future narrowing back to an allowlist of
+        # remembered directories -- instead of "every Markdown file unless deliberately
+        # excluded" -- fails here before it can silently stop catching a real stale reference.
+        scanned_paths = {path.relative_to(REPOSITORY_ROOT) for path in candidate_paths}
+        for previously_uncovered in (
+            Path("adapter-host-ipc/README.md"),
+            Path("app/README.md"),
+            Path("integration/README.md"),
+            Path("sdk/README.md"),
+            Path("tooling/DovahLinkBuilder/README.md"),
+        ):
+            self.assertIn(previously_uncovered, scanned_paths)
 
         stale_literals = ("bridge/vcpkg.json", "bridge/README.md")
         violations = []
