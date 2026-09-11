@@ -1,6 +1,12 @@
-# SKSE bridge architecture
+# SKSE bridge architecture (retired implementation)
 
-These conventions apply to the native Skyrim bridge. The bridge is a boundary adapter, not the place where the Flutter client or protocol becomes embedded.
+This document records the concrete C++ design of the retired native Bridge (`bridge/`, deleted in
+3A.2 once Host + Adapter proved out as its production replacement). It is preserved as reference for
+the design decisions and hard-won lessons below (dependency-edge discipline, capture-dispatch
+ordering, cadence-driven sampling, bounded-queue failure semantics) -- it does not describe current
+`adapter/` or `host/` code, and `bridge/`'s own file paths referenced throughout no longer exist.
+For the current native boundary's ownership contract, see `ai/context/adapter/architecture.md`; for
+the current host's, see `ai/context/host/architecture.md`. The bridge was a boundary adapter, not the place where the Flutter client or protocol became embedded.
 
 ## Technology boundary
 

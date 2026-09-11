@@ -1,19 +1,18 @@
 # Adapter architecture
 
-These conventions apply to `adapter/`, the thin native SKSE plugin that is replacing `bridge/`'s
-Skyrim-boundary responsibilities, per `host/PLAN.md`. This document records Stage 1 ("Architecture
-and Contract Lock") decisions: ownership boundaries and restart behavior. It does not define
-concrete classes, dependency edges, or wire formats -- that implementation work belongs to Stage 3
-onward and must not be read back into this record.
+These conventions apply to `adapter/`, the thin native SKSE plugin that owns the Skyrim-boundary
+responsibilities of DovahLink's production implementation. This document records Stage 1
+("Architecture and Contract Lock") decisions: ownership boundaries and restart behavior. It does not
+define concrete classes, dependency edges, or wire formats -- that implementation work belongs to
+Stage 3 onward and must not be read back into this record.
 
 ## Technology boundary
 
-The adapter is a native SKSE plugin, C++, built independently from the existing `bridge/`
-implementation -- it does not link against or depend on `bridge/` code. It is the only new
-component allowed to depend directly on CommonLib or Skyrim runtime types, the same rule
-`ai/context/skse/architecture.md` already applies to `bridge/`'s game-state adapters. Skyrim/
-CommonLib headers and runtime objects never cross into host code, matching
-`ai/context/host/architecture.md`'s "Boundary against Skyrim".
+The adapter is a native SKSE plugin, C++. It is the only component allowed to depend directly on
+CommonLib or Skyrim runtime types, the same rule `ai/context/skse/architecture.md` (retired
+implementation) applied to the native Bridge's game-state adapters and `ai/context/skse/cpp-style.md`
+still applies generally. Skyrim/CommonLib headers and runtime objects never cross into host code,
+matching `ai/context/host/architecture.md`'s "Boundary against Skyrim".
 
 ## Ownership
 
