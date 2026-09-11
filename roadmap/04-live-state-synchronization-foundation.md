@@ -433,6 +433,8 @@ discarded.
 
 #### Host-owned state, publication, and bounded delivery
 
+**Status:** Active — next implementation work
+
 Implement host-owned authoritative state, subscriptions, revisions, publication ordering, recovery,
 per-session bounded queues, latest-value Snapshot behavior, reliable Event behavior, reserved control
 capacity, and serialized WebSocket writing. Use typed host messages internally and map to the public
@@ -456,7 +458,17 @@ Acceptance criteria:
 
 Not in scope: adding new Skyrim domains beyond the set above.
 
+Stop boundary: this slice builds and proves the Host-side state, publication, recovery, and
+bounded-delivery machinery. Real Skyrim capture and native Adapter integration -- actual Skyrim
+runtime reads, native level-up registration, health/magicka/stamina/XP capture, new Adapter native
+hooks or callbacks, the real Adapter-to-IPC-to-host state capture flow, and runtime capture
+resynchronization -- belong to the following "Real capture and host integration" slice, not this
+one. Fake or synthetic capture inputs remain a valid way to prove this slice's machinery and are not
+removed merely because they are not real Skyrim data.
+
 #### Real capture and host integration
+
+**Status:** Planned — follows Host-owned state/publication/delivery
 
 Connect the real adapter capture stream and play-context lifecycle to the host state pipeline. Add
 the first production state flow through the host/adapter boundary, including current-state

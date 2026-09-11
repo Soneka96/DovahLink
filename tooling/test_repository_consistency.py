@@ -912,10 +912,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
-                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line, since
-                # 4.1-4.5 are subsections of this stage rather than independent headings the way
-                # 3.1-3.3 are.
-                expected_statuses = [phase_4_status, "**Status:** Complete"]
+                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line and the
+                # two Host/Adapter continuation subsections' own status lines, since 4.1-4.5 and
+                # the continuation subsections are all part of this stage rather than independent
+                # headings the way 3.1-3.3 are.
+                expected_statuses = [
+                    phase_4_status,
+                    "**Status:** Complete",
+                    "**Status:** Active — next implementation work",
+                    "**Status:** Planned — follows Host-owned state/publication/delivery",
+                ]
             elif heading == "3A. Host/Adapter Production Migration":
                 # 3A.1, 3A.2, and 3A.3 each carry their own "**Status:** Complete" line now that
                 # the whole stage is done.

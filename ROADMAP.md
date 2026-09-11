@@ -74,6 +74,9 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   as retained engineering evidence, but the Bridge implementation path they describe was not
   continued once Stage 3A completed. Stage 4 continues exclusively on Host + Adapter, per that
   document's "Host/Adapter continuation (post-3A)" section.
+- **Next Host/Adapter slice:** that document's "Host/Adapter continuation (post-3A)" section names
+  "Host-owned state, publication, and bounded delivery" as the active next Stage 4 implementation
+  work, with "Real capture and host integration" following it once that slice is complete.
 
 Activating the replacement in production and removing `bridge/` were governed by
 [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md),
