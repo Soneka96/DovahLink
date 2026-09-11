@@ -4,14 +4,14 @@
 
 ## 4. Live State Synchronization Foundation
 
-**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining Bridge-authored phases below are paused pending Stage 3A and are not next; see `roadmap/03a-host-adapter-production-migration.md`. Stage 4 resumes exclusively on Host + Adapter once 3A completes, per this document's "Host/Adapter continuation (post-3A)" section below.
+**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining Bridge-authored phases below are permanently superseded, per `roadmap/03a-host-adapter-production-migration.md`; they are not next. Stage 4 continues exclusively on Host + Adapter, per this document's "Host/Adapter continuation (post-3A)" section below.
 
 Delivery is decomposed into protocol migration, Bridge publication, internal SDK synchronization,
 and final cross-boundary cutover. The protocol migration may temporarily read
 the previous contract to keep independently reviewable PRs green, but the completed stage supports
 only the redesigned contract. The Bridge publication and cross-boundary-cutover phases below (4.2
 onward) are retained as engineering specification and historical evidence; the Bridge implementation
-path they describe is superseded and will not be continued once Stage 3A begins.
+path they describe is superseded and was not continued once Stage 3A began.
 
 ### Outcome
 
@@ -174,10 +174,10 @@ temporary compatibility reader.
 
 #### 4.2 Bridge Live Publication and Bounded Transport
 
-**Paused pending Stage 3A.** Retained as the Bridge implementation's engineering specification and
-historical evidence; it is not being implemented further. This work is not "next" -- 3A.1 is. Once
-Stage 3A completes, Stage 4 resumes exclusively on Host + Adapter per the "Host/Adapter continuation
-(post-3A)" section below, which carries this same functional scope forward for that implementation.
+**Superseded.** Retained as the Bridge implementation's engineering specification and
+historical evidence; it was not implemented further once Stage 3A completed. Stage 4 continues
+exclusively on Host + Adapter per the "Host/Adapter continuation (post-3A)" section below, which
+carries this same functional scope forward for that implementation.
 
 Add the Bridge-side publisher path from authoritative state stores to the full-duplex session writer.
 Game callbacks capture trustworthy values and update owned stores; they do not serialize JSON or
@@ -266,7 +266,7 @@ unchanged. These are implementation gates, not new protocol fields.
 
 #### 4.3 Production Character State Domains and Synchronization Kernel
 
-**Paused pending Stage 3A**, for the same reason as 4.2 above. The narrow first Host/Adapter state
+**Superseded**, for the same reason as 4.2 above. The narrow first Host/Adapter state
 slice in the "Host/Adapter continuation (post-3A)" section below covers this same domain set for
 that implementation.
 
@@ -322,7 +322,7 @@ This kernel remains reusable and internal until Stage 5 exposes its curated publ
 
 #### 4.4 Cross-Boundary Cutover and Cleanup
 
-**Paused pending Stage 3A**, for the same reason as 4.2 above. This describes the redesigned
+**Superseded**, for the same reason as 4.2 above. This describes the redesigned
 protocol's cutover on Bridge specifically; it is not 3A's Host/Adapter production cutover (3A.1),
 which is a separate, unrelated cutover already covered in `roadmap/03a-host-adapter-production-migration.md`.
 
@@ -343,7 +343,7 @@ Run the cutover in this order:
 
 #### 4.5 Version-Impact Audit Foundation
 
-**Deferred alongside the rest of Stage 4 until Stage 3A completes.** Unlike 4.2-4.4, this phase is
+**No longer blocked: Stage 3A has completed.** Unlike 4.2-4.4, this phase is
 not Bridge-specific; it still runs at whichever point Stage 4 actually closes, on Host + Adapter.
 
 Create the manually invoked version-audit skill and its repository documentation before Stage 4
@@ -422,10 +422,10 @@ requirement, per the "Host/Adapter continuation (post-3A)" section below.
 ### Host/Adapter continuation (post-3A)
 
 The `character_xp`/`character_health`/`character_magicka`/`character_stamina`/`character_level`
-scope above is the Bridge implementation of Stage 4. Once
+scope above is the Bridge implementation of Stage 4. Now that
 [Stage 3A — Host/Adapter Production Migration](./03a-host-adapter-production-migration.md)
-completes, this same functional scope continues exclusively on `host/`/`adapter/`; it is not a 3A
-cutover prerequisite. The engineering already specified for the host/adapter replacement's own
+has completed, this same functional scope continues exclusively on `host/`/`adapter/`; it was not a
+3A cutover prerequisite. The engineering already specified for the host/adapter replacement's own
 live-state buildout — previously tracked as `host/PLAN.md`'s Stage 5 ("Host State, Publication, and
 Bounded Delivery") and Stage 6 ("Real Capture and Host Integration") — carries forward here as that
 continuation, re-homed from a migration document into this durable product-roadmap phase rather than

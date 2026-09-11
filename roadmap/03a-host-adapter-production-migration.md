@@ -4,7 +4,7 @@
 
 ## 3A. Host/Adapter Production Migration
 
-**Status:** Active. This is the current interstitial architectural migration gate between the released Stage 3 baseline and further Stage 4 product development; 3A.3 is the next implementation work. See 3A.1-3A.3 below.
+**Status:** Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted.
 
 ### Outcome
 
@@ -27,11 +27,11 @@ currently reachable through the Bridge — are not cutover prerequisites; they c
 Product Stage 4 work on Host + Adapter after 3A completes, per
 `roadmap/04-live-state-synchronization-foundation.md`.
 
-3A is now open: no new product functionality is developed in `bridge/` while it is open; only a
-maintainer-approved compatibility or safety fix needed to keep the frozen reference usable is
-permitted there. This includes the remaining Bridge-authored Stage 4 phases (4.2 onward, per
-`roadmap/04-live-state-synchronization-foundation.md`), which are paused rather than in progress.
-After 3A completes, all further Stage 4+ development happens only through Host + Adapter.
+While 3A was open, no new product functionality was developed in `bridge/`; only a
+maintainer-approved compatibility or safety fix needed to keep the frozen reference usable was
+permitted there. This included the remaining Bridge-authored Stage 4 phases (4.2 onward, per
+`roadmap/04-live-state-synchronization-foundation.md`), which were paused rather than in progress.
+Now that 3A is complete, all further Stage 4+ development happens only through Host + Adapter.
 
 ### Scope and behavior
 
@@ -41,6 +41,8 @@ the now-obsolete implementation; 3A.3 makes the repository describe the resultin
 directly.
 
 ### 3A.1 — Host/Adapter Production Cutover
+
+**Status:** Complete
 
 **Purpose:** Make Host + Adapter the real production implementation before deleting the Bridge source.
 
@@ -56,8 +58,7 @@ directly.
   security behavior required by the supported product is preserved.
 - The retained native runtime compatibility behavior currently owned by Bridge — especially
   `bAlwaysActive` and `bAchievementCompat` — is ported into the Adapter before Bridge removal.
-  (`ai/context/host/migration-audit.md` already records both as adapter-owned; neither exists yet
-  under `adapter/` as of this writing.)
+  (Both are implemented in `adapter/runtime/commonlib_adapter_game_behavior_compatibility.{cpp,hpp}`.)
 - Old Bridge-specific configuration naming/paths are replaced where appropriate, with compatibility
   and migration behavior documented.
 - Production packaging exposes exactly one active runtime implementation of the `DovahLinkAdmin`
@@ -78,6 +79,8 @@ No Product Stage 4 live-state feature development belongs here.
 **Depends on:** Stage 3 (released baseline). Does not depend on Stage 4's live-state work.
 
 ### 3A.2 — Legacy Bridge Removal
+
+**Status:** Complete
 
 **Purpose:** Remove the obsolete implementation and Bridge-only validation/build infrastructure after
 Host + Adapter are already proven as production by 3A.1.
@@ -103,6 +106,8 @@ Host + Adapter are already proven as production by 3A.1.
 **Depends on:** 3A.1's production cutover being proven.
 
 ### 3A.3 — Repository Normalization
+
+**Status:** Complete
 
 **Purpose:** Make the repository describe the final architecture directly instead of permanently
 describing Host + Adapter as a migration/replacement.

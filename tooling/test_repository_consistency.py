@@ -871,7 +871,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 9)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 13)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
@@ -885,24 +885,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertEqual(roadmap.count(phase_5_status), 1)
 
-        # 3A is the current interstitial architectural migration gate, not an ordinary undone
-        # phase; its status line carries that explanation instead of the plain "Planned" every
-        # other undone phase uses.
+        # 3A is now complete; its status line records what completing it means instead of the
+        # bare "Complete" every other closed stage uses.
         phase_3a_status = (
-            "**Status:** Active. This is the current interstitial architectural migration gate "
-            "between the released Stage 3 baseline and further Stage 4 product development; 3A.3 "
-            "is the next implementation work. See 3A.1-3A.3 below."
+            "**Status:** Complete. Host + Adapter are the current production implementation; the "
+            "native Bridge (`bridge/`) has been deleted."
         )
         self.assertEqual(roadmap.count(phase_3a_status), 1)
 
-        # Stage 4 is Active but paused after Phase 4.1 while Stage 3A is open: its own status
-        # line records that instead of the plain "Active" an in-progress stage would carry.
+        # Stage 4 is Active with Phase 4.1 complete and the old Bridge-authored phases below
+        # permanently superseded now that Stage 3A has completed; its status line records that
+        # instead of the plain "Active" an ordinary in-progress stage would carry.
         phase_4_status = (
             "**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining "
-            "Bridge-authored phases below are paused pending Stage 3A and are not next; see "
-            "`roadmap/03a-host-adapter-production-migration.md`. Stage 4 resumes exclusively on "
-            "Host + Adapter once 3A completes, per this document's \"Host/Adapter continuation "
-            '(post-3A)" section below.'
+            "Bridge-authored phases below are permanently superseded, per "
+            "`roadmap/03a-host-adapter-production-migration.md`; they are not next. Stage 4 "
+            "continues exclusively on Host + Adapter, per this document's \"Host/Adapter "
+            'continuation (post-3A)" section below.'
         )
         self.assertEqual(roadmap.count(phase_4_status), 1)
 
@@ -918,7 +917,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 # 3.1-3.3 are.
                 expected_statuses = [phase_4_status, "**Status:** Complete"]
             elif heading == "3A. Host/Adapter Production Migration":
-                expected_statuses = [phase_3a_status]
+                # 3A.1, 3A.2, and 3A.3 each carry their own "**Status:** Complete" line now that
+                # the whole stage is done.
+                expected_statuses = [
+                    phase_3a_status,
+                    "**Status:** Complete",
+                    "**Status:** Complete",
+                    "**Status:** Complete",
+                ]
             elif heading.startswith("5. "):
                 expected_statuses = [phase_5_status]
             elif heading.startswith("28. "):

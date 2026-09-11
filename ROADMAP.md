@@ -60,30 +60,26 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 
 ## Current position
 
-- **Current stage:** Stage 3 — Local Device Pairing and Reconnection is complete. Stage 4 — Live
-  State Synchronization Foundation is active but paused after Phase 4.1: Stage 3A — Host/Adapter
-  Production Migration is the current interstitial stage, and no new product functionality proceeds
-  in `bridge/` while it is open.
+- **Current stage:** Stage 3 — Local Device Pairing and Reconnection is complete. Stage 3A —
+  Host/Adapter Production Migration is complete: `host/` and `adapter/` are the production
+  implementation, and the native Bridge (`bridge/`) has been deleted. Stage 4 — Live State
+  Synchronization Foundation continues on Host + Adapter.
 - **Current phase:** Phase 4.1 — Typed Protocol Contract Redesign and Migration (**Complete**)
   delivered the typed per-message protocol contract (connection, pairing, state, error,
   invalidation, and control families), canonical cross-side fixtures, and the matching Bridge/SDK/
-  .NET adapter updates, retiring the old aggregate `character` state area. **3A.3 — Repository
-  Normalization is the next implementation work**, not Phase 4.2: Phase 4.2 — Bridge Live
+  .NET adapter updates, retiring the old aggregate `character` state area. Phase 4.2 — Bridge Live
   Publication and Bounded Transport, and the remaining Bridge-authored Stage 4 phases after it, are
-  paused pending 3A. Their specifications remain in
+  permanently superseded rather than continued: their specifications remain in
   [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md)
-  as retained engineering evidence, but the Bridge implementation path they describe is superseded
-  and will not be continued; Stage 4 resumes exclusively on Host + Adapter once 3A completes, per
-  that document's "Host/Adapter continuation (post-3A)" section.
+  as retained engineering evidence, but the Bridge implementation path they describe was not
+  continued once Stage 3A completed. Stage 4 continues exclusively on Host + Adapter, per that
+  document's "Host/Adapter continuation (post-3A)" section.
 
-The standalone host/adapter engineering work tracked in `host/PLAN.md` may be planned and
-implemented without changing the product roadmap's Phase 4.2 status; it does not close Phase 4.2 by
-itself. Activating the replacement in production and removing `bridge/` are governed by
+Activating the replacement in production and removing `bridge/` were governed by
 [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md),
-not by `host/PLAN.md` directly: 3A.1 (Production Cutover) targets the released Stage 3 baseline, not
-unreleased Stage 4 Bridge behavior, so completing Phase 4.2 is not a prerequisite for cutover -- and,
-per the current position above, Phase 4.2 is paused rather than in progress. Once 3A.1 and 3A.2
-(Legacy Bridge Removal) complete, all further Stage 4+ development continues only on Host + Adapter.
+now complete: 3A.1 (Production Cutover) targeted the released Stage 3 baseline, not unreleased
+Stage 4 Bridge behavior, so completing Phase 4.2 was never a prerequisite for cutover. All further
+Stage 4+ development continues only on Host + Adapter.
 
 ## Ordered stages
 
@@ -93,8 +89,8 @@ per the current position above, Phase 4.2 is paused rather than in progress. Onc
 | 1 | Complete | [Stage 1 — Skyrim Bridge Foundation](roadmap/01-skyrim-bridge-foundation.md) |
 | 2 | Complete | [Stage 2 — Bridge Identity and Authoritative State](roadmap/02-bridge-identity-and-authoritative-state.md) |
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
-| 3A | Active. Current interstitial stage between the released Stage 3 baseline and further Stage 4 product development; does not renumber Stage 4. 3A.3 (Repository Normalization) is the next implementation work. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
-| 4 | Active, paused after Phase 4.1. Phase 4.2 (Bridge live publication and bounded transport) and the remaining Bridge-authored phases are paused pending Stage 3A, not next; Stage 4 resumes on Host + Adapter once 3A completes. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
+| 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
+| 4 | Active. Phase 4.1 is complete; Phase 4.2 (Bridge live publication and bounded transport) and the remaining Bridge-authored phases are permanently superseded, not next. Stage 4 continues on Host + Adapter. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
 | 5 | Planned. The package scaffold, protocol/transport layer, and persistence boundary are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
@@ -128,22 +124,21 @@ per the current position above, Phase 4.2 is paused rather than in progress. Onc
 - Stages 0–2 establish documentation, the client/protocol foundation, bridge connectivity, and
   identity/state ownership.
 - Stage 3 depends on Stage 2 and establishes local pairing, durable trust, and trust-state recovery.
-- Stage 3A depends on the released Stage 3 baseline, not on Stage 4's live-state work. It is the
-  current interstitial stage and the sole cutover/removal sequence for `bridge/`: 3A.1 proves
-  Host + Adapter as the real production implementation at Stage 3 parity, 3A.2 deletes the
-  now-obsolete `bridge/`, and 3A.3 normalizes the repository to describe Host + Adapter as its
-  active architecture. Stage 4-equivalent live-state engineering work already underway on
-  `host/`/`adapter/` is not a 3A prerequisite; it continues as ordinary Stage 4 work after 3A
-  completes, not before or during it.
+- Stage 3A depended on the released Stage 3 baseline, not on Stage 4's live-state work. It was the
+  cutover/removal sequence for `bridge/`: 3A.1 proved Host + Adapter as the real production
+  implementation at Stage 3 parity, 3A.2 deleted the now-obsolete `bridge/`, and 3A.3 normalized the
+  repository to describe Host + Adapter as its active architecture. Stage 4-equivalent live-state
+  engineering work on `host/`/`adapter/` was not a 3A prerequisite; it continues as ordinary Stage 4
+  work now that 3A is complete.
 - Stage 4 depends on identity and pairing. Phase 4.1 established the redesigned typed protocol
   contract. Phase 4.2 and later phases were specified to establish live Bridge delivery, the first
   production Snapshot and Event state domains, the internal synchronization kernel, and (in 4.2) the
   shared-authority, capacity-one session-registry boundary in which session delivery state is
-  client-specific while capture and revisions are shared -- but that Bridge implementation path is
-  now paused pending Stage 3A and will not be continued once 3A begins. Their specifications remain
-  as retained engineering evidence; Stage 4 resumes this scope exclusively on Host + Adapter once 3A
-  completes, per `roadmap/04-live-state-synchronization-foundation.md`'s "Host/Adapter continuation
-  (post-3A)" section.
+  client-specific while capture and revisions are shared -- but that Bridge implementation path was
+  permanently superseded and was not continued once Stage 3A began. Their specifications remain
+  as retained engineering evidence; Stage 4 continues this scope exclusively on Host + Adapter, per
+  `roadmap/04-live-state-synchronization-foundation.md`'s "Host/Adapter continuation (post-3A)"
+  section.
 - Stage 5 consumes Stage 4's stable contract and synchronization kernel to complete the reusable Dart
   client boundary, public subscription/recovery API, middleware-owned Flutter integration, and the
   minimal live-state proof surface. Its scaffold and persistence work may be pulled forward when
