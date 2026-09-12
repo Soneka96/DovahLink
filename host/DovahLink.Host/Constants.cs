@@ -112,7 +112,7 @@ public static class Constants
     /// used when the user-editable settings file at <see cref="HostSettingsFilePath"/> supplies no
     /// valid override. See <see cref="HostSettingsProvider"/>.
     /// </summary>
-    public const int MaxActiveSessions = 4;
+    public const int MaxActiveSessions = 1;
 
     /// <summary>
     /// The highest <c>maxActiveSessions</c> value <see cref="HostSettingsProvider"/> accepts from

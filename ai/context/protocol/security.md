@@ -400,7 +400,7 @@ The transport rejects input before application decoding when it exceeds the appr
 - maximum object members: 64
 - maximum inbound messages: 100 per second per client
 - maximum messages in one session: 10,000; the host closes the session before this bound is exceeded
-- maximum connected clients: configurable, defaulting to 4; the host reads an optional override from
+- maximum connected clients: configurable, defaulting to 1; the host reads an optional override from
   its user-editable settings file, falling back to the default for anything missing or out of range.
   This is a device-count/resource bound, not a change to Phase 1 exposure above: every admitted
   connection is still loopback-only and still authenticates independently.

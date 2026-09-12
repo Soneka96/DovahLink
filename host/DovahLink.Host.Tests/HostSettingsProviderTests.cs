@@ -178,6 +178,18 @@ public class HostSettingsProviderTests : IDisposable
         Assert.True(settings.MaxActiveSessions >= 1);
     }
 
+    /// <summary>
+    /// Verifies the shipped default's exact literal value rather than only its symbolic identity: the
+    /// other tests in this file assert against <see cref="Constants.MaxActiveSessions"/> itself, which
+    /// would not catch a regression of that constant's own value, so this locks in the maintainer's
+    /// approved single-session default directly.
+    /// </summary>
+    [Fact]
+    public void Constants_MaxActiveSessions_DefaultsToOne()
+    {
+        Assert.Equal(1, Constants.MaxActiveSessions);
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {
