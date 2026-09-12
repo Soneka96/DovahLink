@@ -12,6 +12,9 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
     /// <inheritdoc/>
     public event Action<StateEventPublication>? EventOccurred;
 
+    /// <inheritdoc/>
+    public event Action<StateSnapshotPublication>? SnapshotChanged;
+
     /// <summary>Whether any caller currently holds a live registration on <see cref="EventOccurred"/>.</summary>
     public bool HasSubscribers => EventOccurred is not null;
 
@@ -38,4 +41,8 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
     /// <summary>Raises <see cref="EventOccurred"/>, as a real feed would when a registered area's value changes.</summary>
     /// <param name="eventPublication">The event to raise.</param>
     public void RaiseEvent(StateEventPublication eventPublication) => EventOccurred?.Invoke(eventPublication);
+
+    /// <summary>Raises <see cref="SnapshotChanged"/>, as a real feed would when a registered Snapshot-mode area's value changes.</summary>
+    /// <param name="snapshotPublication">The snapshot value to raise.</param>
+    public void RaiseSnapshotChanged(StateSnapshotPublication snapshotPublication) => SnapshotChanged?.Invoke(snapshotPublication);
 }

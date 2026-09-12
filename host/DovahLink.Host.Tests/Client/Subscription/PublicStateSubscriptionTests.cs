@@ -1018,4 +1018,201 @@ public class PublicStateSubscriptionTests
         feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
         Assert.Equal(sentBeforeEvent + 1, connectionContext.SentPayloads.Count);
     }
+
+    /// <summary>Verifies that a Snapshot change for an area still <see cref="AreaDeliveryPhase.AwaitingBaseline"/> is discarded rather than sent or buffered.</summary>
+    [Fact]
+    public void SnapshotChanged_AreaAwaitingBaseline_Discarded()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        // HandleSubscribe alone accepts the area (so OnSnapshotChanged's acceptedAreas gate passes)
+        // without ever establishing a baseline, leaving it at the default AwaitingBaseline phase.
+        subscription.HandleSubscribe(["area_a"], reservedControlCapacity: 0);
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 1));
+
+        Assert.Empty(connectionContext.SentSnapshots);
+    }
+
+    /// <summary>Verifies that a Snapshot change for a Live area is sent immediately on the Data lane's keyed-replaceable slot.</summary>
+    [Fact]
+    public void SnapshotChanged_AreaLive_SendsOnDataLaneKeyedSlot()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 2));
+
+        (StateAreaId areaId, byte[] bytes) = Assert.Single(connectionContext.SentSnapshots);
+        Assert.Equal("area_a", areaId.Value);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(2UL, payload!.Revision);
+    }
+
+    /// <summary>
+    /// Verifies that Snapshot changes arriving while the establishing baseline's own fetch is still in
+    /// flight -- the same reentrancy window <see cref="OnEventOccurred_DuringSnapshotFetch_EventIsHeldNotDiscarded"/>
+    /// exercises for Events -- are buffered as a single replaceable slot rather than queued: a later
+    /// value replaces an earlier one, and only the newest is sent once the baseline commits Live.
+    /// </summary>
+    [Fact]
+    public void SnapshotChanged_DuringRecovering_BuffersOnlyLatestRevision()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 11));
+            feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 12));
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        // The baseline itself (revision 10) goes through TrySend/SentPayloads; only the flushed
+        // pending value goes through TrySendSnapshot/SentSnapshots, so exactly one entry here proves
+        // both that buffering replaced rather than queued, and that only the newest was flushed.
+        (StateAreaId areaId, byte[] bytes) = Assert.Single(connectionContext.SentSnapshots);
+        Assert.Equal("area_a", areaId.Value);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.True(codec.TryDecodePayload(envelope!, out StateSnapshotPayload? payload));
+        Assert.Equal(12UL, payload!.Revision);
+    }
+
+    /// <summary>Verifies that a Snapshot buffered during recovery is discarded, not resent, when the establishing baseline is already newer than it.</summary>
+    [Fact]
+    public void SnapshotChanged_PendingSnapshotSupersededByFreshBaseline_Discarded()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 5)); // older than the baseline about to be admitted
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Empty(connectionContext.SentSnapshots); // discarded as superseded, not resent
+    }
+
+    /// <summary>
+    /// Verifies that a play-context transition landing while a Snapshot is buffered during the
+    /// establishing baseline's own fetch -- mirroring
+    /// <see cref="TryEstablishBaseline_EpochSupersededDuringSnapshotFetch_AbandonsAttemptWithoutSending"/>
+    /// -- abandons that attempt (and its buffered value) entirely, rather than flushing the stale
+    /// generation's pending value once a later, legitimate baseline commits.
+    /// </summary>
+    [Fact]
+    public void SnapshotChanged_PlayContextTransitionDuringRecovering_ClearsPendingSnapshot()
+    {
+        var tracker = new FakePlayContextTracker();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10, playContextGeneration: 0));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 11, playContextGeneration: 0)); // buffered
+            tracker.NotifyTransition(PlayContextId.NewId()); // generation 1, mid-fetch: supersedes this attempt's epoch
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Empty(connectionContext.SentPayloads); // the generation-0 baseline itself was abandoned
+        Assert.Empty(connectionContext.SentSnapshots); // and its buffered generation-0 pending value never flushes
+
+        // A later, legitimate attempt under the new generation sends only its own baseline.
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1, playContextGeneration: 1));
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        Assert.Single(connectionContext.SentPayloads);
+        Assert.Empty(connectionContext.SentSnapshots);
+    }
+
+    /// <summary>Verifies that a Snapshot change for an area this connection never accepted is discarded, symmetric with <see cref="OnEventOccurred_UnacceptedArea_DoesNotForward"/>.</summary>
+    [Fact]
+    public void SnapshotChanged_UnacceptedArea_DoesNotForward()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 1));
+
+        Assert.Empty(connectionContext.SentSnapshots);
+    }
+
+    /// <summary>Verifies that a Snapshot change arriving after this connection has unsubscribed is not forwarded, symmetric with <see cref="OnEventOccurred_AfterUnsubscribe_DoesNotForward"/>.</summary>
+    [Fact]
+    public void SnapshotChanged_AfterUnsubscribe_DoesNotForward()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        subscription.Unsubscribe();
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 2));
+
+        Assert.Empty(connectionContext.SentSnapshots);
+    }
+
+    /// <summary>Verifies that a live area's Snapshot change is discarded, not forwarded, when its own captured play-context generation is already stale relative to the tracker's current one, symmetric with <see cref="OnEventOccurred_StaleEventGeneration_DoesNotForward"/>.</summary>
+    [Fact]
+    public void SnapshotChanged_StaleGeneration_DoesNotForward()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId()); // generation 1
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: tracker);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", playContextGeneration: 1));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 2, playContextGeneration: 0)); // stale generation
+
+        Assert.Empty(connectionContext.SentSnapshots);
+    }
+
+    /// <summary>
+    /// Verifies that a Snapshot change arriving while the baseline is still being admitted (the same
+    /// still-<see cref="AreaDeliveryPhase.Recovering"/> window <see cref="OnEventOccurred_NewEventArrivesWhileHeldEventsAreDraining_DeliveredAfterAllPreviouslyHeldEventsInOrder"/>
+    /// exercises for Events) is buffered rather than sent immediately, and is flushed once the area
+    /// commits Live.
+    /// </summary>
+    [Fact]
+    public void SnapshotChanged_ArrivesWhileBaselineIsBeingAdmitted_BufferedAndFlushedAfterCommit()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 10));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null; // fires once, during the baseline's own admission -- still Recovering
+            feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 20));
+        };
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        Assert.Single(connectionContext.SentPayloads); // the baseline only -- the buffered value did not race ahead of it
+        (StateAreaId areaId, byte[] bytes) = Assert.Single(connectionContext.SentSnapshots);
+        Assert.Equal("area_a", areaId.Value);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.True(codec.TryDecodePayload(envelope!, out StateSnapshotPayload? payload));
+        Assert.Equal(20UL, payload!.Revision);
+    }
 }

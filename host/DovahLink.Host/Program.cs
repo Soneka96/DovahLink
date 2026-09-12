@@ -325,6 +325,13 @@ internal static class Program
         }
 
         /// <inheritdoc/>
+        public event Action<StateSnapshotPublication>? SnapshotChanged
+        {
+            add { }
+            remove { }
+        }
+
+        /// <inheritdoc/>
         public bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot)
         {
             snapshot = null;

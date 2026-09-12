@@ -161,6 +161,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             if (!subscribedToExternalEvents)
             {
                 feed.EventOccurred += OnEventOccurred;
+                feed.SnapshotChanged += OnSnapshotChanged;
                 playContextTracker.Transitioned += OnPlayContextTransitioned;
                 subscribedToExternalEvents = true;
             }
@@ -260,6 +261,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             }
 
             feed.EventOccurred -= OnEventOccurred;
+            feed.SnapshotChanged -= OnSnapshotChanged;
             playContextTracker.Transitioned -= OnPlayContextTransitioned;
             subscribedToExternalEvents = false;
         }
@@ -286,6 +288,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 state.Phase = AreaDeliveryPhase.AwaitingBaseline;
                 state.BarrierRevision = null;
                 state.HeldEvents.Clear();
+                state.PendingSnapshot = null;
                 state.RecoveryEpoch++;
             }
         }
@@ -365,6 +368,55 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     }
 
     /// <summary>
+    /// Routes <paramref name="snapshotPublication"/> for this connection according to its state
+    /// area's current recovery-barrier phase: discarded while
+    /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/>; while <see cref="AreaDeliveryPhase.Recovering"/>,
+    /// replaces any previously buffered pending value for the area rather than queuing a second one --
+    /// unlike an Event, a Snapshot is a complete replacement value, so only the newest one received
+    /// during recovery is ever worth keeping; sent immediately, still under <see cref="gate"/>, while
+    /// <see cref="AreaDeliveryPhase.Live"/>, on the Data lane's keyed-replaceable slot rather than the
+    /// Control/Recovery lane baselines use. Also discarded outright, regardless of phase, when its own
+    /// captured play-context generation does not match the tracker's current one, the same stale-value
+    /// rule <see cref="OnEventOccurred"/> applies.
+    /// </summary>
+    /// <param name="snapshotPublication">The snapshot value the feed just published.</param>
+    private void OnSnapshotChanged(StateSnapshotPublication snapshotPublication)
+    {
+        lock (gate)
+        {
+            if (!acceptedAreas.Contains(snapshotPublication.StateArea))
+            {
+                return;
+            }
+
+            if (snapshotPublication.PlayContextGeneration != playContextTracker.GetSnapshot().TransitionGeneration)
+            {
+                return;
+            }
+
+            AreaState state = GetOrCreateAreaState(snapshotPublication.StateArea);
+            switch (state.Phase)
+            {
+                case AreaDeliveryPhase.AwaitingBaseline:
+                    break;
+
+                case AreaDeliveryPhase.Recovering:
+                    state.PendingSnapshot = snapshotPublication;
+                    break;
+
+                case AreaDeliveryPhase.Live:
+                    if (snapshotPublication.PlayContextGeneration == state.PlayContextGeneration
+                        && connectionContext is not null && sessionId is not null)
+                    {
+                        SendSnapshotUnderGate(connectionContext, sessionId.Value, snapshotPublication);
+                    }
+
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
     /// Establishes a fresh baseline for <paramref name="areaId"/> through the reserved Control/Recovery
     /// lane. Enters <see cref="AreaDeliveryPhase.Recovering"/> under a fresh recovery epoch, with the
     /// barrier revision still unknown, before reading <paramref name="areaId"/>'s current value from
@@ -380,9 +432,12 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// this attempt is abandoned). A later recovery attempt, a held-Event overflow, or a play-context
     /// transition bumps the area's recovery epoch and makes this call's eventual result a no-op at
     /// whichever validation point next observes the mismatch. Falls back to
-    /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, discarding any held Events, when no current
-    /// value is available, the fetched value's play-context generation is already stale, or admission
-    /// fails. Makes no change at all when this subscription is not currently bound to a connection.
+    /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, discarding any held Events and any buffered
+    /// pending Snapshot, when no current value is available, the fetched value's play-context
+    /// generation is already stale, or admission fails. Once this baseline commits Live, a Snapshot
+    /// buffered while <see cref="AreaDeliveryPhase.Recovering"/> (see <see cref="OnSnapshotChanged"/>)
+    /// is discarded if superseded by this same baseline, or sent if it is newer. Makes no change at
+    /// all when this subscription is not currently bound to a connection.
     /// </summary>
     /// <param name="areaId">The state area to establish a baseline for.</param>
     /// <param name="correlationMessageId">The message id this baseline correlates to.</param>
@@ -421,6 +476,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 state.Phase = AreaDeliveryPhase.AwaitingBaseline;
                 state.BarrierRevision = null;
                 state.HeldEvents.Clear();
+                state.PendingSnapshot = null;
                 return;
             }
 
@@ -462,6 +518,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 state.Phase = AreaDeliveryPhase.AwaitingBaseline;
                 state.BarrierRevision = null;
                 state.HeldEvents.Clear();
+                state.PendingSnapshot = null;
                 return;
             }
 
@@ -480,6 +537,17 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             if (state.RecoveryEpoch == myEpoch)
             {
                 state.Phase = AreaDeliveryPhase.Live;
+
+                // A Snapshot buffered while Recovering is a complete replacement value, not a delta: it
+                // is superseded outright by this same baseline it raced against, or, if newer, is the
+                // area's true current value and must reach the client even though it arrived before the
+                // baseline this call just admitted committed Live.
+                StateSnapshotPublication? pendingSnapshot = state.PendingSnapshot;
+                state.PendingSnapshot = null;
+                if (pendingSnapshot is StateSnapshotPublication pending && pending.Revision.Value > snapshot!.Revision.Value)
+                {
+                    SendSnapshotUnderGate(currentConnectionContext, currentSessionId.Value, pending);
+                }
             }
         }
     }
@@ -512,6 +580,37 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         targetConnectionContext.TrySend(bytes, PublicOutboundLane.Data);
     }
 
+    /// <summary>
+    /// Encodes and sends one Snapshot on the Data lane's keyed-replaceable slot, labeled with its own
+    /// captured play context. Unlike <see cref="SendEventUnderGate"/>, this goes through
+    /// <see cref="IPublicConnectionContext.TrySendSnapshot"/> rather than <see cref="IPublicConnectionContext.TrySend"/>:
+    /// a Snapshot pushed here is an ordinary replaceable value, distinct from the Control/Recovery-lane
+    /// baseline <see cref="TryEstablishBaseline"/> sends. Must be called with <see cref="gate"/>
+    /// already held by the calling thread.
+    /// </summary>
+    /// <param name="targetConnectionContext">The connection to send through.</param>
+    /// <param name="targetSessionId">The session identity to stamp onto the message.</param>
+    /// <param name="snapshotPublication">The snapshot value to send.</param>
+    private void SendSnapshotUnderGate(IPublicConnectionContext targetConnectionContext, SessionId targetSessionId, StateSnapshotPublication snapshotPublication)
+    {
+        var payload = new StateSnapshotPayload
+        {
+            StateArea = snapshotPublication.StateArea.Value,
+            Revision = snapshotPublication.Revision.Value,
+            OccurredAt = snapshotPublication.OccurredAt,
+            Data = snapshotPublication.Data,
+        };
+        byte[] bytes = codec.Encode(
+            PublicMessageType.StateSnapshot,
+            NewMessageId(),
+            targetSessionId.ToString(),
+            null,
+            snapshotPublication.PlayContextId?.ToString(),
+            null,
+            payload);
+        targetConnectionContext.TrySendSnapshot(snapshotPublication.StateArea, bytes);
+    }
+
     /// <summary>Returns <paramref name="areaId"/>'s recovery-barrier bookkeeping, creating it on first use. Must be called under <see cref="gate"/>.</summary>
     /// <param name="areaId">The state area to look up or create bookkeeping for.</param>
     private AreaState GetOrCreateAreaState(StateAreaId areaId)
@@ -531,9 +630,10 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <summary>
     /// One state area's own recovery-barrier bookkeeping: current phase, the baseline revision and
     /// play-context generation the current phase was established under, a monotonically increasing
-    /// token identifying the most recent recovery attempt, and any Event held above the barrier
-    /// revision while <see cref="AreaDeliveryPhase.Recovering"/>. All access is guarded by the owning
-    /// subscription's own <see cref="gate"/>; this type performs no synchronization of its own.
+    /// token identifying the most recent recovery attempt, any Event held above the barrier revision
+    /// while <see cref="AreaDeliveryPhase.Recovering"/>, and any Snapshot buffered during that same
+    /// phase. All access is guarded by the owning subscription's own <see cref="gate"/>; this type
+    /// performs no synchronization of its own.
     /// </summary>
     private sealed class AreaState
     {
@@ -571,5 +671,16 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         /// establishing baseline is admitted or discarded if it is not.
         /// </summary>
         public readonly List<StateEventPublication> HeldEvents = [];
+
+        /// <summary>
+        /// The most recent Snapshot value received while <see cref="Phase"/> is
+        /// <see cref="AreaDeliveryPhase.Recovering"/>, replacing any earlier one rather than
+        /// accumulating -- unlike <see cref="HeldEvents"/>, a Snapshot is a complete replacement value,
+        /// so only the newest one is ever worth keeping. <see langword="null"/> when no Snapshot has
+        /// arrived during the current recovery attempt. Sent once the establishing baseline commits
+        /// <see cref="AreaDeliveryPhase.Live"/> if newer than that baseline, or discarded if superseded
+        /// by it.
+        /// </summary>
+        public StateSnapshotPublication? PendingSnapshot;
     }
 }

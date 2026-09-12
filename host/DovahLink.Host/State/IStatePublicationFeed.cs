@@ -18,6 +18,9 @@ namespace DovahLink.Host.State;
 /// <item>For one <see cref="StateAreaId"/>, <see cref="EventOccurred"/> is never invoked
 /// concurrently for two different events, and is invoked in strictly increasing
 /// <see cref="StateEventPublication.Revision"/> order.</item>
+/// <item>For one <see cref="StateAreaId"/>, <see cref="SnapshotChanged"/> is never invoked
+/// concurrently for two different values, and is invoked in strictly increasing
+/// <see cref="StateSnapshotPublication.Revision"/> order.</item>
 /// <item><see cref="TryGetSnapshot"/> never returns a value for an area whose revision is older
 /// than the most recent <see cref="StateEventPublication.Revision"/> already raised through
 /// <see cref="EventOccurred"/> for that same area -- a read is never allowed to appear staler than
@@ -33,6 +36,15 @@ public interface IStatePublicationFeed
     /// under.
     /// </summary>
     event Action<StateEventPublication>? EventOccurred;
+
+    /// <summary>
+    /// Raised whenever a registered Snapshot-mode state area's authoritative value changes,
+    /// carrying the resulting complete current-state value -- the unsolicited counterpart to
+    /// <see cref="TryGetSnapshot"/>'s pull-based read. Never raised for an area that is not
+    /// currently registered. See this interface's own summary for the per-area ordering and
+    /// concurrency guarantee this raises under.
+    /// </summary>
+    event Action<StateSnapshotPublication>? SnapshotChanged;
 
     /// <summary>
     /// Tries to read a state area's current value as a fresh baseline snapshot. See this
