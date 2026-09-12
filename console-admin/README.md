@@ -1,15 +1,15 @@
 # Trust-administration console adapter (optional)
 
-This directory is not part of the native DovahLink Bridge core (`bridge/`). It is an optional
-in-game console integration for administering DovahLink's persistent trust store — listing,
-revoking, resetting, and blocking/unblocking known devices — documented in
+This directory is not part of the native Adapter core (`adapter/`). It is an optional in-game
+console integration for administering DovahLink's persistent trust store — listing, revoking,
+resetting, and blocking/unblocking known devices — documented in
 [`ai/context/protocol/security.md`](../ai/context/protocol/security.md)'s "Trust administration
 surface" section, which records the full design decision and rationale.
 
-DovahLink Bridge works completely normally without anything in this directory installed. The
-bridge attempts to register its native Papyrus functions
-(`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`); the files here are only what makes
-those functions reachable from Skyrim's in-game console.
+The Adapter works completely normally without anything in this directory installed. It
+registers its native Papyrus functions
+(`adapter/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp`); the files here are only what
+makes those functions reachable from Skyrim's in-game console.
 
 ## Commands
 
@@ -57,23 +57,24 @@ invalidation" for the full Reset Trust/Factory Reset distinction.
 ## Dependency
 
 This adapter requires [ConsoleUtil Extended](https://github.com/KrisV-777/ConsoleUtil-Extended), a
-third-party SKSE plugin, installed separately as its own mod. DovahLink Bridge does not bundle it
+third-party SKSE plugin, installed separately as its own mod. The native Adapter does not bundle it
 and does not check for its presence at plugin load — if it (or the files in this directory) are
 missing, `dovahlink list`/`dovahlink list trusted`/`dovahlink list blocked`/`dovahlink help` and the
 mutation commands are simply unrecognized console commands, exactly like any other unknown input;
-nothing else about the bridge is affected.
+nothing else about the Adapter is affected.
 
 **Known compatibility risk, not yet resolved:** ConsoleUtil Extended's own build instructions
 require CommonLibSSE's `powerof3/dev` branch, a different lineage than the `commonlibsse-ng-flatrim`
-fork DovahLink Bridge itself vendors (see [`bridge/README.md`](../bridge/README.md)'s "Dependency
-baselines"). The two plugins have not been verified to coexist in the same load order against this
-project's pinned Skyrim runtime. Confirm this before relying on the integration.
+fork the Adapter itself vendors (see [`adapter/vcpkg.json`](../adapter/vcpkg.json) and
+[`tooling/vcpkg-ports/commonlibsse-ng-flatrim/`](../tooling/vcpkg-ports/commonlibsse-ng-flatrim/)
+for the pinned baseline). The two plugins have not been verified to coexist in the same load order
+against this project's pinned Skyrim runtime. Confirm this before relying on the integration.
 
 ## Supported runtime
 
-Same as the rest of DovahLink Bridge: Steam Skyrim `1.6.1170` with SKSE `2.2.6` (see
-[`bridge/README.md`](../bridge/README.md)'s "Supported runtime"). This adapter introduces no
-additional runtime requirement of its own on the DovahLink Bridge side; ConsoleUtil Extended's own
+Same as the rest of DovahLink: Steam Skyrim `1.6.1170` with SKSE `2.2.6` (see
+[README.md](../README.md)'s "Current development baseline"). This console-admin adapter introduces
+no additional runtime requirement of its own on the DovahLink side; ConsoleUtil Extended's own
 supported-runtime range is whatever that mod separately documents.
 
 ## Install steps
@@ -83,7 +84,7 @@ supported-runtime range is whatever that mod separately documents.
    folders. The compiled `.pex` is not committed to this repository — build artifacts are never
    checked in.
 2. Place the compiled `DovahLinkAdmin.pex` in `Data\Scripts\` (the shared Papyrus script folder
-   every mod's compiled scripts live in — not colocated with DovahLink Bridge's native `.dll`,
+   every mod's compiled scripts live in — not colocated with the native Adapter's `.dll`,
    which installs separately under `Data\SKSE\Plugins\`).
 3. Place `dovahlink.yaml` in `Data\SKSE\CustomConsole\`, per ConsoleUtil Extended's documented
    config location.
@@ -104,7 +105,7 @@ relying on this adapter, confirm in-game that:
 - ConsoleUtil Extended tolerates a `global native` Papyrus function body (its own documentation
   never states this explicitly, only that functions must be `global` — every other SKSE
   native-Papyrus-function integration works this way, but this specific combination is unconfirmed).
-- ConsoleUtil Extended and DovahLink Bridge coexist without conflict in the same load order, given
+- ConsoleUtil Extended and the native Adapter coexist without conflict in the same load order, given
   the CommonLibSSE branch-lineage difference noted above.
 - Whether ConsoleUtil Extended requires `dovahlink.yaml`'s filename to match its own `name: dovahlink`
   field, or accepts any filename — its documentation does not state this either way.
@@ -113,4 +114,5 @@ relying on this adapter, confirm in-game that:
   the configuration now follows its documented one-word subcommand and flag syntax, but this still
   requires live verification.
 
-Record the outcome using `bridge/README.md`'s "Manual verification record template" pattern.
+Record the outcome (what was confirmed, what wasn't, and any workaround needed) directly in this
+section once performed.

@@ -104,7 +104,7 @@ public enum SessionInvalidationReason
 
 // ---- Pairing ----
 
-/// <summary>The host's pairing state machine, per <c>ai/context/host/migration-audit.md</c>'s "Pairing state machine".</summary>
+/// <summary>The host's pairing state machine, per <c>ai/context/protocol/security.md</c>'s "Persistent local trust".</summary>
 public enum PairingState
 {
     /// <summary>A pairing challenge has been issued and is waiting for a matching code.</summary>

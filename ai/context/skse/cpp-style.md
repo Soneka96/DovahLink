@@ -1,5 +1,12 @@
 # SKSE C++ style
 
+These conventions govern native SKSE/C++ work in this repository, including `adapter/`. Several
+rules below use the retired native Bridge's actual module layout (`bridge/`, deleted in 3A.2) as
+the worked example that established them; `adapter/`'s own module layout (`capture/`, `dispatch/`,
+`identity/`, `ipc/`, `papyrus/`, `plugin/`, `process/`, `runtime/`) is genuinely different, so apply
+the same enum-consolidation and CommonLib-dependency-wall reasoning within `adapter/`'s actual
+directories rather than assuming a name-for-name correspondence with the Bridge's example below.
+
 ## Ownership and lifetime
 
 - Prefer RAII and standard-library ownership types.

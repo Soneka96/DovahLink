@@ -1,4 +1,8 @@
-# SKSE bridge testing
+# SKSE testing
+
+These testing conventions govern native SKSE/C++ work in this repository, including `adapter/`.
+The retired native Bridge (`bridge/`, deleted in 3A.2) is used below as the worked example that
+established them; apply the same rules to `adapter/`'s own module boundaries.
 
 ## Test layers
 
@@ -32,7 +36,7 @@ ordering.
   thread-safe fakes for worker, callback, transport, and lifetime consumers. Keep real composition
   tests separately when they prove production wiring.
 
-Use GoogleMock as the Bridge's single test-only mocking framework for mock-based contract tests. It
+Use GoogleMock as the single test-only mocking framework for mock-based contract tests. It
 is appropriate for synchronous, stateless interactions. A call originating on another thread may
 still use GoogleMock when cross-thread timing or synchronization is incidental and only the call
 contract is under test; use a controllable thread-safe fake when that timing, lifetime,
@@ -40,7 +44,7 @@ synchronization, or mutable state is itself being controlled or asserted. Every 
 captured test state remains the test author's responsibility to synchronize. Project-owned
 interface inheritance is prohibited and is not a framework capability to validate.
 
-The Bridge GoogleMock `1.18.0` configuration passed the supported MSVC/C++23 build, `const` methods,
+The retired Bridge's GoogleMock `1.18.0` configuration passed the supported MSVC/C++23 build, `const` methods,
 `std::optional` and `std::string_view` arguments, exact call counts, sequence verification,
 unexpected-call diagnostics, Catch2 failure reporting, and calls from the C1 session thread. This
 proves the framework integration, not that GoogleMock replaces a stateful fake where the behavior

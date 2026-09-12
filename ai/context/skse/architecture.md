@@ -1,6 +1,12 @@
-# SKSE bridge architecture
+# SKSE bridge architecture (retired implementation)
 
-These conventions apply to the native Skyrim bridge. The bridge is a boundary adapter, not the place where the Flutter client or protocol becomes embedded.
+This document records the concrete C++ design of the retired native Bridge (`bridge/`, deleted in
+3A.2 once Host + Adapter proved out as its production replacement). It is preserved as reference for
+the design decisions and hard-won lessons below (dependency-edge discipline, capture-dispatch
+ordering, cadence-driven sampling, bounded-queue failure semantics) -- it does not describe current
+`adapter/` or `host/` code, and `bridge/`'s own file paths referenced throughout no longer exist.
+For the current native boundary's ownership contract, see `ai/context/adapter/architecture.md`; for
+the current host's, see `ai/context/host/architecture.md`. The bridge was a boundary adapter, not the place where the Flutter client or protocol became embedded.
 
 ## Technology boundary
 
@@ -197,8 +203,9 @@ uses -- for every due key found in that tick, handing each to `CaptureDispatchWo
 chosen over hooking the engine's own update loop:
 `SKSE::TaskInterface` is SKSE's own supported mechanism for safely running code on the game thread and
 requires no new engine hook, memory patch, or Address Library offset, keeping with this document's
-general preference against engine hooking (the `bAchievementCompat` patch documented in
-`bridge/README.md` remains the narrow precedent for when a hook is genuinely unavoidable). Only the
+general preference against engine hooking (the `bAchievementCompat` patch implemented in
+`adapter/runtime/commonlib_adapter_game_behavior_compatibility.cpp` remains the narrow precedent for
+when a hook is genuinely unavoidable). Only the
 due-key evaluation and any resulting capture read happen on the game thread, through the marshaled
 task; the interval timing itself runs on an ordinary background thread. `CadenceTickDriver` depends
 on SKSE's task interface only through an injected `ITaskMarshaller` port, so it remains testable

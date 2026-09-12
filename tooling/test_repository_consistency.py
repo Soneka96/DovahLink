@@ -871,7 +871,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 12)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 14)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
@@ -885,25 +885,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertEqual(roadmap.count(phase_5_status), 1)
 
-        # 3A is the current interstitial architectural migration gate, not an ordinary undone
-        # phase; its status line carries that explanation instead of the plain "Planned" every
-        # other undone phase uses.
+        # 3A is now complete; its status line records what completing it means instead of the
+        # bare "Complete" every other closed stage uses.
         phase_3a_status = (
-            "**Status:** Active. This is the current interstitial architectural migration gate "
-            "between the released Stage 3 baseline and further Stage 4 product development. 3A.1 "
-            "and 3A.2 are complete; 3A.3 (Repository Normalization) is the remaining "
-            "implementation work. See 3A.1-3A.3 below."
+            "**Status:** Complete. Host + Adapter are the current production implementation; the "
+            "native Bridge (`bridge/`) has been deleted."
         )
         self.assertEqual(roadmap.count(phase_3a_status), 1)
 
-        # Stage 4 is Active but paused after Phase 4.1 while Stage 3A is open: its own status
-        # line records that instead of the plain "Active" an in-progress stage would carry.
+        # Stage 4 is Active with Phase 4.1 complete and the old Bridge-authored phases below
+        # permanently superseded now that Stage 3A has completed; its status line records that
+        # instead of the plain "Active" an ordinary in-progress stage would carry.
         phase_4_status = (
             "**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining "
-            "Bridge-authored phases below are paused pending Stage 3A and are not next; see "
-            "`roadmap/03a-host-adapter-production-migration.md`. Stage 4 resumes exclusively on "
-            "Host + Adapter once 3A completes, per this document's \"Host/Adapter continuation "
-            '(post-3A)" section below.'
+            "Bridge-authored phases below are permanently superseded, per "
+            "`roadmap/03a-host-adapter-production-migration.md`; they are not next. Stage 4 "
+            "continues exclusively on Host + Adapter, per this document's \"Host/Adapter "
+            'continuation (post-3A)" section below.'
         )
         self.assertEqual(roadmap.count(phase_4_status), 1)
 
@@ -914,21 +912,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
-                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line and the
+                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line, the
                 # Host/Adapter continuation's "Host-owned state, publication, and bounded delivery"
-                # subsection's own, since these are subsections of this stage rather than
-                # independent headings the way 3.1-3.3 are.
+                # subsection's own, and the still-undone "Real capture and host integration"
+                # subsection's "Planned" line, since these are subsections of this stage rather
+                # than independent headings the way 3.1-3.3 are.
                 expected_statuses = [
                     phase_4_status,
                     "**Status:** Complete",
                     "**Status:** Complete",
+                    "**Status:** Planned — follows Host-owned state/publication/delivery",
                 ]
             elif heading == "3A. Host/Adapter Production Migration":
-                # 3A.1 and 3A.2 each carry their own "**Status:** Complete" line now that they are
-                # done; 3A.3 remains undone and carries no status line of its own, matching how
-                # Stage 4's still-undone subphases (4.2 onward) carry none either.
+                # 3A.1, 3A.2, and 3A.3 each carry their own "**Status:** Complete" line now that
+                # the whole stage is done.
                 expected_statuses = [
                     phase_3a_status,
+                    "**Status:** Complete",
                     "**Status:** Complete",
                     "**Status:** Complete",
                 ]
@@ -1113,7 +1113,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Normal users authenticate through pairing, not a configured long token",
             "Only one pairing challenge may be active at a time, globally",
             "Final confirmation is idempotent",
-            "scoped to the Windows user profile running the client and the Bridge",
+            "scoped to the Windows user profile running the client and the Host",
             "Do not invent cryptography",
             "the official client must not share one `clientId`/credential between different "
             "Windows user profiles",
@@ -1122,13 +1122,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Revocation is immediate: revoking a trusted client removes its active trust, "
             "invalidates its current authenticated session, closes that connection, and rejects "
             "reuse of the revoked credential",
-            "the Bridge must not claim pairing is available when the in-game confirmation cannot "
+            "the Host must not claim pairing is available when the in-game confirmation cannot "
             "actually be presented",
             "A client that fails before saving the credential creates no durable trust and may "
-            "pair again once the Bridge's pending challenge expires",
+            "pair again once the Host's pending challenge expires",
             "A client that saves the credential but crashes before confirming retries "
             "confirmation on restart",
-            "If the Bridge restarted while the credential was only pending, it reports the "
+            "If the Host restarted while the credential was only pending, it reports the "
             "pending credential as no longer known/valid; the client discards its incomplete "
             "local credential and returns to unpaired",
             "it never crashes Skyrim, never silently trusts a client, never invents or merges "
@@ -1167,7 +1167,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "invalidate `sessionId`, cancel or finish outstanding I/O, close the transport, then "
             "release the connection slot",
             "prefer bounded short retry/backoff over same-client connection takeover",
-            "rapid restart, timeout, and Bridge restart all recover cleanly under this policy",
+            "rapid restart, timeout, and Host restart all recover cleanly under this policy",
             "A dead `sessionId` can never become valid again",
         ):
             self.assertIn(required_phrase, normalized_liveness)
@@ -1776,6 +1776,106 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             text = self._read(production_file)
             self.assertNotIn("bridge", text.lower(), production_file)
+
+    def test_no_stale_bridge_or_deleted_migration_references(self) -> None:
+        """Guard against reintroducing deleted migration docs or the two dead bridge/ files.
+
+        3A.3 deleted five migration-only paths, along with `bridge/README.md` and
+        `bridge/vcpkg.json`. This intentionally does not ban path-shaped references into other
+        `bridge/` subdirectories (`bridge/application/`, `bridge/game_state/`, and similar): several
+        `ai/context/skse/*.md` files and adapter/ source comments deliberately cite the retired
+        Bridge's real file layout as a worked-example precedent, and a broad ban would flag that
+        legitimate history alongside genuine regressions. It also does not ban the word "Bridge" --
+        the wire fields `bridgeInstanceId`/`bridgeVersion` and genuine history in
+        CHANGELOG.md/PLAN.md are legitimate and excluded below.
+        """
+        deleted_paths = (
+            "host/PLAN.md",
+            "ai/context/host/migration-audit.md",
+            "plans/stage-3-thin-native-adapter-private-ipc",
+            "plans/stage-3a.1-host-adapter-production-cutover",
+            "plans/stage-4-host-client-boundary-and-pairing",
+        )
+        for relative_path in deleted_paths:
+            self.assertFalse(
+                (REPOSITORY_ROOT / relative_path).exists(),
+                f"{relative_path} was deleted by 3A.3 and must not be reintroduced",
+            )
+
+        # CHANGELOG.md and root PLAN.md are intentionally frozen historical records; their dated
+        # entries stay truthful to what existed when they were written.
+        excluded_files = {REPOSITORY_ROOT / "CHANGELOG.md", REPOSITORY_ROOT / "PLAN.md"}
+        # adapter/'s vendored vcpkg tree and every language's build output are not our source and
+        # must never be walked -- vcpkg_installed alone can hold tens of thousands of vendor files.
+        excluded_dir_parts = {
+            "vcpkg_installed",
+            "build",
+            "bin",
+            "obj",
+            ".vs",
+            ".git",
+            ".claude",
+            ".dart_tool",
+        }
+        adapter_source_subdirs = (
+            "capture",
+            "dispatch",
+            "identity",
+            "ipc",
+            "papyrus",
+            "plugin",
+            "process",
+            "runtime",
+            "tests",
+        )
+
+        candidate_paths: list[Path] = []
+        for pattern in (
+            "**/*.md",
+            "host/**/*.cs",
+        ):
+            candidate_paths.extend(REPOSITORY_ROOT.glob(pattern))
+        for subdir in adapter_source_subdirs:
+            candidate_paths.extend(
+                (REPOSITORY_ROOT / "adapter" / subdir).glob("**/*.cpp")
+            )
+            candidate_paths.extend(
+                (REPOSITORY_ROOT / "adapter" / subdir).glob("**/*.hpp")
+            )
+
+        # Regression guard for the scan's own breadth: these READMEs sit outside every directory
+        # the previous, narrower pattern list named, so a future narrowing back to an allowlist of
+        # remembered directories -- instead of "every Markdown file unless deliberately
+        # excluded" -- fails here before it can silently stop catching a real stale reference.
+        scanned_paths = {path.relative_to(REPOSITORY_ROOT) for path in candidate_paths}
+        for previously_uncovered in (
+            Path("adapter-host-ipc/README.md"),
+            Path("app/README.md"),
+            Path("integration/README.md"),
+            Path("sdk/README.md"),
+            Path("tooling/DovahLinkBuilder/README.md"),
+        ):
+            self.assertIn(previously_uncovered, scanned_paths)
+
+        stale_literals = ("bridge/vcpkg.json", "bridge/README.md")
+        violations = []
+        for path in candidate_paths:
+            if not path.is_file() or path in excluded_files:
+                continue
+            if any(part in excluded_dir_parts for part in path.parts):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for literal in stale_literals:
+                if literal in text:
+                    violations.append(f"{path.relative_to(REPOSITORY_ROOT)}: {literal}")
+
+        self.assertEqual(
+            violations,
+            [],
+            "Found a reference to a file 3A.3 deleted (bridge/README.md or bridge/vcpkg.json). If "
+            "this is genuine project history, move it to CHANGELOG.md or add the file to this "
+            "test's excluded_files.",
+        )
 
     @classmethod
     def _roadmap_corpus(cls) -> str:

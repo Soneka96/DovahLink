@@ -40,14 +40,15 @@ The first milestone is successful when a player can:
 ## Runtime compatibility
 
 Skyrim Special Edition 1.6.1170 pauses the game whenever its window loses focus, which would make the
-pairing code and the companion app unusable the moment a player switches to it. The Bridge forces
-Skyrim's always-active setting on by default (`bridge/README.md`'s "Runtime compatibility options") so
-the game keeps running while DovahLink has focus; this is a runtime compatibility fix, not a gameplay
-feature, and can be disabled per-player through the Bridge's own configuration.
+pairing code and the companion app unusable the moment a player switches to it. The native Adapter
+forces Skyrim's always-active setting on by default (see `TROUBLESHOOTING.md`'s "Skyrim pauses when I
+click away to use DovahLink") so the game keeps running while DovahLink has focus; this is a runtime
+compatibility fix, not a gameplay feature, and can be disabled per-player through the Adapter's own
+configuration.
 
 ## Open questions
 
 - Which Skyrim editions should be supported first?
 - Which game values are stable and useful enough for the first client?
 - What should the minimum connection and pairing flow look like?
-- Which information belongs in the bridge, and which belongs in the client?
+- Which information belongs in the Host, and which belongs in the client?

@@ -1,17 +1,17 @@
 # Host architecture
 
-These conventions apply to `host/`, the standalone C# process that is replacing `bridge/`'s
-client-facing and application behavior, per `host/PLAN.md`. This document records Stage 1
+These conventions apply to `host/`, the standalone C# process that owns the client-facing and
+application behavior of DovahLink's production implementation. This document records Stage 1
 ("Architecture and Contract Lock") decisions: ownership boundaries, process lifecycle, and restart
 behavior. It does not define concrete services, classes, or wire formats -- that implementation
 work belongs to Stage 2 onward and must not be read back into this record.
 
 ## Process boundary
 
-The host is explicitly **out-of-process**: a standalone .NET process with no dependency on Skyrim,
-CommonLib, or the existing C++ `bridge/` implementation. Embedding the CLR inside Skyrim is not
-part of the design. The host communicates with the native adapter only through the private IPC
-channel defined in "Host-to-adapter IPC contract" below.
+The host is explicitly **out-of-process**: a standalone .NET process with no dependency on Skyrim
+or CommonLib. Embedding the CLR inside Skyrim is not part of the design. The host communicates with
+the native adapter only through the private IPC channel defined in "Host-to-adapter IPC contract"
+below.
 
 ## Startup, packaging, and process identity
 

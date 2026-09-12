@@ -25,15 +25,16 @@ object per message; framing is not part of the JSON payload.
 | `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
-| `bridgeInstanceId` | string or `null` | yes | Identifies the running bridge process; changes on every bridge restart. `null` on the client's own `hello` (the client does not know it yet) and when this Bridge process could not generate its own identity at startup; present on every Bridge-originated message otherwise, including error responses. |
+| `bridgeInstanceId` | string or `null` | yes | Legacy wire-field name identifying the running authoritative Host process; changes on every restart of that process. `null` on the client's own `hello` (the client does not know it yet) and when the Host could not generate its own identity at startup; present on every Host-originated message otherwise, including error responses. See `ai/context/protocol/compatibility.md`'s "Deferred: public instance identifier" for this field's current transitional (always-null) state. |
 | `playContextId` | string or `null` | yes | Identifies the currently loaded play context. `null` outside an active play context (main menu, before any load, or after a return to the main menu) — genuine semantic absence, not a placeholder. |
-| `clientId` | string or `null` | yes | Identifies the logical client, established at `hello`. `null` on the client's own `hello` (not yet established) and on every message the Bridge sends after `hello_ack`: once a session exists, the Bridge derives the authenticated client from that session rather than repeating it on the wire. `hello_ack` itself still carries the value it accepted, confirming the identity the session now owns. |
+| `clientId` | string or `null` | yes | Identifies the logical client, established at `hello`. `null` on the client's own `hello` (not yet established) and on every message the Host sends after `hello_ack`: once a session exists, the Host derives the authenticated client from that session rather than repeating it on the wire. `hello_ack` itself still carries the value it accepted, confirming the identity the session now owns. |
 
 Unknown top-level fields are ignored only when forward-compatible reading is permitted by the
 current schema. Required fields with the wrong type invalidate the message. Every message type below
 lists its required payload fields; fields not listed are not sent.
 
-Compatibility with this schema is identified by the DovahLink Bridge/mod release version, not an
+Compatibility with this schema is identified by the DovahLink product release version, carried in
+the legacy `bridgeVersion` wire field, not an
 independent protocol-generation number carried on every message — see
 [`ai/context/protocol/compatibility.md`](../../ai/context/protocol/compatibility.md).
 
@@ -95,14 +96,14 @@ their sections below) and both endpoints' `capabilities` list is empty.
 `pairing_request`, `pairing_status`, `pairing_confirm`, `pairing_ack`, `pairing_renotify`,
 `pairing_cancel`, `pairing_outcome`, `rename_request`, `rename_outcome`, `capabilities`,
 `subscribe`, `subscription_ack`, `snapshot_request`, `state_snapshot`, `state_event`, `error`,
-`session_invalidated`, `ping`, and `pong`. A Bridge/SDK compatibility check occurs immediately
+`session_invalidated`, `ping`, and `pong`. A Host/SDK compatibility check occurs immediately
 after `hello_ack`; an unrecognized message type is malformed protocol input and is rejected rather
 than interpreted as a forward-compatible value.
 
 ### `hello`
 
 Negotiates the connection before any optional state messages. The connecting client always sends
-`hello` first; the bridge never initiates a connection or sends `hello` itself, and only replies
+`hello` first; the host never initiates a connection or sends `hello` itself, and only replies
 with `hello_ack` after it receives and validates one.
 
 ```json
@@ -150,8 +151,9 @@ compatibility information a client needs before trusting the rest of the exchang
 }
 ```
 
-`bridgeVersion` is a required, non-empty string containing the DovahLink Bridge/mod release version
-(matching `bridge/vcpkg.json`'s `version-string`). The bridge always answers a validated `hello` with `hello_ack`; it does not
+`bridgeVersion` is a legacy wire-field name; it is a required, non-empty string containing the
+DovahLink product release version (matching `adapter/vcpkg.json`'s `version-string`). The host
+always answers a validated `hello` with `hello_ack`; it does not
 receive or evaluate a client-declared compatibility range itself. Checking `bridgeVersion` against
 its own declared supported range, and failing explicitly on a mismatch, is the client/SDK's
 responsibility — see `ai/context/protocol/compatibility.md`'s compatibility bootstrap.
@@ -169,19 +171,19 @@ Required payload fields: `bridgeVersion`, `clientIdentityKind`.
 ### `pairing_request`
 
 Client request to start, or query the status of, a pairing challenge. Sent on a Restricted session
-only — an already-trusted (Full) session has no reason to re-pair, and the bridge rejects pairing
+only — an already-trusted (Full) session has no reason to re-pair, and the host rejects pairing
 messages on one.
 
 ```json
 {}
 ```
 
-No payload fields, matching `ping`'s empty-payload precedent. The bridge responds with
+No payload fields, matching `ping`'s empty-payload precedent. The host responds with
 `pairing_status`.
 
 ### `pairing_status`
 
-Bridge report of pairing availability, sent in reply to `pairing_request`:
+Host report of pairing availability, sent in reply to `pairing_request`:
 
 ```json
 {
@@ -237,7 +239,7 @@ Client submission of the six-digit code the user read from Skyrim and entered:
 `code` is required. `displayName` is an optional, presentation-only label for the resulting trusted
 client; send `null` when omitted, which preserves the client's existing display name on a re-pair
 (a genuinely new client stays unnamed). A present value -- including an empty string, which clears
-the name -- always replaces whatever the client previously held. The bridge responds with
+the name -- always replaces whatever the client previously held. The host responds with
 `pairing_outcome` (`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`,
 `"hard_limit_reached"`, or `"pairing_invalidated"`). `pairing_invalidated` here means the presented
 code was genuinely correct, but an administrative mutation (Revoke, Block, Reset Trust, or Factory
@@ -257,7 +259,7 @@ Client's final confirmation, echoing back the credential it durably saved:
 ```
 
 `credential` is the hex-encoded credential the client received in a prior `credential_issued`
-outcome, saved to persistent storage before this message is sent. The bridge responds with
+outcome, saved to persistent storage before this message is sent. The host responds with
 `pairing_outcome` (`"trusted"`, `"already_trusted"`, `"pending_not_found"`, or
 `"pairing_invalidated"`), and on `"trusted"` upgrades the session to full trust in place on the
 same connection — no reconnect required.
@@ -274,7 +276,7 @@ the in-game notification, not the connection.
 {}
 ```
 
-No payload fields. Only the owning `clientId` may invoke it. The bridge responds with `pairing_outcome`
+No payload fields. Only the owning `clientId` may invoke it. The host responds with `pairing_outcome`
 (`"renotified"` on success, `"renotify_cooldown"` with remaining wait, or `"already_idle"` when no
 challenge is owned).
 
@@ -288,13 +290,13 @@ in-memory challenge/pending state and frees the slot for a fresh `pairing_reques
 {}
 ```
 
-No payload fields. Only the owning `clientId` may invoke it. The bridge responds with `pairing_outcome`
+No payload fields. Only the owning `clientId` may invoke it. The host responds with `pairing_outcome`
 (`"cancelled"` if something was cleared, or `"already_idle"` if nothing was owned). Idempotent without
 pretending work occurred — repeating it truthfully reports `"already_idle"`, not `"cancelled"`.
 
 ### `pairing_outcome`
 
-Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished by `outcome`:
+Shared host reply to both `pairing_confirm` and `pairing_ack`, distinguished by `outcome`:
 
 ```json
 {
@@ -319,7 +321,7 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
   challenge began, before a credential was ever issued for it.
 - From `pairing_ack`: `"trusted"`, `"already_trusted"`, `"pending_not_found"`,
   `"pairing_invalidated"`. `pending_not_found` means no matching in-memory pending
-  credential remained, such as after Bridge restart, expiry, or a mismatched credential.
+  credential remained, such as after Host restart, expiry, or a mismatched credential.
   `pairing_invalidated` here means the matching pending credential was consumed but an
   administrative mutation invalidated its trust fence; the client must discard it and
   restart pairing -- the same reaction as the `pairing_confirm`-time occurrence above.
@@ -353,14 +355,14 @@ itself directly; an unpaired/restricted session has nothing to rename.
 
 `displayName` is required and may be empty; an empty value clears the device's display name,
 matching `ai/context/protocol/security.md`'s "displayName stays presentation-only metadata" rule. A
-non-empty value is subject to the trust store's length and control-character bound. The bridge
+non-empty value is subject to the trust store's length and control-character bound. The host
 responds with `rename_outcome`.
 
 Required payload field: `displayName`.
 
 ### `rename_outcome`
 
-Bridge reply to `rename_request`:
+Host reply to `rename_request`:
 
 ```json
 {
@@ -393,14 +395,14 @@ Declares supported features after `hello_ack`.
 }
 ```
 
-Capability IDs and versions are canonical protocol values, independent of the Bridge release
-version. A missing capability means the feature is unavailable and the client must remain usable
+Capability IDs and versions are canonical protocol values, independent of the DovahLink product
+release version. A missing capability means the feature is unavailable and the client must remain usable
 without it.
 
 Required payload field: `capabilities`. Each capability requires `id` and `version`.
 
 Both endpoints send `capabilities`. No capability is currently registered (see "Registered state
-areas" above); both the bridge and the client send an empty list, and any non-empty list is
+areas" above); both the host and the client send an empty list, and any non-empty list is
 rejected as `unsupported_capability`.
 
 ### `subscribe`
@@ -413,11 +415,11 @@ Requests state areas after capabilities are negotiated.
 }
 ```
 
-The bridge confirms the subscription and sends a `state_snapshot` before sending events only for a
+The host confirms the subscription and sends a `state_snapshot` before sending events only for a
 requested state area that is registered and accepted. When every requested area is rejected, the
-bridge sends only `subscription_ack` and no snapshot.
+host sends only `subscription_ack` and no snapshot.
 
-Required payload field: `stateAreas`. The bridge responds with `subscription_ack`. No state area is
+Required payload field: `stateAreas`. The host responds with `subscription_ack`. No state area is
 currently registered (see "Registered state areas" above), so every requested area is rejected into
 `subscription_ack.rejectedStateAreas`.
 
@@ -432,7 +434,7 @@ Confirms accepted and rejected state areas:
 }
 ```
 
-Both arrays are required. The bridge sends snapshots only for accepted areas. No state area is
+Both arrays are required. The host sends snapshots only for accepted areas. No state area is
 currently registered, so `acceptedStateAreas` is always empty and every requested area appears in
 `rejectedStateAreas`.
 
@@ -440,7 +442,7 @@ currently registered, so `acceptedStateAreas` is always empty and every requeste
 
 ### `snapshot_request`
 
-Requests a fresh baseline for one registered state area. When the area is accepted, the bridge
+Requests a fresh baseline for one registered state area. When the area is accepted, the host
 responds with a `state_snapshot` at the current revision; an unregistered area is rejected instead.
 
 ```json
@@ -505,8 +507,8 @@ authentication failures and violations detected before decoding completes. After
 
 ### `session_invalidated`
 
-An unsolicited, Bridge-originated terminal event for an authenticated session that an administrator
-deliberately invalidated. It is sent best-effort before the Bridge force-closes the affected socket;
+An unsolicited, Host-originated terminal event for an authenticated session that an administrator
+deliberately invalidated. It is sent best-effort before the Host force-closes the affected socket;
 the event is not a security boundary, requires no acknowledgement, and may be absent when delivery
 is impossible.
 
@@ -531,14 +533,15 @@ Carry no application state. They prove liveness for the current `sessionId`.
 ## Session and recovery rules
 
 1. The connecting client sends `hello`.
-2. The bridge authenticates the client and replies with `hello_ack`, which exposes the bridge's
-   release version for the client to evaluate against its own declared supported range. The bridge
+2. The host authenticates the client and replies with `hello_ack`, which exposes the host's
+   release version (the legacy `bridgeVersion` wire field) for the client to evaluate against its
+   own declared supported range. The host
    does not reject a connection on compatibility grounds; it does not receive or evaluate a
    client-declared version range itself. A client that finds the exposed version outside its
    supported range fails explicitly on its own side rather than continuing the exchange.
 3. They exchange `capabilities`.
 4. The client sends `subscribe` and receives `subscription_ack`.
-5. The bridge sends a snapshot before events for each accepted state area.
+5. The host sends a snapshot before events for each accepted state area.
 6. Each authenticated socket receives a unique `sessionId`. The session is bound exclusively to
    that socket and is invalidated when the socket closes for any reason; an administrative
    `session_invalidated` event may be sent before the force-close, but delivery is best-effort.
@@ -548,5 +551,5 @@ Carry no application state. They prove liveness for the current `sessionId`.
 8. The client must not apply messages from its previous session. Queued state from that session is
    not replayed; a fresh snapshot establishes each new
    baseline.
-9. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
+9. During snapshot recovery, events are buffered or withheld by the host until the snapshot baseline is established; the client never guesses the cutoff.
 10. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.

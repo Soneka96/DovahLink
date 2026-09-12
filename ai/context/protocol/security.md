@@ -1,12 +1,12 @@
 # Protocol and transport security
 
-Security rules apply before the bridge accepts any client connection. A local-network connection is not trusted merely because it is local.
+Security rules apply before the Host accepts any client connection. A local-network connection is not trusted merely because it is local.
 
 ## Phase 1 exposure
 
 - The first connection proof binds to loopback only (`127.0.0.1` and `::1`). It must not listen on a LAN or wildcard address.
-- The bridge must reject connections whose remote address is not loopback during this phase.
-- The bridge requires a cryptographically random, one-time local connection token before accepting `hello`. The token expires after 5 minutes or first successful use, whichever comes first.
+- The Host must reject connections whose remote address is not loopback during this phase.
+- The Host requires a cryptographically random, one-time local connection token before accepting `hello`. The token expires after 5 minutes or first successful use, whichever comes first.
 - Token validation and consumption are atomic: exactly one connection can successfully consume a token.
 - Failed token attempts are globally limited to 5 per 60 seconds; further attempts are rejected until the window expires.
 - The token is supplied out of band by the maintainer during development and is never committed, persisted in source, or sent to a non-loopback peer.
@@ -34,9 +34,9 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   generates a token, edits a Vortex/environment variable, or copies an authentication secret to
   connect; that remains available only as explicit developer authentication (see "Developer
   authentication" below).
-- Pairing availability is owned by the Bridge, not guessed by the client from arbitrary delays. The
+- Pairing availability is owned by the Host, not guessed by the client from arbitrary delays. The
   protocol represents pairing-unavailable/initializing, pairing-available, and pairing-in-progress;
-  the Bridge must not claim pairing is available when the in-game confirmation cannot actually be
+  the Host must not claim pairing is available when the in-game confirmation cannot actually be
   presented.
 - Only one pairing challenge may be active at a time, globally. A request while a challenge is active
   does not generate a second code, replace the existing code, or produce a second Skyrim
@@ -49,7 +49,7 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 - Pairing uses a recoverable confirmation handshake rather than an atomic cross-process transaction:
 
   ```text
-  Bridge: NONE -> CHALLENGE_ACTIVE (valid code) -> PENDING_CREDENTIAL (confirmation) -> TRUSTED
+  Host: NONE -> CHALLENGE_ACTIVE (valid code) -> PENDING_CREDENTIAL (confirmation) -> TRUSTED
   Client: UNPAIRED -> PAIRING (credential received) -> persist credential + recovery state
           -> CONFIRMING (accepted / already trusted) -> TRUSTED
   ```
@@ -58,12 +58,12 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   its issued credential and its `CONFIRMING` recovery state before sending final confirmation. Final
   confirmation is idempotent; a client recovering from `CONFIRMING` that receives `already_trusted`
   for its own valid credential treats that as a successful outcome, not an error. A client that fails
-  before saving the credential creates no durable trust and may pair again once the Bridge's pending
+  before saving the credential creates no durable trust and may pair again once the Host's pending
   challenge expires. A client that saves the credential but crashes before confirming retries
-  confirmation on restart. If the Bridge restarted while the credential was only pending, it reports
+  confirmation on restart. If the Host restarted while the credential was only pending, it reports
   the pending credential as no longer known/valid; the client discards its incomplete local
   credential and returns to unpaired. If a pending record survives while Revoke, Block, Reset Trust,
-  or Factory Reset changes its mutation fence, the bridge returns the distinct `pairing_invalidated`
+  or Factory Reset changes its mutation fence, the host returns the distinct `pairing_invalidated`
   pairing outcome so the client can distinguish administrative invalidation from a missing pending
   record while taking the same safe discard-and-restart action. The normal coordinated
   administration path cancels pending state before the ACK is processed, so that path truthfully
@@ -78,17 +78,17 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 
   **Phase 3 (core pairing):** `pairing_request` (client, on an `unpaired`-tier session per
   "Hello authentication and session trust tiers" below — starts or queries a challenge, no payload),
-  `pairing_status` (bridge reply to `pairing_request`: `unavailable`/`available`/`in_progress`, never
+  `pairing_status` (host reply to `pairing_request`: `unavailable`/`available`/`in_progress`, never
   the code itself), `pairing_confirm` (client, carries the user-entered code plus an optional
-  `displayName` — `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`: on a valid code the bridge generates the
+  `displayName` — `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`: on a valid code the host generates the
   credential, holds it in memory only, and returns it), `pairing_ack` (client, echoes back the
   credential it just durably saved -- this is the wire form of "final confirmation";
   `PENDING_CREDENTIAL -> TRUSTED` via `TrustStore::Persist`, only once this arrives), and
-  `pairing_outcome` (bridge reply to `pairing_confirm` and `pairing_ack`, distinguished by its
+  `pairing_outcome` (host reply to `pairing_confirm` and `pairing_ack`, distinguished by its
   `outcome` field: `credential_issued` carries the pending credential; `trusted` carries the
   committed credential's `shortId`; `already_trusted` is `pairing_ack`'s idempotent-retry success
   case; `expired`/`invalid`/`pacing_limited`/`hard_limit_reached` carry no credential; `pending_not_found`
-  is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory pending credential;
+  is what a `pairing_ack` retry gets after a Host restart lost the in-memory pending credential;
   `pairing_invalidated` is what an administrative mutation returns when its stale mutation fence
   rejects a pairing operation that began before the mutation committed -- either a `pairing_confirm`
   whose challenge began before the mutation but is only evaluated after it, before any credential was
@@ -96,10 +96,10 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   persistence on `pairing_ack`).
 
   **Phase 3.1 (pairing UX):** Two additional client-originated messages, both on `unpaired`-tier
-  sessions: `pairing_renotify` (client requests redisplay of the active code, no payload, bridge
+  sessions: `pairing_renotify` (client requests redisplay of the active code, no payload, host
   replies with `pairing_outcome` bearing `renotified`/`renotify_cooldown`/`already_idle`), and
   `pairing_cancel` (client gives up ownership of an active challenge or pending credential, no
-  payload, bridge replies with `pairing_outcome` bearing `cancelled`/`already_idle`). Phase 3.1 also
+  payload, host replies with `pairing_outcome` bearing `cancelled`/`already_idle`). Phase 3.1 also
   replaced the single undifferentiated `rate_limited` outcome with `pacing_limited` (attempt too
   soon, doesn't count wrong) and `hard_limit_reached` (5th wrong attempt, cancels challenge), per
   `roadmap/03-local-device-pairing-and-reconnection.md`'s "3.1 Live Pairing Challenge UX". `pairing_status` now carries `expiresInSeconds`,
@@ -111,14 +111,14 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 
   The in-memory pending-credential record is keyed to the single active connection (this phase's
   single-connected-client limit makes a second concurrent claimant structurally impossible) and
-  never persists past a Bridge restart, matching "Incomplete pending pairing does not need to
-  survive a bridge restart."
+  never persists past a Host restart, matching "Incomplete pending pairing does not need to
+  survive a Host restart."
 - Persist completed trust outside the Skyrim/modpack files, scoped to the Windows user profile
-  running the client and the Bridge — not to the modpack, the Skyrim installation, a particular
-  Bridge process, `bridgeInstanceId`, `playContextId`, or `sessionId` — through an approved per-user
+  running the client and the Host — not to the modpack, the Skyrim installation, a particular
+  Host process, `bridgeInstanceId`, `playContextId`, or `sessionId` — through an approved per-user
   secure-storage mechanism for the platform. Do not invent cryptography. Loopback TCP itself does not
   establish this scoping; see "Local-OS-user threat boundary" below.
-- The Bridge's approved per-user secure-storage mechanism for the current (Windows) platform is
+- The Host's approved per-user secure-storage mechanism for the current (Windows) platform is
   DPAPI (`CryptProtectData`/`CryptUnprotectData`) in its default per-user scope —
   `CRYPTPROTECT_LOCAL_MACHINE` is never set — so the OS itself ties the encrypted material to the
   logged-in Windows user, matching the user-profile scoping above; DPAPI is Windows' standard
@@ -138,7 +138,7 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   client must not share one `clientId`/credential between different Windows user profiles merely
   because the executable is installed system-wide. No Windows username, SID, hostname, or other
   OS-user identifier needs to become part of the wire protocol to establish this scoping.
-- Each trusted client receives a five-digit `shortId`, generated by the Bridge, unique among every
+- Each trusted client receives a five-digit `shortId`, generated by the Host, unique among every
   Known Device record currently retained in that Windows-user trust domain -- not only those
   presently `Trusted` -- for human-readable administration only. The `shortId` is reserved for that
   Known Device record's entire lifetime, including across a `Trusted` -> `Revoked`/`Blocked`
@@ -151,14 +151,15 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   may leave it absent.
 - Access persistent trust through a dedicated trust-store boundary (load, persist, revoke, reset,
   query) rather than pairing logic owning a particular file format directly. Trust administration
-  (list trusted clients, revoke one, reset all) lives in a reusable Bridge application/domain
+  (list trusted clients, revoke one, reset all) lives in a reusable Host application/domain
   service, not inside a Skyrim console-command handler, so console commands, a future Flutter
   management UI, and developer tooling all call the same behavior. An explicit local reset-all-trust
   operation exists. Trust-store corruption or inaccessible persistence fails closed: it never crashes
   Skyrim, never silently trusts a client, never invents or merges uncertain credentials, and always
   supports a clean reset-and-re-pair path. This phase's trust-store implementation only needs to
-  satisfy a single Bridge process, but its boundary must not make later multi-process synchronization
-  (Phase 10, multi-Bridge) require rewriting the pairing protocol or trust-domain model.
+  satisfy a single Host process, but its boundary must not make later multi-process synchronization
+  (Stage 10, Multi-Bridge and Local Discovery Foundation) require rewriting the pairing protocol or
+  trust-domain model.
 - Revocation is immediate: revoking a trusted client removes its active trust, invalidates its
   current authenticated session, closes that connection, and rejects reuse of the revoked credential;
   resetting all trust applies the same behavior to every trusted client. A revoked client that
@@ -169,7 +170,7 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 
 ## Administrative session invalidation
 
-Phase 3.2 extends persistent local trust with Bridge-owned Known Device states: `Trusted`, `Revoked`,
+Phase 3.2 extends persistent local trust with Host-owned Known Device states: `Trusted`, `Revoked`,
 `Blocked`, and `Unpaired`. Block applies to a `Trusted` or `Revoked` Known Device -- never an
 `Unpaired` one, which stays not eligible, and never creates a record for an unknown `clientId`; a
 repeated block reports the already-blocked state. Blocked stale credentials are rejected explicitly
@@ -177,7 +178,7 @@ as `blocked`, while revoked stale credentials are rejected explicitly as `revoke
 administrative truths are available to the authenticated/admin surfaces and SDKs; the official
 Flutter UI may intentionally present them identically.
 
-When an administrator deliberately invalidates an authenticated session, the Bridge uses one
+When an administrator deliberately invalidates an authenticated session, the Host uses one
 canonical unsolicited terminal event, `session_invalidated`, with a typed reason of `revoked`,
 `blocked`, `trust_reset`, or `factory_reset`. It is not named `credential_invalidated`, because
 Factory Reset terminates developer-token sessions while leaving the configured developer token
@@ -196,7 +197,7 @@ attempt invalidation; failed or expired confirmation performs no destructive cha
 Factory Reset invalidates every session, including developer-token sessions, with `factory_reset`,
 but leaves developer-token configuration available for later authentication. Because Factory Reset
 deletes every Known Device record and revocation tombstone, a credential presented afterward has no
-matching record to classify against; the Bridge rejects it through the ordinary
+matching record to classify against; the Host rejects it through the ordinary
 unrecognized-credential/unpaired path, the same as a device that was never paired, not through the
 `blocked`/`revoked` outcomes above.
 
@@ -204,7 +205,7 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
 
 - Trust administration (list Known Devices, rename, revoke, block/unblock, forget, Reset Trust, and
   Factory Reset) is implemented once, as a
-  reusable Bridge application-layer service (`TrustAdminService`) over `TrustStore`'s existing
+  reusable Host application-layer service (`TrustAdminService`) over `TrustStore`'s existing
   load/persist/revoke/reset/query boundary. No caller -- console, a future Flutter management UI, or
   developer tooling -- duplicates trust-store logic; each only formats input and output around the
   same calls.
@@ -228,19 +229,19 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     (Reset Trust, immediate, no confirmation), `dovahlink reset` (starts the Factory Reset
     confirmation challenge; performs no mutation itself), and `dovahlink confirm-reset -confirm <code>`
     (confirms it, executing the destructive wipe only on a matching code) directly.
-  - DovahLink Bridge registers a small set of native Papyrus functions
+  - The native Adapter registers a small set of native Papyrus functions
     (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
     memory patching, no offsets, version-independent) that a short Papyrus glue script forwards to.
-    The glue script and ConsoleUtil Extended's YAML config are kept outside `bridge/`: they are not
+    The glue script and ConsoleUtil Extended's YAML config are kept outside `adapter/`: they are not
     part of the native DovahLink core, only an optional way to reach it. Each native function does
     nothing but call `TrustAdminService` and return a formatted string; it owns no trust logic of its
     own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
-    introduce Papyrus into the core bridge" rule -- the Papyrus surface is glue only, never policy.
+    introduce Papyrus into the core bridge/adapter" rule -- the Papyrus surface is glue only, never policy.
   - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
-    DovahLink Bridge itself. The bridge attempts native Papyrus-function registration
+    the native Adapter or Host themselves. The Adapter attempts native Papyrus-function registration
     unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing
-    to version-check at bridge startup); a registration failure is logged and remains isolated to
-    this optional adapter; every other bridge behavior -- connection, pairing, trust
+    to version-check at Adapter startup); a registration failure is logged and remains isolated to
+    this optional integration; every other Adapter/Host behavior -- connection, pairing, trust
     persistence -- is entirely unaffected if ConsoleUtil Extended, the glue script, or its YAML
     config are absent. Without them, `dovahlink list`/`dovahlink list trusted`/`dovahlink list blocked`/
     `dovahlink help` and the mutation commands are simply unrecognized
@@ -266,7 +267,7 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
   limit. Developer authentication is not a switch that disables security.
 - A developer-token session is never treated as a Known Device by administrative Block or Revoke,
   including when its self-declared `clientId` happens to match a Known Device those operations
-  target: the Bridge tracks whether the active session authenticated via `one_time_local_token`
+  target: the Host tracks whether the active session authenticated via `one_time_local_token`
   and exempts it from clientId-scoped disconnection on that basis, not merely from the hello-time
   `blocked`/`revoked` rejection checks. Factory Reset's unconditional session invalidation is
   unaffected by this exemption and still disconnects a developer-token session, per "Administrative
@@ -292,10 +293,9 @@ message shape. This phase is that phase; this section is the filled-in decision.
   post-admission client message types this tier simply does not authorize, so they are rejected as
   `unauthorized`, distinct from a genuine protocol shape/direction violation
   (`malformed_message`) -- which is reserved for a message type no tier could ever authorize a
-  client to send (a server-originated type, or `hello` once a session already exists). This
-  mirrors `IsAllowedMessageType`'s existing allowlist mechanism in
-  `bridge/application/message_dispatcher.cpp`; a session's trust tier is a second, narrower
-  allowlist selector alongside "authenticated at all", not a parallel dispatch path.
+  client to send (a server-originated type, or `hello` once a session already exists). A session's
+  trust tier is a second, narrower allowlist selector alongside "authenticated at all", not a
+  parallel dispatch path.
 - `hello_ack.clientIdentityKind` is `"unpaired"` for both developer-authenticated and
   bootstrap-`unpaired` sessions (no wire-visible difference; a developer-authenticated session is
   simply never trust-restricted, since developer authentication already implies full access per
@@ -316,7 +316,7 @@ message shape. This phase is that phase; this section is the filled-in decision.
 - Once the WebSocket session is established, WebSocket-level Ping/Pong and a bounded idle timeout own
   connection liveness; do not invent a DovahLink-specific application heartbeat or infer liveness by
   guessing a TCP socket's state.
-- Detect and recover from normal close, client process termination/crash, Bridge shutdown,
+- Detect and recover from normal close, client process termination/crash, Host shutdown,
   transport/read/write failure, an unresponsive peer, and idle/heartbeat timeout through one
   deterministic teardown path: invalidate `sessionId`, cancel or finish outstanding I/O, close the
   transport, then release the connection slot. A dead `sessionId` can never become valid again.
@@ -329,7 +329,7 @@ message shape. This phase is that phase; this section is the filled-in decision.
   connection takeover: if a client crashes and reconnects quickly, the previous connection may still
   be completing teardown, and the reconnect attempt finds the slot temporarily busy rather than
   replacing the prior session's generation. Runtime tests must prove that normal close, force-
-  close/crash, rapid restart, timeout, and Bridge restart all recover cleanly under this policy
+  close/crash, rapid restart, timeout, and Host restart all recover cleanly under this policy
   before same-client takeover semantics are considered.
 - WebSocket-level liveness answers whether the peer/socket is still alive; it does not answer
   whether the peer has completed the required initial `hello`/session-admission transition, and
@@ -399,7 +399,7 @@ The transport rejects input before application decoding when it exceeds the appr
 - maximum array length: 128 items
 - maximum object members: 64
 - maximum inbound messages: 100 per second per client
-- maximum messages in one session: 10,000; the bridge closes the session before this bound is exceeded
+- maximum messages in one session: 10,000; the host closes the session before this bound is exceeded
 - maximum connected clients: configurable, defaulting to 4; the host reads an optional override from
   its user-editable settings file, falling back to the default for anything missing or out of range.
   This is a device-count/resource bound, not a change to Phase 1 exposure above: every admitted
@@ -435,7 +435,7 @@ The transport rejects input before application decoding when it exceeds the appr
   rationale this bullet provides.
 - maximum registered state areas: 8 (`kMaxRegisteredStateAreas`), sized for a small number of
   near-term production character domains with modest headroom. This is not itself a wire limit; it is
-  the bound `RegisteredStateAreaPolicy` enforces before the bridge accepts `subscribe` or
+  the bound `RegisteredStateAreaPolicy` enforces before the host accepts `subscribe` or
   `snapshot_request` for any area, and before any queue, barrier, Snapshot-slot, or dirty-marker state
   may be allocated for it. No state area is registered against this bound yet.
 
@@ -460,10 +460,10 @@ Limit changes require explicit maintainer approval and a documented reason.
 
 ## Session and replay protection
 
-- To implement the server-issued session identity defined by `protocol/schema/README.md`, the bridge
+- To implement the server-issued session identity defined by `protocol/schema/README.md`, the host
   creates a fresh cryptographically random `sessionId` after successful token validation.
-- The bridge binds the authenticated session exclusively to the socket that completed token
-  validation. Disconnect, timeout, protocol-limit closure, or bridge shutdown invalidates the
+- The host binds the authenticated session exclusively to the socket that completed token
+  validation. Disconnect, timeout, protocol-limit closure, or host shutdown invalidates the
   session before the socket is released; subsequent messages carrying that session ID are rejected
   before application handling.
 - A session cannot move to another socket. Another socket presenting the same `sessionId` is
@@ -471,7 +471,7 @@ Limit changes require explicit maintainer approval and a documented reason.
 - Once every admission slot (see "Input limits"'s configurable connected-client maximum) is
   occupied, a further connection attempt is rejected outright; it never replaces an already active
   session.
-- To enforce the schema's unique `messageId` requirement, the bridge retains all seen IDs for the
+- To enforce the schema's unique `messageId` requirement, the host retains all seen IDs for the
   session; the 10,000-message session bound keeps this set bounded and prevents eviction-based
   replay.
 - An expired token or invalid connection attempt is rejected before application handling.

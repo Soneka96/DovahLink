@@ -698,8 +698,9 @@ public class PublicHelloAdmissionTests
     /// <summary>
     /// Verifies that a pre-authentication hello carrying a non-null envelope bridgeInstanceId is
     /// rejected as malformed_message. Built from raw JSON since <see cref="PublicEnvelopeCodec.Encode"/>
-    /// always encodes bridgeInstanceId as null (the approved D1 transition-boundary limitation) and so
-    /// cannot itself produce this otherwise-well-formed wire shape.
+    /// always encodes bridgeInstanceId as null (the deferred public instance identifier, per
+    /// <c>ai/context/protocol/compatibility.md</c>) and so cannot itself produce this
+    /// otherwise-well-formed wire shape.
     /// </summary>
     [Fact]
     public void HandleMessageAsync_HelloWithNonNullEnvelopeBridgeInstanceId_RejectsAsMalformed()
