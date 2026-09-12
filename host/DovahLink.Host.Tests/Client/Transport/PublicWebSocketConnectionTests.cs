@@ -3024,6 +3024,52 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>
+    /// Verifies end-to-end that a snapshot declined only because the data lane's message-count bound
+    /// was reached is not lost: once the event ahead of it drains and releases its outstanding slot,
+    /// the previously declined snapshot is promoted and reaches the peer.
+    /// </summary>
+    [Fact]
+    public async Task TrySendSnapshot_DeclinedByMessageCountBound_IsPromotedOnceASlotIsReleased()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream());
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(dataOutboundQueueMaxMessages: 1);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Blocks the writer before it reaches the data lane, so the admissions below are provably
+        // still queued -- not yet raced by the writer -- when the snapshot is declined.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("control-first"), PublicOutboundLane.ControlOrRecovery));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("event"), PublicOutboundLane.Data)); // fills the one data-lane slot
+        Assert.False(connection.TrySendSnapshot(new StateAreaId("example_area"), Encoding.UTF8.GetBytes("snapshot"))); // declined; retained as dirty
+
+        blockingStream.Release();
+
+        var buffer = new byte[64];
+        WebSocketReceiveResult controlResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("control-first", Encoding.UTF8.GetString(buffer, 0, controlResult.Count));
+
+        WebSocketReceiveResult eventResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("event", Encoding.UTF8.GetString(buffer, 0, eventResult.Count));
+
+        WebSocketReceiveResult snapshotResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("snapshot", Encoding.UTF8.GetString(buffer, 0, snapshotResult.Count));
+
+        listener.Stop();
+        connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Starts a loopback <see cref="TcpListener"/> on an operating-system-assigned port.</summary>
     private static (TcpListener Listener, int Port) StartLoopbackListener()
     {

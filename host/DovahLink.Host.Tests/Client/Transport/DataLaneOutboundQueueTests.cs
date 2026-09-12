@@ -180,7 +180,7 @@ public class DataLaneOutboundQueueTests
         var areaId = new StateAreaId("example_area");
         queue.TryAdmitSnapshot(areaId, [1], maxOutstandingMessages: 10, AlwaysAffordable);
         queue.TryDequeue(out _);
-        queue.ReleaseOutstanding(); // simulates the dequeued frame's send fully completing
+        queue.ReleaseOutstanding(maxOutstandingMessages: 10, AlwaysAffordable); // simulates the dequeued frame's send fully completing
 
         long? observedDelta = null;
         bool result = queue.TryAdmitSnapshot(areaId, [2, 2], maxOutstandingMessages: 10, delta =>
@@ -219,7 +219,7 @@ public class DataLaneOutboundQueueTests
         var queue = new DataLaneOutboundQueue();
         queue.TryAdmitEvent([1], maxOutstandingMessages: 10, AlwaysAffordable);
 
-        queue.ReleaseOutstanding();
+        queue.ReleaseOutstanding(maxOutstandingMessages: 10, AlwaysAffordable);
 
         Assert.Equal(0, queue.OutstandingMessages);
     }
@@ -363,5 +363,204 @@ public class DataLaneOutboundQueueTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waitTask).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a snapshot declined by the outstanding-message bound is retained as that area's dirty snapshot rather than disappearing.</summary>
+    [Fact]
+    public void TryAdmitSnapshot_NewAreaAtMessageCountBound_RetainsPayloadAsDirty()
+    {
+        var queue = new DataLaneOutboundQueue();
+        queue.TryAdmitEvent([1], maxOutstandingMessages: 1, AlwaysAffordable);
+        queue.TryAdmitSnapshot(new StateAreaId("example_area"), [9], maxOutstandingMessages: 1, AlwaysAffordable);
+        queue.TryDequeue(out _); // drains the event, freeing the one outstanding-message slot
+
+        queue.ReleaseOutstanding(maxOutstandingMessages: 1, AlwaysAffordable);
+
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 9 }, payload); // the previously declined snapshot, promoted rather than lost
+    }
+
+    /// <summary>Verifies that a replacement declined by the byte budget retains the newer payload as dirty, not the older still-queued one.</summary>
+    [Fact]
+    public void TryAdmitSnapshot_ReplaceDeclinedByByteBudget_RetainsNewerPayloadAsDirty()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var areaId = new StateAreaId("example_area");
+        queue.TryAdmitSnapshot(areaId, [1], maxOutstandingMessages: 10, AlwaysAffordable);
+        queue.TryAdmitSnapshot(areaId, [2, 2, 2], maxOutstandingMessages: 10, NeverAffordable); // declined; [2, 2, 2] becomes dirty
+        queue.TryDequeue(out _); // drains the still-queued [1], freeing its outstanding-message slot
+
+        queue.ReleaseOutstanding(maxOutstandingMessages: 10, AlwaysAffordable);
+
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 2, 2, 2 }, payload);
+    }
+
+    /// <summary>
+    /// Verifies that releasing an outstanding slot promotes a dirty snapshot that now fits before the
+    /// call returns -- the atomicity <see cref="DataLaneOutboundQueue.ReleaseOutstanding"/> exists to
+    /// guarantee, proven here by observing the promoted entry immediately, with no separate promotion
+    /// call in between.
+    /// </summary>
+    [Fact]
+    public void ReleaseOutstanding_DirtySnapshotFits_PromotesBeforeReturning()
+    {
+        var queue = new DataLaneOutboundQueue();
+        queue.TryAdmitEvent([1], maxOutstandingMessages: 1, AlwaysAffordable);
+        queue.TryAdmitSnapshot(new StateAreaId("example_area"), [9], maxOutstandingMessages: 1, AlwaysAffordable);
+        queue.TryDequeue(out _);
+
+        queue.ReleaseOutstanding(maxOutstandingMessages: 1, AlwaysAffordable);
+
+        Assert.Equal(1, queue.OutstandingMessages); // the promoted snapshot now owns the freed slot
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 9 }, payload);
+    }
+
+    /// <summary>Verifies that a dirty snapshot the byte budget still declines after a slot frees stays dirty rather than being dropped.</summary>
+    [Fact]
+    public void ReleaseOutstanding_DirtySnapshotStillDoesNotFitByteBudget_StaysDirty()
+    {
+        var queue = new DataLaneOutboundQueue();
+        queue.TryAdmitEvent([1], maxOutstandingMessages: 1, AlwaysAffordable);
+        queue.TryAdmitSnapshot(new StateAreaId("example_area"), [9], maxOutstandingMessages: 1, AlwaysAffordable);
+        queue.TryDequeue(out _);
+
+        queue.ReleaseOutstanding(maxOutstandingMessages: 1, NeverAffordable);
+
+        Assert.Equal(0, queue.OutstandingMessages);
+        Assert.False(queue.TryDequeue(out _));
+
+        // A later attempt with room in the byte budget still promotes the retained value.
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 1, AlwaysAffordable);
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 9 }, payload);
+    }
+
+    /// <summary>
+    /// Verifies that promoting deferred snapshots without releasing a slot -- the Control/Recovery
+    /// lane's own path, once its send frees shared byte budget the Data lane did not reserve --
+    /// promotes a dirty snapshot the byte budget now affords, without needing a slot release.
+    /// </summary>
+    [Fact]
+    public void TryPromoteDeferredSnapshots_ByteBudgetNowAffordable_PromotesWithoutSlotRelease()
+    {
+        var queue = new DataLaneOutboundQueue();
+        queue.TryAdmitSnapshot(new StateAreaId("example_area"), [9], maxOutstandingMessages: 10, NeverAffordable);
+        Assert.Equal(0, queue.OutstandingMessages);
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, AlwaysAffordable);
+
+        Assert.Equal(1, queue.OutstandingMessages);
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 9 }, payload);
+    }
+
+    /// <summary>Verifies that a direct successful admission for an area clears any dirty value already retained for it.</summary>
+    [Fact]
+    public void TryAdmitSnapshot_SucceedsDirectly_ClearsAnyPriorDirtyValueForArea()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var areaId = new StateAreaId("example_area");
+        queue.TryAdmitEvent([1], maxOutstandingMessages: 1, AlwaysAffordable);
+        queue.TryAdmitSnapshot(areaId, [8], maxOutstandingMessages: 1, AlwaysAffordable); // declined; [8] becomes dirty
+        queue.TryDequeue(out _);
+        queue.ReleaseOutstanding(maxOutstandingMessages: 1, NeverAffordable); // frees the slot but declines promotion, so [8] stays dirty
+
+        bool result = queue.TryAdmitSnapshot(areaId, [9], maxOutstandingMessages: 1, AlwaysAffordable);
+
+        Assert.True(result);
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 9 }, payload); // the fresh value, not the stale dirty [8]
+
+        // The stale dirty [8] must not resurface on a later promotion attempt.
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 1, AlwaysAffordable);
+        Assert.False(queue.TryDequeue(out _));
+    }
+
+    /// <summary>Verifies that completing the queue clears any retained dirty snapshots, so they never resurface after teardown.</summary>
+    [Fact]
+    public void Complete_ClearsAnyDirtySnapshots()
+    {
+        var queue = new DataLaneOutboundQueue();
+        queue.TryAdmitSnapshot(new StateAreaId("example_area"), [9], maxOutstandingMessages: 10, NeverAffordable);
+
+        queue.Complete();
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, AlwaysAffordable);
+        Assert.False(queue.TryDequeue(out _));
+    }
+
+    /// <summary>
+    /// Verifies that a repeated decline for the same area while it is already dirty overwrites the
+    /// retained payload with the newer one, rather than promoting the stale earlier value.
+    /// </summary>
+    [Fact]
+    public void TryAdmitSnapshot_DeclinedAgainWhileAlreadyDirty_RetainsOnlyTheNewerPayload()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var areaId = new StateAreaId("example_area");
+        queue.TryAdmitSnapshot(areaId, [1], maxOutstandingMessages: 0, AlwaysAffordable); // declined; [1] becomes dirty
+
+        queue.TryAdmitSnapshot(areaId, [2, 2], maxOutstandingMessages: 0, AlwaysAffordable); // still declined; overwrites the dirty value
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, AlwaysAffordable);
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 2, 2 }, payload);
+    }
+
+    /// <summary>
+    /// Verifies that promotion halts at the outstanding-message bound rather than dropping a later
+    /// dirty area: when only one freed slot is available, exactly one of two simultaneously dirty
+    /// areas promotes and the other remains dirty for a later attempt.
+    /// </summary>
+    [Fact]
+    public void PromoteDirtySnapshots_MultipleAreasButOnlyOneSlotFits_PromotesOneAndKeepsTheOtherDirty()
+    {
+        var queue = new DataLaneOutboundQueue();
+        queue.TryAdmitEvent([1], maxOutstandingMessages: 1, AlwaysAffordable); // occupies the only slot
+        var areaA = new StateAreaId("area_a");
+        var areaB = new StateAreaId("area_b");
+        queue.TryAdmitSnapshot(areaA, [1], maxOutstandingMessages: 1, AlwaysAffordable); // declined; dirty
+        queue.TryAdmitSnapshot(areaB, [2], maxOutstandingMessages: 1, AlwaysAffordable); // declined; dirty
+        queue.TryDequeue(out _); // drains the event
+
+        queue.ReleaseOutstanding(maxOutstandingMessages: 1, AlwaysAffordable); // exactly one freed slot
+
+        Assert.Equal(1, queue.OutstandingMessages); // only one of the two dirty areas could be promoted
+        Assert.True(queue.TryDequeue(out byte[]? firstPromoted));
+        Assert.False(queue.TryDequeue(out _)); // the second area is still dirty, not queued
+
+        // The leftover dirty area promotes once capacity allows a second slot.
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 2, AlwaysAffordable);
+        Assert.True(queue.TryDequeue(out byte[]? secondPromoted));
+        Assert.Equal(
+            new HashSet<byte> { 1, 2 },
+            new HashSet<byte> { firstPromoted![0], secondPromoted![0] }); // both areas eventually promoted, in either order
+    }
+
+    /// <summary>
+    /// Verifies that a byte-budget decline for one dirty area does not halt promotion of another --
+    /// unlike the outstanding-message bound, an unaffordable area is skipped, not a stopping point.
+    /// </summary>
+    [Fact]
+    public void PromoteDirtySnapshots_OneAreaTooLargeForByteBudget_PromotesTheOtherRegardless()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var smallArea = new StateAreaId("small_area");
+        var bigArea = new StateAreaId("big_area");
+        queue.TryAdmitSnapshot(smallArea, [1], maxOutstandingMessages: 10, NeverAffordable); // declined; dirty
+        queue.TryAdmitSnapshot(bigArea, [1, 2, 3], maxOutstandingMessages: 10, NeverAffordable); // declined; dirty
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, canAffordBytes: length => length <= 1);
+
+        Assert.Equal(1, queue.OutstandingMessages);
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 1 }, payload); // only the affordable area promoted
+
+        // The still-too-large area remains dirty and promotes once the budget allows it.
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, AlwaysAffordable);
+        Assert.True(queue.TryDequeue(out byte[]? secondPayload));
+        Assert.Equal(new byte[] { 1, 2, 3 }, secondPayload);
     }
 }

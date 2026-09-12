@@ -35,12 +35,15 @@ public interface IDataLaneOutboundQueue
     /// <param name="canAffordByteDelta">
     /// Consulted, atomically with the rest of this decision, with the byte difference this admission
     /// would make -- the full payload length for a new slot, or the replacement delta (possibly
-    /// negative) for an existing one. When it declines, this call makes no change at all.
+    /// negative) for an existing one. When it declines, this call admits nothing onto the queue
+    /// itself, but see <paramref name="payload"/>'s fate below.
     /// </param>
     /// <returns>
     /// <see langword="true"/> when the value is now the pending snapshot for <paramref name="areaId"/>;
-    /// <see langword="false"/> when it was declined -- a deferral, not a failure the caller must
-    /// react to.
+    /// <see langword="false"/> when it was declined -- a deferral, not a failure the caller must react
+    /// to. A declined value is retained as that area's dirty Snapshot, superseding any earlier one for
+    /// the same area, until <see cref="ReleaseOutstanding"/> or <see cref="TryPromoteDeferredSnapshots"/>
+    /// later promotes it or a fresh call for the same area succeeds outright.
     /// </returns>
     bool TryAdmitSnapshot(StateAreaId areaId, byte[] payload, int maxOutstandingMessages, Func<long, bool> canAffordByteDelta);
 
@@ -58,9 +61,16 @@ public interface IDataLaneOutboundQueue
 
     /// <summary>
     /// Releases one outstanding-message slot, once a dequeued frame's send has fully completed --
-    /// not merely once <see cref="TryDequeue"/> removed it from the queue.
+    /// not merely once <see cref="TryDequeue"/> removed it from the queue -- then, under that same
+    /// admission lock, promotes the newest dirty Snapshot for any area that now fits the freed slot
+    /// and the current byte budget. Performing the release and the promotion attempt as one atomic
+    /// step closes a race that two separate calls could not: a concurrent <see cref="TryAdmitEvent"/>
+    /// or <see cref="TryAdmitSnapshot"/> can never observe the freed slot and claim it ahead of a
+    /// dirty Snapshot that was already waiting for exactly this capacity to return.
     /// </summary>
-    void ReleaseOutstanding();
+    /// <param name="maxOutstandingMessages">The outstanding-message bound a promoted dirty Snapshot must stay within.</param>
+    /// <param name="canAffordBytes">Consulted with a promoted dirty Snapshot's full payload length; declining it leaves that Snapshot dirty for a later attempt.</param>
+    void ReleaseOutstanding(int maxOutstandingMessages, Func<long, bool> canAffordBytes);
 
     /// <summary>
     /// Waits until <see cref="TryDequeue"/> may have something new to return, or until
@@ -74,6 +84,18 @@ public interface IDataLaneOutboundQueue
 
     /// <summary>Whether <see cref="Complete"/> has been called and every admitted entry has since been dequeued.</summary>
     bool IsCompletedAndEmpty { get; }
+
+    /// <summary>
+    /// Retries every area's dirty Snapshot -- one <see cref="TryAdmitSnapshot"/> call that
+    /// <paramref name="canAffordBytes"/> or the outstanding-message bound previously declined --
+    /// against the current capacity, without releasing an outstanding-message slot itself. For a
+    /// capacity change that came from elsewhere, such as the Control/Recovery lane's own send
+    /// freeing shared byte budget this lane did not reserve. A no-op when no area is currently dirty
+    /// or none of them yet fit.
+    /// </summary>
+    /// <param name="maxOutstandingMessages">The outstanding-message bound a promoted dirty Snapshot must stay within.</param>
+    /// <param name="canAffordBytes">Consulted with a promoted dirty Snapshot's full payload length; declining it leaves that Snapshot dirty for a later attempt.</param>
+    void TryPromoteDeferredSnapshots(int maxOutstandingMessages, Func<long, bool> canAffordBytes);
 }
 
 /// <inheritdoc cref="IDataLaneOutboundQueue"/>
@@ -104,6 +126,17 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
     /// <summary>Whether <see cref="Complete"/> has been called.</summary>
     private bool completed;
 
+    /// <summary>
+    /// The latest Snapshot payload for each area whose most recent <see cref="TryAdmitSnapshot"/>
+    /// attempt was declined by capacity -- retained so <see cref="ReleaseOutstanding"/> or
+    /// <see cref="TryPromoteDeferredSnapshots"/> can retry it once capacity allows, rather than the
+    /// value disappearing outright. An area is present here only while it has no live node in
+    /// <see cref="snapshotNodesByArea"/>: a successful admission or replacement always clears its
+    /// entry, and a promotion moves it into <see cref="entries"/>/<see cref="snapshotNodesByArea"/>
+    /// and removes it from here in the same step.
+    /// </summary>
+    private readonly Dictionary<StateAreaId, byte[]> dirtySnapshotsByArea = new();
+
     /// <inheritdoc/>
     public int OutstandingMessages
     {
@@ -132,16 +165,19 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
                 long delta = payload.Length - snapshotEntry.Bytes.Length;
                 if (!canAffordByteDelta(delta))
                 {
+                    dirtySnapshotsByArea[areaId] = payload;
                     return false;
                 }
 
                 snapshotEntry.SetBytes(payload);
+                dirtySnapshotsByArea.Remove(areaId);
                 readySignal.Writer.TryWrite(true);
                 return true;
             }
 
             if (outstandingMessages >= maxOutstandingMessages || !canAffordByteDelta(payload.Length))
             {
+                dirtySnapshotsByArea[areaId] = payload;
                 return false;
             }
 
@@ -149,6 +185,7 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
             LinkedListNode<Entry> newNode = entries.AddLast(newEntry);
             snapshotNodesByArea.Add(areaId, newNode);
             outstandingMessages++;
+            dirtySnapshotsByArea.Remove(areaId);
             readySignal.Writer.TryWrite(true);
             return true;
         }
@@ -195,11 +232,12 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
     }
 
     /// <inheritdoc/>
-    public void ReleaseOutstanding()
+    public void ReleaseOutstanding(int maxOutstandingMessages, Func<long, bool> canAffordBytes)
     {
         lock (gate)
         {
             outstandingMessages--;
+            PromoteDirtySnapshotsLocked(maxOutstandingMessages, canAffordBytes);
         }
     }
 
@@ -221,6 +259,7 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
             }
 
             completed = true;
+            dirtySnapshotsByArea.Clear();
         }
 
         readySignal.Writer.TryComplete();
@@ -235,6 +274,52 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
             {
                 return completed && entries.Count == 0;
             }
+        }
+    }
+
+    /// <inheritdoc/>
+    public void TryPromoteDeferredSnapshots(int maxOutstandingMessages, Func<long, bool> canAffordBytes)
+    {
+        lock (gate)
+        {
+            PromoteDirtySnapshotsLocked(maxOutstandingMessages, canAffordBytes);
+        }
+    }
+
+    /// <summary>
+    /// Promotes every currently dirty Snapshot that now fits <paramref name="maxOutstandingMessages"/>
+    /// and <paramref name="canAffordBytes"/> into a live queue entry, in no particular order among
+    /// distinct areas -- each is independent, keyed, replaceable state, not an ordered sequence. Must
+    /// be called with <see cref="gate"/> already held by the calling thread.
+    /// </summary>
+    /// <param name="maxOutstandingMessages">The outstanding-message bound a promoted entry must stay within.</param>
+    /// <param name="canAffordBytes">Consulted with a promoted entry's full payload length; declining it leaves that area dirty.</param>
+    private void PromoteDirtySnapshotsLocked(int maxOutstandingMessages, Func<long, bool> canAffordBytes)
+    {
+        if (dirtySnapshotsByArea.Count == 0)
+        {
+            return;
+        }
+
+        foreach (StateAreaId areaId in dirtySnapshotsByArea.Keys.ToArray())
+        {
+            if (outstandingMessages >= maxOutstandingMessages)
+            {
+                return;
+            }
+
+            byte[] payload = dirtySnapshotsByArea[areaId];
+            if (!canAffordBytes(payload.Length))
+            {
+                continue;
+            }
+
+            var newEntry = new SnapshotEntry(areaId, payload);
+            LinkedListNode<Entry> newNode = entries.AddLast(newEntry);
+            snapshotNodesByArea.Add(areaId, newNode);
+            outstandingMessages++;
+            dirtySnapshotsByArea.Remove(areaId);
+            readySignal.Writer.TryWrite(true);
         }
     }
 

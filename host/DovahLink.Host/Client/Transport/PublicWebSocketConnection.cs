@@ -1018,7 +1018,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                     }
                     else
                     {
-                        dataLaneQueue.ReleaseOutstanding();
+                        dataLaneQueue.ReleaseOutstanding(options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
                     }
                 }
             }
