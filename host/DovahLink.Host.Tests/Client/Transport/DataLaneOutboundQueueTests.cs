@@ -563,4 +563,91 @@ public class DataLaneOutboundQueueTests
         Assert.True(queue.TryDequeue(out byte[]? secondPayload));
         Assert.Equal(new byte[] { 1, 2, 3 }, secondPayload);
     }
+
+    /// <summary>
+    /// Verifies that promoting a dirty area whose declined replacement left its old value still
+    /// queued replaces that value in place, rather than throwing when it tries to add a second node
+    /// for an area <see cref="DataLaneOutboundQueue"/> already has one for.
+    /// </summary>
+    [Fact]
+    public void PromoteDirtySnapshots_AreaStillQueued_ReplacesInPlaceWithoutThrowing()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var areaId = new StateAreaId("example_area");
+        queue.TryAdmitSnapshot(areaId, [1], maxOutstandingMessages: 10, AlwaysAffordable); // queued
+        queue.TryAdmitSnapshot(areaId, [2, 2, 2], maxOutstandingMessages: 10, NeverAffordable); // declined; dirty, old value still queued
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, AlwaysAffordable);
+
+        Assert.Equal(1, queue.OutstandingMessages); // replaced in place; no new slot consumed
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 2, 2, 2 }, payload);
+        Assert.False(queue.TryDequeue(out _)); // nothing else queued for this area
+    }
+
+    /// <summary>Verifies that promoting an area still queued consults the replacement byte delta, not the promoted value's full length.</summary>
+    [Fact]
+    public void PromoteDirtySnapshots_AreaStillQueued_ChecksReplacementDeltaNotFullLength()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var areaId = new StateAreaId("example_area");
+        queue.TryAdmitSnapshot(areaId, [1, 2, 3], maxOutstandingMessages: 10, AlwaysAffordable); // queued, length 3
+        queue.TryAdmitSnapshot(areaId, [9], maxOutstandingMessages: 10, NeverAffordable); // declined; dirty, length 1
+        long? observedDelta = null;
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, delta =>
+        {
+            observedDelta = delta;
+            return true;
+        });
+
+        Assert.Equal(-2, observedDelta); // 1 - 3, not the dirty value's own length of 1
+    }
+
+    /// <summary>Verifies that a declined in-place replacement leaves the queued area's old value untouched and promotes nothing.</summary>
+    [Fact]
+    public void PromoteDirtySnapshots_AreaStillQueued_DeclinedByDelta_StaysDirtyAndOldValueUnchanged()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var areaId = new StateAreaId("example_area");
+        queue.TryAdmitSnapshot(areaId, [1], maxOutstandingMessages: 10, AlwaysAffordable); // queued
+        queue.TryAdmitSnapshot(areaId, [2, 2, 2], maxOutstandingMessages: 10, NeverAffordable); // declined; dirty, old value still queued
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, NeverAffordable); // declines the in-place replace too
+
+        Assert.Equal(1, queue.OutstandingMessages);
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 1 }, payload); // untouched by the declined replacement attempt
+        Assert.False(queue.TryDequeue(out _)); // the dirty value was not queued, only retained
+    }
+
+    /// <summary>
+    /// Verifies that a still-queued area's in-place replacement is not blocked by the
+    /// outstanding-message bound being exhausted by an unrelated new-slot candidate in the same
+    /// promotion call, since the in-place path needs no new slot at all.
+    /// </summary>
+    [Fact]
+    public void PromoteDirtySnapshots_MixedInPlaceAndNewSlotCandidates_InPlaceReplacementNotBlockedByMessageBound()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var queuedArea = new StateAreaId("queued_area");
+        queue.TryAdmitSnapshot(queuedArea, [1], maxOutstandingMessages: 1, AlwaysAffordable); // consumes the only slot
+        queue.TryAdmitSnapshot(queuedArea, [2, 2], maxOutstandingMessages: 1, NeverAffordable); // declined; dirty, still queued
+        var newArea = new StateAreaId("new_area");
+        queue.TryAdmitSnapshot(newArea, [9], maxOutstandingMessages: 1, AlwaysAffordable); // declined by the message-count bound; dirty, no node
+
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 1, AlwaysAffordable);
+
+        // The in-place replacement succeeds even though the message bound is already exhausted and
+        // the unrelated new-slot candidate could not be promoted in this same call.
+        Assert.Equal(1, queue.OutstandingMessages);
+        Assert.True(queue.TryDequeue(out byte[]? payload));
+        Assert.Equal(new byte[] { 2, 2 }, payload); // queued_area replaced in place
+        Assert.False(queue.TryDequeue(out _)); // new_area did not get a slot in this call
+
+        // new_area's dirty value still promotes once a slot frees.
+        queue.ReleaseOutstanding(maxOutstandingMessages: 2, AlwaysAffordable);
+        Assert.True(queue.TryDequeue(out byte[]? secondPayload));
+        Assert.Equal(new byte[] { 9 }, secondPayload);
+    }
 }

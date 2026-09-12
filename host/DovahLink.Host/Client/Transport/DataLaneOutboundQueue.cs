@@ -130,10 +130,13 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
     /// The latest Snapshot payload for each area whose most recent <see cref="TryAdmitSnapshot"/>
     /// attempt was declined by capacity -- retained so <see cref="ReleaseOutstanding"/> or
     /// <see cref="TryPromoteDeferredSnapshots"/> can retry it once capacity allows, rather than the
-    /// value disappearing outright. An area is present here only while it has no live node in
-    /// <see cref="snapshotNodesByArea"/>: a successful admission or replacement always clears its
-    /// entry, and a promotion moves it into <see cref="entries"/>/<see cref="snapshotNodesByArea"/>
-    /// and removes it from here in the same step.
+    /// value disappearing outright. A declined replacement leaves the area's existing node in
+    /// <see cref="snapshotNodesByArea"/> untouched, so an area can be dirty here while it still has a
+    /// live, queued node -- promotion must replace that node in place rather than assume none exists.
+    /// A successful admission or replacement always clears the area's entry here, and a promotion
+    /// either replaces the existing node in place or, when none exists, moves the value into
+    /// <see cref="entries"/>/<see cref="snapshotNodesByArea"/> as a new one, removing it from here
+    /// either way.
     /// </summary>
     private readonly Dictionary<StateAreaId, byte[]> dirtySnapshotsByArea = new();
 
@@ -288,12 +291,19 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
 
     /// <summary>
     /// Promotes every currently dirty Snapshot that now fits <paramref name="maxOutstandingMessages"/>
-    /// and <paramref name="canAffordBytes"/> into a live queue entry, in no particular order among
-    /// distinct areas -- each is independent, keyed, replaceable state, not an ordered sequence. Must
-    /// be called with <see cref="gate"/> already held by the calling thread.
+    /// and <paramref name="canAffordBytes"/>, in no particular order among distinct areas -- each is
+    /// independent, keyed, replaceable state, not an ordered sequence. An area whose declined
+    /// replacement left its existing node queued is replaced in place, using the replacement byte
+    /// delta and consuming no additional outstanding-message slot, the same as a direct
+    /// <see cref="TryAdmitSnapshot"/> replacement would; an area with no queued node reserves a new
+    /// outstanding-message slot within <paramref name="maxOutstandingMessages"/>, the same as a fresh
+    /// admission would. Declining either leaves that one area dirty without affecting any other --
+    /// reaching the message-count bound for a new-slot area does not stop a later, still-dirty area
+    /// that only needs an in-place replacement from promoting in the same call. Must be called with
+    /// <see cref="gate"/> already held by the calling thread.
     /// </summary>
-    /// <param name="maxOutstandingMessages">The outstanding-message bound a promoted entry must stay within.</param>
-    /// <param name="canAffordBytes">Consulted with a promoted entry's full payload length; declining it leaves that area dirty.</param>
+    /// <param name="maxOutstandingMessages">The outstanding-message bound a newly promoted entry must stay within; irrelevant to an in-place replacement.</param>
+    /// <param name="canAffordBytes">Consulted with the byte cost a promotion would make -- the replacement delta for an area still queued, or the full payload length for a new slot; declining it leaves that area dirty.</param>
     private void PromoteDirtySnapshotsLocked(int maxOutstandingMessages, Func<long, bool> canAffordBytes)
     {
         if (dirtySnapshotsByArea.Count == 0)
@@ -303,13 +313,24 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
 
         foreach (StateAreaId areaId in dirtySnapshotsByArea.Keys.ToArray())
         {
-            if (outstandingMessages >= maxOutstandingMessages)
+            byte[] payload = dirtySnapshotsByArea[areaId];
+
+            if (snapshotNodesByArea.TryGetValue(areaId, out LinkedListNode<Entry>? existingNode))
             {
-                return;
+                var existingEntry = (SnapshotEntry)existingNode.Value;
+                long delta = payload.Length - existingEntry.Bytes.Length;
+                if (!canAffordBytes(delta))
+                {
+                    continue;
+                }
+
+                existingEntry.SetBytes(payload);
+                dirtySnapshotsByArea.Remove(areaId);
+                readySignal.Writer.TryWrite(true);
+                continue;
             }
 
-            byte[] payload = dirtySnapshotsByArea[areaId];
-            if (!canAffordBytes(payload.Length))
+            if (outstandingMessages >= maxOutstandingMessages || !canAffordBytes(payload.Length))
             {
                 continue;
             }
