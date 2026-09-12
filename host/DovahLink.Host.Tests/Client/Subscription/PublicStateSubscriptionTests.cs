@@ -937,4 +937,85 @@ public class PublicStateSubscriptionTests
 
         subscription.Unsubscribe();
     }
+
+    /// <summary>
+    /// Verifies that constructing a subscription does not itself register any handler on the feed or
+    /// the play-context tracker -- a connection whose admission never completes (for example a failed
+    /// WebSocket handshake, which never calls <see cref="PublicStateSubscription.Bind"/> or
+    /// <see cref="PublicStateSubscription.Unsubscribe"/>) must never be rooted on either long-lived
+    /// event source.
+    /// </summary>
+    [Fact]
+    public void Constructor_DoesNotSubscribeToFeedOrTracker()
+    {
+        var tracker = new FakePlayContextTracker();
+        (PublicStateSubscription _, _, FakeStatePublicationFeed feed) = BuildSubscription(playContextTracker: tracker);
+
+        Assert.False(feed.HasSubscribers);
+        Assert.False(tracker.HasSubscribers);
+    }
+
+    /// <summary>Verifies that <see cref="PublicStateSubscription.Bind"/> registers this subscription on the feed and the play-context tracker.</summary>
+    [Fact]
+    public void Bind_SubscribesToFeedAndTracker()
+    {
+        var tracker = new FakePlayContextTracker();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(playContextTracker: tracker);
+
+        subscription.Bind(new FakePublicConnectionContext(), SessionId.NewId());
+
+        Assert.True(feed.HasSubscribers);
+        Assert.True(tracker.HasSubscribers);
+    }
+
+    /// <summary>Verifies that a second <see cref="PublicStateSubscription.Bind"/> call does not register a second handler, which would otherwise dispatch every later event twice.</summary>
+    [Fact]
+    public void Bind_CalledTwice_DoesNotDoubleSubscribe()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        subscription.Bind(connectionContext, SessionId.NewId());
+        int sentBeforeEvent = connectionContext.SentPayloads.Count;
+
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Equal(sentBeforeEvent + 1, connectionContext.SentPayloads.Count);
+    }
+
+    /// <summary>Verifies that <see cref="PublicStateSubscription.Unsubscribe"/> removes this subscription's registration from the feed and the play-context tracker.</summary>
+    [Fact]
+    public void Unsubscribe_AfterBind_RemovesSubscriptions()
+    {
+        var tracker = new FakePlayContextTracker();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(playContextTracker: tracker);
+        subscription.Bind(new FakePublicConnectionContext(), SessionId.NewId());
+
+        subscription.Unsubscribe();
+
+        Assert.False(feed.HasSubscribers);
+        Assert.False(tracker.HasSubscribers);
+    }
+
+    /// <summary>Verifies that a <see cref="PublicStateSubscription.Bind"/> call after <see cref="PublicStateSubscription.Unsubscribe"/> re-arms the registration and events forward again.</summary>
+    [Fact]
+    public void Unsubscribe_ThenBindAgain_ResubscribesAndForwardsEvents()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        subscription.Unsubscribe();
+        Assert.False(feed.HasSubscribers);
+
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Assert.True(feed.HasSubscribers);
+        int sentBeforeEvent = connectionContext.SentPayloads.Count;
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+        Assert.Equal(sentBeforeEvent + 1, connectionContext.SentPayloads.Count);
+    }
 }

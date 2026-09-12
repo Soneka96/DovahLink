@@ -45,6 +45,9 @@ public sealed class FakePlayContextTracker : IPlayContextTracker
     /// <inheritdoc/>
     public event Action<PlayContextTransition>? Transitioned;
 
+    /// <summary>Whether any caller currently holds a live registration on <see cref="Transitioned"/>.</summary>
+    public bool HasSubscribers => Transitioned is not null;
+
     /// <inheritdoc/>
     public PlayContextSnapshot GetSnapshot()
     {

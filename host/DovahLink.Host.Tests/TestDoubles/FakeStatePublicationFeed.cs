@@ -12,6 +12,9 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
     /// <inheritdoc/>
     public event Action<StateEventPublication>? EventOccurred;
 
+    /// <summary>Whether any caller currently holds a live registration on <see cref="EventOccurred"/>.</summary>
+    public bool HasSubscribers => EventOccurred is not null;
+
     /// <summary>Sets the value <see cref="TryGetSnapshot"/> returns for <paramref name="areaId"/>.</summary>
     /// <param name="areaId">The state area to set a value for.</param>
     /// <param name="snapshot">The value <see cref="TryGetSnapshot"/> should return.</param>

@@ -115,6 +115,17 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <summary>The admitted session identity to stamp onto every message, once <see cref="Bind"/> has been called.</summary>
     private SessionId? sessionId;
 
+    /// <summary>
+    /// Whether this subscription currently owns a live registration on <see cref="feed"/>'s and
+    /// <see cref="playContextTracker"/>'s events. Guards <see cref="Bind"/> and <see cref="Unsubscribe"/>
+    /// against a duplicate call each: a connection whose admission never completes (for example a
+    /// failed WebSocket handshake) must never register these handlers at all, since nothing would
+    /// ever call <see cref="Unsubscribe"/> to remove them, and a second <see cref="Bind"/> call must
+    /// never subscribe a second time, which would otherwise dispatch every later event or transition
+    /// to this instance twice.
+    /// </summary>
+    private bool subscribedToExternalEvents;
+
     /// <summary>Creates a subscription bound to no connection yet; call <see cref="Bind"/> once admission completes.</summary>
     /// <param name="registeredStateAreaPolicy">The host-wide bounded set of state areas currently served.</param>
     /// <param name="feed">The host-wide, domain-agnostic push source snapshots and events are read from.</param>
@@ -130,17 +141,29 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         this.feed = feed;
         this.codec = codec;
         this.playContextTracker = playContextTracker;
-        feed.EventOccurred += OnEventOccurred;
-        playContextTracker.Transitioned += OnPlayContextTransitioned;
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Also registers this subscription's <see cref="feed"/> and <see cref="playContextTracker"/>
+    /// event handlers, the first time this is called for this instance -- deferred from the
+    /// constructor to here so a connection whose admission never completes never roots this
+    /// subscription on either long-lived event source. A second call is a no-op for that
+    /// registration, but still updates <see cref="connectionContext"/> and <see cref="sessionId"/>.
+    /// </remarks>
     public void Bind(IPublicConnectionContext connectionContext, SessionId sessionId)
     {
         lock (gate)
         {
             this.connectionContext = connectionContext;
             this.sessionId = sessionId;
+
+            if (!subscribedToExternalEvents)
+            {
+                feed.EventOccurred += OnEventOccurred;
+                playContextTracker.Transitioned += OnPlayContextTransitioned;
+                subscribedToExternalEvents = true;
+            }
         }
     }
 
@@ -223,10 +246,23 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A no-op when <see cref="Bind"/> was never called (so no registration was ever made) or when
+    /// this has already been called once for this instance.
+    /// </remarks>
     public void Unsubscribe()
     {
-        feed.EventOccurred -= OnEventOccurred;
-        playContextTracker.Transitioned -= OnPlayContextTransitioned;
+        lock (gate)
+        {
+            if (!subscribedToExternalEvents)
+            {
+                return;
+            }
+
+            feed.EventOccurred -= OnEventOccurred;
+            playContextTracker.Transitioned -= OnPlayContextTransitioned;
+            subscribedToExternalEvents = false;
+        }
     }
 
     /// <summary>
