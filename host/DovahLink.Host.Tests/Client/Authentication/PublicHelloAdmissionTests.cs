@@ -5,10 +5,12 @@ using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
 
@@ -1815,7 +1817,7 @@ public class PublicHelloAdmissionTests
 
     // ---- Post-admission dispatch: subscribe and snapshot_request ----
 
-    /// <summary>Verifies that subscribe rejects every requested area, since no state area is currently registered.</summary>
+    /// <summary>Verifies that subscribe rejects every requested area when no subscription capability is available.</summary>
     [Fact]
     public void HandleMessageAsync_SubscribePostAdmission_RejectsEveryRequestedArea()
     {
@@ -1832,6 +1834,59 @@ public class PublicHelloAdmissionTests
         Assert.Equal("msg-2", ackEnvelope.CorrelationId);
         Assert.Empty(ack.AcceptedStateAreas);
         Assert.Equal(["area_one", "area_two"], ack.RejectedStateAreas);
+    }
+
+    /// <summary>
+    /// Verifies that subscribe accepts a registered area and rejects an unregistered one when a real
+    /// subscription capability is supplied, proving <see cref="PublicHelloAdmissionHandler"/> actually
+    /// delegates to it rather than only ever answering the stub-reject fallback.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_SubscribePostAdmission_WithSubscriptionCapability_DelegatesAcceptReject()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_one"));
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, clientId,
+            new SubscribePayload { StateAreas = ["area_one", "area_two"] });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        (_, SubscriptionAckPayload ack) = DecodeSent<SubscriptionAckPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(["area_one"], ack.AcceptedStateAreas);
+        Assert.Equal(["area_two"], ack.RejectedStateAreas);
+    }
+
+    /// <summary>
+    /// Verifies the ordering guarantee this handler exists to provide: <c>subscription_ack</c> is
+    /// always enqueued onto the Control/Recovery lane before the baseline snapshot for any area the
+    /// same <c>subscribe</c> call accepted, never after.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_AckAlwaysEnqueuedBeforeBaselineSnapshot()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_one"));
+        var feed = new FakeStatePublicationFeed();
+        feed.SetSnapshot(new StateAreaId("area_one"), BuildStateSnapshotPublication("area_one"));
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, clientId,
+            new SubscribePayload { StateAreas = ["area_one"] });
+        int sentBeforeSubscribe = context.FakeConnection.SentPayloads.Count;
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentBeforeSubscribe + 2, context.FakeConnection.SentPayloads.Count);
+        (PublicEnvelope ackEnvelope, _) = DecodeSent<SubscriptionAckPayload>(context.Codec, context.FakeConnection.SentPayloads[sentBeforeSubscribe]);
+        Assert.Equal(PublicMessageType.SubscriptionAck, ackEnvelope.MessageType);
+        (PublicEnvelope snapshotEnvelope, _) = DecodeSent<StateSnapshotPayload>(context.Codec, context.FakeConnection.SentPayloads[sentBeforeSubscribe + 1]);
+        Assert.Equal(PublicMessageType.StateSnapshot, snapshotEnvelope.MessageType);
     }
 
     /// <summary>Verifies that a malformed post-admission subscribe message is rejected as malformed_message.</summary>
@@ -1871,7 +1926,7 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
     }
 
-    /// <summary>Verifies that snapshot_request is always rejected as unsupported_capability, since no state area is currently registered.</summary>
+    /// <summary>Verifies that snapshot_request is rejected as unsupported_capability when no subscription capability is available.</summary>
     [Fact]
     public void HandleMessageAsync_SnapshotRequestPostAdmission_RejectsAsUnsupported()
     {
@@ -1885,6 +1940,30 @@ public class PublicHelloAdmissionTests
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
         Assert.Equal(PublicProtocolErrorCode.UnsupportedCapability, error.Code);
+    }
+
+    /// <summary>
+    /// Verifies that snapshot_request for a registered area with a real subscription capability
+    /// supplied sends nothing at all -- no error, and no fabricated snapshot since none is available
+    /// -- proving <see cref="PublicHelloAdmissionHandler"/> actually delegates to it rather than only
+    /// ever answering the stub-reject fallback.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_SnapshotRequestPostAdmission_WithRegisteredArea_SendsNothing()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_one"));
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+        int sentCountBeforeRequest = context.FakeConnection.SentPayloads.Count;
+
+        byte[] message = context.Codec.Encode(
+            PublicMessageType.SnapshotRequest, "msg-2", sessionId, null, null, clientId,
+            new SnapshotRequestPayload { StateArea = "area_one" });
+        context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
+
+        Assert.Equal(sentCountBeforeRequest, context.FakeConnection.SentPayloads.Count);
     }
 
     /// <summary>Verifies that a malformed post-admission snapshot_request message is rejected as malformed_message.</summary>
@@ -2505,6 +2584,100 @@ public class PublicHelloAdmissionTests
         await context.Handler.HandleDisconnectedAsync(CancellationToken.None);
     }
 
+    /// <summary>
+    /// Verifies that ending a connection unsubscribes it: a later event for an area it had accepted
+    /// never reaches it, proving <see cref="PublicHelloAdmissionHandler.HandleConnectionEnded"/>
+    /// actually calls <see cref="IPublicStateSubscription.Unsubscribe"/> rather than leaving a
+    /// disconnected connection's subscription listening indefinitely.
+    /// </summary>
+    [Fact]
+    public void HandleConnectionEnded_AfterSubscribing_StopsForwardingLaterEvents()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_a"));
+        var feed = new FakeStatePublicationFeed();
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+        byte[] subscribeMessage = context.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", sessionId, null, null, clientId, new SubscribePayload { StateAreas = ["area_a"] });
+        context.Handler.HandleMessageAsync(context.Connection, subscribeMessage, CancellationToken.None);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a"));
+        int sentCountBeforeDisconnect = context.FakeConnection.SentPayloads.Count;
+
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+        feed.RaiseEvent(BuildStateEventPublication("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Equal(sentCountBeforeDisconnect, context.FakeConnection.SentPayloads.Count);
+    }
+
+    /// <summary>
+    /// Verifies that a reconnect -- a second connection admitted after the first ended -- never
+    /// inherits the first connection's subscription or receives events published while it was
+    /// disconnected, per <c>protocol/schema/README.md</c>'s "The client must not apply messages from
+    /// its previous session. Queued state from that session is not replayed; a fresh snapshot
+    /// establishes each new baseline." Both connections' subscriptions share the same host-wide
+    /// <see cref="RegisteredStateAreaPolicy"/> and <see cref="FakeStatePublicationFeed"/>, matching
+    /// how <c>Program.cs</c> composes them as host-wide singletons while constructing a fresh
+    /// <see cref="PublicStateSubscription"/> per connection.
+    /// </summary>
+    [Fact]
+    public void Reconnect_SecondConnection_DoesNotInheritFirstConnectionsSubscriptionOrMissedEvents()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_a"));
+        var feed = new FakeStatePublicationFeed();
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a", revision: 1));
+
+        // First connection subscribes and receives its own snapshot, then disconnects.
+        var firstSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var firstContext = new TestContext(subscription: firstSubscription);
+        AdmitViaTrustedDeviceCredentialHello(firstContext, out string firstSessionId, out string firstClientId);
+        byte[] firstSubscribeMessage = firstContext.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", firstSessionId, null, null, firstClientId, new SubscribePayload { StateAreas = ["area_a"] });
+        int sentBeforeFirstSubscribe = firstContext.FakeConnection.SentPayloads.Count;
+        firstContext.Handler.HandleMessageAsync(firstContext.Connection, firstSubscribeMessage, CancellationToken.None);
+        Assert.Equal(sentBeforeFirstSubscribe + 2, firstContext.FakeConnection.SentPayloads.Count); // the subscription_ack, then the baseline snapshot
+        (PublicEnvelope firstSnapshotEnvelope, _) = DecodeSent<StateSnapshotPayload>(firstContext.Codec, firstContext.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(PublicMessageType.StateSnapshot, firstSnapshotEnvelope.MessageType);
+        firstContext.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+
+        // An event published while no client is connected must never reach the now-ended first
+        // connection.
+        feed.RaiseEvent(BuildStateEventPublication("area_a", baseRevision: 1, revision: 2));
+
+        // The reconnect: a fresh connection, fresh PublicStateSubscription, over the same shared
+        // policy/feed. It never subscribed, so it must not have received anything either.
+        var secondSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var secondContext = new TestContext(subscription: secondSubscription);
+        AdmitViaTrustedDeviceCredentialHello(secondContext, out string secondSessionId, out string secondClientId);
+
+        Assert.NotEqual(firstSessionId, secondSessionId); // a reconnect is a genuinely fresh session, never a resumed one
+        Assert.Equal(2, secondContext.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities so far; no snapshot before it ever subscribes
+
+        // Subscribing now gets the fresh, current baseline (revision 2, post-event) -- not a replay
+        // of the event that was missed while disconnected.
+        byte[] secondSubscribeMessage = secondContext.Codec.Encode(
+            PublicMessageType.Subscribe, "msg-2", secondSessionId, null, null, secondClientId, new SubscribePayload { StateAreas = ["area_a"] });
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a", revision: 2));
+        int sentBeforeSecondSubscribe = secondContext.FakeConnection.SentPayloads.Count;
+        secondContext.Handler.HandleMessageAsync(secondContext.Connection, secondSubscribeMessage, CancellationToken.None);
+
+        Assert.Equal(sentBeforeSecondSubscribe + 2, secondContext.FakeConnection.SentPayloads.Count); // the subscription_ack, then the baseline snapshot
+        (_, StateSnapshotPayload payload) = DecodeSent<StateSnapshotPayload>(secondContext.Codec, secondContext.FakeConnection.SentPayloads[^1]);
+        Assert.Equal(2UL, payload.Revision);
+    }
+
+    /// <summary>Builds a representative snapshot value for the given area.</summary>
+    private static StateSnapshotPublication BuildStateSnapshotPublication(
+        string area, ulong revision = 1, PlayContextId? playContextId = null, long playContextGeneration = 0) =>
+        new(new StateAreaId(area), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 42 }), playContextId, playContextGeneration);
+
+    /// <summary>Builds a representative event value for the given area.</summary>
+    private static StateEventPublication BuildStateEventPublication(
+        string area, ulong baseRevision, ulong revision, PlayContextId? playContextId = null, long playContextGeneration = 0) =>
+        new(new StateAreaId(area), new RevisionNumber(baseRevision), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 99 }), playContextId, playContextGeneration);
+
     // ---- Helpers ----
 
     /// <summary>Builds a complete wire-encoded <c>hello</c> message with the given clientId, messageId, and auth payload.</summary>
@@ -2599,7 +2772,8 @@ public class PublicHelloAdmissionTests
         /// <summary>Creates a fresh handler and its collaborators.</summary>
         /// <param name="maxActiveSessions">The session registry's admission bound.</param>
         /// <param name="admissionDeadline">The handler's own pre-authentication admission deadline.</param>
-        public TestContext(int maxActiveSessions = int.MaxValue, TimeSpan? admissionDeadline = null)
+        /// <param name="subscription">The handler's own state-area subscription capability. Defaults to <see langword="null"/>, under which subscribe and snapshot_request reject every request.</param>
+        public TestContext(int maxActiveSessions = int.MaxValue, TimeSpan? admissionDeadline = null, IPublicStateSubscription? subscription = null)
         {
             SessionRegistry = new FakeSessionRegistry(maxActiveSessions);
             TokenAuthenticator = new LocalConnectionTokenAuthenticator(Clock);
@@ -2607,7 +2781,7 @@ public class PublicHelloAdmissionTests
             Connection = new PublicConnectionContext(FakeConnection);
             Handler = new PublicHelloAdmissionHandler(
                 Codec, SessionRegistry, TrustStore, TokenAuthenticator, CredentialThrottle, PlayContextTracker, Clock,
-                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), admissionDeadline);
+                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), admissionDeadline, subscription);
         }
     }
 

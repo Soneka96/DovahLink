@@ -1,3 +1,5 @@
+using DovahLink.Host.State;
+
 namespace DovahLink.Host.Client.Transport;
 
 /// <summary>
@@ -15,8 +17,19 @@ public interface IPublicConnectionContext
     /// contract this forwards to.
     /// </summary>
     /// <param name="payload">The complete message payload to send.</param>
-    /// <returns><see langword="true"/> when the message was accepted onto the bounded outbound queue.</returns>
-    bool TrySend(ReadOnlyMemory<byte> payload);
+    /// <param name="lane">The reserved-capacity lane to admit this message onto.</param>
+    /// <returns><see langword="true"/> when the message was accepted onto <paramref name="lane"/>'s bounded outbound queue.</returns>
+    bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane);
+
+    /// <summary>
+    /// Attempts to enqueue a Snapshot value for the owning connection's writer to send. See
+    /// <see cref="IPublicWebSocketConnection.TrySendSnapshot"/> for the replaceable-slot, non-closing
+    /// delivery contract this forwards to.
+    /// </summary>
+    /// <param name="areaId">The state area this snapshot value belongs to.</param>
+    /// <param name="payload">The complete message payload to send.</param>
+    /// <returns><see langword="true"/> when the value is now the pending snapshot for <paramref name="areaId"/>.</returns>
+    bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload);
 
     /// <summary>
     /// Requests the owning connection's own orderly close. See
@@ -24,6 +37,14 @@ public interface IPublicConnectionContext
     /// this forwards to.
     /// </summary>
     void RequestClose();
+
+    /// <summary>
+    /// A non-mutating read of how many more messages <paramref name="lane"/> could currently admit.
+    /// See <see cref="IPublicWebSocketConnection.RemainingOutboundCapacity"/> for the exact contract
+    /// this forwards to.
+    /// </summary>
+    /// <param name="lane">The lane to read remaining capacity for.</param>
+    int RemainingOutboundCapacity(PublicOutboundLane lane);
 }
 
 /// <inheritdoc cref="IPublicConnectionContext"/>
@@ -40,8 +61,14 @@ public sealed class PublicConnectionContext : IPublicConnectionContext
     }
 
     /// <inheritdoc/>
-    public bool TrySend(ReadOnlyMemory<byte> payload) => connection.TrySend(payload);
+    public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane) => connection.TrySend(payload, lane);
+
+    /// <inheritdoc/>
+    public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload) => connection.TrySendSnapshot(areaId, payload);
 
     /// <inheritdoc/>
     public void RequestClose() => connection.RequestClose();
+
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => connection.RemainingOutboundCapacity(lane);
 }

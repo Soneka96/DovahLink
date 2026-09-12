@@ -871,7 +871,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 13)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 14)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
@@ -912,14 +912,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
-                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line and the
-                # two Host/Adapter continuation subsections' own status lines, since 4.1-4.5 and
-                # the continuation subsections are all part of this stage rather than independent
-                # headings the way 3.1-3.3 are.
+                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line, the
+                # Host/Adapter continuation's "Host-owned state, publication, and bounded delivery"
+                # subsection's own, and the still-undone "Real capture and host integration"
+                # subsection's "Planned" line, since these are subsections of this stage rather
+                # than independent headings the way 3.1-3.3 are.
                 expected_statuses = [
                     phase_4_status,
                     "**Status:** Complete",
-                    "**Status:** Active — next implementation work",
+                    "**Status:** Complete",
                     "**Status:** Planned — follows Host-owned state/publication/delivery",
                 ]
             elif heading == "3A. Host/Adapter Production Migration":

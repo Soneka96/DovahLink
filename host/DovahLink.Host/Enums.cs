@@ -514,6 +514,32 @@ public enum HandshakeRejectReason
     UnsupportedVersion,
 }
 
+/// <summary>
+/// The reserved-capacity lane one outbound message is admitted onto, per
+/// <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy: a small slice reserved for
+/// connection-level control and recovery traffic, kept separate from bulk data-publication traffic so
+/// a slow client under data-publication pressure cannot delay or crowd out timely control-message
+/// delivery.
+/// </summary>
+public enum PublicOutboundLane
+{
+    /// <summary>
+    /// Connection-level control and recovery traffic -- for example pairing, rename, error, and
+    /// session-invalidation messages, and current-state resynchronization responses. Always drained
+    /// ahead of <see cref="Data"/> traffic.
+    /// </summary>
+    ControlOrRecovery,
+
+    /// <summary>
+    /// Bulk state-publication traffic. Passed to <see cref="Client.Transport.IPublicWebSocketConnection.TrySend"/>
+    /// only for an Event message; a Snapshot message instead goes through
+    /// <see cref="Client.Transport.IPublicWebSocketConnection.TrySendSnapshot"/>, which admits it
+    /// onto this same lane's reserved capacity but with keyed-replaceable rather than plain FIFO
+    /// semantics.
+    /// </summary>
+    Data,
+}
+
 // ---- Client protocol ----
 
 /// <summary>
@@ -726,4 +752,26 @@ public enum RenameOutcomeWireValue
 
     /// <summary>The requesting identity is unrecognized or not currently trusted.</summary>
     NotTrusted,
+}
+
+// ---- Client subscription ----
+
+/// <summary>
+/// One connection's own per-area delivery phase within
+/// <see cref="Client.Subscription.PublicStateSubscription"/>'s recovery barrier.
+/// </summary>
+public enum AreaDeliveryPhase
+{
+    /// <summary>No live baseline exists yet; every Event for this area is discarded.</summary>
+    AwaitingBaseline,
+
+    /// <summary>
+    /// A baseline is being established: Events at or below the barrier revision are discarded as
+    /// superseded, and Events above it are held until the baseline is admitted or the attempt is
+    /// abandoned.
+    /// </summary>
+    Recovering,
+
+    /// <summary>A live baseline is established; Events for this area under the same play-context generation are forwarded immediately.</summary>
+    Live,
 }

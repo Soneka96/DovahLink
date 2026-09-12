@@ -29,14 +29,30 @@ public interface IStatePublisher<TState>
     /// <returns>The area's current revision, or <see cref="RevisionNumber.Initial"/> if no play context is established yet.</returns>
     RevisionNumber CurrentRevision(StateAreaId areaId);
 
-    /// <summary>Applies a newly captured value from the current adapter, advancing the area's revision only if it actually changed.</summary>
+    /// <summary>
+    /// Applies a newly captured value from the current adapter, advancing the area's revision only if
+    /// it actually changed. Rejects the value outright, without applying it, when
+    /// <paramref name="capturedPlayContextId"/> or <paramref name="capturedPlayContextGeneration"/> no
+    /// longer matches the play context this publisher currently applies state under -- provenance is a
+    /// required caller-supplied fact about when the value was captured, not something this method
+    /// infers from its own current state at apply time, so a capture that was queued or delayed across
+    /// a play-context transition can never be silently misattributed to the new context.
+    /// </summary>
     /// <param name="sourceInstanceId">The adapter instance that produced the value.</param>
     /// <param name="sourceConnectionGeneration">The adapter connection generation that produced the value.</param>
+    /// <param name="capturedPlayContextId">The play context that was current at the moment this value was captured.</param>
+    /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this value was captured.</param>
     /// <param name="areaId">The state area the value belongs to.</param>
     /// <param name="value">The newly captured value.</param>
-    /// <returns><see langword="true"/> when the value was accepted from the current adapter.</returns>
+    /// <returns><see langword="true"/> when the value was accepted from the current adapter and captured play context.</returns>
     /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
-    bool Apply(AdapterInstanceId sourceInstanceId, long sourceConnectionGeneration, StateAreaId areaId, TState value);
+    bool Apply(
+        AdapterInstanceId sourceInstanceId,
+        long sourceConnectionGeneration,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        StateAreaId areaId,
+        TState value);
 
     /// <summary>Applies an explicitly identified resynchronization baseline while the adapter is gated.</summary>
     /// <param name="resynchronizationToken">The opaque authorization issued for the current adapter connection.</param>
@@ -149,10 +165,14 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     public bool Apply(
         AdapterInstanceId sourceInstanceId,
         long sourceConnectionGeneration,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
         StateAreaId areaId,
         TState value)
     {
-        return ApplyCore(sourceInstanceId, sourceConnectionGeneration, null, areaId, value, allowResynchronization: false);
+        return ApplyCore(
+            sourceInstanceId, sourceConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
+            null, areaId, value, allowResynchronization: false);
     }
 
     /// <inheritdoc/>
@@ -161,12 +181,14 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
         StateAreaId areaId,
         TState value)
     {
-        return ApplyCore(null, null, resynchronizationToken, areaId, value, allowResynchronization: true);
+        return ApplyCore(null, null, null, null, resynchronizationToken, areaId, value, allowResynchronization: true);
     }
 
     private bool ApplyCore(
         AdapterInstanceId? sourceInstanceId,
         long? sourceConnectionGeneration,
+        PlayContextId? capturedPlayContextId,
+        long? capturedPlayContextGeneration,
         IAdapterResynchronizationToken? resynchronizationToken,
         StateAreaId areaId,
         TState value,
@@ -188,6 +210,15 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
             PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
             PlayContextId currentContext = contextSnapshot.Current
                 ?? throw new InvalidOperationException("Cannot apply captured state before a play context has been established.");
+
+            if (!allowResynchronization &&
+                (capturedPlayContextId != currentContext || capturedPlayContextGeneration != contextSnapshot.TransitionGeneration))
+            {
+                // A capture stamped with a play context or generation other than the one currently
+                // applying state was queued or delayed across a transition; applying it here would
+                // silently misattribute an old context's value to the new one.
+                return false;
+            }
 
             if (playContextTracker.GetSnapshot().TransitionGeneration != contextSnapshot.TransitionGeneration)
             {

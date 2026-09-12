@@ -6,29 +6,34 @@ namespace DovahLink.Host.Client.Transport;
 /// <summary>
 /// The public client channel's listening side: binds both supported loopback addresses,
 /// <see cref="IPAddress.Loopback"/> and <see cref="IPAddress.IPv6Loopback"/>, on one port and serves
-/// at most one public WebSocket connection at a time, matching the first host proof's single-client
-/// bound. A second connection attempt while the slot is occupied is rejected outright -- closed
-/// before its handshake even begins -- never queued and never allowed to replace the active
-/// connection. Accepts a fresh connection again after the previous one ends, supporting reconnect.
+/// up to <see cref="PublicWebSocketListener"/>'s configured bound of concurrent public WebSocket
+/// connections, supporting multiple simultaneous devices. A connection attempt while every slot is
+/// occupied is rejected outright -- closed before its handshake even begins -- never queued and
+/// never allowed to replace an active connection. Accepts a fresh connection again as soon as any
+/// slot frees, whether that is the same device reconnecting or an additional device connecting for
+/// the first time.
 /// </summary>
 public interface IPublicWebSocketListener : IDisposable
 {
     /// <summary>The actual loopback port both listening sockets are bound to.</summary>
     int BoundPort { get; }
 
-    /// <summary>The currently active connection, or <see langword="null"/> when no public client is connected.</summary>
-    IPublicWebSocketConnection? CurrentConnection { get; }
+    /// <summary>
+    /// Every currently active connection, as a point-in-time snapshot -- mutating it does not affect
+    /// this listener. Empty when no public client is connected.
+    /// </summary>
+    IReadOnlyCollection<IPublicWebSocketConnection> CurrentConnections { get; }
 
     /// <summary>
     /// Runs both loopback addresses' accept loops until <paramref name="cancellationToken"/> is
-    /// cancelled. Each loop keeps accepting -- so it can promptly reject a concurrent second
-    /// connection attempt on either address -- rather than blocking until an admitted connection
-    /// finishes; the admitted connection itself still runs until it ends or the token is cancelled. A
-    /// single failed accept, rejected connection, connection-factory attempt, or served-connection
-    /// failure never ends the loop for the rest of the host process's life -- the next accepted
-    /// connection tries again. Once both accept loops stop, waits for the most recently admitted
-    /// connection's own bounded teardown to finish before returning, so shutdown is deterministic
-    /// rather than racing an in-flight connection's disconnect notification and socket disposal.
+    /// cancelled. Each loop keeps accepting -- so it can promptly reject a connection attempt once
+    /// every slot is occupied -- rather than blocking until an admitted connection finishes; every
+    /// admitted connection itself still runs until it ends or the token is cancelled. A single failed
+    /// accept, rejected connection, connection-factory attempt, or served-connection failure never
+    /// ends the loop for the rest of the host process's life -- the next accepted connection tries
+    /// again. Once both accept loops stop, waits for every currently admitted connection's own
+    /// bounded teardown to finish before returning, so shutdown is deterministic rather than racing
+    /// an in-flight connection's disconnect notification and socket disposal.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop accepting and serving connections.</param>
     Task RunAsync(CancellationToken cancellationToken);
@@ -46,25 +51,24 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// <summary>Creates a connection over a newly accepted transport.</summary>
     private readonly Func<Stream, IPublicWebSocketConnection> connectionFactory;
 
+    /// <summary>The maximum number of connections admitted at once. See <see cref="TryAcquireSlot"/>.</summary>
+    private readonly int maxConcurrentConnections;
+
     /// <summary>
-    /// Guards <see cref="currentConnection"/>, <see cref="currentServeTask"/>, and
-    /// <see cref="slotOccupied"/> against concurrent access from both accept loops.
+    /// Guards <see cref="occupiedSlots"/> and <see cref="serveTasksByConnection"/> against concurrent
+    /// access from both accept loops.
     /// </summary>
     private readonly object gate = new();
 
-    /// <summary>Whether the single connection admission slot is currently occupied.</summary>
-    private bool slotOccupied;
-
-    /// <summary>The currently active connection, or <see langword="null"/> when no public client is connected.</summary>
-    private IPublicWebSocketConnection? currentConnection;
-
     /// <summary>
-    /// The task serving the most recently admitted connection, or an already-completed task before
-    /// any connection has ever been admitted. Awaited by <see cref="RunAsync"/> after both accept
-    /// loops end, so shutdown does not complete while that connection's own teardown is still
-    /// running.
+    /// The number of admission slots currently reserved, including a connection whose factory call is
+    /// still in flight and has not yet been added to <see cref="serveTasksByConnection"/>. See
+    /// <see cref="TryAcquireSlot"/>.
     /// </summary>
-    private Task currentServeTask = Task.CompletedTask;
+    private int occupiedSlots;
+
+    /// <summary>Every currently active connection and the task serving it.</summary>
+    private readonly Dictionary<IPublicWebSocketConnection, Task> serveTasksByConnection = new();
 
     /// <summary>
     /// Creates a listener and eagerly binds both loopback addresses on <paramref name="port"/>.
@@ -77,9 +81,20 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// addresses always share one numeric port.
     /// </param>
     /// <param name="connectionFactory">Creates a connection over a newly accepted transport.</param>
-    public PublicWebSocketListener(int port, Func<Stream, IPublicWebSocketConnection> connectionFactory)
+    /// <param name="maxConcurrentConnections">The maximum number of connections admitted at once.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxConcurrentConnections"/> is not positive.</exception>
+    public PublicWebSocketListener(
+        int port,
+        Func<Stream, IPublicWebSocketConnection> connectionFactory,
+        int maxConcurrentConnections = Constants.MaxActiveSessions)
     {
+        if (maxConcurrentConnections <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxConcurrentConnections));
+        }
+
         this.connectionFactory = connectionFactory;
+        this.maxConcurrentConnections = maxConcurrentConnections;
 
         ipv4Socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
@@ -125,13 +140,13 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     internal IPAddress BoundIPv6Address => ((IPEndPoint)ipv6Socket.LocalEndPoint!).Address;
 
     /// <inheritdoc/>
-    public IPublicWebSocketConnection? CurrentConnection
+    public IReadOnlyCollection<IPublicWebSocketConnection> CurrentConnections
     {
         get
         {
             lock (gate)
             {
-                return currentConnection;
+                return serveTasksByConnection.Keys.ToArray();
             }
         }
     }
@@ -143,17 +158,17 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
             AcceptLoopAsync(ipv4Socket, cancellationToken),
             AcceptLoopAsync(ipv6Socket, cancellationToken)).ConfigureAwait(false);
 
-        // Both accept loops have stopped admitting new connections, but the most recently admitted
-        // one may still be tearing down. This wait is not independently bounded here; it relies on
+        // Both accept loops have stopped admitting new connections, but any currently admitted one
+        // may still be tearing down. This wait is not independently bounded here; it relies on every
         // IPublicWebSocketConnection.RunAsync's own documented contract to always complete within a
         // bounded time, so this cannot hang shutdown as long as every implementation honors that.
-        Task serveTask;
+        Task[] serveTasks;
         lock (gate)
         {
-            serveTask = currentServeTask;
+            serveTasks = serveTasksByConnection.Values.ToArray();
         }
 
-        await serveTask.ConfigureAwait(false);
+        await Task.WhenAll(serveTasks).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -220,8 +235,8 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
 
             if (!TryAcquireSlot())
             {
-                // The single-client admission slot is occupied; reject before even attempting the
-                // handshake rather than queuing or replacing the active connection.
+                // Every admission slot is occupied; reject before even attempting the handshake
+                // rather than queuing or replacing an active connection.
                 acceptedSocket.Dispose();
                 continue;
             }
@@ -235,34 +250,34 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
             catch (Exception)
             {
                 // The factory failed before any connection was ever admitted, so no connection owns
-                // this slot yet; only the slot flag needs clearing, not currentConnection.
+                // this slot yet; only the reservation needs releasing, not a serveTasksByConnection entry.
                 acceptedStream.Dispose();
                 lock (gate)
                 {
-                    slotOccupied = false;
+                    occupiedSlots--;
                 }
 
                 continue;
             }
 
             // Serving runs detached from this loop rather than being awaited inline: the admission
-            // slot bound already guarantees at most one connection is ever served at a time, but the
-            // accept loop itself must keep accepting (so it can promptly reject a concurrent second
-            // attempt) instead of blocking here until the active connection ends. RunAsync still
-            // awaits this task after both accept loops stop, so shutdown remains deterministic.
+            // bound already guarantees no more than maxConcurrentConnections are ever served at once,
+            // but the accept loop itself must keep accepting (so it can promptly reject an attempt
+            // once every slot is occupied) instead of blocking here until an active connection ends.
+            // RunAsync still awaits every serve task after both accept loops stop, so shutdown remains
+            // deterministic.
             //
-            // ServeConnectionAsync must not actually start running connection.RunAsync before
-            // currentConnection/currentServeTask are stored below: if RunAsync happened to complete
-            // synchronously, its finally block could release the slot and clear currentConnection
-            // before this loop ever stored it, leaving a dead connection visible as current. The
-            // start barrier holds ServeConnectionAsync at its first await until that storage below
+            // ServeConnectionAsync must not actually start running connection.RunAsync before this
+            // connection's entry is stored in serveTasksByConnection below: if RunAsync happened to
+            // complete synchronously, its finally block could release the slot before this loop ever
+            // stored the entry, leaving a stale entry added afterward that nothing would ever remove.
+            // The start barrier holds ServeConnectionAsync at its first await until that storage below
             // has happened.
             TaskCompletionSource startBarrier = new(TaskCreationOptions.RunContinuationsAsynchronously);
             Task serveTask = ServeConnectionAsync(connection, cancellationToken, startBarrier.Task);
             lock (gate)
             {
-                currentConnection = connection;
-                currentServeTask = serveTask;
+                serveTasksByConnection[connection] = serveTask;
             }
 
             startBarrier.SetResult();
@@ -270,7 +285,7 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     }
 
     /// <summary>
-    /// Runs one admitted connection to completion and releases the admission slot afterward,
+    /// Runs one admitted connection to completion and releases its admission slot afterward,
     /// independently of the accept loop that admitted it. Swallows every failure, including
     /// cancellation, so a connection fault can never crash this detached task.
     /// </summary>
@@ -278,8 +293,8 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     /// <param name="startBarrier">
     /// Awaited before <paramref name="connection"/> is run, so this method never reaches
-    /// <see cref="ReleaseSlot"/> before the accept loop has stored <paramref name="connection"/> as
-    /// <see cref="currentConnection"/>, even when <see cref="IPublicWebSocketConnection.RunAsync"/>
+    /// <see cref="ReleaseSlot"/> before the accept loop has stored <paramref name="connection"/> in
+    /// <see cref="serveTasksByConnection"/>, even when <see cref="IPublicWebSocketConnection.RunAsync"/>
     /// completes synchronously.
     /// </param>
     private async Task ServeConnectionAsync(IPublicWebSocketConnection connection, CancellationToken cancellationToken, Task startBarrier)
@@ -292,8 +307,8 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         catch (Exception)
         {
             // A failed or cancelled connection must not end the accept loop for the rest of the host
-            // process's life; the public transport simply admits no client until the next attempt
-            // succeeds.
+            // process's life; the public transport simply admits one fewer client until the next
+            // attempt succeeds.
         }
         finally
         {
@@ -301,39 +316,35 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         }
     }
 
-    /// <summary>Attempts to atomically claim the single connection admission slot.</summary>
-    /// <returns><see langword="true"/> when the slot was free and is now claimed by the caller.</returns>
+    /// <summary>Attempts to atomically claim one of the bounded admission slots.</summary>
+    /// <returns><see langword="true"/> when a slot was free and is now claimed by the caller.</returns>
     private bool TryAcquireSlot()
     {
         lock (gate)
         {
-            if (slotOccupied)
+            if (occupiedSlots >= maxConcurrentConnections)
             {
                 return false;
             }
 
-            slotOccupied = true;
+            occupiedSlots++;
             return true;
         }
     }
 
     /// <summary>
-    /// Releases the single connection admission slot and clears <see cref="currentConnection"/>, but
-    /// only when it still refers to <paramref name="connection"/>. A later connection's own admission
-    /// always replaces <see cref="currentConnection"/> before this connection's teardown can reach
-    /// here, so this check is a defensive guard against ever clearing a newer connection's state
-    /// rather than a condition expected to trigger in practice.
+    /// Releases <paramref name="connection"/>'s admission slot and removes it from
+    /// <see cref="serveTasksByConnection"/>. A no-op removal (the entry was never stored, or was
+    /// already removed) is expected whenever this races a slot reservation whose connection-factory
+    /// call has not completed yet; it is not treated as an error.
     /// </summary>
     /// <param name="connection">The connection whose slot is being released.</param>
     private void ReleaseSlot(IPublicWebSocketConnection connection)
     {
         lock (gate)
         {
-            slotOccupied = false;
-            if (ReferenceEquals(currentConnection, connection))
-            {
-                currentConnection = null;
-            }
+            occupiedSlots--;
+            serveTasksByConnection.Remove(connection);
         }
     }
 }

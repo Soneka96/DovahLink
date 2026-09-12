@@ -28,12 +28,13 @@ public static class Fixtures
         int? maxMessageBytes = null,
         int? maxInboundMessagesPerSecond = null,
         TimeSpan? inboundMessageRateWindow = null,
-        int? outboundQueueMaxMessages = null,
+        int? controlOutboundQueueMaxMessages = null,
         long? outboundQueueMaxBytes = null,
         TimeSpan? gracefulCloseTimeout = null,
         int? maxHandshakeRequestBytes = null,
         TimeSpan? disconnectNotificationTimeout = null,
-        TimeSpan? fragmentAssemblyTimeout = null) =>
+        TimeSpan? fragmentAssemblyTimeout = null,
+        int? dataOutboundQueueMaxMessages = null) =>
         new()
         {
             HandshakeTimeout = handshakeTimeout ?? Constants.PublicWebSocketHandshakeTimeout,
@@ -42,12 +43,13 @@ public static class Fixtures
             MaxMessageBytes = maxMessageBytes ?? Constants.PublicWebSocketMaxMessageBytes,
             MaxInboundMessagesPerSecond = maxInboundMessagesPerSecond ?? Constants.PublicWebSocketMaxMessagesPerSecond,
             InboundMessageRateWindow = inboundMessageRateWindow ?? Constants.PublicWebSocketMessageRateWindow,
-            OutboundQueueMaxMessages = outboundQueueMaxMessages ?? Constants.PublicWebSocketOutboundQueueMaxMessages,
+            ControlOutboundQueueMaxMessages = controlOutboundQueueMaxMessages ?? Constants.PublicWebSocketControlOutboundQueueMaxMessages,
             OutboundQueueMaxBytes = outboundQueueMaxBytes ?? Constants.PublicWebSocketOutboundQueueMaxBytes,
             GracefulCloseTimeout = gracefulCloseTimeout ?? Constants.PublicWebSocketGracefulCloseTimeout,
             MaxHandshakeRequestBytes = maxHandshakeRequestBytes ?? Constants.PublicWebSocketMaxHandshakeRequestBytes,
             DisconnectNotificationTimeout = disconnectNotificationTimeout ?? Constants.PublicWebSocketDisconnectNotificationTimeout,
             FragmentAssemblyTimeout = fragmentAssemblyTimeout ?? Constants.PublicWebSocketFragmentAssemblyTimeout,
+            DataOutboundQueueMaxMessages = dataOutboundQueueMaxMessages ?? Constants.PublicWebSocketDataOutboundQueueMaxMessages,
         };
 
     /// <summary>
@@ -60,13 +62,15 @@ public static class Fixtures
         IPublicWebSocketMessageHandler messageHandler,
         IClock? clock = null,
         PublicWebSocketTransportOptions? options = null,
-        IPublicWebSocketTransportDiagnostics? diagnostics = null) =>
+        IPublicWebSocketTransportDiagnostics? diagnostics = null,
+        IDataLaneOutboundQueue? dataLaneQueue = null) =>
         new(
             stream,
             messageHandler,
             clock ?? new SystemClock(),
             options ?? BuildPublicWebSocketTransportOptions(),
-            diagnostics ?? new FakePublicWebSocketTransportDiagnostics());
+            diagnostics ?? new FakePublicWebSocketTransportDiagnostics(),
+            dataLaneQueue ?? new DataLaneOutboundQueue());
 
     // ---- Client dispatch ----
 

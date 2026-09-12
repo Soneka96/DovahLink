@@ -28,7 +28,7 @@ public class PublicWebSocketListenerTests
     {
         using var listener = new PublicWebSocketListener(0, stream => new FakePublicWebSocketConnection(stream));
 
-        Assert.Null(listener.CurrentConnection);
+        Assert.Empty(listener.CurrentConnections);
     }
 
     /// <summary>Verifies that accepting an IPv4 connection reports it as current while it runs, and clears it once it ends.</summary>
@@ -47,10 +47,10 @@ public class PublicWebSocketListenerTests
 
         using Socket client = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 1);
-        Assert.NotNull(listener.CurrentConnection);
+        Assert.Single(listener.CurrentConnections);
 
         connections.ElementAt(0).Complete();
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -72,10 +72,10 @@ public class PublicWebSocketListenerTests
 
         using Socket client = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetworkV6);
         await WaitUntilAsync(() => connections.Count == 1);
-        Assert.NotNull(listener.CurrentConnection);
+        Assert.Single(listener.CurrentConnections);
 
         connections.ElementAt(0).Complete();
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -98,7 +98,7 @@ public class PublicWebSocketListenerTests
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 1);
         connections.ElementAt(0).Complete();
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 2);
@@ -126,23 +126,23 @@ public class PublicWebSocketListenerTests
 
         using var firstClient = new ClientWebSocket();
         await firstClient.ConnectAsync(new Uri($"ws://127.0.0.1:{listener.BoundPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
-        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count > 0);
 
         await firstClient.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         Assert.Equal(1, handler.ConnectionEndedCalls);
 
         using var secondClient = new ClientWebSocket();
         await secondClient.ConnectAsync(new Uri($"ws://127.0.0.1:{listener.BoundPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
-        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count > 0);
 
         await secondClient.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Verifies that a second connection attempt on the same address family while the slot is occupied is rejected without replacing the active connection.</summary>
+    /// <summary>Verifies that, with a bound of one connection, a second attempt on the same address family while the slot is occupied is rejected without replacing the active connection.</summary>
     [Fact]
     public async Task RunAsync_SecondConnectionSameFamilyWhileSlotOccupied_IsRejected()
     {
@@ -152,7 +152,7 @@ public class PublicWebSocketListenerTests
             var connection = new FakePublicWebSocketConnection(stream);
             connections.Enqueue(connection);
             return connection;
-        });
+        }, maxConcurrentConnections: 1);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -163,14 +163,14 @@ public class PublicWebSocketListenerTests
         await WaitUntilAsync(() => IsDisconnected(secondClient));
 
         Assert.Single(connections);
-        Assert.NotNull(listener.CurrentConnection);
+        Assert.Single(listener.CurrentConnections);
 
         connections.ElementAt(0).Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Verifies that a second connection attempt on the other address family while the slot is occupied is also rejected -- the slot is shared across both loopback addresses.</summary>
+    /// <summary>Verifies that, with a bound of one connection, a second attempt on the other address family while the slot is occupied is also rejected -- the bound is shared across both loopback addresses.</summary>
     [Fact]
     public async Task RunAsync_SecondConnectionCrossFamilyWhileSlotOccupied_IsRejected()
     {
@@ -180,7 +180,7 @@ public class PublicWebSocketListenerTests
             var connection = new FakePublicWebSocketConnection(stream);
             connections.Enqueue(connection);
             return connection;
-        });
+        }, maxConcurrentConnections: 1);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -195,6 +195,110 @@ public class PublicWebSocketListenerTests
         connections.ElementAt(0).Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that, with a bound above one, several devices are admitted and served concurrently rather than one replacing another.</summary>
+    [Fact]
+    public async Task RunAsync_MultipleConnectionsWithinBound_AllAdmittedConcurrently()
+    {
+        ConcurrentQueue<FakePublicWebSocketConnection> connections = new();
+        using var listener = new PublicWebSocketListener(0, stream =>
+        {
+            var connection = new FakePublicWebSocketConnection(stream);
+            connections.Enqueue(connection);
+            return connection;
+        }, maxConcurrentConnections: 3);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetworkV6);
+        using Socket thirdClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => connections.Count == 3);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 3);
+
+        foreach (FakePublicWebSocketConnection connection in connections)
+        {
+            connection.Complete();
+        }
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that, with a bound above one, an attempt past the bound is rejected while every already-admitted connection keeps running undisturbed.</summary>
+    [Fact]
+    public async Task RunAsync_ConnectionBeyondBound_IsRejectedWhileOthersStayConnected()
+    {
+        ConcurrentQueue<FakePublicWebSocketConnection> connections = new();
+        using var listener = new PublicWebSocketListener(0, stream =>
+        {
+            var connection = new FakePublicWebSocketConnection(stream);
+            connections.Enqueue(connection);
+            return connection;
+        }, maxConcurrentConnections: 2);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => connections.Count == 2);
+
+        using Socket thirdClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => IsDisconnected(thirdClient));
+
+        Assert.Equal(2, connections.Count);
+        Assert.Equal(2, listener.CurrentConnections.Count);
+
+        foreach (FakePublicWebSocketConnection connection in connections)
+        {
+            connection.Complete();
+        }
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that one connection ending frees exactly its own slot, admitting a replacement without disturbing the other already-admitted connection.</summary>
+    [Fact]
+    public async Task RunAsync_SlotFreesIndependently_OneDisconnectAdmitsNextWithoutAffectingOthers()
+    {
+        ConcurrentQueue<FakePublicWebSocketConnection> connections = new();
+        using var listener = new PublicWebSocketListener(0, stream =>
+        {
+            var connection = new FakePublicWebSocketConnection(stream);
+            connections.Enqueue(connection);
+            return connection;
+        }, maxConcurrentConnections: 2);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => connections.Count == 2);
+        FakePublicWebSocketConnection untouchedConnection = connections.ElementAt(0);
+
+        connections.ElementAt(1).Complete();
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 1);
+        Assert.Contains(untouchedConnection, listener.CurrentConnections);
+
+        using Socket thirdClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => connections.Count == 3);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 2);
+        Assert.Contains(untouchedConnection, listener.CurrentConnections);
+
+        untouchedConnection.Complete();
+        connections.ElementAt(2).Complete();
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a non-positive admission bound is rejected.</summary>
+    [Fact]
+    public void Constructor_NonPositiveMaxConcurrentConnections_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new PublicWebSocketListener(0, stream => new FakePublicWebSocketConnection(stream), maxConcurrentConnections: 0));
     }
 
     /// <summary>Verifies that cancelling before any client ever connects ends the accept loop without throwing.</summary>
@@ -242,7 +346,7 @@ public class PublicWebSocketListenerTests
         Task runTask = listener.RunAsync(cancellation.Token);
 
         using Socket client = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
-        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count > 0);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         cancellation.Cancel();
@@ -257,6 +361,39 @@ public class PublicWebSocketListenerTests
         Assert.True(
             stopwatch.Elapsed >= teardownDelay - timerSlop,
             $"RunAsync returned after {stopwatch.Elapsed}, before the connection's {teardownDelay} teardown delay (- {timerSlop} timer slop) elapsed.");
+    }
+
+    /// <summary>
+    /// Verifies that, with several concurrently admitted connections, <see cref="PublicWebSocketListener.RunAsync"/>
+    /// waits out every one of their teardowns -- not merely the first to finish -- proving the bounded
+    /// admission model awaits the full set of serve tasks rather than a single one.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelledWithMultipleConnectionsTearingDownAtDifferentSpeeds_WaitsForTheSlowestOne()
+    {
+        var fastTeardownDelay = TimeSpan.FromMilliseconds(50);
+        var slowTeardownDelay = TimeSpan.FromMilliseconds(300);
+        int connectionIndex = 0;
+        using var listener = new PublicWebSocketListener(0, stream =>
+            new FakePublicWebSocketConnection(stream, Interlocked.Increment(ref connectionIndex) == 1 ? fastTeardownDelay : slowTeardownDelay),
+            maxConcurrentConnections: 2);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 2);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Same timer-slop tolerance as the single-connection case above: RunAsync must still wait out
+        // nearly the slower connection's whole delay, not return as soon as the faster one finishes.
+        var timerSlop = TimeSpan.FromMilliseconds(20);
+        Assert.True(
+            stopwatch.Elapsed >= slowTeardownDelay - timerSlop,
+            $"RunAsync returned after {stopwatch.Elapsed}, before the slower connection's {slowTeardownDelay} teardown delay (- {timerSlop} timer slop) elapsed.");
     }
 
     /// <summary>Verifies that a connection failing with an unexpected exception does not end the accept loop for later connections.</summary>
@@ -284,9 +421,9 @@ public class PublicWebSocketListenerTests
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => Volatile.Read(ref firstAccept) == 0);
         await failingConnection!.RunStarted.WaitAsync(TimeSpan.FromSeconds(5));
-        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count > 0);
         failingConnection.ReleaseFailure();
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 1);
@@ -318,7 +455,7 @@ public class PublicWebSocketListenerTests
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => Volatile.Read(ref factoryCalls) == 1);
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 1);
 
@@ -349,12 +486,12 @@ public class PublicWebSocketListenerTests
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 1);
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 2);
         Assert.NotSame(connections.ElementAt(0), connections.ElementAt(1));
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -377,12 +514,12 @@ public class PublicWebSocketListenerTests
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetworkV6);
         await WaitUntilAsync(() => connections.Count == 1);
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetworkV6);
         await WaitUntilAsync(() => connections.Count == 2);
         Assert.NotSame(connections.ElementAt(0), connections.ElementAt(1));
-        await WaitUntilAsync(() => listener.CurrentConnection is null);
+        await WaitUntilAsync(() => listener.CurrentConnections.Count == 0);
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -404,14 +541,14 @@ public class PublicWebSocketListenerTests
 
         using Socket client = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connections.Count == 1);
-        Assert.NotNull(listener.CurrentConnection);
+        Assert.Single(listener.CurrentConnections);
 
         listener.Dispose();
-        Assert.NotNull(listener.CurrentConnection);
+        Assert.Single(listener.CurrentConnections);
 
         connections.ElementAt(0).Complete();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Null(listener.CurrentConnection);
+        Assert.Empty(listener.CurrentConnections);
     }
 
     /// <summary>Verifies that disposing the listener while it is waiting to accept ends the loop promptly instead of spinning.</summary>

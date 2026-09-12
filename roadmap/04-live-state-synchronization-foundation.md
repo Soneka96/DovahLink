@@ -433,7 +433,7 @@ discarded.
 
 #### Host-owned state, publication, and bounded delivery
 
-**Status:** Active — next implementation work
+**Status:** Complete
 
 Implement host-owned authoritative state, subscriptions, revisions, publication ordering, recovery,
 per-session bounded queues, latest-value Snapshot behavior, reliable Event behavior, reserved control
