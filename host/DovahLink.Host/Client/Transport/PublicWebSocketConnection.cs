@@ -77,7 +77,10 @@ public interface IPublicWebSocketConnection
     /// <returns>
     /// <see langword="true"/> when the value is now the pending snapshot for
     /// <paramref name="areaId"/>; otherwise <see langword="false"/>, and the connection remains open
-    /// with the previous value (if any) still pending.
+    /// with the previous value (if any) still pending. <paramref name="payload"/> itself is not
+    /// lost: it is retried once outbound capacity allows, per
+    /// <see cref="IDataLaneOutboundQueue.ReleaseOutstanding"/> and
+    /// <see cref="IDataLaneOutboundQueue.TryPromoteDeferredSnapshots"/>.
     /// </returns>
     bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload);
 
@@ -1015,6 +1018,11 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                     if (lane == PublicOutboundLane.ControlOrRecovery)
                     {
                         Interlocked.Decrement(ref controlOutstandingMessages);
+
+                        // A Control/Recovery send frees shared byte budget the Data lane did not itself
+                        // reserve or release; a Snapshot dirty only because of that shared budget, not
+                        // the Data lane's own message-count bound, would otherwise never be retried.
+                        dataLaneQueue.TryPromoteDeferredSnapshots(options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
                     }
                     else
                     {
