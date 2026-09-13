@@ -26,16 +26,23 @@ frozen source of record instead of a roadmap stage file.
 Normalize DovahLink's documentation and changelog conventions, then use the corrected
 conventions to make Host and Adapter composition/lifetime explicit and to sweep both
 subsystems' documentation -- without changing runtime, protocol, or security behavior
-anywhere in the package.
+anywhere in the package, except the one narrow, explicitly decided exception
+`DIVERGENCES.md` D4 approves (public compatibility/version and instance-identity
+vocabulary, implemented only by Concepts `01.3b`/`01.3c` to exactly the extent
+Concept `01.3a` decides).
 
 **In scope:** `ai/context/common.md`, `ai/context/dotnet/csharp-style.md`,
 `ai/context/skse/cpp-style.md` (normative-correctness slice), `CHANGELOG.md`,
 `tooling/test_repository_consistency.py`; `host/DovahLink.Host/` composition and
 documentation; `adapter/` composition and documentation; the corresponding test
-projects.
+projects. Per D4: `AGENTS.md`, `ARCHITECTURE.md`, `ROADMAP.md`/`roadmap/**`,
+`ai/context/**`, `console-admin/**`, `protocol/**`, `sdk/**`, `app/**`,
+`integration/**`, and `host/`/`adapter/` terminology -- each concept's own file names
+the exact set it may touch; see `01.2a`-`01.3c`'s concept files.
 
-**Non-goals (package-wide):** no protocol changes, no new product features, no
-opportunistic redesign of anything not named by a concept's own scope, no generic
+**Non-goals (package-wide):** no protocol changes except D4's approved exception, no
+new product features, no opportunistic redesign of anything not named by a concept's
+own scope, no generic
 `TODO.md`, no compatibility shims for the pre-release product (per
 `ai/context/common.md`'s "Pre-release compatibility").
 
@@ -160,36 +167,68 @@ remaining non-normative/historical cleanup, stays with Concept 05 above.)
 ```text
 01 conventions + changelog
         │
-        ├──────────────────────────────────┐
-        ▼                                  ▼
-01.1 Adapter enum/constants            02 Host composition
-    physical normalization                 │
-        │                                  ▼
-        ▼                              04 Host docs
-03 Adapter composition
+        ▼
+01.1 Adapter enum/constants physical normalization
         │
         ▼
-05 Adapter docs
+01.2a Active docs/instructions terminology
+        │
+        ▼
+01.2b Internal code/test/tooling terminology
+        │
+        ▼
+01.3a Public vocabulary + identity/version design
+        │
+        ▼
+01.3b Compatibility/version vocabulary cutover
+        │
+        ▼
+01.3c Public authoritative-instance identity cutover
+        │
+        ├──────────────────────────┐
+        ▼                          ▼
+02 Host composition           03 Adapter composition
+        │                          │
+        ▼                          ▼
+04 Host docs               05 Adapter docs
 ```
 
-Concept 01 must merge before 01.1 or 02 begin, so the corrected conventions are
-authoritative before any composition, physical normalization, or documentation work
-reads them. Concept 01.1 (see `DIVERGENCES.md` D2 for why it exists) makes `adapter/`'s
-actual enum/constants layout match the convention Concept 01 wrote, so Concept 03
-starts its composition work from an already-normalized source layout rather than doing
-that cleanup as an unplanned side quest. 03 depends on 01.1, not just 01. 04 depends on
-02 (not just 01) so it never documents/reorganizes Host code that composition is about
-to move; 05 depends on 03 for the same reason on the Adapter side. 02 has no dependency
-on 01.1/03 and may proceed independently once 01 is merged.
+Concept 01 must merge before 01.1 begins, so the corrected conventions are
+authoritative before any composition, physical normalization, or vocabulary work reads
+them. Concept 01.1 (see `DIVERGENCES.md` D2) makes `adapter/`'s actual enum/constants
+layout match the convention Concept 01 wrote. Concepts 01.2a/01.2b/01.3a/01.3b/01.3c
+(see `DIVERGENCES.md` D4) form a single linear vocabulary-normalization chain,
+inserted because active instructions, internal names, and transitional public
+protocol terms still contain retired Bridge vocabulary that would otherwise leak into
+newly composed Host/Adapter code: 01.2a normalizes active docs/instructions, 01.2b
+renames stale internal naming, 01.3a is a design-only gate deciding the public
+compatibility/version and instance-identity vocabulary, and 01.3b/01.3c implement
+exactly that decision -- the package's only concepts permitted to touch public wire
+behavior. This chain is deliberately linear, not parallelized, to avoid cross-PR
+conflicts and double-touching files under rename. 02 and 03 both now depend on 01.3c
+merged, not on 01 directly -- there is little value composing Host/Adapter around
+names and identity concepts about to be renamed. 03 additionally still depends on
+01.1's physical normalization (named explicitly rather than left as a transitive
+implication, since it documents Adapter composition's two independent prerequisites:
+physical layout normalized, and vocabulary stable). 04 depends on 02 (not just 01.3c)
+so it never documents/reorganizes Host code that composition is about to move; 05
+depends on 03 for the same reason on the Adapter side.
 
 ## 6. Execution contract
 
 - Each concept is implemented in its own feature branch and PR.
 - A dependent concept must not begin implementation until its dependency's PR is
   merged to `main` -- not merely opened or approved.
-- After Concept 01 merges: Concept 02 may proceed independently. Concept 01.1 may also
-  start once Concept 01 merges, and must merge before Concept 03 begins. Concept 04
-  requires Concept 02 merged. Concept 05 requires Concept 03 merged.
+- After Concept 01 merges: Concept 01.1 may start. The 01.2a -> 01.2b -> 01.3a ->
+  01.3b -> 01.3c chain proceeds linearly, each waiting for the previous concept's PR
+  to merge; do not parallelize it. Concepts 02 and 03 require 01.3c merged (03 also
+  requires 01.1 merged). Concept 04 requires Concept 02 merged. Concept 05 requires
+  Concept 03 merged.
+- No PR in this package may change more than 100 files. Plan every concept for no
+  more than 80 changed files to preserve review headroom. If an atomic behavior/
+  protocol change cannot fit within 100 files, stop for maintainer review; do not
+  invent a temporary compatibility shim, dual-field alias, or an arbitrary split
+  boundary to force it under the limit.
 - Stop for maintainer review after every concept/PR. Do not automatically continue to
   the next concept after completing one, even when its dependency is already merged.
 - Re-check this `PLAN.md`'s source fingerprint and the traceability matrix at the start
@@ -208,7 +247,8 @@ on 01.1/03 and may proceed independently once 01 is merged.
 | R5.6b | 05 | decomposed (split from Issue 5's R5.6, see D1) |
 
 Concept 01.1 covers no requirement ID -- it did not exist in the original decomposition.
-See `DIVERGENCES.md` D2.
+See `DIVERGENCES.md` D2. Concepts 01.2a, 01.2b, 01.3a, 01.3b, and 01.3c likewise cover
+no requirement ID -- see `DIVERGENCES.md` D4.
 
 ## 8. Status tracking
 
@@ -216,8 +256,13 @@ See `DIVERGENCES.md` D2.
 | --- | --- | --- |
 | 01 -- Conventions and changelog | In progress | -- |
 | 01.1 -- Adapter enum/constants physical normalization | Blocked by 01 | -- |
-| 02 -- Host composition and DI lifetimes | Blocked by 01 | -- |
-| 03 -- Adapter runtime composition | Blocked by 01.1 | -- |
+| 01.2a -- Active docs/instructions terminology | Blocked by 01.1 | -- |
+| 01.2b -- Internal code/test/tooling terminology | Blocked by 01.2a | -- |
+| 01.3a -- Public vocabulary + identity/version design | Blocked by 01.2b | -- |
+| 01.3b -- Compatibility/version vocabulary cutover | Blocked by 01.3a | -- |
+| 01.3c -- Public authoritative-instance identity cutover | Blocked by 01.3b | -- |
+| 02 -- Host composition and DI lifetimes | Blocked by 01.3c | -- |
+| 03 -- Adapter runtime composition | Blocked by 01.1, 01.3c | -- |
 | 04 -- Host documentation sweep | Blocked by 02 | -- |
 | 05 -- Adapter documentation sweep | Blocked by 03 | -- |
 
@@ -240,16 +285,24 @@ The phase is complete only when:
   deferred or changed.
 - `tooling/test_repository_consistency.py` and the Host/Adapter test suites are green
   at the final merge.
-- No concept introduced a runtime, protocol, or security behavior change.
+- No concept introduced a runtime, protocol, or security behavior change, except the
+  exact public compatibility/version and instance-identity vocabulary change `01.3a`
+  decided and `01.3b`/`01.3c` implemented, per `DIVERGENCES.md` D4 -- the package's
+  one deliberate, narrow exception to this invariant.
+- No PR in the final merge history exceeded 100 changed files.
 
 ## 10. Divergence policy
 
-See `DIVERGENCES.md`. Three entries are currently recorded and approved: D1 -- Issue
+See `DIVERGENCES.md`. Four entries are currently recorded and approved: D1 -- Issue
 5's `R5.6` splits into the convention-document normative-correctness slice (`R5.6a`,
 reassigned to Concept 01 as `R1.14`) and the remaining non-normative/historical
 cleanup (`R5.6b`, staying with Concept 05); D2 -- Concept 01.1 is inserted between
 Concept 01 and Concept 03 to physically normalize `adapter/`'s enum and constants
-layout, a new concept outside the original five-issue decomposition; and D3 -- the
+layout, a new concept outside the original five-issue decomposition; D3 -- the
 status table in section 8 tracks `Status | PR` only, not the merge SHA `SOURCE.md`
 Block C item 7 originally asked for, since a PR cannot record its own merge SHA
-before merging and GitHub already owns that record permanently.
+before merging and GitHub already owns that record permanently; and D4 -- five new
+concepts (`01.2a`, `01.2b`, `01.3a`, `01.3b`, `01.3c`) normalize legacy Bridge
+terminology and the public compatibility/version and instance-identity vocabulary
+before Concept 02/03 composition begins, the package's one deliberate, narrow
+exception to the "no protocol/public behavior change" invariant.

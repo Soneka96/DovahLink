@@ -5,12 +5,21 @@
 **Covers:** R3.1-R3.10 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`
 Block A Issue 3).
 
-**Depends on:** Concept 01.1 merged to `main` (`ai/context/skse/cpp-style.md` must
-already be free of normative Bridge-genealogy dependencies, per D1/R1.14, before this
-concept's design work and documentation are written against it; the enum/constants
-physical normalization 01.1 performs must also be in place first, so this concept's
-`AdapterRuntime` composition work reads from the already-normalized `adapter/enums.hpp`
-and `adapter/constants.hpp` rather than the pre-normalization per-module layout).
+**Depends on:** Two independent prerequisites, both named explicitly even though
+`01.1` is transitively upstream of `01.3c` in the concept graph (per
+`DIVERGENCES.md` D4):
+
+- Concept 01.1 merged to `main` (`ai/context/skse/cpp-style.md` must already be free
+  of normative Bridge-genealogy dependencies, per D1/R1.14, before this concept's
+  design work and documentation are written against it; the enum/constants physical
+  normalization 01.1 performs must also be in place first, so this concept's
+  `AdapterRuntime` composition work reads from the already-normalized
+  `adapter/enums.hpp` and `adapter/constants.hpp` rather than the pre-normalization
+  per-module layout).
+- Concept 01.3c merged to `main` (the public compatibility/version and
+  instance-identity vocabulary must be stable before Adapter composition work is
+  written against it -- there is little value composing Adapter around names and
+  identity concepts about to be renamed).
 
 ## Why this is a stable concept
 

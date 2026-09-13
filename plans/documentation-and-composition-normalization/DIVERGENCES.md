@@ -114,3 +114,90 @@ Block C's original instruction described; no requirement ID is affected.
 ask, superseded by the maintainer's own follow-up in the same review exchange: "Status
 tracking: drop the merge-SHA column entirely. Track `Status | PR`... This avoids
 creating a closeout PR just to record metadata.").
+
+## D4 -- Legacy Bridge terminology and public vocabulary normalization inserted before composition
+
+**Original requirement:** None in `SOURCE.md`. This did not exist in the original
+five-issue decomposition. It is added because the repository's implementation has
+moved to Host + Adapter while active instructions, internal names, and transitional
+public protocol terms still contain retired Bridge vocabulary.
+
+**Observed conflict:** A full-repository inventory (236 files, 1,342 case-insensitive
+`bridge` hits, baseline `main` @ `456f03b`) found the remaining references are not one
+kind of debt. Some are stale current-architecture terminology (`AGENTS.md` still
+names `Bridge/Core` as a current investigation boundary; `console-admin/dovahlink.yaml`
+and `DovahLinkAdmin.psc` cite a deleted implementation path,
+`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`, that no longer exists
+post-3A.2; `roadmap/10-multi-bridge-and-local-discovery-foundation.md` is a *planned,
+not-yet-built* stage still named and worded around "Bridge" rather than historical
+record of what shipped). Some are stale internal naming with no external contract
+(`app/lib/features/connection/**`'s `BridgeEntity`/`BridgeListScreen`/
+`BridgeListViewModel` cluster models "a DovahLink instance to connect to" under the
+retired name; `adapter/runtime/adapter_task_marshaller.hpp`'s doc comment still cites
+`IBridgeCallbackRegistry`, a name Concept 01 already removed from `cpp-style.md`).
+Some are public wire/protocol contract: `bridgeVersion` and `bridgeInstanceId` are
+real JSON field names, appearing in 3 and 57 protocol fixtures respectively (the
+latter because it lives in the standard envelope header, present on nearly every
+message), where a rename is a protocol decision, not a cosmetic one -- both fields are
+already documented as "legacy wire-field name" in `protocol/schema/README.md`, and
+`ai/context/protocol/compatibility.md` already defers the public authoritative-process
+instance identifier decision and explicitly prohibits substituting `adapterInstanceId`,
+a PID, a port, or a connection/session ID for it. Blindly renaming any of this --
+especially a global `Bridge` -> `Host` substitution -- would silently rewrite
+historically accurate changelog/roadmap/frozen-reference text, or make a wire-protocol
+decision (compatibility authority naming, public instance identity semantics) without
+the design step that decision actually requires.
+
+**Proposed change:** Insert five new concepts between Concept 01.1 and Concept 03,
+before Host/Adapter composition begins, so 02/03 build against stable final vocabulary
+rather than names scheduled for immediate replacement:
+
+- `01.2a` -- normalize active, present-tense docs/instructions terminology
+  (documentation-only, no wire/behavior change).
+- `01.2b` -- rename stale internal (non-public, non-wire) implementation naming to its
+  actual current owner -- Host, Adapter, or DovahLink -- with no other semantic
+  refactor riding along (behavior-neutral).
+- `01.3a` -- a design-only gate with no wire implementation: decide the compatibility
+  authority and canonical version vocabulary (replacing `bridgeVersion`), decide
+  whether and how the public protocol exposes an authoritative-process instance
+  identifier (replacing `bridgeInstanceId`'s deferred semantics), and produce an
+  explicit old-to-new vocabulary table. No implementation concept below starts while
+  any row of that table is undecided.
+- `01.3b` -- implement exactly 01.3a's compatibility/version decision (small: ~3
+  fixtures plus the Host/SDK code and docs that produce/consume that one field).
+- `01.3c` -- implement exactly 01.3a's public authoritative-instance identity decision
+  (large: ~57 fixtures plus Host/SDK envelope code, since this field is in the
+  standard envelope header) -- proving reconnect/new-session/multi-client/restart
+  identity invariants, not just a renamed string.
+
+Every concept keeps the package's standing "no blind global rename," "no opportunistic
+cleanup," and "preserve historical truth" rules: a released changelog entry, frozen
+`SOURCE.md`/reference material, explicit retired-Bridge history, and a completed
+roadmap phase's historical record are not rewritten merely because they say "Bridge."
+`01.3b`/`01.3c` are the package's only concepts permitted to touch public wire
+behavior, and only to the exact extent `01.3a` decides -- no other protocol redesign
+is authorized. A hard 100-changed-file-per-PR limit applies package-wide (target
+`<=80`); if an atomic migration cannot fit, implementation stops for maintainer review
+rather than inventing a compatibility shim, dual-field alias, or arbitrary split.
+
+Concepts 02 and 03 are blocked until this vocabulary programme completes (`01.3c`
+merged), not just `01`/`01.1` -- there is little value composing Host/Adapter around
+names and identity concepts about to be renamed. Concept 03 additionally still depends
+on `01.1`'s physical enum/constants normalization; both are named explicitly in its
+concept file as two independent prerequisites (physical layout normalized; vocabulary
+stable) even though `01.1` is transitively upstream of `01.3c` in the graph.
+
+**Impact:** Adds five concepts and up to five PRs to the package; no existing
+requirement ID changes. `01.3b`/`01.3c` are an explicit, narrow exception to the
+package-wide "no protocol/public behavior change" invariant (`PLAN.md` section 3),
+approved only to the extent `01.3a` decides -- this is the one place in the package
+where that invariant is deliberately relaxed, and only there.
+
+**Status:** approved.
+
+**Decision source:** User-supplied agent brief,
+`DovahLink_Bridge_Terminology_Normalization_Agent_Brief.md`, reviewed and approved
+2026-09-13, with two corrections applied before insertion: the brief's own proposed
+identifier ("D3") collided with this package's actual D3 (the merge-SHA divergence
+above, added in a review pass the brief predated) and is renumbered D4; and Concept 02
+and Concept 03's dependency lines are updated explicitly rather than left implicit.

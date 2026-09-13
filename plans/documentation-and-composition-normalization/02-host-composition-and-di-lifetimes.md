@@ -5,8 +5,11 @@
 **Covers:** R2.1-R2.10 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`
 Block A Issue 2).
 
-**Depends on:** Concept 01 merged to `main` (corrected conventions must be
-authoritative before new Host composition code and its documentation are written).
+**Depends on:** Concept 01.3c merged to `main` (per `DIVERGENCES.md` D4: corrected
+conventions must be authoritative, and the public compatibility/version and
+instance-identity vocabulary must be stable, before new Host composition code and its
+documentation are written -- there is little value composing Host around names and
+identity concepts about to be renamed).
 
 ## Why this is a stable concept
 

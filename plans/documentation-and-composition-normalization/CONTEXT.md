@@ -18,9 +18,11 @@ Status: active (package frozen 2026-09-13)
   section 6 until that merge actually happens.
 - Prerequisites: PR #58 merged (baseline `499bd4f4`) -- satisfied.
 - Next action: merge Concept 01. After merge, record its PR number and flip its
-  status table row (`PLAN.md` section 8) to `Complete`. Concept 01.1 and Concept 02
-  then become eligible to start (both depend only on Concept 01). Concept 03 remains
-  blocked until Concept 01.1 merges, not just Concept 01 -- do not unblock it early.
+  status table row (`PLAN.md` section 8) to `Complete`. Concept 01.1 then becomes
+  eligible to start. Per D4 (added this session, see Decisions below), Concept 02 no
+  longer starts right after Concept 01 -- it now waits behind the entire
+  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c vocabulary-normalization chain,
+  same as Concept 03. Do not unblock 02 or 03 until 01.3c actually merges.
 
 ## Completed concepts
 
@@ -31,11 +33,12 @@ Status: active (package frozen 2026-09-13)
 - D1: the normative-correctness slice of `cpp-style.md`'s Bridge-genealogy cleanup
   (originally Issue 5 / R5.6) is reassigned to Concept 01 as R1.14. See
   `DIVERGENCES.md`.
-- Execution contract: one PR per concept, review-gated; 02 may proceed once 01 merges;
-  01.1 may also start once 01 merges and must merge before 03 begins (per D2, this
-  superseded the original "02/03 may run in parallel" wording -- 03 now depends on
-  01.1, not 01 directly); 04 requires 02 merged; 05 requires 03 merged. See `PLAN.md`
-  sections 5-6.
+- Execution contract: one PR per concept, review-gated. Original wording ("02/03 may
+  run in parallel once 01 merges") was superseded twice: first by D2 (03 depends on
+  01.1, not 01 directly), then by D4 (both 02 and 03 now wait behind the entire
+  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain -- 02 is blocked by 01.3c;
+  03 is blocked by 01.1 AND 01.3c, both named explicitly). 04 requires 02 merged; 05
+  requires 03 merged. See `PLAN.md` sections 5-6 for the authoritative current graph.
 - `[Unreleased]` must be backfilled with notable outcomes merged since the `0.3.3`
   baseline, not introduced empty (R1.15). See `PLAN.md` Requirement IDs and
   `SOURCE.md` Block C item 3.
@@ -68,10 +71,37 @@ Status: active (package frozen 2026-09-13)
   files as pending relocation, not the intended location. Concept 01.1 (new concept
   file, see `PLAN.md` section 5 and `DIVERGENCES.md` D2) performs the actual physical
   move as its own concept, between Concept 01 and Concept 03 -- not folded into either.
+- D4 (2026-09-13, from a user-supplied agent brief,
+  `DovahLink_Bridge_Terminology_Normalization_Agent_Brief.md`, reviewed and approved
+  with two corrections): inserts five new concepts -- `01.2a` (active docs/
+  instructions terminology), `01.2b` (internal code/test/tooling terminology),
+  `01.3a` (design-only public vocabulary + instance-identity decision, no wire
+  implementation), `01.3b` (compatibility/version vocabulary cutover, implements
+  01.3a exactly), `01.3c` (public authoritative-instance identity cutover, implements
+  01.3a exactly) -- between Concept 01.1 and Concept 03/02. Why now: a full-repository
+  inventory found 236 files / 1,342 case-insensitive `bridge` hits that are not one
+  kind of debt (stale active terminology, stale internal naming, public wire fields
+  `bridgeVersion`/`bridgeInstanceId`, deliberate historical references, generic
+  unrelated usage), and Concept 02/03 composing Host/Adapter against names scheduled
+  for imminent rename would be wasted work. Blind global rename is explicitly
+  forbidden; `01.3b`/`01.3c` are the package's only concepts allowed to touch public
+  wire behavior, only to the exact extent `01.3a` decides -- the one approved
+  exception to the package-wide "no protocol change" invariant. A hard 100-file/PR
+  cap applies (target <=80); an atomic migration that cannot fit stops for maintainer
+  review rather than inventing a compatibility shim. The two corrections applied
+  before insertion: the brief's own proposed identifier ("D3") collided with this
+  package's actual D3 above and was renumbered D4; Concept 02's and Concept 03's
+  dependency lines were both updated explicitly (02: blocked by 01.3c; 03: blocked by
+  01.1 AND 01.3c, both named even though 01.1 is transitively implied, since they
+  document Adapter composition's two independent prerequisites).
 
 ## Deferred debt
 
-(none currently open.)
+(none currently open. Note: the D4 inventory below is a planning-time estimate at
+directory/file granularity, not a certified hit-by-hit classification -- each of
+01.2a/01.2b/01.3a/01.3b/01.3c is required to re-run and re-classify its own inventory
+before it starts implementing, per the brief's own safety checklist. This is by
+design, not debt.)
 
 ## Changed files
 
@@ -119,6 +149,17 @@ Status: active (package frozen 2026-09-13)
   `adapter/CMakeLists.txt` (it declares no per-header source list, only an include-root
   directory) and softened from a hard requirement to "verify at implementation time,
   likely no change needed."
+- 2026-09-13 D4 planning insertion (this session, planning-only -- no `ai/context/`,
+  production source, protocol schema, or test file touched): added
+  `01.2a-active-documentation-and-instruction-terminology.md`,
+  `01.2b-internal-code-test-and-tooling-terminology.md`,
+  `01.3a-public-vocabulary-and-identity-semantics.md`,
+  `01.3b-compatibility-version-vocabulary-cutover.md`,
+  `01.3c-public-authoritative-instance-identity-cutover.md`; updated `PLAN.md`'s
+  concept graph, status table, execution contract (100-file/PR cap), phase completion
+  gate (D4's protocol exception), and Objective/Non-goals (D4's scope and exception);
+  added `DIVERGENCES.md` D4; updated `02-host-composition-and-di-lifetimes.md`'s and
+  `03-adapter-runtime-composition.md`'s `Depends on` lines to the new chain.
 
 ## Verification
 
@@ -131,11 +172,20 @@ Status: active (package frozen 2026-09-13)
   step, per Concept 01's scope boundary. The one production-code follow-up this review
   surfaced (moving `ipc/ipc_enums.hpp` and consolidating constants) is deliberately
   deferred to the new Concept 01.1, not done here.
+- `python -m unittest tooling.test_repository_consistency -v`: re-run after the D4
+  planning insertion, 36/36 passed -- unaffected, since this pass touched only the
+  `plans/` package and no `ai/context/`/`CHANGELOG.md`/test-file content.
+- Bridge inventory baseline @ `main` 456f03b (recorded in each new concept file, see
+  `01.2a` for the full category breakdown): 236 files, 1,342 case-insensitive `bridge`
+  hits. Planning-time estimate only; each implementation concept re-runs it.
 
 ## Handoff
 
 Next concept: `01-conventions-and-changelog.md` (still active -- the fourth review
 pass found no remaining implementation blockers and approved the engineering/content,
 the plan/dependency model, and the Concept 01.1 split; only awaiting the actual merge
-now, not another review pass).
-Blocked by: the maintainer performing the merge (AI does not merge, per `AGENTS.md`).
+now, not another review pass). The D4 planning insertion (five new concepts, this
+session) is also awaiting maintainer review before any of `01.2a`-`01.3c` may begin
+implementation.
+Blocked by: the maintainer performing the merge (AI does not merge, per `AGENTS.md`),
+and maintainer review of the D4 planning insertion.
