@@ -158,7 +158,7 @@ Security rules apply before the Host accepts any client connection. A local-netw
   Skyrim, never silently trusts a client, never invents or merges uncertain credentials, and always
   supports a clean reset-and-re-pair path. This phase's trust-store implementation only needs to
   satisfy a single Host process, but its boundary must not make later multi-process synchronization
-  (Stage 10, Multi-Bridge and Local Discovery Foundation) require rewriting the pairing protocol or
+  (Stage 10, Multi-Instance and Local Discovery Foundation) require rewriting the pairing protocol or
   trust-domain model.
 - Revocation is immediate: revoking a trusted client removes its active trust, invalidates its
   current authenticated session, closes that connection, and rejects reuse of the revoked credential;

@@ -118,7 +118,7 @@ This phase depends on Phases 2, 3, and 4 and consumes their approved identity, p
 protocol, and live-synchronization semantics rather than redesigning them. The separate Stage 5A
 development slice consumes the SDK's pulled-forward platform-port and transport boundaries but does
 not close this phase. Stage 5 itself does not implement Phase 9 concurrent-client delivery, Phase 10
-multi-Bridge discovery, Phase 11 automatic connection/transport selection, or the generalized Stage
+multi-instance discovery, Phase 11 automatic connection/transport selection, or the generalized Stage
 22 secure LAN transport; when those phases are implemented, their Dart client behavior extends the
 SDK rather than being built privately into the app again. The independent .NET validation client
 remains a separate implementation of the canonical contract and does not consume, wrap, or generate

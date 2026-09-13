@@ -1095,7 +1095,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "7. Core UI Theme System",
             "8. Live Player State",
             "9. Multi-Client Runtime Foundation",
-            "10. Multi-Bridge and Local Discovery Foundation",
+            "10. Multi-Instance and Local Discovery Foundation",
             "11. Automatic Connection and Transport Selection",
             "12. Mod Awareness",
             "13. Interactive Map Foundation",
@@ -1114,7 +1114,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "26. Installed UI Detection",
             "27. Optional UI Mod Adapters",
             "28. Safe Companion Authorization Foundation",
-            "29. Runtime Profiling and Advanced Bridge Hardening",
+            "29. Runtime Profiling and Advanced Hardening",
             "30. CommonLib Dependency Maintenance Audit",
         ]
         actual_headings = re.findall(r"(?m)^## (\d+(?:\.\d+)?[A-Z]?\.? .+)$", roadmap)
@@ -1254,7 +1254,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "5. Dart Client SDK Foundation": "depends on Phases 2, 3, and 4",
             "6. PC / Second-Screen Baseline": "validates Phases 2 through 5",
             "9. Multi-Client Runtime Foundation": "follows the Phase 8 single-client proof",
-            "10. Multi-Bridge and Local Discovery Foundation": "depends on Phases 2 and 9",
+            "10. Multi-Instance and Local Discovery Foundation": "depends on Phases 2 and 9",
             "28. Safe Companion Authorization Foundation": (
                 "depends on identity, multi-client isolation, and security"
             ),

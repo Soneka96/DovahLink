@@ -1,14 +1,14 @@
-# Stage 29 — Runtime Profiling and Advanced Bridge Hardening
+# Stage 29 — Runtime Profiling and Advanced Hardening
 
 [Back to the roadmap index](../ROADMAP.md). [Previous stage](./28-safe-companion-authorization-foundation.md) · [Next stage](./30-commonlib-dependency-maintenance-audit.md)
 
-## 29. Runtime Profiling and Advanced Bridge Hardening
+## 29. Runtime Profiling and Advanced Hardening
 
 **Status:** Planned
 
 ### Outcome
 
-Measured usage drives final bridge tuning without speculative complexity.
+Measured usage drives final runtime tuning without speculative complexity.
 
 ### Scope and behavior
 
