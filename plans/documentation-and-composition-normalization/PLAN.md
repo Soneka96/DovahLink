@@ -12,8 +12,9 @@
   concept turn; if it no longer matches, stop and reconcile before continuing.
 - **Package status:** Frozen 2026-09-13, after two maintainer review passes
   (`DIVERGENCES.md` D1 and the CONTEXT.md decision log record both). No further
-  restructuring of the five concepts; changes from here are tracked as new
-  divergences, not edits to this package's design.
+  restructuring of the concepts listed in the status table (section 8) beyond an
+  approved divergence such as D2's insertion of Concept 01.1; changes from here are
+  tracked as new divergences, not silent edits to this package's design.
 
 There is no pre-existing roadmap phase or repository `PLAN.md` behind this initiative --
 it is cross-cutting engineering hygiene (documentation/changelog conventions plus
@@ -231,8 +232,9 @@ progress.
 
 The phase is complete only when:
 
-- All five concepts are `Complete` in the status table above, each merged via its
-  recorded PR.
+- Every concept in the status table above (section 8) is `Complete`, each merged via
+  its recorded PR -- this wording tracks the table rather than a fixed count, so an
+  approved divergence that adds or removes a concept never leaves this gate stale.
 - Every requirement ID in the traceability matrix is `preserved`/`decomposed` into a
   completed concept, or has an approved `DIVERGENCES.md` entry explaining why it is
   deferred or changed.
@@ -242,7 +244,9 @@ The phase is complete only when:
 
 ## 10. Divergence policy
 
-See `DIVERGENCES.md`. One entry (D1) is currently recorded and approved: Issue 5's
+See `DIVERGENCES.md`. Two entries are currently recorded and approved: D1 -- Issue 5's
 `R5.6` splits into the convention-document normative-correctness slice (`R5.6a`,
 reassigned to Concept 01 as `R1.14`) and the remaining non-normative/historical
-cleanup (`R5.6b`, staying with Concept 05).
+cleanup (`R5.6b`, staying with Concept 05) -- and D2 -- Concept 01.1 is inserted
+between Concept 01 and Concept 03 to physically normalize `adapter/`'s enum and
+constants layout, a new concept outside the original five-issue decomposition.

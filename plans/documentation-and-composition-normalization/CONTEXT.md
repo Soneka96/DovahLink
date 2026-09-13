@@ -32,8 +32,11 @@ Status: active (package frozen 2026-09-13)
 - D1: the normative-correctness slice of `cpp-style.md`'s Bridge-genealogy cleanup
   (originally Issue 5 / R5.6) is reassigned to Concept 01 as R1.14. See
   `DIVERGENCES.md`.
-- Execution contract: one PR per concept, review-gated; 02/03 may run in parallel
-  once 01 merges; 04 requires 02 merged; 05 requires 03 merged. See `PLAN.md` section 6.
+- Execution contract: one PR per concept, review-gated; 02 may proceed once 01 merges;
+  01.1 may also start once 01 merges and must merge before 03 begins (per D2, this
+  superseded the original "02/03 may run in parallel" wording -- 03 now depends on
+  01.1, not 01 directly); 04 requires 02 merged; 05 requires 03 merged. See `PLAN.md`
+  sections 5-6.
 - `[Unreleased]` must be backfilled with notable outcomes merged since the `0.3.3`
   baseline, not introduced empty (R1.15). See `PLAN.md` Requirement IDs and
   `SOURCE.md` Block C item 3.
@@ -106,12 +109,25 @@ Status: active (package frozen 2026-09-13)
 - `plans/documentation-and-composition-normalization/PLAN.md`,
   `03-adapter-runtime-composition.md`, `DIVERGENCES.md`: updated concept graph, status
   table, and Concept 03's dependency to record Concept 01.1's insertion.
+- 2026-09-13 third correction pass (bookkeeping only, no `ai/context/`/`CHANGELOG.md`
+  changes): `PLAN.md`'s "five concepts" wording (section 1's package-status note and
+  section 9's phase completion gate) now references the status table generically
+  instead of a fixed count, so an approved divergence adding/removing a concept can't
+  leave it stale again; `PLAN.md` section 10 now names both D1 and D2 instead of only
+  D1; `CONTEXT.md`'s own Decisions log had a stale "02/03 may run in parallel" line
+  contradicting the correct 01→01.1→03 dependency stated elsewhere in this same file --
+  fixed to match. `01.1`'s CMake requirement was verified against the actual
+  `adapter/CMakeLists.txt` (it declares no per-header source list, only an include-root
+  directory) and softened from a hard requirement to "verify at implementation time,
+  likely no change needed."
 
 ## Verification
 
 - `python -m unittest tooling.test_repository_consistency -v`: initial four-step
   implementation 35/35 passed; first correction pass 35/35 passed; second correction
-  pass (this session) 36/36 passed.
+  pass 36/36 passed; third correction pass (bookkeeping-only, this session) re-run
+  clean at 36/36 -- unaffected, since no `ai/context/`/`CHANGELOG.md`/test-file content
+  changed in this pass.
 - No production Host/Adapter code touched in any pass -- confirmed by diff review each
   step, per Concept 01's scope boundary. The one production-code follow-up this review
   surfaced (moving `ipc/ipc_enums.hpp` and consolidating constants) is deliberately
@@ -119,6 +135,8 @@ Status: active (package frozen 2026-09-13)
 
 ## Handoff
 
-Next concept: `01-conventions-and-changelog.md` (still active -- awaiting a third
-review pass and merge, not yet handed off).
-Blocked by: maintainer review of the second correction pass.
+Next concept: `01-conventions-and-changelog.md` (still active -- awaiting a fourth
+review pass and merge, not yet handed off; the third pass addressed the maintainer's
+verdict that Concept 01's implementation itself is ready, pending only this
+bookkeeping cleanup).
+Blocked by: maintainer review of the third correction pass.
