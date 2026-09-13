@@ -10,18 +10,17 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `01-conventions-and-changelog.md`
-- Status: active -- implemented on `docs/conventions-and-changelog`. First review pass
-  found six findings, all corrected. Second review pass found three more (common.md's
-  Bridge terminology, the enum-rule overgeneralization it exposed, and a stale
-  verification placeholder), all corrected in this second pass -- see Decisions below.
-  Awaiting a third review pass and merge; not yet `Complete` per the execution contract
-  in `PLAN.md` section 6.
+- Status: active -- implementation and all three correction passes complete on
+  `docs/conventions-and-changelog` (six findings, then three more, then four
+  bookkeeping-only fixes plus one Concept 01.1 wording fix -- see Decisions below for
+  all three). A fourth maintainer review pass found no remaining implementation
+  blockers; awaiting merge. Not yet `Complete` per the execution contract in `PLAN.md`
+  section 6 until that merge actually happens.
 - Prerequisites: PR #58 merged (baseline `499bd4f4`) -- satisfied.
-- Next action: push the second correction commit, hand the branch back for a third
-  review pass confirming all nine findings across both passes are actually closed.
-  Concept 01.1 (new, see Decisions) is unblocked once Concept 01 merges. Concepts 02
-  and 03 remain blocked until their own dependencies actually merge -- do not unblock
-  them yet (03 now depends on 01.1, not 01 -- see `PLAN.md` section 5).
+- Next action: merge Concept 01. After merge, record its PR number and flip its
+  status table row (`PLAN.md` section 8) to `Complete`. Concept 01.1 and Concept 02
+  then become eligible to start (both depend only on Concept 01). Concept 03 remains
+  blocked until Concept 01.1 merges, not just Concept 01 -- do not unblock it early.
 
 ## Completed concepts
 
@@ -135,8 +134,8 @@ Status: active (package frozen 2026-09-13)
 
 ## Handoff
 
-Next concept: `01-conventions-and-changelog.md` (still active -- awaiting a fourth
-review pass and merge, not yet handed off; the third pass addressed the maintainer's
-verdict that Concept 01's implementation itself is ready, pending only this
-bookkeeping cleanup).
-Blocked by: maintainer review of the third correction pass.
+Next concept: `01-conventions-and-changelog.md` (still active -- the fourth review
+pass found no remaining implementation blockers and approved the engineering/content,
+the plan/dependency model, and the Concept 01.1 split; only awaiting the actual merge
+now, not another review pass).
+Blocked by: the maintainer performing the merge (AI does not merge, per `AGENTS.md`).
