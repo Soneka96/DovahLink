@@ -658,12 +658,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "one physical file\n  does not require flattening domain namespaces",
             cpp_style,
         )
-        # ipc/ipc_enums.hpp and the per-module constants.hpp layout are cited as today's
-        # not-yet-relocated location, not the intended long-term destination -- guard that
-        # framing stays honest rather than silently re-declaring either as canonical.
-        self.assertIn("ipc/ipc_enums.hpp", cpp_style)
-        self.assertIn("pending a physical normalization", cpp_style)
-        self.assertIn("pending the same physical\n  normalization", cpp_style)
+        # Concept 01.1 completed the physical move: adapter/enums.hpp and
+        # adapter/constants.hpp are current fact, not a pending target. Guard against
+        # either the old per-module paths or "pending" framing silently coming back.
+        for stale_pending_literal in (
+            "ipc/ipc_enums.hpp",
+            "pending a physical normalization",
+            "pending the same physical",
+        ):
+            self.assertNotIn(stale_pending_literal, cpp_style)
         self.assertIn("Never reorder existing data members", cpp_style)
         self.assertIn("## Member ordering", cpp_style)
         self.assertIn("Data members are the one deliberate exception", cpp_style)

@@ -84,10 +84,9 @@ exists.
   `adapter/enums.hpp`, with each domain's enums kept in that domain's own nested namespace (for
   example `dovahlink::adapter::ipc`, `dovahlink::adapter::capture`) and grouped into sections by
   conceptual owner, each preceded by a `// ---- <Area> ----` comment banner -- one physical file
-  does not require flattening domain namespaces into it. `adapter/`'s enums currently live in
-  `ipc/ipc_enums.hpp` pending a physical normalization to `adapter/enums.hpp`; treat that as today's
-  location, not the intended one, and do not add a second, competing enum file to any other module
-  in the meantime. A nested enum that exists purely as a scoped selector for its own owning type's
+  does not require flattening domain namespaces into it. `adapter/`'s enums live in
+  `adapter/enums.hpp`; do not add a second, competing enum file to any other module. A nested enum
+  that exists purely as a scoped selector for its own owning type's
   public API is not required to move: it is not a top-level `adapter/` enum declaration, the same
   way a nested carve-out type is not subject to the one-type-per-file default above. A test-file-local
   enum used only for that test file's own internal parametrization is out of scope for the same
@@ -99,10 +98,7 @@ exists.
 - Every small cross-cutting constant value (timeouts, limits, and similar) belongs in one
   project-wide `adapter/constants.hpp`, mirroring the enum rule above: each domain's constants kept
   in that domain's own nested namespace, grouped into sections by the area they belong to, each
-  preceded by a `// ---- <Area> ----` comment banner. `adapter/`'s constants currently live in each
-  module's own `constants.hpp`, per module directory as listed above, pending the same physical
-  normalization as the enum file; treat that per-module layout as today's location, not the intended
-  one.
+  preceded by a `// ---- <Area> ----` comment banner.
 - Keep game-runtime types out of neutral application and protocol headers.
 - Use explicit names for runtime adapters, application values, wire messages, and transport errors.
 - Keep protocol serialization in dedicated mapping code rather than spreading it through game adapters.
