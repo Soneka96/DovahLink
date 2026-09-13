@@ -1916,10 +1916,39 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "The repository-root [`app/`](../app/) and planned `bridge/` areas, and the planned\n"
-            "  [`sdk/`](../sdk/) area, contain adapters, not competing protocol definitions.",
+            "The repository-root [`app/`](../app/), [`sdk/`](../sdk/), [`host/`](../host/), and "
+            "[`adapter/`](../adapter/)\n  areas contain adapters, not competing protocol "
+            "definitions.",
             protocol_readme,
         )
+
+    def test_protocol_docs_describe_host_not_skse_bridge(self) -> None:
+        """Guard protocol/README.md and ai/context/protocol/conventions.md against describing
+        the retired SKSE bridge, rather than the Host, as the protocol's server-side endpoint."""
+        protocol_readme = self._read("protocol/README.md")
+        conventions = self._read("ai/context/protocol/conventions.md")
+
+        self.assertIn(
+            "This directory owns the contract between the DovahLink Host and DovahLink clients.",
+            protocol_readme,
+        )
+        self.assertIn(
+            "The protocol is the canonical contract joining the DovahLink Host and Flutter "
+            "client.",
+            conventions,
+        )
+        self.assertIn("a client asks the Host to do something", conventions)
+        self.assertIn(
+            "Do not use plausible defaults when the Host does not know a value",
+            conventions,
+        )
+        for stale_phrase in (
+            "SKSE bridge",
+            "asks the bridge",
+            "the bridge does not know",
+        ):
+            self.assertNotIn(stale_phrase, conventions)
+        self.assertNotIn("SKSE bridge", protocol_readme)
 
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(
         self,
