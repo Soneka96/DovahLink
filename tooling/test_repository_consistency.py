@@ -619,6 +619,75 @@ class RepositoryConsistencyTests(unittest.TestCase):
             dotnet_style,
         )
 
+    def test_cpp_style_normative_rules_do_not_depend_on_deleted_bridge_paths(
+        self,
+    ) -> None:
+        """Guard cpp-style.md's normative rules against depending on bridge/, deleted in 3A.2,
+        as their load-bearing worked example -- and the current adapter/ examples that replaced it."""
+        cpp_style = self._read("ai/context/skse/cpp-style.md")
+
+        for stale_literal in (
+            "bridge/",
+            "Bridge",
+            "IBridgeCallbackRegistry",
+            "BridgeCallbackRegistry",
+            "IPairingNotificationSink",
+            "CommonLibPairingNotificationSink",
+            "TokenStore::Reservation",
+            "SessionManager::Lease",
+            "ConnectionSlot::Lease",
+            "WebSocketSession",
+            "transport/websocket_session.hpp",
+        ):
+            self.assertNotIn(stale_literal, cpp_style)
+
+        self.assertIn(
+            "currently `adapter/`, whose\nmodule layout is `capture/`, `dispatch/`, `identity/`, "
+            "`ipc/`, `papyrus/`, `plugin/`, `process/`,\nand `runtime/`",
+            cpp_style,
+        )
+        self.assertIn(
+            "A source file's `commonlib_` filename prefix marks it as one of those "
+            "CommonLib-touching\nfiles",
+            cpp_style,
+        )
+        self.assertIn(
+            "`IAdapterPairingNotificationSink` and `CommonLibAdapterPairingNotificationSink`",
+            cpp_style,
+        )
+        self.assertIn(
+            "`IAdapterTaskMarshaller`\n  (`runtime/adapter_task_marshaller.hpp`, CommonLib-free) "
+            "and `CommonLibAdapterTaskMarshaller`",
+            cpp_style,
+        )
+        self.assertIn(
+            "Every enum in `adapter/` is a single project-wide exception", cpp_style
+        )
+        self.assertIn("Every enum belongs in `adapter/shared/enums.hpp`", cpp_style)
+        self.assertIn(
+            "every `commonlib_`-prefixed header or source file in `adapter/`",
+            cpp_style,
+        )
+        self.assertIn(
+            "Never reorder existing data members without first confirming the change preserves "
+            "construction",
+            cpp_style,
+        )
+        self.assertIn("## Member ordering", cpp_style)
+        self.assertIn(
+            "constants/static state, injected dependencies, mutable instance state,\n"
+            "constructors and destructor, interface-implementation and override methods (kept "
+            "together as one\ngroup), other public/internal methods, private helper methods, "
+            "nested types",
+            cpp_style,
+        )
+        self.assertIn(
+            'Data members are the one deliberate exception -- see "Ownership and lifetime"',
+            cpp_style,
+        )
+        self.assertIn("not consolidated adapter-wide like enums are", cpp_style)
+        self.assertNotIn("bridge-wide", cpp_style)
+
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
         """Require every workflow action reference to be SHA-pinned with its version documented.
 
