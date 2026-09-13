@@ -1924,9 +1924,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             integration_testing,
         )
         self.assertNotIn("the Adapter and Flutter client agree", integration_testing)
-        self.assertIn("shared\n  SDK/.NET fixtures.", integration_testing)
+        self.assertIn("shared\n  Host/SDK fixtures.", integration_testing)
         self.assertIn(
-            "client- or adapter-only fixtures must not redefine them.",
+            "client- or host-only fixtures must not redefine them.",
             integration_testing,
         )
         self.assertIn(

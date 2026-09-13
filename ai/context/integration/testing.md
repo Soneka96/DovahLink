@@ -8,9 +8,9 @@ Integration tests prove that the Host and Flutter client agree on the canonical 
 - Include valid snapshots, valid events, unavailable values, malformed messages, unknown optional fields, and stale revisions.
 - When Stage 4 registers production state areas, assert their capability advertisement, exact domain
   data shape, update mode, revision behavior, and unavailable-value representation from shared
-  SDK/.NET fixtures.
+  Host/SDK fixtures.
 - Expected decoded values are asserted in the consuming test rather than duplicated in fixture metadata.
-- Shared fixtures are the source of truth for cross-side contract tests; client- or adapter-only fixtures must not redefine them.
+- Shared fixtures are the source of truth for cross-side contract tests; client- or host-only fixtures must not redefine them.
 
 ## Contract tests
 
