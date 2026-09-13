@@ -34,7 +34,7 @@ enum DovahLinkConnectionState {
   reauthenticating,
 }
 
-/// The client's own trust standing with the bridge, established once `DovahLinkClient.hello`
+/// The client's own trust standing with the host, established once `DovahLinkClient.hello`
 /// succeeds and possibly upgraded by `DovahLinkClient.acknowledgeTrustedCredential` or
 /// `DovahLinkClient.recoverPendingPairing`.
 enum DovahLinkTrustState {
@@ -63,10 +63,10 @@ enum AuthMethod {
 /// Why a `trusted_device_credential` hello was rejected and `DovahLinkClient.authenticate`
 /// recovered by discarding the credential and retrying as `unpaired`.
 enum CredentialRejectionReason {
-  /// The presented credential belonged to a clientId the bridge explicitly revoked.
+  /// The presented credential belonged to a clientId the host explicitly revoked.
   revoked,
 
-  /// The presented credential did not match any credential the bridge currently trusts.
+  /// The presented credential did not match any credential the host currently trusts.
   unrecognized,
 
   /// The presented credential's clientId is a currently blocked Known Device. Unlike [revoked],
@@ -101,7 +101,7 @@ enum ClientIdentityKind {
 
 // ---- Pairing ----
 
-/// The bridge's report of pairing availability, from `DovahLinkClient.requestPairing`.
+/// The host's report of pairing availability, from `DovahLinkClient.requestPairing`.
 enum PairingAvailability {
   /// No challenge is currently active, and none was just started.
   @JsonValue('unavailable')
@@ -194,7 +194,7 @@ enum PairingOutcome {
   @JsonValue('hard_limit_reached')
   hardLimitReached,
 
-  /// From `pairing_ack`: the bridge has no matching pending confirmation.
+  /// From `pairing_ack`: the host has no matching pending confirmation.
   @JsonValue('pending_not_found')
   pendingNotFound,
 
@@ -231,7 +231,7 @@ enum TimeoutClass {
   /// A fast administrative round trip (a query, an acknowledgement).
   short,
 
-  /// The common case: a request that may involve a little more bridge-side work than [short].
+  /// The common case: a request that may involve a little more host-side work than [short].
   normal,
 
   /// Reserved for a request expected to take meaningfully longer than [normal]. Unused until a
@@ -244,7 +244,7 @@ enum TimeoutClass {
 /// The typed reason `DovahLinkClient.invalidationReason` reports once
 /// `DovahLinkConnectionState.administrativelyInvalidated` is reached -- the parsed form of an
 /// incoming `session_invalidated.reason` (`protocol/schema/README.md`'s `session_invalidated`).
-/// Never durable authoritative trust state; the Bridge remains the sole authority.
+/// Never durable authoritative trust state; the Host remains the sole authority.
 enum AdministrativeInvalidationReason {
   /// The presented device credential's `clientId` was explicitly revoked.
   @JsonValue('revoked')
@@ -258,7 +258,7 @@ enum AdministrativeInvalidationReason {
   @JsonValue('trust_reset')
   trustReset,
 
-  /// The Bridge's Known Device trust store was cleared. May end a developer-token session even
+  /// The Host's Known Device trust store was cleared. May end a developer-token session even
   /// though the configured developer token remains valid.
   @JsonValue('factory_reset')
   factoryReset,
@@ -395,7 +395,7 @@ enum ProtocolErrorCode {
   @JsonValue('rate_limited')
   rateLimited,
 
-  /// The bridge could not complete an operation safely.
+  /// The host could not complete an operation safely.
   @JsonValue('internal_error')
   internalError,
 }
@@ -417,7 +417,7 @@ enum PairingRecoveryState {
   none,
 
   /// A credential was issued and durably saved, but final confirmation (`pairing_ack`) has not yet
-  /// been acknowledged by the bridge as `trusted`/`already_trusted`.
+  /// been acknowledged by the host as `trusted`/`already_trusted`.
   confirming,
 }
 

@@ -9,11 +9,11 @@ part 'subscription_ack_payload.g.dart';
 /// Decode-only: the client never sends `subscription_ack`.
 @JsonSerializable(checked: true, createToJson: false)
 class SubscriptionAckPayload {
-  /// The state areas accepted by the bridge.
+  /// The state areas accepted by the host.
   @JsonKey(required: true)
   final List<String> acceptedStateAreas;
 
-  /// The state areas rejected by the bridge.
+  /// The state areas rejected by the host.
   @JsonKey(required: true)
   final List<String> rejectedStateAreas;
 

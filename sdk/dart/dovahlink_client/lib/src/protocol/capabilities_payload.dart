@@ -7,7 +7,7 @@ import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart
 part 'capabilities_payload.g.dart';
 
 /// A `capabilities` message payload (`protocol/schema/README.md`'s `capabilities`), sent by both
-/// endpoints after `hello_ack`. No capability is currently registered, so both the Bridge's and
+/// endpoints after `hello_ack`. No capability is currently registered, so both the Host's and
 /// this SDK's own list are always empty.
 @JsonSerializable(checked: true, explicitToJson: true)
 class CapabilitiesPayload {

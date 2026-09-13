@@ -76,7 +76,7 @@ class Envelope {
   final String? playContextId;
 
   /// The identity of the logical client, established at `hello`. `null`
-  /// before `hello` completes and on every message the Bridge sends after
+  /// before `hello` completes and on every message the Host sends after
   /// `hello_ack`.
   @JsonKey(required: true)
   final String? clientId;

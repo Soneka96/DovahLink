@@ -115,7 +115,7 @@ class EnvelopeValidator {
   }
 
   /// Returns whether [messageType] carries a non-`null` envelope-level `clientId`, per
-  /// `protocol/schema/README.md`. True for the bridge's own `hello_ack`, and for every currently
+  /// `protocol/schema/README.md`. True for the host's own `hello_ack`, and for every currently
   /// implemented client-originated request past `hello` (the pairing messages, `rename_request`,
   /// `subscribe`, `snapshot_request`, `ping`). False both for `hello` itself -- whose `clientId`
   /// travels in its payload instead, because envelope-level identity is not yet established -- and

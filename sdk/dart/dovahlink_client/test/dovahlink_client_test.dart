@@ -470,7 +470,7 @@ void main() {
         );
         expect(client.trustState, isNull);
         expect(client.sessionId, isNull);
-        // The bridge already closed this socket (every HandleHello failure path does); the
+        // The host already closed this socket (every HandleHello failure path does); the
         // transport must be reset so the next connect() attempt does not find a stale socket
         // WebSocketTransport still considers open.
         expect(transport.closeCalled, isTrue);
@@ -1727,7 +1727,7 @@ void main() {
         );
         await client.hello();
 
-        // Answers the automatic reconnect's own hello -- the bridge decides, while this device
+        // Answers the automatic reconnect's own hello -- the host decides, while this device
         // was briefly offline, that its presented credential is now blocked.
         transport.queueResponse(
           jsonEncode(<String, dynamic>{

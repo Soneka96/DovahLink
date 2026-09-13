@@ -22,7 +22,7 @@ class MockSessionService extends Mock implements ISessionService {}
 /// Fake envelope used to register mocktail fallbacks.
 class FakeEnvelope extends Fake implements Envelope {}
 
-/// Builds one raw wire envelope as sent by the bridge.
+/// Builds one raw wire envelope as sent by the host.
 String rawEnvelope({
   required String messageType,
   required JsonMap payload,
