@@ -3,8 +3,23 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+
+namespace dovahlink::adapter::capture {
+
+//  ---- Capture ----
+
+///  The bounded capacity of the adapter's capture handoff queue. A game-thread
+///  callback that would exceed this capacity is rejected rather than waited
+///  for, per `ai/context/adapter/architecture.md`'s bounded, non-blocking
+///  handoff requirement.
+inline constexpr std::size_t kMaxAdapterCaptureQueueItems = 64;
+
+} //  namespace dovahlink::adapter::capture
 
 namespace dovahlink::adapter::ipc {
+
+//  ---- IPC ----
 
 //  ---- Framing ----
 
@@ -120,3 +135,90 @@ inline constexpr std::chrono::milliseconds kTrustAdminRequestTimeout{5000};
 inline constexpr std::size_t kMaxPendingTrustAdminRequests = 16;
 
 } //  namespace dovahlink::adapter::ipc
+
+namespace dovahlink::adapter::process {
+
+//  ---- Process launch ----
+
+///  The packaged host executable's path relative to the adapter plugin's own
+///  directory. Packaging the final release layout is a non-goal of this
+///  concept; this records the assumed layout a future packaging step must
+///  honor -- the host executable installed as a sibling
+///  `DovahLink.Host/DovahLink.Host.exe` directory beside the adapter plugin
+///  DLL. Combined with that directory by the plugin composition root, which
+///  is the only place able to resolve its own module path.
+inline const std::filesystem::path kAdapterHostExecutableRelativePath =
+    "DovahLink.Host/DovahLink.Host.exe";
+
+///  The default bound `Win32AdapterHostProcessLauncher` waits for a newly
+///  launched host process to report its endpoint over its redirected
+///  stdout, before treating the launch as failed.
+inline constexpr std::chrono::milliseconds kDefaultAdapterHostLaunchTimeout{
+    5000};
+
+///  How often `Win32AdapterHostProcessLauncher` polls a launched process's
+///  redirected stdout pipe for new bytes. Anonymous pipes do not support
+///  overlapped (asynchronous) I/O, so a short poll is this concept's bounded
+///  alternative to a blocking read with no timeout.
+inline constexpr std::chrono::milliseconds kAdapterHostLaunchStdoutPollInterval{
+    20};
+
+///  The maximum bytes `Win32AdapterHostProcessLauncher` buffers from a
+///  launched process's stdout while waiting for its three-line endpoint
+///  report, so a launched process that never produces a newline cannot grow
+///  that buffer unbounded.
+inline constexpr std::size_t kMaxAdapterHostEndpointReportBytes = 1024;
+
+///  The maximum bytes `FileAdapterHostRendezvousReader` accepts for any one
+///  line of a three-line endpoint report before rejecting it. This is a
+///  bounded parser buffer, not an expansion of the protocol's proof-token
+///  limit.
+inline constexpr std::size_t kMaxAdapterHostRendezvousLineBytes = 1024;
+
+///  The bound `Win32AdapterHostProcessLauncher::AwaitExitOrTerminate` waits
+///  for the operating system to finish tearing down a process after
+///  force-termination is requested, before returning. Force-termination
+///  itself is effectively immediate; this only bounds the brief window
+///  between requesting it and the OS actually reclaiming the process.
+inline constexpr std::chrono::milliseconds kAdapterHostForceTerminateGraceWait{
+    5000};
+
+//  ---- Supervision ----
+
+///  The default bound `AdapterHostSupervisor` waits before retrying a
+///  discovery round that produced no candidate, so a persistently unreachable
+///  host is retried indefinitely without spinning.
+inline constexpr std::chrono::milliseconds
+    kDefaultAdapterHostSupervisorFailedRoundBackoff{1000};
+
+//  ---- Shutdown orchestration ----
+
+///  The default bound `AdapterShutdownOrchestrator` waits for a launched
+///  host to exit gracefully after signaling it, before force-terminating it
+///  as the deliberate fallback.
+inline constexpr std::chrono::milliseconds
+    kDefaultAdapterGracefulShutdownWaitBound{3000};
+
+} //  namespace dovahlink::adapter::process
+
+namespace dovahlink::adapter::runtime {
+
+//  ---- Game behavior compatibility ----
+
+///  Path to the optional runtime-compatibility INI file, relative to the
+///  Skyrim installation's working directory.
+inline constexpr const char* kAdapterGameBehaviorConfigPath =
+    "Data/SKSE/Plugins/DovahLinkAdapter.ini";
+
+///  INI section `DovahLink` from which
+///  `adapter_game_behavior_config_file_reader.cpp` reads compatibility keys.
+inline constexpr const char* kAdapterGameBehaviorConfigSection = "DovahLink";
+
+///  INI key controlling `AdapterGameBehaviorConfig::alwaysActive`.
+inline constexpr const char* kAdapterAlwaysActiveKey = "bAlwaysActive";
+
+///  INI key controlling `AdapterGameBehaviorConfig::achievementCompat`.
+inline constexpr const char* kAdapterAchievementCompatKey =
+    "bAchievementCompat";
+
+} //  namespace dovahlink::adapter::runtime

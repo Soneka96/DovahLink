@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "ipc/ipc_enums.hpp"
+#include "enums.hpp"
 
 namespace dovahlink::adapter::ipc {
 
@@ -12,13 +12,13 @@ namespace dovahlink::adapter::ipc {
 ///  immediately instead, per `ai/context/protocol/security.md`'s "Failure
 ///  behavior".
 struct IpcRejectMessage {
-  ///  Matches the rejected message's correlation id, or zero if it had none.
-  std::uint64_t correlationId = 0;
-  ///  Why the message was rejected.
-  IpcRejectReason reason = IpcRejectReason::kMalformedFrameLength;
+    ///  Matches the rejected message's correlation id, or zero if it had none.
+    std::uint64_t correlationId = 0;
+    ///  Why the message was rejected.
+    IpcRejectReason reason = IpcRejectReason::kMalformedFrameLength;
 
-  ///  Structural equality over every field.
-  bool operator==(const IpcRejectMessage &) const = default;
+    ///  Structural equality over every field.
+    bool operator==(const IpcRejectMessage&) const = default;
 };
 
 } //  namespace dovahlink::adapter::ipc

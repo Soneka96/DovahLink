@@ -9,24 +9,19 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01-conventions-and-changelog.md`
-- Status: active -- implementation and all three correction passes complete on
-  `docs/conventions-and-changelog` (six findings, then three more, then four
-  bookkeeping-only fixes plus one Concept 01.1 wording fix -- see Decisions below for
-  all three). A fourth maintainer review pass found no remaining implementation
-  blockers; awaiting merge. Not yet `Complete` per the execution contract in `PLAN.md`
-  section 6 until that merge actually happens.
-- Prerequisites: PR #58 merged (baseline `499bd4f4`) -- satisfied.
-- Next action: merge Concept 01. After merge, record its PR number and flip its
-  status table row (`PLAN.md` section 8) to `Complete`. Concept 01.1 then becomes
-  eligible to start. Per D4 (added this session, see Decisions below), Concept 02 no
-  longer starts right after Concept 01 -- it now waits behind the entire
-  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c vocabulary-normalization chain,
-  same as Concept 03. Do not unblock 02 or 03 until 01.3c actually merges.
+- File: `01.1-adapter-enum-and-constants-physical-normalization.md`
+- Status: implementation complete on PR #61 (branch
+  `refactor/01.1-adapter-enums-and-constants-normalization`) -- awaiting maintainer
+  review, green CI, and merge.
+- Prerequisites: Concept 01 merged (`main` @ `8847fcdc`, PR #60) -- satisfied.
+- Next action: resolve PR #61's review and CI findings and merge it. Per D4, Concept 02
+  still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain,
+  same as Concept 03 -- do not unblock 02 or 03 until 01.3c actually merges.
 
 ## Completed concepts
 
-(none yet -- Concept 01 is implemented and corrected but not merged.)
+- `01-conventions-and-changelog.md` -- merged to `main` via PR #60 (merge commit
+  `8847fcdc`, 2026-09-13).
 
 ## Decisions and approved deviations
 
@@ -228,11 +223,10 @@ design, not debt.)
 
 ## Handoff
 
-Next concept: `01-conventions-and-changelog.md` (still active -- the fourth review
-pass found no remaining implementation blockers and approved the engineering/content,
-the plan/dependency model, and the Concept 01.1 split; only awaiting the actual merge
-now, not another review pass). The D4 planning insertion (five new concepts, this
-session) is also awaiting maintainer review before any of `01.2a`-`01.3c` may begin
-implementation.
-Blocked by: the maintainer performing the merge (AI does not merge, per `AGENTS.md`),
-and maintainer review of the D4 planning insertion.
+Next concept: `01.1-adapter-enum-and-constants-physical-normalization.md` --
+implementation complete on PR #61 (branch
+`refactor/01.1-adapter-enums-and-constants-normalization`). The D4 planning
+insertion (five new concepts, `01.2a`-`01.3c`) is still awaiting maintainer review
+before any of them may begin implementation; 01.1 does not depend on that review.
+Blocked by: PR #61's review, CI, and merge. After merge: mark 01.1 Complete in
+`PLAN.md` and unblock Concept 01.2a.

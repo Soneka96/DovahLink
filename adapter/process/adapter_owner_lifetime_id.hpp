@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ipc/ipc_constants.hpp"
+#include "constants.hpp"
 
 #include <array>
 #include <cstddef>
@@ -32,7 +32,7 @@ DeriveOwnerLifetimeId();
 ///  @param lifetimeId The 12-byte lifetime identity to format.
 ///  @return The formatted lowercase hex text.
 std::string FormatOwnerLifetimeId(
-    const std::array<std::byte, ipc::kIpcOwnerLifetimeIdBytes> &lifetimeId);
+    const std::array<std::byte, ipc::kIpcOwnerLifetimeIdBytes>& lifetimeId);
 
 ///  Parses a lifetime identity previously produced by `FormatOwnerLifetimeId`.
 ///  @param text The candidate hex text to parse.

@@ -7,7 +7,7 @@
 #include <span>
 #include <vector>
 
-#include "ipc/ipc_enums.hpp"
+#include "enums.hpp"
 #include "ipc/ipc_message.hpp"
 
 namespace dovahlink::adapter::ipc {
@@ -21,140 +21,140 @@ namespace dovahlink::adapter::ipc {
 ///  This codec performs no I/O; it operates on already-read frame bytes and
 ///  produces owned plain values only.
 class IIpcFrameCodec {
-public:
-  virtual ~IIpcFrameCodec() = default;
+  public:
+    virtual ~IIpcFrameCodec() = default;
 
-  ///  Encodes a message into a complete frame, including its length prefix.
-  virtual std::vector<std::byte> Encode(const IpcMessage &message) const = 0;
+    ///  Encodes a message into a complete frame, including its length prefix.
+    virtual std::vector<std::byte> Encode(const IpcMessage& message) const = 0;
 
-  ///  Reads and validates a frame's 4-byte length prefix before any payload
-  ///  bytes are read or allocated, so an over-limit declared length is rejected
-  ///  without allocating a buffer for it.
-  ///  @return The validated header-plus-payload byte length, or `std::nullopt`
-  ///  if the prefix is the wrong size or declares an out-of-range length.
-  virtual std::optional<std::size_t>
-  TryReadFrameLength(std::span<const std::byte> lengthPrefix) const = 0;
+    ///  Reads and validates a frame's 4-byte length prefix before any payload
+    ///  bytes are read or allocated, so an over-limit declared length is rejected
+    ///  without allocating a buffer for it.
+    ///  @return The validated header-plus-payload byte length, or `std::nullopt`
+    ///  if the prefix is the wrong size or declares an out-of-range length.
+    virtual std::optional<std::size_t>
+    TryReadFrameLength(std::span<const std::byte> lengthPrefix) const = 0;
 
-  ///  Decodes one frame's header-plus-payload bytes (excluding the length
-  ///  prefix) into a message, or the fail-closed reason it was rejected.
-  ///  @param frame The header-plus-payload bytes, as validated by
-  ///  `TryReadFrameLength`.
-  virtual std::expected<IpcMessage, IpcRejectReason>
-  Decode(std::span<const std::byte> frame) const = 0;
+    ///  Decodes one frame's header-plus-payload bytes (excluding the length
+    ///  prefix) into a message, or the fail-closed reason it was rejected.
+    ///  @param frame The header-plus-payload bytes, as validated by
+    ///  `TryReadFrameLength`.
+    virtual std::expected<IpcMessage, IpcRejectReason>
+    Decode(std::span<const std::byte> frame) const = 0;
 };
 
 ///  @copydoc IIpcFrameCodec
 class IpcFrameCodec final : public IIpcFrameCodec {
-public:
-  ///  @copydoc IIpcFrameCodec::Encode
-  std::vector<std::byte> Encode(const IpcMessage &message) const override;
+  public:
+    ///  @copydoc IIpcFrameCodec::Encode
+    std::vector<std::byte> Encode(const IpcMessage& message) const override;
 
-  ///  @copydoc IIpcFrameCodec::TryReadFrameLength
-  std::optional<std::size_t>
-  TryReadFrameLength(std::span<const std::byte> lengthPrefix) const override;
+    ///  @copydoc IIpcFrameCodec::TryReadFrameLength
+    std::optional<std::size_t>
+    TryReadFrameLength(std::span<const std::byte> lengthPrefix) const override;
 
-  ///  @copydoc IIpcFrameCodec::Decode
-  std::expected<IpcMessage, IpcRejectReason>
-  Decode(std::span<const std::byte> frame) const override;
+    ///  @copydoc IIpcFrameCodec::Decode
+    std::expected<IpcMessage, IpcRejectReason>
+    Decode(std::span<const std::byte> frame) const override;
 
-private:
-  ///  Encodes an `IpcHelloMessage` payload: 16 identity bytes, a length byte,
-  ///  the token, then the fixed-size challenge and owner-lifetime-id fields.
-  ///  @throws std::invalid_argument The peer-proof token exceeds
-  ///  `kMaxIpcPeerProofTokenBytes`.
-  static std::vector<std::byte> EncodeHello(const IpcHelloMessage &hello);
+  private:
+    ///  Encodes an `IpcHelloMessage` payload: 16 identity bytes, a length byte,
+    ///  the token, then the fixed-size challenge and owner-lifetime-id fields.
+    ///  @throws std::invalid_argument The peer-proof token exceeds
+    ///  `kMaxIpcPeerProofTokenBytes`.
+    static std::vector<std::byte> EncodeHello(const IpcHelloMessage& hello);
 
-  ///  Encodes an `IpcHelloAckMessage` payload: accepted, reject reason, then
-  ///  the fixed-size host proof.
-  static std::vector<std::byte>
-  EncodeHelloAck(const IpcHelloAckMessage &helloAck);
+    ///  Encodes an `IpcHelloAckMessage` payload: accepted, reject reason, then
+    ///  the fixed-size host proof.
+    static std::vector<std::byte>
+    EncodeHelloAck(const IpcHelloAckMessage& helloAck);
 
-  ///  Decodes an `IpcHelloMessage` payload, validating the bounded token
-  ///  length.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeHello(std::uint64_t correlationId, std::span<const std::byte> payload);
+    ///  Decodes an `IpcHelloMessage` payload, validating the bounded token
+    ///  length.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeHello(std::uint64_t correlationId, std::span<const std::byte> payload);
 
-  ///  Decodes an `IpcHelloAckMessage` payload, validating its boolean and enum
-  ///  fields.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeHelloAck(std::uint64_t correlationId,
-                 std::span<const std::byte> payload);
-
-  ///  Decodes an `IpcResynchronizeResultMessage` payload, validating its
-  ///  boolean field.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeResynchronizeResult(std::uint64_t correlationId,
-                            std::span<const std::byte> payload);
-
-  ///  Decodes an `IpcCloseMessage` payload, validating its reason enum.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeClose(std::uint64_t correlationId, std::span<const std::byte> payload);
-
-  ///  Decodes an `IpcRejectMessage` payload, validating its reason enum.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeReject(std::uint64_t correlationId, std::span<const std::byte> payload);
-
-  ///  Encodes a host-owned event key payload.
-  static std::vector<std::byte>
-  EncodeListenEvent(const IpcListenEventMessage &listenEvent);
-
-  ///  Encodes a host-owned sample token payload.
-  static std::vector<std::byte>
-  EncodeReadSample(const IpcReadSampleMessage &readSample);
-
-  ///  Decodes a host-directed event-listening request.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeListenEvent(std::uint64_t correlationId,
-                    std::span<const std::byte> payload);
-
-  ///  Decodes a host-directed sample-read request.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeReadSample(std::uint64_t correlationId,
+    ///  Decodes an `IpcHelloAckMessage` payload, validating its boolean and enum
+    ///  fields.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeHelloAck(std::uint64_t correlationId,
                    std::span<const std::byte> payload);
 
-  ///  Encodes an `IpcPairingDisplayMessage` payload: one mode byte followed by
-  ///  the fixed-length code digits.
-  ///  @throws std::invalid_argument The correlation id, mode, or code is
-  ///  invalid.
-  static std::vector<std::byte>
-  EncodePairingDisplay(const IpcPairingDisplayMessage &pairingDisplay);
+    ///  Decodes an `IpcResynchronizeResultMessage` payload, validating its
+    ///  boolean field.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeResynchronizeResult(std::uint64_t correlationId,
+                              std::span<const std::byte> payload);
 
-  ///  Decodes a pairing-display request, validating its mode and fixed-length
-  ///  code digits.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodePairingDisplay(std::uint64_t correlationId,
-                       std::span<const std::byte> payload);
+    ///  Decodes an `IpcCloseMessage` payload, validating its reason enum.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeClose(std::uint64_t correlationId, std::span<const std::byte> payload);
 
-  ///  Decodes a pairing-display acknowledgement, validating its boolean
-  ///  field.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodePairingDisplayAck(std::uint64_t correlationId,
-                          std::span<const std::byte> payload);
+    ///  Decodes an `IpcRejectMessage` payload, validating its reason enum.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeReject(std::uint64_t correlationId, std::span<const std::byte> payload);
 
-  ///  Encodes a trust-admin request: one operation byte followed by its
-  ///  operation-specific argument bytes.
-  ///  @throws std::invalid_argument The correlation id, operation, or
-  ///  argument shape is invalid.
-  static std::vector<std::byte>
-  EncodeTrustAdminRequest(const IpcTrustAdminRequestMessage &trustAdminRequest);
+    ///  Encodes a host-owned event key payload.
+    static std::vector<std::byte>
+    EncodeListenEvent(const IpcListenEventMessage& listenEvent);
 
-  ///  Encodes a trust-admin result after bounding its UTF-8 encoded length.
-  ///  @throws std::invalid_argument The correlation id is zero or the result
-  ///  text exceeds the configured bound.
-  static std::vector<std::byte>
-  EncodeTrustAdminResult(const IpcTrustAdminResultMessage &trustAdminResult);
+    ///  Encodes a host-owned sample token payload.
+    static std::vector<std::byte>
+    EncodeReadSample(const IpcReadSampleMessage& readSample);
 
-  ///  Decodes a trust-admin request, validating the operation and its exact
-  ///  operation-specific argument shape.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeTrustAdminRequest(std::uint64_t correlationId,
-                          std::span<const std::byte> payload);
+    ///  Decodes a host-directed event-listening request.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeListenEvent(std::uint64_t correlationId,
+                      std::span<const std::byte> payload);
 
-  ///  Decodes a trust-admin result, validating its bounded, well-formed
-  ///  UTF-8 result text.
-  static std::expected<IpcMessage, IpcRejectReason>
-  DecodeTrustAdminResult(std::uint64_t correlationId,
+    ///  Decodes a host-directed sample-read request.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeReadSample(std::uint64_t correlationId,
+                     std::span<const std::byte> payload);
+
+    ///  Encodes an `IpcPairingDisplayMessage` payload: one mode byte followed by
+    ///  the fixed-length code digits.
+    ///  @throws std::invalid_argument The correlation id, mode, or code is
+    ///  invalid.
+    static std::vector<std::byte>
+    EncodePairingDisplay(const IpcPairingDisplayMessage& pairingDisplay);
+
+    ///  Decodes a pairing-display request, validating its mode and fixed-length
+    ///  code digits.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodePairingDisplay(std::uint64_t correlationId,
                          std::span<const std::byte> payload);
+
+    ///  Decodes a pairing-display acknowledgement, validating its boolean
+    ///  field.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodePairingDisplayAck(std::uint64_t correlationId,
+                            std::span<const std::byte> payload);
+
+    ///  Encodes a trust-admin request: one operation byte followed by its
+    ///  operation-specific argument bytes.
+    ///  @throws std::invalid_argument The correlation id, operation, or
+    ///  argument shape is invalid.
+    static std::vector<std::byte>
+    EncodeTrustAdminRequest(const IpcTrustAdminRequestMessage& trustAdminRequest);
+
+    ///  Encodes a trust-admin result after bounding its UTF-8 encoded length.
+    ///  @throws std::invalid_argument The correlation id is zero or the result
+    ///  text exceeds the configured bound.
+    static std::vector<std::byte>
+    EncodeTrustAdminResult(const IpcTrustAdminResultMessage& trustAdminResult);
+
+    ///  Decodes a trust-admin request, validating the operation and its exact
+    ///  operation-specific argument shape.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeTrustAdminRequest(std::uint64_t correlationId,
+                            std::span<const std::byte> payload);
+
+    ///  Decodes a trust-admin result, validating its bounded, well-formed
+    ///  UTF-8 result text.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeTrustAdminResult(std::uint64_t correlationId,
+                           std::span<const std::byte> payload);
 };
 
 } //  namespace dovahlink::adapter::ipc

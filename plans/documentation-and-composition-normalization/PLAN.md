@@ -254,8 +254,8 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 
 | Concept | Status | PR |
 | --- | --- | --- |
-| 01 -- Conventions and changelog | In progress | -- |
-| 01.1 -- Adapter enum/constants physical normalization | Blocked by 01 | -- |
+| 01 -- Conventions and changelog | Complete | #60 |
+| 01.1 -- Adapter enum/constants physical normalization | In progress | -- |
 | 01.2a -- Active docs/instructions terminology | Blocked by 01.1 | -- |
 | 01.2b -- Internal code/test/tooling terminology | Blocked by 01.2a | -- |
 | 01.3a -- Public vocabulary + identity/version design | Blocked by 01.2b | -- |

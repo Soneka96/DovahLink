@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "ipc/ipc_enums.hpp"
+#include "enums.hpp"
 
 namespace dovahlink::adapter::ipc {
 
@@ -11,13 +11,13 @@ namespace dovahlink::adapter::ipc {
 ///  may observe it more than once for the same logical close without that being
 ///  an error.
 struct IpcCloseMessage {
-  ///  Always zero; a close is unsolicited and expects no reply.
-  std::uint64_t correlationId = 0;
-  ///  Why the sender is closing the channel.
-  IpcCloseReason reason = IpcCloseReason::kNormal;
+    ///  Always zero; a close is unsolicited and expects no reply.
+    std::uint64_t correlationId = 0;
+    ///  Why the sender is closing the channel.
+    IpcCloseReason reason = IpcCloseReason::kNormal;
 
-  ///  Structural equality over every field.
-  bool operator==(const IpcCloseMessage &) const = default;
+    ///  Structural equality over every field.
+    bool operator==(const IpcCloseMessage&) const = default;
 };
 
 } //  namespace dovahlink::adapter::ipc
