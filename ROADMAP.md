@@ -42,7 +42,7 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   outward in focused phases/PRs:
 
   ```text
-  Core / Skyrim / Bridge
+  Adapter / Host
           ↓
   SDK / Client Integration
           ↓

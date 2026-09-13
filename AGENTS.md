@@ -24,12 +24,12 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 - `ai/context/python/` — Python conventions; read for Python tooling work
 - `ai/context/protocol/` — canonical cross-side contract; read for message or schema work
 - `ai/context/protocol/security.md` — transport exposure, pairing, authentication, and input limits
-- `ai/context/integration/` — tests that verify the client and bridge meet at the contract
+- `ai/context/integration/` — tests that verify the client and Host meet at the contract
 - `ai/context/tooling/` — repository tooling and local CI bootstrap conventions; read for `tooling/` work
 
 ## Non-negotiable rules
 
-- Do not add Flutter, Skyrim bridge, networking, or protocol implementation until the maintainer explicitly requests that feature.
+- Do not add Flutter, the SKSE adapter, networking, or protocol implementation until the maintainer explicitly requests that feature.
 - A vague request, discussion, issue, roadmap item, or suggestion is not implementation approval. A feature or architectural change is approved only by a direct instruction from the maintainer in the current task that clearly names the requested scope.
 - Changes to protocol meaning, security, runtime support, dependencies, or repository boundaries
   also require a direct maintainer instruction that names the requested scope.
@@ -64,7 +64,7 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
    use CodeGraph to discover the affected area and dependencies; directly read implementation and
    tests; establish behavior and invariants; plan and implement; run or update relevant tests; then
    use CodeGraph again to check blast radius and missed dependencies.
-7. Treat SKSE/game integration, Bridge/Core, WebSocket and session lifecycle, pairing/trust/security,
+7. Treat SKSE/game integration, Host/Adapter composition, WebSocket and session lifecycle, pairing/trust/security,
    protocol/messages, the Dart SDK, the Flutter app, persistence, concurrency/threading, and
    tests/documentation contracts as boundaries where graph structure alone is insufficient.
    Verify ownership, lifecycle ordering, protocol semantics, timeout and error behavior,

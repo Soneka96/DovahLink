@@ -574,6 +574,41 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "update\n  Adapter, Host, SDK, app, tests, and docs together", common
         )
 
+    def test_root_instructions_describe_host_adapter_not_bridge_core(self) -> None:
+        """Guard AGENTS.md's active instructions and ROADMAP.md's layering example against
+        the retired Bridge/Core boundary framing. This does not ban "Bridge" outright:
+        AGENTS.md legitimately still names the retired native Bridge as a historical
+        reference point for `ai/context/skse/architecture.md`.
+        """
+        agents = self._read("AGENTS.md")
+        roadmap = self._read("ROADMAP.md")
+
+        for stale_phrase in (
+            "Bridge/Core",
+            "Skyrim bridge",
+            "client and bridge meet at the contract",
+        ):
+            self.assertNotIn(stale_phrase, agents)
+        self.assertIn(
+            "tests that verify the client and Host meet at the contract", agents
+        )
+        self.assertIn(
+            "Do not add Flutter, the SKSE adapter, networking, or protocol implementation",
+            agents,
+        )
+        self.assertIn(
+            "Treat SKSE/game integration, Host/Adapter composition, WebSocket and session "
+            "lifecycle",
+            agents,
+        )
+        # The legitimate historical reference must survive this pass untouched.
+        self.assertIn("the retired native Bridge's design as reference only", agents)
+
+        self.assertNotIn("Core / Skyrim / Bridge", roadmap)
+        self.assertIn(
+            "Adapter / Host\n          ↓\n  SDK / Client Integration", roadmap
+        )
+
     def test_csharp_style_defines_semantic_member_ordering(self) -> None:
         """Guard the semantic C# member-ordering rule that replaced append-only
         placement, and the required-but-concise parameter/return/exception rule."""
