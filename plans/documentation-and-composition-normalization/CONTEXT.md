@@ -10,16 +10,24 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `01.3a-public-vocabulary-and-identity-semantics.md`
-- Status: planned, not yet started. Design-only gate: resolves the public
-  `bridgeVersion`/`bridgeInstanceId` vocabulary and compatibility-authority semantics
-  before `01.3b`/`01.3c` touch any wire code. No protocol schema, fixture, Host, SDK,
-  or app source file changes in this concept -- decision documentation only.
+- Status: in progress on branch `docs/01.3a-public-vocabulary-and-identity-semantics`,
+  not yet opened as a PR. Design-only gate: mandatory decisions A-F are all resolved
+  (see the concept file itself) -- compatibility authority is the Host release version
+  (`bridgeVersion` -> `hostVersion`); the public authoritative-process instance
+  identifier is decided as `stateAuthorityId` (`bridgeInstanceId` -> `stateAuthorityId`,
+  Host-minted at startup and on every Adapter reconnect, deliberately distinct from
+  `adapterInstanceId` so a Host-only restart still invalidates cached state); the
+  cache-invalidation tuple becomes `(stateAuthorityId, playContextId, stateArea)`;
+  migration policy is intentionally breaking, no aliases. `ai/context/protocol/compatibility.md`'s
+  two deferred-decision sections are updated to record the decision as "decided,
+  pending implementation." No protocol schema, fixture, Host, SDK, or app source file
+  changed -- decision documentation only, per this concept's own scope.
 - Prerequisites: Concept 01.2b merged (`main` @ `d4734dba`, PR #63) -- satisfied.
-- Next action: resolve mandatory decisions A-F in the concept's own file, then update
-  `ai/context/protocol/compatibility.md`'s deferred-decision sections to match.
-  Per D4, Concept 02 still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a ->
-  01.3b -> 01.3c chain, same as Concept 03 -- do not unblock 02 or 03 until 01.3c
-  actually merges.
+- Next action: open the PR for maintainer review of the six decisions above; per this
+  concept's own completion criteria, `PLAN.md`'s status table moves to `Complete` only
+  once that PR actually merges, unblocking `01.3b`. Per D4, Concept 02 still waits
+  behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as
+  Concept 03 -- do not unblock 02 or 03 until 01.3c actually merges.
 
 ## Completed concepts
 
@@ -436,6 +444,37 @@ design, not debt.)
   `Blocked by 01.2b` -> `Planned`. `CONTEXT.md`'s Active concept, Completed concepts,
   and Handoff sections updated to match -- Concept 01.2b moved to Completed, Concept
   01.3a is now Active/next.
+- 2026-09-13 Concept 01.3a implementation (this session, branch
+  `docs/01.3a-public-vocabulary-and-identity-semantics`, decision-only -- no
+  protocol schema, fixture, Host, SDK, or app source file touched):
+  `01.3a-public-vocabulary-and-identity-semantics.md` gets a `**Decision:**` block
+  under each of Sections A-F. Grounded against `ai/context/common.md`'s Versioning
+  section (single repo `VERSION` file, no independent Host-only version literal
+  exists today), `host/DovahLink.Host/Client/Protocol/HelloAckPayload.cs` and
+  `Constants.cs` (current `BridgeVersion`/`PublicProtocolTransitionalBridgeVersion`
+  naming), `host/DovahLink.Host/Identity/AdapterInstanceId.cs` and
+  `ARCHITECTURE.md`'s "Runtime and identity model" (the four fixed private identity
+  lifetimes, and the Host OS process's explicit lack of public identity), and
+  `ARCHITECTURE.md`'s "Authoritative state and revisions" (the Host owns one
+  authoritative state store per play context). Key reasoning: Section C's new
+  `stateAuthorityId` is deliberately not a rename of `adapterInstanceId`, because a
+  Host-process restart can invalidate the Host's own in-memory state store even when
+  the underlying Adapter/Skyrim process never restarted -- an `adapterInstanceId`-only
+  comparison would miss that case, which is exactly what
+  `ai/context/protocol/compatibility.md`'s pre-existing "do not substitute
+  `adapterInstanceId` ... for it" line already ruled out without stating why.
+  `ai/context/protocol/compatibility.md`'s "Decided, not yet activated" and "Deferred:
+  public instance identifier" sections are rewritten to record the decision as
+  "decided, pending implementation in 01.3b/01.3c," cross-referencing this concept
+  file's Sections A and C. Real changed-file counts for the two implementation
+  concepts were re-measured (`git grep -il` across `protocol/fixtures/**`,
+  `sdk/dart/**`, `host/**`, `app/**`, `integration/**`): `bridgeVersion` -> 39 files
+  (`01.3b`), `bridgeInstanceId` -> 74 files (`01.3c`) -- both comfortably under the
+  80-file re-plan threshold, no split proposal needed (supersedes this concept's own
+  pre-decision ~10-15/~75-90 estimate). A fresh-eyes decision-gap review (Explore
+  subagent, read-only) found zero remaining "TBD" rows, no contradiction between this
+  file and `compatibility.md`, and no unflagged contradiction with `ARCHITECTURE.md`
+  or `protocol/schema/README.md`.
 
 ## Handoff
 
@@ -448,3 +487,9 @@ comments' own source doc, which stays outside this concept's file scope by desig
 Handoff to Concept 01.3a is now active, per `PLAN.md` section 6 (one branch/PR per
 concept, dependent concept waits for merge, not just open/approved) -- 01.3a's own
 prerequisite (01.2b merged) is satisfied.
+
+Concept 01.3a's six mandatory decisions (A-F) are now resolved on branch
+`docs/01.3a-public-vocabulary-and-identity-semantics`, not yet opened as a PR --
+see the Verification entry above for the full rationale and the concept file itself
+for the decision text. Handoff to Concept 01.3b follows once this PR merges to
+`main`, per the same one-branch/PR-per-concept rule.

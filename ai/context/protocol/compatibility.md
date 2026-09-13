@@ -13,11 +13,16 @@ The canonical schema is `protocol/schema/README.md`. This file defines how that 
 - Once the Dart SDK exists, every SDK release declares an explicit supported Bridge-version range (for example a minimum and a maximum). Until then, the app-side Dart client documented in `ai/context/flutter/` follows this same policy.
 - If an SDK version declares support for a Bridge-version range, every public API that SDK version exposes must work across that entire declared range; a range must not silently exclude a public feature (for example "supports Bridge 0.5-0.8, but Inventory requires 0.7+"). A new public SDK feature that requires a newer Bridge contract raises that SDK version's declared minimum instead of narrowing which features work within the existing declared range. Encountering the declared-supported Bridge range without full support for the declared public surface is a contract/programming defect to fix, not a condition for the SDK to hide behind runtime feature negotiation.
 - SDK↔Bridge protocol compatibility is determined by the SDK's declared supported Bridge range, defined above. Runtime Skyrim/mod feature availability is represented separately by capabilities/mod-awareness where applicable, per the Capabilities section below. Runtime capability negotiation must not be used to hide an unsupported protocol version, and protocol-version compatibility does not imply that every runtime Skyrim capability is present.
-- Decided, not yet activated: once the Host's public compatibility boundary is activated, the host
-  release version replaces the retired native Bridge's release version as the compatibility
-  authority above. This is more than a label change -- the bootstrap, SDK range, fixtures,
-  incompatible-peer behavior, and this document must all move together when that cutover happens.
-  Until then, the model above (Bridge/mod release version) remains the current wire behavior.
+- Decided, pending implementation in `01.3b` (see
+  `plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+  Section A): once the Host's public compatibility boundary is activated, the Host release version
+  replaces the retired native Bridge's release version as the compatibility authority above. The
+  wire field renames from `bridgeVersion` to `hostVersion`; source of truth stays the repository's
+  single `VERSION` file (`ai/context/common.md`'s Versioning section), so the reported number is
+  numerically unchanged today -- only which component owns and evolves the contract changes. This
+  is more than a label change -- the bootstrap, SDK range, fixtures, incompatible-peer behavior, and
+  this document must all move together when `01.3b` implements the cutover. Until then, the model
+  above (Bridge/mod release version, wire field `bridgeVersion`) remains the current wire behavior.
 
 ## Compatibility bootstrap
 
@@ -87,19 +92,29 @@ The current recovery sequence and error codes belong to `protocol/schema/README.
 
 Simultaneous support for more than one historical contract generation is deferred, not prohibited. Revisit it only when a concrete requirement exists — established third-party clients, independently distributed components that cannot update together, a public backwards-compatibility guarantee, or a comparable constraint — and design that system from the requirements in force at that time.
 
-## Deferred: public instance identifier
+## Decided, pending implementation: public instance identifier
 
 Whether the public protocol exposes an authoritative-process instance identifier (the public
-counterpart to the host-observed `adapterInstanceId`) is deferred to this later protocol revision
-stage, not decided by the Host/Adapter migration. `ARCHITECTURE.md`'s "Runtime and identity model"
-fixes the four private identity lifetimes; it does not by itself require or forbid a public wire
-field for any of them.
+counterpart to the host-observed `adapterInstanceId`) is now decided in
+`plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+Section C, not left to a later protocol revision stage. `ARCHITECTURE.md`'s "Runtime and identity
+model" fixes the four private identity lifetimes; this decision adds a fifth, public-only concept
+without changing any of them.
 
-This is a hard gate, not a soft preference: `state_snapshot` and `state_event` publication must not
-go live until this decision is made. A state revision's identity is scoped to
-`(bridgeInstanceId, playContextId, stateArea)`, and clients rely on the instance component to reject
-state from an earlier authoritative-process lifetime; publishing live state before that component
-has a real, decided value would let a client silently accept state from the wrong lifetime. Do not
-substitute `adapterInstanceId`, an OS process ID, a port, a path, or an owner-lifetime ID for it --
-none of them identify the same thing this field must identify, per `ARCHITECTURE.md`'s "Runtime and
-identity model".
+**Decision:** yes. The wire field is `stateAuthorityId`, owned and minted by the Host whenever it
+(re)initializes its in-memory authoritative state store for the current binding -- at Host startup,
+and again on every Adapter reconnect/restart (which always forces a fresh authoritative capture). It
+is deliberately not `adapterInstanceId` itself: a Host restart can invalidate the Host's own store
+even when the underlying Adapter/Skyrim process never restarted, and `adapterInstanceId` would not
+change in that case. `01.3a`'s Section C records the full lifecycle (creation point, stability across
+reconnects, null-after-startup answer, envelope scope, comparison semantics); `01.3c` implements it.
+
+This remains a hard gate, not a soft preference: `state_snapshot` and `state_event` publication must
+not go live until `01.3c` actually implements this field with real values. A state revision's
+identity is scoped to `(stateAuthorityId, playContextId, stateArea)` (renamed from
+`(bridgeInstanceId, playContextId, stateArea)` -- see `01.3a` Section D), and clients rely on the
+authority component to reject state from an earlier authoritative-store lifetime; publishing live
+state before that component has a real, decided value would let a client silently accept state from
+the wrong lifetime. Do not substitute `adapterInstanceId`, an OS process ID, a port, a path, or an
+owner-lifetime ID for it -- none of them identify the same thing this field identifies, per
+`ARCHITECTURE.md`'s "Runtime and identity model" and `01.3a` Section C's reasoning.
