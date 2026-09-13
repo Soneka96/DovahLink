@@ -4,10 +4,47 @@ All notable changes to DovahLink are documented here, most recent first. This is
 developer-facing record of what changed and why; the shorter, player-facing summary posted with
 each Nexus Mods file upload is derived from these entries but is not identical to them.
 
-A release is cut by building the versioned ZIP with `tooling/DovahLinkBuilder` and uploading it to
-Nexus Mods manually; see [`tooling/DovahLinkBuilder/README.md`](tooling/DovahLinkBuilder/README.md).
-This file is updated in the same change that bumps root `VERSION`'s value and flips the
-corresponding `ROADMAP.md` phase to Complete.
+Notable developer- or user-visible changes are added to the `[Unreleased]` section below as part of
+the pull request that makes them, grouped under `Added`/`Changed`/`Fixed`/`Removed`/`Security`
+(omit an unused subsection). A changelog bullet states the outcome in one concise sentence, not how
+it was implemented; split unrelated changes into separate bullets.
+
+A release promotes `[Unreleased]`'s accumulated entries into a new dated `## [x.y.z] - YYYY-MM-DD`
+section and leaves a fresh empty `[Unreleased]` section at the top, in the same change that bumps
+root `VERSION`'s value and flips the corresponding `ROADMAP.md` phase to Complete; see
+`ai/context/common.md`'s "Versioning" for the full release workflow. A release is cut by building
+the versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods manually; see
+[`tooling/DovahLinkBuilder/README.md`](tooling/DovahLinkBuilder/README.md).
+
+## [Unreleased]
+
+### Added
+
+- Standalone C# Host process and thin native Adapter, replacing the native Bridge as DovahLink's
+  production implementation.
+- Host-owned public client boundary: WebSocket admission, session registry, and pairing continue on
+  the Host after the migration.
+- Private, bounded IPC channel between the Adapter and Host carrying pairing, trust administration,
+  and Skyrim-facing notifications.
+- Reserved control and data outbound lanes so state publication cannot starve control traffic.
+
+### Changed
+
+- Trust-admin list-scope vocabulary is now known/trusted/blocked consistently across console admin,
+  Host, and Adapter.
+- `tooling/DovahLinkBuilder` now packages the Host/Adapter distribution instead of the retired
+  Bridge ZIP.
+
+### Fixed
+
+- The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast when a required
+  `clientId` cannot be resolved, instead of proceeding silently.
+- The app no longer keeps observing a stale connection status after its session is invalidated.
+
+### Removed
+
+- The native Bridge (`bridge/`) and its CI/tooling wiring, superseded by the Host/Adapter
+  implementation.
 
 ## [0.3.3] - 2026-08-24
 

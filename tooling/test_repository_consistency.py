@@ -961,6 +961,73 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "CHANGELOG.md has duplicate versions.",
         )
 
+    def test_changelog_unreleased_section_is_first_and_backfilled(self) -> None:
+        """Keep `[Unreleased]` the first changelog section, workflow prose current, and its
+        backfill free of every deleted or superseded Bridge-era reference."""
+        changelog = self._read("CHANGELOG.md")
+
+        section_headings = re.findall(r"(?m)^## (.+)$", changelog)
+        self.assertTrue(section_headings, "CHANGELOG.md has no ## sections.")
+        self.assertEqual(
+            section_headings[0],
+            "[Unreleased]",
+            "[Unreleased] must be the first section in CHANGELOG.md.",
+        )
+
+        self.assertIn(
+            "Notable developer- or user-visible changes are added to the `[Unreleased]` section "
+            "below",
+            changelog,
+        )
+        self.assertIn(
+            "A release promotes `[Unreleased]`'s accumulated entries into a new dated "
+            "`## [x.y.z] - YYYY-MM-DD`\nsection",
+            changelog,
+        )
+        self.assertNotIn("versioned ZIP", changelog)
+        self.assertIn("versioned package", changelog)
+
+        for backfilled_outcome in (
+            "Standalone C# Host process and thin native Adapter, replacing the native Bridge as "
+            "DovahLink's",
+            "Host-owned public client boundary: WebSocket admission, session registry, and "
+            "pairing continue on",
+            "Private, bounded IPC channel between the Adapter and Host carrying pairing, trust "
+            "administration,",
+            "Reserved control and data outbound lanes so state publication cannot starve control "
+            "traffic.",
+            "Trust-admin list-scope vocabulary is now known/trusted/blocked consistently across "
+            "console admin,",
+            "`tooling/DovahLinkBuilder` now packages the Host/Adapter distribution instead of the "
+            "retired",
+            "The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast "
+            "when a required",
+            "The app no longer keeps observing a stale connection status after its session is "
+            "invalidated.",
+            "The native Bridge (`bridge/`) and its CI/tooling wiring, superseded by the "
+            "Host/Adapter",
+        ):
+            self.assertIn(backfilled_outcome, changelog)
+
+        for workflow_rule in (
+            "as part of\nthe pull request that makes them, grouped under "
+            "`Added`/`Changed`/`Fixed`/`Removed`/`Security`",
+            "A changelog bullet states the outcome in one concise sentence, not how\nit was "
+            "implemented",
+            "in the same change that bumps\nroot `VERSION`'s value and flips the corresponding "
+            "`ROADMAP.md` phase to Complete",
+        ):
+            self.assertIn(workflow_rule, changelog)
+
+        # Regression guard: the pre-3A.3 versioned entries (0.1.0-0.3.0) describe the Bridge
+        # accurately for the architecture that existed at each of those releases and must not be
+        # rewritten -- only the header/workflow prose and [Unreleased] describe current
+        # terminology. This guards that those historical entries were left untouched.
+        self.assertIn(
+            "cached character state from a previous bridge lifetime", changelog
+        )
+        self.assertIn("survives Skyrim/Bridge/Windows restarts", changelog)
+
     def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
         """Guard the datasource file-count exception and one shared term for the compatibility
         bootstrap step and its failure case, across the docs that reference them."""
