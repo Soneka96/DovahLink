@@ -580,7 +580,7 @@ void main() {
         isAdministrativelyInvalidatedValue = true;
 
         service.onUnhealthy(
-          const DovahLinkConnectionException('closed by bridge'),
+          const DovahLinkConnectionException('closed by host'),
         );
 
         verify(() => state.invalidate(any())).called(1);
