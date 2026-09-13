@@ -1,8 +1,8 @@
 Scriptname DovahLinkAdmin Hidden
 
-; Declares the native functions DovahLink Bridge registers via SKSE's Papyrus interface
-; (bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp). This script carries no logic of
-; its own -- every function below is implemented natively by the bridge plugin, not in Papyrus.
+; Declares the native functions DovahLink's Adapter registers via SKSE's Papyrus interface
+; (adapter/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp). This script carries no logic
+; of its own -- every function below is implemented natively by the Adapter plugin, not in Papyrus.
 ; See ../README.md and ai/context/protocol/security.md's "Trust administration surface".
 
 ; Lists known devices for an empty/known, trusted, or blocked scope as a formatted, multi-line string.

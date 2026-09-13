@@ -1501,6 +1501,25 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("Function Devices", papyrus)
         self.assertNotIn("Function Blocked", papyrus)
 
+        # Current terminology and the live adapter/ source path, not the retired Bridge/mod name
+        # or its deleted implementation path (bridge/game_state/...).
+        self.assertIn(
+            "the native functions DovahLink's Adapter registers via SKSE's Papyrus interface",
+            papyrus,
+        )
+        self.assertIn(
+            "adapter/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp", papyrus
+        )
+        self.assertIn("implemented natively by the Adapter plugin", papyrus)
+        self.assertNotIn("DovahLink Bridge", papyrus)
+        self.assertNotIn("bridge/game_state/", papyrus)
+        self.assertIn(
+            "ConsoleUtil Extended command definition for DovahLink's trust-administration console",
+            yaml,
+        )
+        self.assertIn("installed alongside DovahLink.\n# Place this file", yaml)
+        self.assertNotIn("DovahLink Bridge", yaml)
+
         command_entries = re.findall(
             r"(?ms)^  - name: ([A-Za-z-]+)$\n(.*?)(?=^  - name: |\Z)", yaml
         )
@@ -2125,16 +2144,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertNotIn("bridge", text.lower(), production_file)
 
     def test_no_stale_bridge_or_deleted_migration_references(self) -> None:
-        """Guard against reintroducing deleted migration docs or the two dead bridge/ files.
+        """Guard against reintroducing deleted migration docs or dead bridge/ files.
 
         3A.3 deleted five migration-only paths, along with `bridge/README.md` and
-        `bridge/vcpkg.json`. This intentionally does not ban path-shaped references into other
-        `bridge/` subdirectories (`bridge/application/`, `bridge/game_state/`, and similar): several
-        `ai/context/skse/*.md` files and adapter/ source comments deliberately cite the retired
-        Bridge's real file layout as a worked-example precedent, and a broad ban would flag that
-        legitimate history alongside genuine regressions. It also does not ban the word "Bridge" --
-        the wire fields `bridgeInstanceId`/`bridgeVersion` and genuine history in
-        CHANGELOG.md/PLAN.md are legitimate and excluded below.
+        `bridge/vcpkg.json`; 3A.2 deleted `bridge/` itself, including
+        `bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`, which
+        `console-admin/DovahLinkAdmin.psc` cited by path until this pass corrected it. This
+        intentionally does not ban path-shaped references into other `bridge/` subdirectories
+        (`bridge/application/`, `bridge/game_state/`, and similar): several `ai/context/skse/*.md`
+        files and adapter/ source comments deliberately cite the retired Bridge's real file layout
+        as a worked-example precedent, and a broad ban would flag that legitimate history alongside
+        genuine regressions. It also does not ban the word "Bridge" -- the wire fields
+        `bridgeInstanceId`/`bridgeVersion` and genuine history in CHANGELOG.md/PLAN.md are
+        legitimate and excluded below.
         """
         deleted_paths = (
             "host/PLAN.md",
@@ -2150,8 +2172,21 @@ class RepositoryConsistencyTests(unittest.TestCase):
             )
 
         # CHANGELOG.md and root PLAN.md are intentionally frozen historical records; their dated
-        # entries stay truthful to what existed when they were written.
-        excluded_files = {REPOSITORY_ROOT / "CHANGELOG.md", REPOSITORY_ROOT / "PLAN.md"}
+        # entries stay truthful to what existed when they were written. The two D4 planning-package
+        # files below quote the dead papyrus path as their own historical record of the defect this
+        # pass fixed -- see plans/documentation-and-composition-normalization/DIVERGENCES.md D4.
+        excluded_files = {
+            REPOSITORY_ROOT / "CHANGELOG.md",
+            REPOSITORY_ROOT / "PLAN.md",
+            REPOSITORY_ROOT
+            / "plans"
+            / "documentation-and-composition-normalization"
+            / "01.2a-active-documentation-and-instruction-terminology.md",
+            REPOSITORY_ROOT
+            / "plans"
+            / "documentation-and-composition-normalization"
+            / "DIVERGENCES.md",
+        }
         # adapter/'s vendored vcpkg tree and every language's build output are not our source and
         # must never be walked -- vcpkg_installed alone can hold tens of thousands of vendor files.
         excluded_dir_parts = {
@@ -2180,6 +2215,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for pattern in (
             "**/*.md",
             "host/**/*.cs",
+            "console-admin/**/*.yaml",
+            "console-admin/**/*.psc",
         ):
             candidate_paths.extend(REPOSITORY_ROOT.glob(pattern))
         for subdir in adapter_source_subdirs:
@@ -2201,10 +2238,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             Path("integration/README.md"),
             Path("sdk/README.md"),
             Path("tooling/DovahLinkBuilder/README.md"),
+            Path("console-admin/dovahlink.yaml"),
+            Path("console-admin/DovahLinkAdmin.psc"),
         ):
             self.assertIn(previously_uncovered, scanned_paths)
 
-        stale_literals = ("bridge/vcpkg.json", "bridge/README.md")
+        stale_literals = (
+            "bridge/vcpkg.json",
+            "bridge/README.md",
+            "bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp",
+        )
         violations = []
         for path in candidate_paths:
             if not path.is_file() or path in excluded_files:
@@ -2219,9 +2262,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(
             violations,
             [],
-            "Found a reference to a file 3A.3 deleted (bridge/README.md or bridge/vcpkg.json). If "
-            "this is genuine project history, move it to CHANGELOG.md or add the file to this "
-            "test's excluded_files.",
+            "Found a reference to a file 3A.2/3A.3 deleted (see stale_literals). If this is "
+            "genuine project history, move it to CHANGELOG.md or add the file to this test's "
+            "excluded_files.",
         )
 
     @classmethod
