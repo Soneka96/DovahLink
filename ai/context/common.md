@@ -185,6 +185,10 @@ style guide.
 - Document every handwritten named type, enum and enum member, constructor, property, field,
   method, and function, including private methods and test helpers. A single sentence is enough
   when the contract is simple.
+- Document every parameter, every non-void return value, and every exception that is part of a
+  callable's contract, normally in one line each. Do not omit one of these merely because the
+  parameter name or return type already reads clearly -- the point is to keep the complete contract
+  visible at the declaration and on hover, not to repeat the signature in prose.
 - Place documentation directly on the declaration it describes. Language-required attributes,
   metadata, and decorators may appear between documentation and the declaration. Python docstrings
   are the syntax-required exception: they are the first statement inside the documented module,

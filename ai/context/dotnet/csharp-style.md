@@ -63,9 +63,13 @@ Follow the shared documentation rules in `ai/context/common.md`.
 - Use XML `///` documentation directly above every handwritten class, record, struct, interface,
   enum and enum member, delegate, constructor, property, field, event, method, and local function,
   regardless of visibility. This includes private helpers and test helpers.
-- Give every declaration a concise `<summary>`, unless it uses `<inheritdoc/>`. Add `<param>`,
-  `<typeparam>`, `<returns>`, `<exception>`, and `<remarks>` only when they add useful contract
-  information rather than repeat the signature.
+- Give every declaration a concise `<summary>`, unless it uses `<inheritdoc/>`. Document each
+  parameter and type parameter with `<param>`/`<typeparam>`, normally in one line; document a
+  non-void method's return value with `<returns>`, normally in one or two lines; document an
+  exception that is part of the callable's contract with `<exception>`. Do not omit one of these
+  merely because the parameter name or return type already reads clearly on its own -- their job is
+  to keep the complete contract visible at the declaration and on hover. Add `<remarks>` only when
+  it adds information beyond what `<summary>` and the other elements already state.
 - Use `<see cref="..."/>` and `<paramref name="..."/>` for symbol-aware references.
 - Use `/// <inheritdoc/>` for interface implementations and overrides whose contract is unchanged.
   Add separate documentation only for behavior introduced by the implementation.

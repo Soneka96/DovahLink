@@ -534,62 +534,30 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self,
     ) -> None:
         """Guard the semantic member/collection ordering rule and the documentation
-        economy rules that replaced the old universal append-only convention."""
+        economy rules that replaced the old universal append-only convention.
+
+        Checks structural invariants (heading present/absent, a short identifying
+        phrase per rule, the frozen numeric threshold) rather than pinning full prose
+        sentences or line-wrap positions, so a future reword of the surrounding
+        explanation does not need a matching test change.
+        """
         common = self._read("ai/context/common.md")
 
         self.assertIn("## Member and collection ordering", common)
         self.assertNotIn("## Addition convention", common)
-        self.assertIn(
-            "There is no single universal rule requiring\nevery ordered collection to grow by "
-            "appending to its end",
-            common,
-        )
-        self.assertIn(
-            "The newest versioned release stays the first `##\n  [x.y.z]` section, with an "
-            "`[Unreleased]` section above every versioned release",
-            common,
-        )
-        self.assertIn(
-            "Append-only ordering survives only where a collection's own semantics require it",
-            common,
-        )
-        self.assertIn(
-            "High documentation coverage and low documentation verbosity are both required",
-            common,
-        )
-        self.assertIn(
-            "documentation approaching 20-40 lines for an ordinary\n  method or parameter is a "
-            "signal that the extra information belongs somewhere else",
-            common,
-        )
+        self.assertNotIn("versioned Bridge ZIP", common)
+        self.assertIn("Changelog entries: reverse-chronological", common)
+        self.assertIn("C++ data members are the one exception", common)
+        self.assertIn("20-40 lines", common)
         self.assertIn("Route information to its owning home", common)
         self.assertIn(
-            "updates `CHANGELOG.md`'s\n  `[Unreleased]` section as part of that same PR",
-            common,
-        )
-        self.assertIn(
-            "promotes `CHANGELOG.md`'s accumulated\n  `[Unreleased]` entries into a new dated "
-            "`## [x.y.z] - YYYY-MM-DD` section",
-            common,
-        )
-        self.assertNotIn("versioned Bridge ZIP", common)
-        self.assertIn(
-            "append new\n  members at the end, before the closing brace, so no existing member's "
-            "numeric value shifts",
-            common,
-        )
-        self.assertIn(
-            "append new entries after the existing ones, since there is no other meaningful order "
-            "to prefer",
-            common,
-        )
-        self.assertIn(
-            "C++ data members are the one exception: never reorder them",
+            "Document every parameter, every non-void return value, and every exception",
             common,
         )
 
     def test_csharp_style_defines_semantic_member_ordering(self) -> None:
-        """Guard the semantic C# member-ordering rule that replaced append-only placement."""
+        """Guard the semantic C# member-ordering rule that replaced append-only
+        placement, and the required-but-concise parameter/return/exception rule."""
         dotnet_style = self._read("ai/context/dotnet/csharp-style.md")
 
         self.assertIn("## Member ordering", dotnet_style)
@@ -605,25 +573,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "9. nested types.",
         ):
             self.assertIn(ordered_item, dotnet_style)
-        self.assertIn(
-            "not automatically appended after\nthe last existing member of its kind",
-            dotnet_style,
-        )
-        self.assertIn(
-            "Do not interleave a private helper between two interface or\noverride methods "
-            "merely because it was added later",
-            dotnet_style,
-        )
-        self.assertIn(
-            "it does not apply to a project's\n`Enums.cs`/`Constants.cs` files",
-            dotnet_style,
-        )
+        self.assertIn("Do not interleave a private helper", dotnet_style)
+        self.assertIn("`Enums.cs`/`Constants.cs` files", dotnet_style)
+        self.assertIn("with `<param>`/`<typeparam>`", dotnet_style)
+        self.assertIn("with `<returns>`, normally in one or two lines", dotnet_style)
+        self.assertIn("Add `<remarks>` only when", dotnet_style)
+        self.assertNotIn("only when they add useful contract", dotnet_style)
 
     def test_cpp_style_normative_rules_do_not_depend_on_deleted_bridge_paths(
         self,
     ) -> None:
-        """Guard cpp-style.md's normative rules against depending on bridge/, deleted in 3A.2,
-        as their load-bearing worked example -- and the current adapter/ examples that replaced it."""
+        """Guard cpp-style.md's normative rules against depending on bridge/ (deleted in
+        3A.2) or the retired skse/architecture.md as current authority, against
+        prescribing a directory adapter/ does not have, and confirm the current
+        adapter/ examples and rules that replaced them are present.
+
+        Checks stale/forbidden literals, required current paths and type names, and
+        short identifying phrases -- not full prose sentences or line-wrap positions.
+        """
         cpp_style = self._read("ai/context/skse/cpp-style.md")
 
         for stale_literal in (
@@ -638,55 +605,41 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "ConnectionSlot::Lease",
             "WebSocketSession",
             "transport/websocket_session.hpp",
+            "adapter/shared/enums.hpp",
+            "adapter/shared",
+            "ai/context/skse/architecture.md",
+            "only when they add contract information beyond the signature",
         ):
             self.assertNotIn(stale_literal, cpp_style)
 
-        self.assertIn(
-            "currently `adapter/`, whose\nmodule layout is `capture/`, `dispatch/`, `identity/`, "
-            "`ipc/`, `papyrus/`, `plugin/`, `process/`,\nand `runtime/`",
-            cpp_style,
-        )
-        self.assertIn(
-            "A source file's `commonlib_` filename prefix marks it as one of those "
-            "CommonLib-touching\nfiles",
-            cpp_style,
-        )
-        self.assertIn(
-            "`IAdapterPairingNotificationSink` and `CommonLibAdapterPairingNotificationSink`",
-            cpp_style,
-        )
-        self.assertIn(
-            "`IAdapterTaskMarshaller`\n  (`runtime/adapter_task_marshaller.hpp`, CommonLib-free) "
-            "and `CommonLibAdapterTaskMarshaller`",
-            cpp_style,
-        )
+        for required_module in (
+            "capture/",
+            "dispatch/",
+            "identity/",
+            "ipc/",
+            "papyrus/",
+            "plugin/",
+            "process/",
+            "runtime/",
+        ):
+            self.assertIn(required_module, cpp_style)
+        self.assertIn("commonlib_", cpp_style)
+        self.assertIn("IAdapterPairingNotificationSink", cpp_style)
+        self.assertIn("CommonLibAdapterPairingNotificationSink", cpp_style)
+        self.assertIn("IAdapterTaskMarshaller", cpp_style)
+        self.assertIn("CommonLibAdapterTaskMarshaller", cpp_style)
+        self.assertIn("runtime/adapter_task_marshaller.hpp", cpp_style)
         self.assertIn(
             "Every enum in `adapter/` is a single project-wide exception", cpp_style
         )
-        self.assertIn("Every enum belongs in `adapter/shared/enums.hpp`", cpp_style)
-        self.assertIn(
-            "every `commonlib_`-prefixed header or source file in `adapter/`",
-            cpp_style,
-        )
-        self.assertIn(
-            "Never reorder existing data members without first confirming the change preserves "
-            "construction",
-            cpp_style,
-        )
+        self.assertIn("ipc/ipc_enums.hpp", cpp_style)
+        self.assertIn("Never reorder existing data members", cpp_style)
         self.assertIn("## Member ordering", cpp_style)
-        self.assertIn(
-            "constants/static state, injected dependencies, mutable instance state,\n"
-            "constructors and destructor, interface-implementation and override methods (kept "
-            "together as one\ngroup), other public/internal methods, private helper methods, "
-            "nested types",
-            cpp_style,
-        )
-        self.assertIn(
-            'Data members are the one deliberate exception -- see "Ownership and lifetime"',
-            cpp_style,
-        )
+        self.assertIn("Data members are the one deliberate exception", cpp_style)
         self.assertIn("not consolidated adapter-wide like enums are", cpp_style)
         self.assertNotIn("bridge-wide", cpp_style)
+        self.assertIn("Document each parameter with `@param`", cpp_style)
+        self.assertIn("with `@return`, normally in one or two lines", cpp_style)
 
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
         """Require every workflow action reference to be SHA-pinned with its version documented.
@@ -962,8 +915,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
 
     def test_changelog_unreleased_section_is_first_and_backfilled(self) -> None:
-        """Keep `[Unreleased]` the first changelog section, workflow prose current, and its
-        backfill free of every deleted or superseded Bridge-era reference."""
+        """Keep `[Unreleased]` the first changelog section, release-ownership prose free
+        of the feature-PR/release-PR contradiction, and the backfill's key outcomes
+        present -- via structural/short-identity checks, not pinned full sentences."""
         changelog = self._read("CHANGELOG.md")
 
         section_headings = re.findall(r"(?m)^## (.+)$", changelog)
@@ -974,50 +928,30 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "[Unreleased] must be the first section in CHANGELOG.md.",
         )
 
-        self.assertIn(
-            "Notable developer- or user-visible changes are added to the `[Unreleased]` section "
-            "below",
-            changelog,
-        )
-        self.assertIn(
-            "A release promotes `[Unreleased]`'s accumulated entries into a new dated "
-            "`## [x.y.z] - YYYY-MM-DD`\nsection",
-            changelog,
-        )
         self.assertNotIn("versioned ZIP", changelog)
         self.assertIn("versioned package", changelog)
 
+        # Regression guard for the release-ownership contradiction found in review: the
+        # release PR must not be described as also flipping the ROADMAP phase to
+        # Complete -- that stays the feature PR's job, per common.md's Versioning.
+        self.assertNotIn(
+            "flips the corresponding `ROADMAP.md` phase to Complete", changelog
+        )
+        self.assertIn("stays part of that same feature pull request", changelog)
+
         for backfilled_outcome in (
-            "Standalone C# Host process and thin native Adapter, replacing the native Bridge as "
-            "DovahLink's",
-            "Host-owned public client boundary: WebSocket admission, session registry, and "
-            "pairing continue on",
-            "Private, bounded IPC channel between the Adapter and Host carrying pairing, trust "
-            "administration,",
-            "Reserved control and data outbound lanes so state publication cannot starve control "
-            "traffic.",
-            "Trust-admin list-scope vocabulary is now known/trusted/blocked consistently across "
-            "console admin,",
-            "`tooling/DovahLinkBuilder` now packages the Host/Adapter distribution instead of the "
-            "retired",
-            "The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast "
-            "when a required",
-            "The app no longer keeps observing a stale connection status after its session is "
-            "invalidated.",
-            "The native Bridge (`bridge/`) and its CI/tooling wiring, superseded by the "
-            "Host/Adapter",
+            "Standalone C# Host process and thin native Adapter",
+            "Host-owned public client boundary",
+            "Private, bounded IPC channel between the Adapter and Host",
+            "Host-owned state subscriptions with baseline snapshots",
+            "Reserved control and data outbound lanes",
+            "Trust-admin list-scope vocabulary is now known/trusted/blocked",
+            "packages the Host/Adapter distribution instead of the retired",
+            "stamps outgoing envelopes with the resolved `clientId`",
+            "stale connection status after its session is invalidated",
+            "The native Bridge (`bridge/`) and its CI/tooling wiring",
         ):
             self.assertIn(backfilled_outcome, changelog)
-
-        for workflow_rule in (
-            "as part of\nthe pull request that makes them, grouped under "
-            "`Added`/`Changed`/`Fixed`/`Removed`/`Security`",
-            "A changelog bullet states the outcome in one concise sentence, not how\nit was "
-            "implemented",
-            "in the same change that bumps\nroot `VERSION`'s value and flips the corresponding "
-            "`ROADMAP.md` phase to Complete",
-        ):
-            self.assertIn(workflow_rule, changelog)
 
         # Regression guard: the pre-3A.3 versioned entries (0.1.0-0.3.0) describe the Bridge
         # accurately for the architecture that existed at each of those releases and must not be

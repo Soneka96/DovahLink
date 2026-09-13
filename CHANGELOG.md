@@ -7,13 +7,15 @@ each Nexus Mods file upload is derived from these entries but is not identical t
 Notable developer- or user-visible changes are added to the `[Unreleased]` section below as part of
 the pull request that makes them, grouped under `Added`/`Changed`/`Fixed`/`Removed`/`Security`
 (omit an unused subsection). A changelog bullet states the outcome in one concise sentence, not how
-it was implemented; split unrelated changes into separate bullets.
+it was implemented; split unrelated changes into separate bullets. Flipping a completed roadmap
+phase's `**Status:**` line to Complete stays part of that same feature pull request, not the later
+release PR below.
 
 A release promotes `[Unreleased]`'s accumulated entries into a new dated `## [x.y.z] - YYYY-MM-DD`
 section and leaves a fresh empty `[Unreleased]` section at the top, in the same change that bumps
-root `VERSION`'s value and flips the corresponding `ROADMAP.md` phase to Complete; see
-`ai/context/common.md`'s "Versioning" for the full release workflow. A release is cut by building
-the versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods manually; see
+and synchronizes root `VERSION`; see `ai/context/common.md`'s "Versioning" for the full release
+workflow and its separation from feature-PR responsibilities. A release is cut by building the
+versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods manually; see
 [`tooling/DovahLinkBuilder/README.md`](tooling/DovahLinkBuilder/README.md).
 
 ## [Unreleased]
@@ -26,6 +28,8 @@ the versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus 
   the Host after the migration.
 - Private, bounded IPC channel between the Adapter and Host carrying pairing, trust administration,
   and Skyrim-facing notifications.
+- Host-owned state subscriptions with baseline snapshots, live updates, recovery, and
+  play-context-safe resynchronization.
 - Reserved control and data outbound lanes so state publication cannot starve control traffic.
 
 ### Changed

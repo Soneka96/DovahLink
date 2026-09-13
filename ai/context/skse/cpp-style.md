@@ -79,18 +79,19 @@ exists.
   `dispatch/`, `identity/`, `ipc/`, `papyrus/`, `plugin/`, `process/`, `runtime/`) are not separate
   packages the way, for example, the Flutter app and the SDK are for
   `ai/context/dart/dart-style.md`'s per-package `enums.dart` rule; this mirrors that same rule at
-  the correct granularity for this language. Every enum belongs in `adapter/shared/enums.hpp`,
-  grouped into sections by conceptual owner (matching the module list above, with finer sub-banners
-  nested within a section where that adds real information), each preceded by a
-  `// ---- <Area> ----` comment banner. A nested enum that exists purely as a scoped selector for
-  its own owning type's public API is not required to move: it is not a top-level `adapter/` enum
-  declaration, the same way a nested carve-out type is not subject to the one-type-per-file default
-  above. A test-file-local enum used only for that test file's own internal parametrization is out
-  of scope for the same reason: it is test scaffolding, not a production `adapter/` declaration.
-  Centralizing every enum's *declaration* in one file does not loosen
-  `ai/context/skse/architecture.md`'s dependency-edge rules: a module may still only use enum
-  concepts from domains it is already allowed to depend on. This is enforced by reviewing usage
-  sites, not by file structure -- C++ has no per-symbol include restriction.
+  the correct granularity for this language. `adapter/`'s enums currently live in
+  `ipc/ipc_enums.hpp`, the only module that has needed one so far, grouped into sections by
+  conceptual owner, each preceded by a `// ---- <Area> ----` comment banner; extend that same file
+  rather than starting a second, competing enum file if another module's enum count later justifies
+  one. A nested enum that exists purely as a scoped selector for its own owning type's public API is
+  not required to move: it is not a top-level `adapter/` enum declaration, the same way a nested
+  carve-out type is not subject to the one-type-per-file default above. A test-file-local enum used
+  only for that test file's own internal parametrization is out of scope for the same reason: it is
+  test scaffolding, not a production `adapter/` declaration. Centralizing every enum's *declaration*
+  in one file does not loosen module dependency discipline: a module may still only use enum
+  concepts from domains it is already allowed to depend on, per whatever ownership boundaries
+  currently apply to that module. This is enforced by reviewing usage sites, not by file structure
+  -- C++ has no per-symbol include restriction.
 - Every small cross-cutting constant value (timeouts, limits, and similar) belongs in that module's
   own `constants.hpp`, per module directory as listed above -- never shared across module
   directories, and not consolidated adapter-wide like enums are. Group entries within it by the
@@ -190,8 +191,11 @@ Follow the shared documentation rules in `ai/context/common.md`.
   same documentation on an out-of-line definition in a `.cpp` file.
 - Document a private or file-local function directly above its definition when it has no separate
   declaration.
-- Use `@param`, `@return`, and `@throws` only when they add contract information beyond the signature
-  and summary. Use `@ref` for links to C++ symbols.
+- Document each parameter with `@param`, normally in one line; document a non-`void` return value
+  with `@return`, normally in one or two lines; document an exception that is part of the
+  function's contract with `@throws`. Do not omit one of these merely because the parameter name or
+  return type already reads clearly on its own -- their job is to keep the complete contract
+  visible at the declaration. Use `@ref` for links to C++ symbols.
 - When an override keeps the inherited contract unchanged, use
   `/// @copydoc BaseType::Method` with the actual source symbol rather than copying documentation.
   Add separate text only for changed preconditions, side effects, or guarantees.
