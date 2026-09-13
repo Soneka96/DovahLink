@@ -530,6 +530,148 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 workflow,
             )
 
+    def test_documentation_and_ordering_conventions_are_semantic_not_append_only(
+        self,
+    ) -> None:
+        """Guard the semantic member/collection ordering rule and the documentation
+        economy rules that replaced the old universal append-only convention.
+
+        Checks structural invariants (heading present/absent, a short identifying
+        phrase per rule, the frozen numeric threshold) rather than pinning full prose
+        sentences or line-wrap positions, so a future reword of the surrounding
+        explanation does not need a matching test change.
+        """
+        common = self._read("ai/context/common.md")
+
+        self.assertIn("## Member and collection ordering", common)
+        self.assertNotIn("## Addition convention", common)
+        self.assertNotIn("versioned Bridge ZIP", common)
+        self.assertIn("Changelog entries: reverse-chronological", common)
+        self.assertIn("C++ data members are the one exception", common)
+        self.assertIn("20-40 lines", common)
+        self.assertIn("Route information to its owning home", common)
+        self.assertIn(
+            "Document every parameter, every non-void return value, and every exception",
+            common,
+        )
+
+    def test_common_repository_boundaries_describe_adapter_and_host_not_bridge(
+        self,
+    ) -> None:
+        """Guard common.md's repository-boundary and area-pointer prose against
+        describing the deleted bridge/ directory as current architecture."""
+        common = self._read("ai/context/common.md")
+
+        self.assertNotIn("Bridge", common)
+        self.assertNotIn("bridge", common)
+        self.assertIn(
+            "`adapter/` is reserved for the native SKSE Adapter plugin", common
+        )
+        self.assertIn("`host/` is reserved for the C# Host process", common)
+        self.assertIn("native Adapter, C# Host, protocol", common)
+        self.assertIn("C++ (native Adapter): `ai/context/skse/cpp-style.md`", common)
+        self.assertIn(
+            "update\n  Adapter, Host, SDK, app, tests, and docs together", common
+        )
+
+    def test_csharp_style_defines_semantic_member_ordering(self) -> None:
+        """Guard the semantic C# member-ordering rule that replaced append-only
+        placement, and the required-but-concise parameter/return/exception rule."""
+        dotnet_style = self._read("ai/context/dotnet/csharp-style.md")
+
+        self.assertIn("## Member ordering", dotnet_style)
+        for ordered_item in (
+            "1. constants and static state;",
+            "2. injected dependencies (fields populated by the constructor);",
+            "3. mutable instance state;",
+            "4. constructors;",
+            "5. properties and events;",
+            "6. interface implementation and override methods, kept together as one group;",
+            "7. other public and internal methods;",
+            "8. private helper methods;",
+            "9. nested types.",
+        ):
+            self.assertIn(ordered_item, dotnet_style)
+        self.assertIn("Do not interleave a private helper", dotnet_style)
+        self.assertIn("`Enums.cs`/`Constants.cs` files", dotnet_style)
+        self.assertIn("with `<param>`/`<typeparam>`", dotnet_style)
+        self.assertIn("with `<returns>`, normally in one or two lines", dotnet_style)
+        self.assertIn("Add `<remarks>` only when", dotnet_style)
+        self.assertNotIn("only when they add useful contract", dotnet_style)
+
+    def test_cpp_style_normative_rules_do_not_depend_on_deleted_bridge_paths(
+        self,
+    ) -> None:
+        """Guard cpp-style.md's normative rules against depending on bridge/ (deleted in
+        3A.2) or the retired skse/architecture.md as current authority, against
+        prescribing a directory adapter/ does not have, and confirm the current
+        adapter/ examples and rules that replaced them are present.
+
+        Checks stale/forbidden literals, required current paths and type names, and
+        short identifying phrases -- not full prose sentences or line-wrap positions.
+        """
+        cpp_style = self._read("ai/context/skse/cpp-style.md")
+
+        for stale_literal in (
+            "bridge/",
+            "Bridge",
+            "IBridgeCallbackRegistry",
+            "BridgeCallbackRegistry",
+            "IPairingNotificationSink",
+            "CommonLibPairingNotificationSink",
+            "TokenStore::Reservation",
+            "SessionManager::Lease",
+            "ConnectionSlot::Lease",
+            "WebSocketSession",
+            "transport/websocket_session.hpp",
+            "adapter/shared/enums.hpp",
+            "adapter/shared",
+            "ai/context/skse/architecture.md",
+            "only when they add contract information beyond the signature",
+        ):
+            self.assertNotIn(stale_literal, cpp_style)
+
+        for required_module in (
+            "capture/",
+            "dispatch/",
+            "identity/",
+            "ipc/",
+            "papyrus/",
+            "plugin/",
+            "process/",
+            "runtime/",
+        ):
+            self.assertIn(required_module, cpp_style)
+        self.assertIn("commonlib_", cpp_style)
+        self.assertIn("IAdapterPairingNotificationSink", cpp_style)
+        self.assertIn("CommonLibAdapterPairingNotificationSink", cpp_style)
+        self.assertIn("IAdapterTaskMarshaller", cpp_style)
+        self.assertIn("CommonLibAdapterTaskMarshaller", cpp_style)
+        self.assertIn("runtime/adapter_task_marshaller.hpp", cpp_style)
+        self.assertIn(
+            "Every enum in `adapter/` is a single project-wide exception", cpp_style
+        )
+        self.assertIn("Every `adapter/` enum belongs in one project-wide", cpp_style)
+        self.assertIn("adapter/enums.hpp", cpp_style)
+        self.assertIn("adapter/constants.hpp", cpp_style)
+        self.assertIn(
+            "one physical file\n  does not require flattening domain namespaces",
+            cpp_style,
+        )
+        # ipc/ipc_enums.hpp and the per-module constants.hpp layout are cited as today's
+        # not-yet-relocated location, not the intended long-term destination -- guard that
+        # framing stays honest rather than silently re-declaring either as canonical.
+        self.assertIn("ipc/ipc_enums.hpp", cpp_style)
+        self.assertIn("pending a physical normalization", cpp_style)
+        self.assertIn("pending the same physical\n  normalization", cpp_style)
+        self.assertIn("Never reorder existing data members", cpp_style)
+        self.assertIn("## Member ordering", cpp_style)
+        self.assertIn("Data members are the one deliberate exception", cpp_style)
+        self.assertNotIn("bridge-wide", cpp_style)
+        self.assertNotIn("not consolidated adapter-wide like enums are", cpp_style)
+        self.assertIn("Document each parameter with `@param`", cpp_style)
+        self.assertIn("with `@return`, normally in one or two lines", cpp_style)
+
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
         """Require every workflow action reference to be SHA-pinned with its version documented.
 
@@ -802,6 +944,54 @@ class RepositoryConsistencyTests(unittest.TestCase):
             len(entry_versions),
             "CHANGELOG.md has duplicate versions.",
         )
+
+    def test_changelog_unreleased_section_is_first_and_backfilled(self) -> None:
+        """Keep `[Unreleased]` the first changelog section, release-ownership prose free
+        of the feature-PR/release-PR contradiction, and the backfill's key outcomes
+        present -- via structural/short-identity checks, not pinned full sentences."""
+        changelog = self._read("CHANGELOG.md")
+
+        section_headings = re.findall(r"(?m)^## (.+)$", changelog)
+        self.assertTrue(section_headings, "CHANGELOG.md has no ## sections.")
+        self.assertEqual(
+            section_headings[0],
+            "[Unreleased]",
+            "[Unreleased] must be the first section in CHANGELOG.md.",
+        )
+
+        self.assertNotIn("versioned ZIP", changelog)
+        self.assertIn("versioned package", changelog)
+
+        # Regression guard for the release-ownership contradiction found in review: the
+        # release PR must not be described as also flipping the ROADMAP phase to
+        # Complete -- that stays the feature PR's job, per common.md's Versioning.
+        self.assertNotIn(
+            "flips the corresponding `ROADMAP.md` phase to Complete", changelog
+        )
+        self.assertIn("stays part of that same feature pull request", changelog)
+
+        for backfilled_outcome in (
+            "Standalone C# Host process and thin native Adapter",
+            "Host-owned public client boundary",
+            "Private, bounded IPC channel between the Adapter and Host",
+            "Host-owned state subscriptions with baseline snapshots",
+            "Reserved control and data outbound lanes",
+            "Trust-admin list-scope vocabulary is now known/trusted/blocked",
+            "packages the Host/Adapter distribution instead of the retired",
+            "stamps outgoing envelopes with the resolved `clientId`",
+            "stale connection status after its session is invalidated",
+            "The native Bridge (`bridge/`) and its CI/tooling wiring",
+        ):
+            self.assertIn(backfilled_outcome, changelog)
+
+        # Regression guard: the pre-3A.3 versioned entries (0.1.0-0.3.0) describe the Bridge
+        # accurately for the architecture that existed at each of those releases and must not be
+        # rewritten -- only the header/workflow prose and [Unreleased] describe current
+        # terminology. This guards that those historical entries were left untouched.
+        self.assertIn(
+            "cached character state from a previous bridge lifetime", changelog
+        )
+        self.assertIn("survives Skyrim/Bridge/Windows restarts", changelog)
 
     def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
         """Guard the datasource file-count exception and one shared term for the compatibility

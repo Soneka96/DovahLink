@@ -1,8 +1,8 @@
 # Common conventions
 
 These conventions define versioning, repository ownership, and quality rules shared by the Flutter
-client, SKSE bridge, protocol, and integration work. AI authority belongs to `AGENTS.md`; branch and
-pull request workflow belongs to `CONTRIBUTING.md`.
+client, native Adapter, C# Host, protocol, and integration work. AI authority belongs to
+`AGENTS.md`; branch and pull request workflow belongs to `CONTRIBUTING.md`.
 
 ## Versioning
 
@@ -13,29 +13,34 @@ pull request workflow belongs to `CONTRIBUTING.md`.
   tied directly to what that PR did. Fix any repository-consistency check
   (`tooling/test_repository_consistency.py`) that a hardcoded expectation now needs updating for as
   part of that same PR.
-- The version bump, its `CHANGELOG.md` entry, and syncing every hand-maintained version literal
-  (`VERSION`, the literals and fixtures `tooling/test_repository_consistency.py`'s
-  `test_version_literals_match_the_published_release` enumerates, and that same file's
-  `CHANGELOG.md`-version bookkeeping) are their own dedicated release branch and release-only pull
-  request, never bundled into a feature/phase branch: that sync already touches over a dozen files
-  across every language in the repo on its own, and folding it into an already-large feature PR
-  makes that PR harder to review for no benefit. Cut the release branch from `main` once the
-  phase(s) it covers are merged; it can cover one phase's completion or several unreleased ones at
-  once.
+- Any pull request with a notable developer- or user-visible change updates `CHANGELOG.md`'s
+  `[Unreleased]` section as part of that same PR -- see that file's own header for the section's
+  exact shape and its bullet-writing rules. This is ongoing, continuous bookkeeping done by feature
+  work itself, not deferred to release time.
+- The version bump and syncing every hand-maintained version literal (`VERSION`, the literals and
+  fixtures `tooling/test_repository_consistency.py`'s `test_version_literals_match_the_published_release`
+  enumerates, and that same file's `CHANGELOG.md`-version bookkeeping) are their own dedicated
+  release branch and release-only pull request, never bundled into a feature/phase branch: that sync
+  already touches over a dozen files across every language in the repo on its own, and folding it
+  into an already-large feature PR makes that PR harder to review for no benefit. Cut the release
+  branch from `main` once the phase(s) it covers are merged; it can cover one phase's completion or
+  several unreleased ones at once. This release PR promotes `CHANGELOG.md`'s accumulated
+  `[Unreleased]` entries into a new dated `## [x.y.z] - YYYY-MM-DD` section and leaves a fresh empty
+  `[Unreleased]` section at the top -- it does not author new entries from scratch, since the feature
+  PRs before it already did.
 - Cutting a release is a distinct, later, manual step performed after a version-bumped release
-  branch has merged into `main`: building the versioned Bridge ZIP with `tooling/DovahLinkBuilder` and
-  uploading it to Nexus Mods (see that tool's own README). `CHANGELOG.md` entries are written at
-  release-branch merge time as described above, independent of when the corresponding release is
-  actually cut. A merged, version-bumped change can sit unreleased for an arbitrary time -- for
-  example while `main` is blocked from publishing at all, per "Pre-release compatibility" below --
-  without that blocking further phase or version-bump merges.
+  branch has merged into `main`: building the versioned package with `tooling/DovahLinkBuilder` and
+  uploading it to Nexus Mods (see that tool's own README). A merged, version-bumped change can sit
+  unreleased for an arbitrary time -- for example while `main` is blocked from publishing at all, per
+  "Pre-release compatibility" below -- without that blocking further phase or version-bump merges.
 - Do not add any other changelog, release artifact, or release automation beyond this without a
   maintainer decision.
 
 ## Repository boundaries
 
 - `app/` is reserved for the Flutter client.
-- `bridge/` is reserved for the native SKSE bridge.
+- `adapter/` is reserved for the native SKSE Adapter plugin.
+- `host/` is reserved for the C# Host process.
 - `protocol/` is the sole home for canonical cross-side schemas and shared protocol fixtures.
 - `sdk/` is reserved for reusable, supported client SDK implementations; see `sdk/README.md`.
 - `integration/` is reserved for tests and scenarios that exercise boundaries between areas.
@@ -125,7 +130,7 @@ action value types, because those values jointly define the feature's dispatch v
 file name and grouping convention is area-specific; see:
 
 - Dart (Flutter client and SDK): `ai/context/dart/dart-style.md`
-- C++ (Skyrim bridge): `ai/context/skse/cpp-style.md`
+- C++ (native Adapter): `ai/context/skse/cpp-style.md`
 - C# (Host, validation client, and tooling): `ai/context/dotnet/csharp-style.md`
 - Python (repository tooling): `ai/context/python/python-style.md`
 
@@ -144,21 +149,33 @@ to this rule: it declares no types of its own, it only re-exports a curated publ
 already lives in its own properly organized file elsewhere, per each area's own public-API
 conventions (for the SDK, `ai/context/sdk/api-design.md`'s "curated public exports").
 
-## Addition convention
+## Member and collection ordering
 
-When extending an ordered collection or section -- enums, class members, changelog entries,
-configuration lists, and similar -- add new items to the **end** of their respective section, not
-the beginning. This preserves line-number stability for existing entries and prevents constant
-drift when reviewing or auditing changes. Applied uniformly:
+A collection's own semantics decide how it is ordered. There is no single universal rule requiring
+every ordered collection to grow by appending to its end -- that would force a reverse-chronological
+collection like the changelog into a stable-but-backwards order it was never meant to have. Apply
+each collection's own natural order instead:
 
-- Changelog entries: new version sections added after the latest existing release
-- Enums: new members added at the end, before the closing brace
-- Class/struct members: new fields and methods added at the end
-- Configuration sections: new entries added after existing entries in that section
-- Any ordered list: new items at the end, not beginning
+- Changelog entries: reverse-chronological. The newest versioned release stays the first `##
+  [x.y.z]` section, with an `[Unreleased]` section above every versioned release (see
+  `CHANGELOG.md`'s own header for that workflow). A new release is added above the previous one,
+  never appended after it.
+- Class/struct members: semantic ordering by role, not insertion order -- see
+  `ai/context/dotnet/csharp-style.md` and `ai/context/skse/cpp-style.md` for the exact per-language
+  grouping. A newly added member goes where its role belongs, not automatically at the end of the
+  file merely for line-number stability. C++ data members are the one exception: never reorder them
+  without first satisfying `ai/context/skse/cpp-style.md`'s ownership-and-lifetime warning, since
+  declaration order can affect construction, destruction, aggregate/designated initialization, and
+  layout/ABI assumptions.
+- Enums whose values are part of a wire contract or another externally observed sequence: append new
+  members at the end, before the closing brace, so no existing member's numeric value shifts.
+- Configuration sections and other ordered lists with no external ordering contract of their own:
+  append new entries after the existing ones, since there is no other meaningful order to prefer.
 
-This rule prioritizes stability over reverse-chronological display: existing entries remain at
-stable line numbers across the file's history.
+Append-only ordering survives only where a collection's own semantics require it -- a stable
+external contract (wire-format enum values) or the genuine absence of any other meaningful order
+(plain configuration lists). Treat it as the exception those two cases justify, not as the default
+every ordered collection in the repository inherits.
 
 ## Documentation
 
@@ -169,6 +186,10 @@ style guide.
 - Document every handwritten named type, enum and enum member, constructor, property, field,
   method, and function, including private methods and test helpers. A single sentence is enough
   when the contract is simple.
+- Document every parameter, every non-void return value, and every exception that is part of a
+  callable's contract, normally in one line each. Do not omit one of these merely because the
+  parameter name or return type already reads clearly -- the point is to keep the complete contract
+  visible at the declaration and on hover, not to repeat the signature in prose.
 - Place documentation directly on the declaration it describes. Language-required attributes,
   metadata, and decorators may appear between documentation and the declaration. Python docstrings
   are the syntax-required exception: they are the first statement inside the documented module,
@@ -206,6 +227,35 @@ style guide.
   invariant, behavior, or constraint itself in plain language instead. Documentation may link to
   another document for navigation, but durable implementation rules belong in the relevant context
   file and code comments must remain valid if planning documents are renamed or removed.
+- High documentation coverage and low documentation verbosity are both required -- neither excuses
+  the other. Use the smallest amount of text that clearly explains a declaration's current purpose
+  and contract. As a normal guideline, not a hard limit: a field, property, or enum member usually
+  takes one line; a simple parameter usually takes one line, rarely more than two or three; a return
+  value or exception usually takes one or two lines; a constructor summary usually takes one to three
+  lines; a method summary is usually a few lines; a class or interface summary is normally a small,
+  concise block. Longer documentation is justified only by a real security, concurrency, ownership,
+  protocol, lifecycle, or failure contract -- documentation approaching 20-40 lines for an ordinary
+  method or parameter is a signal that the extra information belongs somewhere else, not a target to
+  reach for thoroughness.
+- Documentation describes the declaration's current purpose and contract: inputs, result semantics,
+  preconditions, failure conditions, ownership, lifetime, concurrency guarantees, security
+  requirements, and externally observable side effects. It does not normally include the history of
+  a previous implementation, PR or reviewer discussion, migration genealogy, roadmap-stage
+  narration, speculative future plans, or a step-by-step account of every internal algorithm step.
+  History belongs here only when it remains part of the current compatibility or safety contract,
+  not merely because the current implementation originated from an earlier one.
+- Keep method bodies as code. A short `//`/`///`-adjacent implementation comment explaining a
+  non-obvious lock/synchronization order, ownership or lifetime requirement, security-sensitive
+  ordering, platform quirk, or other genuine why is normally one to three lines; do not place a long
+  documentation block or algorithm narration inside a method body.
+- Route information to its owning home instead of mixing it into whichever declaration is nearby:
+  a declaration's current contract belongs in its own XML/Doxygen documentation; a short local
+  implementation reason belongs in an inline comment; cross-component or state-machine design
+  belongs in the relevant architecture/design document; future work belongs in the roadmap, a
+  GitHub issue, or a narrow `TODO`, never a repository-wide `TODO.md`; an unreleased behavior change
+  belongs in `CHANGELOG.md`'s `[Unreleased]` section; a released change belongs in that file's
+  versioned section once promoted; and implementation history belongs in Git/PR history, not
+  permanently transcribed into source comments.
 
 ## Quality floor
 
@@ -252,7 +302,7 @@ Skyrim component required the DovahLink Companion App, which had no public way t
   data format, or behavior solely because an older unreleased implementation used it, and do not add
   a compatibility shim, deprecated alias, migration, fallback protocol, or convenience default
   merely to keep an unreleased version working. Prefer the cleanest current architecture, and update
-  Bridge, SDK, app, tests, and docs together when a contract changes.
+  Adapter, Host, SDK, app, tests, and docs together when a contract changes.
 - "Previous DovahLink versions need to keep working" is not a valid justification on its own unless
   a genuine supported public release already exists.
 - Once the first supported public release ships, this section's rule no longer applies as written;

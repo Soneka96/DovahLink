@@ -1,11 +1,12 @@
 # SKSE C++ style
 
-These conventions govern native SKSE/C++ work in this repository, including `adapter/`. Several
-rules below use the retired native Bridge's actual module layout (`bridge/`, deleted in 3A.2) as
-the worked example that established them; `adapter/`'s own module layout (`capture/`, `dispatch/`,
-`identity/`, `ipc/`, `papyrus/`, `plugin/`, `process/`, `runtime/`) is genuinely different, so apply
-the same enum-consolidation and CommonLib-dependency-wall reasoning within `adapter/`'s actual
-directories rather than assuming a name-for-name correspondence with the Bridge's example below.
+These conventions govern native SKSE/C++ work in this repository, currently `adapter/`, whose
+module layout is `capture/`, `dispatch/`, `identity/`, `ipc/`, `papyrus/`, `plugin/`, `process/`,
+and `runtime/`. `adapter/` is one CMake target and the only component permitted to depend directly
+on CommonLib or Skyrim runtime types, per `ai/context/adapter/architecture.md`'s "Technology
+boundary". A source file's `commonlib_` filename prefix marks it as one of those CommonLib-touching
+files, distinguishing it from its CommonLib-free counterpart within the same module where one
+exists.
 
 ## Ownership and lifetime
 
@@ -14,6 +15,10 @@ directories rather than assuming a name-for-name correspondence with the Bridge'
 - Do not retain borrowed Skyrim objects beyond the lifetime guaranteed by the runtime API.
 - Keep long-lived workers and connections owned by one clear application component.
 - Make shutdown idempotent.
+- Never reorder existing data members without first confirming the change preserves construction
+  order, destruction order, aggregate/designated initialization, and layout/ABI assumptions --
+  declaration order for data members is part of a type's actual behavior, not merely its
+  readability. When in doubt, leave existing data-member declaration order exactly as-is.
 - Transport completion callbacks must use an in-flight counter or a lifetime token owned independently of the coordinator so no callback can access destroyed coordinator or transport state. The token remains valid until every callback has returned.
 - Catch all exceptions at callback, worker-thread, and transport-completion boundaries. Convert them into controlled component failure and diagnostics; never allow an exception to escape a callback or thread entry point.
 
@@ -24,9 +29,10 @@ directories rather than assuming a name-for-name correspondence with the Bridge'
   interface rather than the concrete type.
 - A C++ behavior-bearing implementation implements exactly one DovahLink-owned interface, named
   `I<ClassName>`, and that interface is declared in the same owning header as the concrete class,
-  except for the narrowly defined CommonLib target dependency-wall case documented below for
-  `IBridgeCallbackRegistry` and `BridgeCallbackRegistry`. DovahLink-owned interfaces never inherit
-  from one another. A required CommonLib/Skyrim framework base is the only inheritance exception.
+  except for the narrowly defined CommonLib dependency-wall case documented below for
+  `IAdapterPairingNotificationSink` and `CommonLibAdapterPairingNotificationSink`. DovahLink-owned
+  interfaces never inherit from one another. A required CommonLib/Skyrim framework base is the only
+  inheritance exception.
 - Every collaborator is supplied through the constructor. Do not construct or resolve a
   behavior-bearing collaborator inside another class.
 - DTOs, protocol/value types, enums, pure functions, and other data-only types are not wrapped in
@@ -41,8 +47,8 @@ directories rather than assuming a name-for-name correspondence with the Bridge'
   it is an extracted fragment of its caller's own body rather than an independent production entry
   point; and a framework-mandated plain-function signature (for example an SKSE Papyrus-bound
   native function, which SKSE requires as a captureless function pointer), the same category of
-  hard external constraint as `IBridgeCallbackRegistry`'s dependency-wall exception below. This
-  rule is adopted phase-forward and does not reopen completed phases.
+  hard external constraint as `IAdapterPairingNotificationSink`'s dependency-wall exception below.
+  This rule is adopted phase-forward and does not reopen completed phases.
 
 ## Files and types
 
@@ -51,90 +57,82 @@ directories rather than assuming a name-for-name correspondence with the Bridge'
   values remain in their own files.
 - Per `ai/context/common.md`'s file-organization rule, a small result/outcome value type is not
   automatically "inseparable" merely because it is currently returned by only one method: it still
-  gets its own file, unnested, at namespace scope -- the same treatment an enum gets before it is
-  consolidated into `bridge/shared/enums.hpp`. "Inseparable" means genuine structural coupling a
+  gets its own file, unnested, at namespace scope. "Inseparable" means genuine structural coupling a
   file boundary cannot express, such as a `friend`-only RAII helper that manipulates its owner's
-  private state. `TokenStore::Reservation`, `SessionManager::Lease`, and `ConnectionSlot::Lease`
-  were three prior examples that turned out not to qualify, and each has since been replaced by a
-  publicly-constructible type instead (the shared `ScopedRelease` RAII utility for the latter two;
-  a standalone, non-nested `TokenReservation` for the former, since its
-  hold-a-lock-then-explicit-`Commit` shape differs from `ScopedRelease`'s auto-release-on-drop
-  shape) precisely so an interface's test double can construct one without `friend` access -- a
-  `friend`-only nested type cannot satisfy `common.md`'s "Behavioral boundaries and test isolation"
-  rule, since a mock implementing the owning interface has no way to construct one. A plain
-  data-only result struct such as `PairingSession`'s `StartChallengeResult` has no such coupling
-  and does not qualify. `WebSocketSession::Socket` (`transport/websocket_session.hpp`) is this
-  codebase's one current instance of a type that does qualify: every method beyond the two exposed
-  through its own `ISocket` interface is private and reached only through `friend class
-  WebSocketSession`, which manipulates `Socket`'s `stream_`/`ioContext_` directly across nearly
-  every `WebSocketSession` method (`Accept`, `ReadMessage`, `WriteMessage`, `Close`,
-  `SetTimeoutPolicy`, and others) as an extension of its own state, not merely as a client calling
-  a self-contained API -- the same bar the three replaced examples failed to meet. `ISocket` itself
-  still exists and is not exempt: `Socket`'s two behavior-bearing operations that an external
-  collaborator (`application::IActiveSessionSocket`/`IActiveSessionController`) actually consumes
-  are on that narrow interface, constructed only via `WebSocketSession::CreateSocket`; the carve-out
-  covers only the file-placement question for `Socket`'s remaining, `WebSocketSession`-only surface.
-- Absolute rule: every header or source file in `bridge/game_state/` that directly includes an
-  `RE/...` or `SKSE/...` runtime header must include those runtime headers before any
-  DovahLink-owned application, game-state, transport, or protocol header and before any third-party
-  header. The pinned CommonLibSSE-NG `SKSE/Impl/WinAPI.h` redeclares Windows names and is not safe
-  after Boost or Windows SDK headers have imported their macros. Keep runtime-free interfaces in
-  separate headers so this order does not leak CommonLib into neutral application code. Structural
-  include-order tests must cover every runtime adapter whose header or source can import those
-  dependencies.
-- Every enum in `bridge/` is a single Bridge-wide exception to the file-organization rule, per
-  `ai/context/common.md`'s "not a repository-wide dumping ground" -- `bridge/` is one compilation
-  unit/project (one CMake target), not several, so the module subdirectories
-  (`bridge/application/`, `bridge/game_state/`, `bridge/protocol/`, `bridge/security/`,
-  `bridge/transport/`, `bridge/plugin/`) are not separate packages the way, for example, the
-  Flutter app and the SDK are for `ai/context/dart/dart-style.md`'s per-package `enums.dart` rule;
-  this mirrors that same rule at the correct granularity for this language. Every enum belongs in
-  `bridge/shared/enums.hpp`, grouped into sections by conceptual owner (`Application`, `Security`,
-  `Transport`, `Protocol`, and so on as new areas are added), each preceded by a
-  `// ---- <Area> ----` comment banner; a section may nest finer sub-banners of its own where that
-  adds real information (for example Security's `Developer token`/`Pairing`/`Known device`/`Factory
-  reset` groupings). A nested enum that exists purely as a scoped selector for its own owning
-  type's public API (for example `LoopbackListener::IpVersion`) is not required to move: it is not
-  a top-level Bridge enum declaration, the same way a nested carve-out type is not subject to the
-  one-type-per-file default above. A test-file-local enum used only for that test file's own
-  internal parametrization (for example `coordinator_failure_test.cpp`'s `ShutdownFailureStage`)
-  is out of scope for the same reason: it is test scaffolding, not a production Bridge
-  declaration. Centralizing every enum's *declaration* in one file does not loosen
-  `ai/context/skse/architecture.md`'s dependency-edge rules: a module may still only use enum
-  concepts from domains it is already allowed to depend on (for example `bridge/transport/` must
-  not start depending on a `bridge/security/`-owned enum merely because it is easier to reach from
-  one shared header). This is enforced by reviewing usage sites, not by file structure -- C++ has
-  no per-symbol include restriction. `bridge/shared/` holds `enums.hpp` and `scoped_release.hpp`/
-  `.cpp` (the `ScopedRelease` RAII utility, genuinely used across `application/`, `security/`, and
-  `transport/` and owned by none of them); it is not a general-purpose utilities location, and
-  adding anything else there needs its own maintainer decision.
-- Every small cross-cutting constant value (timeouts, limits, and similar) belongs in that module's
-  own `constants.hpp`, per module directory as listed above -- never shared across module
-  directories, and not consolidated bridge-wide like enums are. Group entries within it by the
-  area they belong to, each preceded by a `// ---- <Area> ----` comment banner.
+  private state through members no public interface exposes -- a `friend`-only nested type cannot
+  satisfy `common.md`'s "Behavioral boundaries and test isolation" rule, since a mock implementing
+  the owning interface would have no way to construct one. `adapter/` currently has no instance of
+  this carve-out; do not manufacture one merely because a type is small or currently used in one
+  place -- a plain data-only result type still gets its own file even when only one caller currently
+  constructs it.
+- Absolute rule: every `commonlib_`-prefixed header or source file in `adapter/` that directly
+  includes an `RE/...` or `SKSE/...` runtime header must include those runtime headers before any
+  DovahLink-owned application or protocol header and before any third-party header. The pinned
+  CommonLibSSE-NG `SKSE/Impl/WinAPI.h` redeclares Windows names and is not safe after Boost or
+  Windows SDK headers have imported their macros. Keep the CommonLib-free interface in its own,
+  non-`commonlib_`-prefixed header so this order does not leak CommonLib into neutral application
+  code. Structural include-order tests must cover every `commonlib_`-prefixed file that can import
+  those dependencies.
+- Every enum in `adapter/` is a single project-wide exception to the file-organization rule, per
+  `ai/context/common.md`'s "not a repository-wide dumping ground" -- `adapter/` is one compilation
+  unit/project (one CMake target), not several, so its module subdirectories (`capture/`,
+  `dispatch/`, `identity/`, `ipc/`, `papyrus/`, `plugin/`, `process/`, `runtime/`) are not separate
+  packages the way, for example, the Flutter app and the SDK are for
+  `ai/context/dart/dart-style.md`'s per-package `enums.dart` rule, or the way each C# project gets
+  its own `Enums.cs` per `ai/context/dotnet/csharp-style.md`; this mirrors that same rule at the
+  correct granularity for this language. Every `adapter/` enum belongs in one project-wide
+  `adapter/enums.hpp`, with each domain's enums kept in that domain's own nested namespace (for
+  example `dovahlink::adapter::ipc`, `dovahlink::adapter::capture`) and grouped into sections by
+  conceptual owner, each preceded by a `// ---- <Area> ----` comment banner -- one physical file
+  does not require flattening domain namespaces into it. `adapter/`'s enums currently live in
+  `ipc/ipc_enums.hpp` pending a physical normalization to `adapter/enums.hpp`; treat that as today's
+  location, not the intended one, and do not add a second, competing enum file to any other module
+  in the meantime. A nested enum that exists purely as a scoped selector for its own owning type's
+  public API is not required to move: it is not a top-level `adapter/` enum declaration, the same
+  way a nested carve-out type is not subject to the one-type-per-file default above. A test-file-local
+  enum used only for that test file's own internal parametrization is out of scope for the same
+  reason: it is test scaffolding, not a production `adapter/` declaration. Centralizing every enum's
+  *declaration* in one file does not loosen module dependency discipline: a module may still only
+  use enum concepts from domains it is already allowed to depend on, per whatever ownership
+  boundaries currently apply to that module. This is enforced by reviewing usage sites, not by file
+  structure -- C++ has no per-symbol include restriction.
+- Every small cross-cutting constant value (timeouts, limits, and similar) belongs in one
+  project-wide `adapter/constants.hpp`, mirroring the enum rule above: each domain's constants kept
+  in that domain's own nested namespace, grouped into sections by the area they belong to, each
+  preceded by a `// ---- <Area> ----` comment banner. `adapter/`'s constants currently live in each
+  module's own `constants.hpp`, per module directory as listed above, pending the same physical
+  normalization as the enum file; treat that per-module layout as today's location, not the intended
+  one.
 - Keep game-runtime types out of neutral application and protocol headers.
 - Use explicit names for runtime adapters, application values, wire messages, and transport errors.
 - Keep protocol serialization in dedicated mapping code rather than spreading it through game adapters.
 - A DovahLink port and its one concrete implementation may split into two independent files --
-  interface alone in one, implementation alone in the other -- only when a real CMake-target
+  interface alone in one, implementation alone in the other -- only when a real CommonLib
   dependency wall makes the normal paired-file rule impossible to satisfy, never as a default
-  alternative to it. The condition: the implementation depends on a CommonLib-touching type paired
-  with its own CommonLib-dependent sibling in one file (so it can only be compiled into a target
-  linked against `CommonLibSSE::CommonLibSSE`), while the port's consumer lives in the
-  Skyrim-independent core (so the port itself must stay includable without `RE/Skyrim.h`).
-  `IBridgeCallbackRegistry` (`application/i_bridge_callback_registry.hpp`, CommonLib-free) and
-  `BridgeCallbackRegistry` (`application/bridge_callback_registry.hpp`/`.cpp`, compiled into
-  `dovahlink_bridge_game_state`) confirmed this split necessary empirically, not merely convenient:
-  compiling `BridgeCallbackRegistry` into the Skyrim-independent core produced over 100 cascading
-  errors from `RE/Skyrim.h` requiring `CommonLibSSE::CommonLibSSE`'s own compile setup.
-  `IPairingNotificationSink` (`application/pairing_notification_sink.hpp`, CommonLib-free) and
-  `CommonLibPairingNotificationSink` (`game_state/commonlib_pairing_notification_sink.hpp`/`.cpp`,
-  compiled into `dovahlink_bridge_game_state` because its implementation calls
-  `RE::DebugNotification`) are the same shape for the same underlying reason and are this
-  codebase's second instance. Do not reach for this split to avoid writing a file-placement
-  justification, to keep a file shorter, or for any port whose implementation could simply live
-  beside it in one file; a false positive here quietly refragments the paired-file rule this
-  exception exists to preserve everywhere else.
+  alternative to it. The condition: the implementation directly touches CommonLib/Skyrim runtime
+  types (so it can only be compiled with `RE/Skyrim.h` in scope), while the port's consumer needs to
+  stay includable without pulling CommonLib into neutral application code.
+  `IAdapterPairingNotificationSink` (`ipc/adapter_pairing_notification_sink.hpp`, CommonLib-free)
+  and `CommonLibAdapterPairingNotificationSink`
+  (`ipc/commonlib_adapter_pairing_notification_sink.hpp`/`.cpp`, whose implementation calls
+  `RE::DebugNotification`) are one current instance of this split. `IAdapterTaskMarshaller`
+  (`runtime/adapter_task_marshaller.hpp`, CommonLib-free) and `CommonLibAdapterTaskMarshaller`
+  (`runtime/commonlib_adapter_task_marshaller.hpp`/`.cpp`, compiled against SKSE's own task-interface
+  mechanism) are the same shape for the same underlying reason and are this codebase's second
+  instance -- confirming the split is a real, recurring necessity rather than a one-off. Do not
+  reach for this split to avoid writing a file-placement justification, to keep a file shorter, or
+  for any port whose implementation could simply live beside it in one file; a false positive here
+  quietly refragments the paired-file rule this exception exists to preserve everywhere else.
+
+## Member ordering
+
+Order a class's methods semantically, by role, mirroring `ai/context/dotnet/csharp-style.md`'s
+member-ordering rule: constants/static state, injected dependencies, mutable instance state,
+constructors and destructor, interface-implementation and override methods (kept together as one
+group), other public/internal methods, private helper methods, nested types. A newly added method
+goes where its role places it in this order, not automatically appended after the last existing
+member of its kind. Data members are the one deliberate exception -- see "Ownership and lifetime"
+above before reordering them.
 
 ## Parameter grouping and context objects
 
@@ -147,7 +145,7 @@ directories rather than assuming a name-for-name correspondence with the Bridge'
   standard-library or third-party types. For every field, identify the specific role it has in the same
   operation contract or invariant; a vague association, shared provenance, or future convenience is not
   sufficient. Do not add fields for future extensibility, convenience access, or test setup.
-- The bridge targets C++23. Public aggregate requests may use the C++20 designated-initialization
+- `adapter/` targets C++23. Public aggregate requests may use the C++20 designated-initialization
   feature for readability. Designators name only direct non-static data members and, when used, must
   follow declaration order; later members may be omitted. Omitted members use their default member
   initializer, if present, otherwise empty list-initialization, which may value-initialize, invoke a
@@ -200,8 +198,11 @@ Follow the shared documentation rules in `ai/context/common.md`.
   same documentation on an out-of-line definition in a `.cpp` file.
 - Document a private or file-local function directly above its definition when it has no separate
   declaration.
-- Use `@param`, `@return`, and `@throws` only when they add contract information beyond the signature
-  and summary. Use `@ref` for links to C++ symbols.
+- Document each parameter with `@param`, normally in one line; document a non-`void` return value
+  with `@return`, normally in one or two lines; document an exception that is part of the
+  function's contract with `@throws`. Do not omit one of these merely because the parameter name or
+  return type already reads clearly on its own -- their job is to keep the complete contract
+  visible at the declaration. Use `@ref` for links to C++ symbols.
 - When an override keeps the inherited contract unchanged, use
   `/// @copydoc BaseType::Method` with the actual source symbol rather than copying documentation.
   Add separate text only for changed preconditions, side effects, or guarantees.
