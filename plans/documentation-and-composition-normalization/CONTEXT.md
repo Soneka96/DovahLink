@@ -10,10 +10,11 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `01.2a-active-documentation-and-instruction-terminology.md`
-- Status: planned -- not yet started.
+- Status: implementation complete on PR #62 (branch
+  `docs/01.2a-active-documentation-and-instruction-terminology`) -- awaiting maintainer
+  review, green CI, and merge.
 - Prerequisites: Concept 01.1 merged (`main` @ `77f31fa0`, PR #61) -- satisfied.
-- Next action: begin Concept 01.2a's own implementation (re-run its Bridge-terminology
-  inventory against current `main` first, per its safety checklist). Per D4, Concept 02
+- Next action: resolve PR #62's review and CI findings and merge it. Per D4, Concept 02
   still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain,
   same as Concept 03 -- do not unblock 02 or 03 until 01.3c actually merges.
 
@@ -234,10 +235,8 @@ design, not debt.)
 
 ## Handoff
 
-Next concept: `01.2a-active-documentation-and-instruction-terminology.md` -- planned,
-not yet started. Concept 01.1 merged to `main` via PR #61 (merge commit `77f31fa0`,
-2026-09-13); `PLAN.md`'s status table and this file's Active/Completed sections are
-updated accordingly. Blocked by: nothing -- 01.2a's prerequisite (01.1 merged) is
-satisfied. Before implementing, 01.2a must re-run its own Bridge-terminology inventory
-against current `main` rather than relying on the pre-D4 planning-baseline counts
-recorded above, per D4's own safety checklist.
+Next concept: `01.2a-active-documentation-and-instruction-terminology.md` --
+implementation complete on PR #62 (branch
+`docs/01.2a-active-documentation-and-instruction-terminology`). Blocked by: PR #62's
+review, CI, and merge. After merge: mark 01.2a Complete in `PLAN.md` and unblock
+Concept 01.2b.

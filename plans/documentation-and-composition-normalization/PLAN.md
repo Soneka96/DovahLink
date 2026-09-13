@@ -256,7 +256,7 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | --- | --- | --- |
 | 01 -- Conventions and changelog | Complete | #60 |
 | 01.1 -- Adapter enum/constants physical normalization | Complete | #61 |
-| 01.2a -- Active docs/instructions terminology | Planned | -- |
+| 01.2a -- Active docs/instructions terminology | In progress | #62 |
 | 01.2b -- Internal code/test/tooling terminology | Blocked by 01.2a | -- |
 | 01.3a -- Public vocabulary + identity/version design | Blocked by 01.2b | -- |
 | 01.3b -- Compatibility/version vocabulary cutover | Blocked by 01.3a | -- |
