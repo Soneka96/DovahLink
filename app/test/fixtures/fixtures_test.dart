@@ -14,7 +14,7 @@ void main() {
 
       expect(host.displayName, isA<String>());
       expect(host.displayName, 'Local Host');
-      expect(host.uri, defaultBridgeUri);
+      expect(host.uri, defaultHostUri);
     });
 
     test('Method buildHostEntity preserves named overrides', () {

@@ -47,7 +47,7 @@ const PairingFailure _unexpectedPairingFailure = PairingFailure(
   'Pairing could not be completed. Please try again.',
 );
 
-/// Connects to the shared default Bridge endpoint ([defaultBridgeUri]) through an injected
+/// Connects to the shared default Host endpoint ([defaultHostUri]) through an injected
 /// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
 /// outside that documented set is also converted rather than left to escape this boundary, as
 /// [_unexpectedPairingFailure].
@@ -65,7 +65,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   @override
   Future<Either<Failure, PairingHandshakeEntity>> authenticate() async {
     try {
-      final HelloResult hello = await _client.authenticate(defaultBridgeUri);
+      final HelloResult hello = await _client.authenticate(defaultHostUri);
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {
         final DovahLinkTrustState recovered = await _client
@@ -114,9 +114,9 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     CredentialRejectionReason.revoked =>
       "This device's trust was revoked. Requesting a new pairing code.",
     CredentialRejectionReason.unrecognized =>
-      "This device isn't recognized by this bridge. Requesting a new pairing code.",
+      "This device isn't recognized by this host. Requesting a new pairing code.",
     CredentialRejectionReason.blocked =>
-      'This device is blocked by the bridge and cannot be paired again until an '
+      'This device is blocked by the host and cannot be paired again until an '
           'administrator unblocks it.',
     null => null,
   };

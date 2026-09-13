@@ -13,7 +13,7 @@ abstract final class Fixtures {
 
     /// The Host endpoint, or the representative local endpoint when omitted.
     Uri? uri,
-  }) => HostEntity(displayName: displayName, uri: uri ?? defaultBridgeUri);
+  }) => HostEntity(displayName: displayName, uri: uri ?? defaultHostUri);
 
   // ---- Pairing ----
 

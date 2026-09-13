@@ -13,7 +13,7 @@ void main() {
 
       expect(state, isA<AppState>());
       expect(state.connection, isA<ConnectionState>());
-      expect(state.connection.bridges, isNotEmpty);
+      expect(state.connection.hosts, isNotEmpty);
     });
 
     test('initial creates the pairing state', () {

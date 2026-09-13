@@ -13,7 +13,7 @@ class ConnectionState extends Equatable {
   /// Returns the state before a connection attempt starts, with the static default Host list
   /// until Host discovery exists.
   factory ConnectionState.initial() => ConnectionState(
-    hosts: [HostEntity(displayName: 'Local Host', uri: defaultBridgeUri)],
+    hosts: [HostEntity(displayName: 'Local Host', uri: defaultHostUri)],
   );
 
   /// The Hosts available to select.

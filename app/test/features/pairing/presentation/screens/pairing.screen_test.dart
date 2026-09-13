@@ -193,14 +193,14 @@ void main() {
     });
 
     testWidgets(
-      'PairingScreen shows a neutral waiting state with no error when the bridge is disconnected',
+      'PairingScreen shows a neutral waiting state with no error when the host is disconnected',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.disconnected);
-        when(() => mockViewModel.statusLabel).thenReturn('Waiting for bridge');
+        when(() => mockViewModel.statusLabel).thenReturn('Waiting for host');
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.text('Waiting for bridge'), findsOneWidget);
+        expect(find.text('Waiting for host'), findsOneWidget);
         expect(find.byType(PairingLoadingIndicator), findsOneWidget);
         expect(find.byKey(const Key('pairing-error')), findsNothing);
         expect(find.byType(PairingRetryButton), findsNothing);
@@ -235,13 +235,13 @@ void main() {
         when(() => mockViewModel.statusLabel).thenReturn('Failed');
         when(
           () => mockViewModel.error,
-        ).thenReturn('This device was disconnected by the bridge. Try again.');
+        ).thenReturn('This device was disconnected by the host. Try again.');
 
         await tester.pumpWidget(buildWidget());
 
         expect(find.byKey(const Key('pairing-error')), findsOneWidget);
         expect(
-          find.text('This device was disconnected by the bridge. Try again.'),
+          find.text('This device was disconnected by the host. Try again.'),
           findsOneWidget,
         );
         expect(find.byType(PairingRetryButton), findsOneWidget);
@@ -436,14 +436,14 @@ void main() {
       'PairingScreen exposes the disconnected status label as semantics',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.disconnected);
-        when(() => mockViewModel.statusLabel).thenReturn('Waiting for bridge');
+        when(() => mockViewModel.statusLabel).thenReturn('Waiting for host');
         final SemanticsHandle handle = tester.ensureSemantics();
         try {
           await tester.pumpWidget(buildWidget());
 
           expect(
             tester.getSemantics(find.byKey(const Key('pairing-status'))),
-            matchesSemantics(label: 'Waiting for bridge'),
+            matchesSemantics(label: 'Waiting for host'),
           );
         } finally {
           handle.dispose();
