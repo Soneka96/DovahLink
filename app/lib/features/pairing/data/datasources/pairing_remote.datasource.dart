@@ -13,7 +13,7 @@ abstract interface class IPairingRemoteDataSource {
   Future<Either<Failure, PairingHandshakeEntity>> authenticate();
 
   /// Starts, or queries the status of, a pairing challenge.
-  /// Returns the active code's remaining validity in seconds, or null when the bridge did not
+  /// Returns the active code's remaining validity in seconds, or null when the host did not
   /// report one.
   Future<Either<Failure, int?>> requestPairingCode();
 
@@ -33,7 +33,7 @@ abstract interface class IPairingRemoteDataSource {
   /// Cancels the owned active pairing challenge or pending credential.
   Future<Either<Failure, Unit>> cancelPairing();
 
-  /// Emits every change in the bridge connection's status while a session is active -- ordinary
+  /// Emits every change in the host connection's status while a session is active -- ordinary
   /// transport loss and recovery, and administrative invalidation, unified rather than split
   /// into a narrower administrative-only slice -- including one that arrives with nothing
   /// pending -- unlike every method above, this never completes and carries no request of its
@@ -47,7 +47,7 @@ const PairingFailure _unexpectedPairingFailure = PairingFailure(
   'Pairing could not be completed. Please try again.',
 );
 
-/// Connects to the shared default Bridge endpoint ([defaultBridgeUri]) through an injected
+/// Connects to the shared default Host endpoint ([defaultHostUri]) through an injected
 /// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
 /// outside that documented set is also converted rather than left to escape this boundary, as
 /// [_unexpectedPairingFailure].
@@ -65,7 +65,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   @override
   Future<Either<Failure, PairingHandshakeEntity>> authenticate() async {
     try {
-      final HelloResult hello = await _client.authenticate(defaultBridgeUri);
+      final HelloResult hello = await _client.authenticate(defaultHostUri);
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {
         final DovahLinkTrustState recovered = await _client
@@ -114,9 +114,9 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     CredentialRejectionReason.revoked =>
       "This device's trust was revoked. Requesting a new pairing code.",
     CredentialRejectionReason.unrecognized =>
-      "This device isn't recognized by this bridge. Requesting a new pairing code.",
+      "This device isn't recognized by this host. Requesting a new pairing code.",
     CredentialRejectionReason.blocked =>
-      'This device is blocked by the bridge and cannot be paired again until an '
+      'This device is blocked by the host and cannot be paired again until an '
           'administrator unblocks it.',
     null => null,
   };

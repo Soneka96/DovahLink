@@ -272,7 +272,7 @@ void main() {
       // PairingFailedAction, which is what makes all four administrative reasons present
       // identically -- there is no code path here that could distinguish them.
       const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
-        'This device was disconnected by the bridge. Try again.',
+        'This device was disconnected by the host. Try again.',
       );
 
       final PairingState result = pairingReducer(

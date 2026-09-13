@@ -438,7 +438,7 @@ void main() {
 
   group('Method onUnsolicitedError behaves correctly', () {
     test(
-      'Method onUnsolicitedError tears down without orphaning, carrying the bridge-reported '
+      'Method onUnsolicitedError tears down without orphaning, carrying the host-reported '
       'classification',
       () {
         service.onUnsolicitedError(
@@ -580,7 +580,7 @@ void main() {
         isAdministrativelyInvalidatedValue = true;
 
         service.onUnhealthy(
-          const DovahLinkConnectionException('closed by bridge'),
+          const DovahLinkConnectionException('closed by host'),
         );
 
         verify(() => state.invalidate(any())).called(1);

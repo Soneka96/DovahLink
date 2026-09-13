@@ -9,19 +9,19 @@ namespace dovahlink::adapter::runtime {
 ///  Address Library offset. CommonLib-free so consumers stay testable without
 ///  SKSE; its one concrete implementation (`CommonLibAdapterTaskMarshaller`)
 ///  is split into its own CommonLib-linked file for the same dependency-wall
-///  reason documented for `IBridgeCallbackRegistry` in
+///  reason documented for `IAdapterPairingNotificationSink` in
 ///  `ai/context/skse/cpp-style.md`.
 class IAdapterTaskMarshaller {
-public:
-  virtual ~IAdapterTaskMarshaller() = default;
+  public:
+    virtual ~IAdapterTaskMarshaller() = default;
 
-  ///  Schedules `task` to run once on the game thread and returns
-  ///  immediately; `task` runs asynchronously, at the next point the
-  ///  underlying mechanism drains its queue.
-  ///  @param task Callable to run on the game thread. Must own every value it
-  ///  closes over -- no borrowed Skyrim object or reference may cross this
-  ///  boundary.
-  virtual void RunOnGameThread(std::function<void()> task) = 0;
+    ///  Schedules `task` to run once on the game thread and returns
+    ///  immediately; `task` runs asynchronously, at the next point the
+    ///  underlying mechanism drains its queue.
+    ///  @param task Callable to run on the game thread. Must own every value it
+    ///  closes over -- no borrowed Skyrim object or reference may cross this
+    ///  boundary.
+    virtual void RunOnGameThread(std::function<void()> task) = 0;
 };
 
 } //  namespace dovahlink::adapter::runtime

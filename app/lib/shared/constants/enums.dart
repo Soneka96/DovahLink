@@ -9,7 +9,7 @@ enum PairingPhase {
   /// The client is opening a transport connection and authenticating.
   connecting,
 
-  /// The client could not reach the bridge (a transport-level failure, not a
+  /// The client could not reach the host (a transport-level failure, not a
   /// rejected pairing attempt). Distinct from [failed] per
   /// `ai/context/flutter/architecture.md`'s "Connection and recovery state".
   disconnected,
@@ -18,7 +18,7 @@ enum PairingPhase {
   /// been requested yet.
   unpaired,
 
-  /// The client is asking the bridge to start or query a pairing challenge.
+  /// The client is asking the host to start or query a pairing challenge.
   requestingCode,
 
   /// A pairing challenge is active; the user may enter the code shown in
@@ -29,7 +29,7 @@ enum PairingPhase {
   /// handshake.
   confirming,
 
-  /// The client holds a trusted credential for this bridge.
+  /// The client holds a trusted credential for this host.
   trusted,
 
   /// The most recent pairing attempt failed with a user-safe error message.
@@ -39,7 +39,7 @@ enum PairingPhase {
   String get label => switch (this) {
     PairingPhase.none => 'Unknown',
     PairingPhase.connecting => 'Connecting',
-    PairingPhase.disconnected => 'Waiting for bridge',
+    PairingPhase.disconnected => 'Waiting for host',
     PairingPhase.unpaired => 'Not paired',
     PairingPhase.requestingCode => 'Requesting code',
     PairingPhase.awaitingCode => 'Awaiting code',
@@ -49,7 +49,7 @@ enum PairingPhase {
   };
 }
 
-/// The bridge connection's status while a trusted pairing session is active, observed from the
+/// The host connection's status while a trusted pairing session is active, observed from the
 /// SDK's full `connectionStateChanges` feed rather than a narrower administrative-only slice.
 enum PairingConnectionStatus {
   /// Ordinary transport loss; the SDK's own bounded recovery may still succeed without user
@@ -59,7 +59,7 @@ enum PairingConnectionStatus {
   /// The connection recovered after [lost].
   restored,
 
-  /// The bridge administratively ended this session (revoked, blocked, trust reset, or factory
+  /// The host administratively ended this session (revoked, blocked, trust reset, or factory
   /// reset). Terminal for the current session; recovery is always an explicit user action.
   invalidated,
 }

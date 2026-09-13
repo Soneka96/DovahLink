@@ -9,14 +9,20 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.2a-active-documentation-and-instruction-terminology.md`
-- Status: implementation complete on PR #62 (branch
-  `docs/01.2a-active-documentation-and-instruction-terminology`) -- awaiting maintainer
-  review, green CI, and merge.
-- Prerequisites: Concept 01.1 merged (`main` @ `77f31fa0`, PR #61) -- satisfied.
-- Next action: resolve PR #62's review and CI findings and merge it. Per D4, Concept 02
-  still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain,
-  same as Concept 03 -- do not unblock 02 or 03 until 01.3c actually merges.
+- File: `01.2b-internal-code-test-and-tooling-terminology.md`
+- Status: in progress on PR #63 (branch `refactor/01.2b-internal-code-test-and-tooling-terminology`).
+  The `BridgeEntity`->`HostEntity` cluster, Adapter internal terminology, and tooling
+  fixture renames are implemented. An earlier scope-boundary correction (see Decisions
+  log) reverted the runtime/user-visible and public SDK diagnostic string-literal
+  changes the PR had also made; the maintainer reversed that correction (see the
+  "scope-boundary reversal" entry below) -- those strings are restored, the concept's
+  own file documents the wider boundary, and the re-run category-B inventory is
+  recorded with zero-unresolved evidence.
+- Prerequisites: Concept 01.2a merged (`main` @ `bc86f4cc`, PR #62) -- satisfied.
+- Next action: maintainer review of PR #63, then merge to `main`.
+  Per D4, Concept 02 still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a ->
+  01.3b -> 01.3c chain, same as Concept 03 -- do not unblock 02 or 03 until 01.3c
+  actually merges.
 
 ## Completed concepts
 
@@ -24,6 +30,8 @@ Status: active (package frozen 2026-09-13)
   `8847fcdc`, 2026-09-13).
 - `01.1-adapter-enum-and-constants-physical-normalization.md` -- merged to `main` via
   PR #61 (merge commit `77f31fa0`, 2026-09-13).
+- `01.2a-active-documentation-and-instruction-terminology.md` -- merged to `main` via
+  PR #62 (merge commit `bc86f4cc`, 2026-09-13).
 
 ## Decisions and approved deviations
 
@@ -194,6 +202,62 @@ design, not debt.)
   to `main` as `77f31fa0`); Concept 01.2a's row updated `Blocked by 01.1` -> `Planned`.
   `CONTEXT.md`'s Active concept, Completed concepts, and Handoff sections updated to
   match -- Concept 01.1 moved to Completed, Concept 01.2a is now Active/next.
+- 2026-09-13 second post-merge bookkeeping (this session, planning-only): `PLAN.md`'s
+  status table row for Concept 01.2a updated `In progress | #62` -> `Complete | #62`
+  (PR #62 merged to `main` as `bc86f4cc`); Concept 01.2b's row updated
+  `Blocked by 01.2a` -> `Planned`. `CONTEXT.md`'s Active concept, Completed concepts,
+  and Handoff sections updated to match -- Concept 01.2a moved to Completed, Concept
+  01.2b is now Active/next. This mirrors the same gap the first post-merge bookkeeping
+  pass fixed for 01.1/01.2a: the concept's own PR (122c226a) could only record
+  `In progress` before merging, and no follow-up commit had flipped it to `Complete`
+  until now.
+- 2026-09-13 Concept 01.2b scope-boundary correction (this session): PR #63 had
+  correctly implemented the `BridgeEntity`->`HostEntity` cluster, Adapter's
+  `adapter_task_marshaller.hpp` `IBridgeCallbackRegistry` cross-reference fix, and the
+  tooling `BridgeBuilder`->`DovahLinkBuilder` fixture rename, but had also rewritten
+  runtime/user-visible string literals (app status labels, pairing failure/rejection
+  text, default display names) and public SDK diagnostic strings
+  (`DovahLinkProtocolException`/`DovahLinkConnectionException.message`, exported from
+  the SDK barrel) from "bridge" to "host" wording -- a behavior-neutrality violation
+  this concept's own scope grants no exception for; `message` is documented as
+  diagnostic-only, never branched on, so the compatibility risk is low, but the text is
+  still publicly observable (logs, error UI) and the concept's rule has no low-risk
+  carve-out. Two category-A comments the PR had also touched despite not being
+  identifier-bound (`failures.dart`'s `PairingFailure`/`SessionInvalidatedFailure` doc
+  comments, `app_test.dart`'s two inline comments) were reverted alongside the strings,
+  per 01.2a's own scope rule that general architecture-narrating prose is not 01.2b's to
+  edit; not fixed forward here, left for an 01.2a correction. Every reverted string was
+  re-verified against a matching test assertion; `dart analyze`/`dart test` (SDK,
+  623/623) and `flutter analyze`/`flutter test` (app, 349/349) re-run clean after each
+  revert. `PLAN.md`'s status table row and this file's Active concept section, still
+  reading `Planned`/"not yet started" despite PR #63 already existing with commits on
+  its branch, are updated to `In progress | #63` to match reality -- caught here before
+  merge, the same gap the 01.1/01.2a post-merge bookkeeping entries above fixed after
+  merge.
+- 2026-09-13 Concept 01.2b scope-boundary reversal (this session): the maintainer
+  reviewed the prior scope-boundary correction above and concluded 01.2b's original
+  reading -- "behavior-neutral" means no observable text may change -- was too narrow
+  for the actual goal: retiring active "Bridge" terminology everywhere it safely can,
+  not just in non-public identifiers. `01.2b-internal-code-test-and-tooling-terminology.md`'s
+  Goal and "Public boundary exclusion" sections are rewritten: human-readable UI
+  labels, log messages, diagnostic/exception message text, test descriptions, and
+  architecture-describing comments/docs are now in scope for this concept, even where
+  a consumer can observe them (logs, error UI, test output). The exclusion narrows to
+  what is actually compatibility-bearing: `bridgeVersion`, `bridgeInstanceId`,
+  JSON/wire fields, persisted keys, public SDK API identifiers a consumer compiles
+  against, error codes, and CLI/env/config contracts -- unless a specific piece of
+  human-readable text is itself explicitly documented or consumed as a stable external
+  contract, in which case it stays excluded and defers to `01.3a`. "Behavior-neutral"
+  is redefined to mean no functional/protocol/wire change, not "no text a user or
+  consumer can see changes." Package-wide invariant compliance: this does not touch
+  public *behavior* (protocol/security/runtime), only display/diagnostic text, so it
+  does not conflict with the package-wide "preserve runtime/protocol/security/public
+  behavior" invariant or with `01.3a`'s wire-vocabulary-only territory (confirmed by
+  re-reading `01.3a-public-vocabulary-and-identity-semantics.md`, which governs only
+  `bridgeVersion`/`bridgeInstanceId` wire semantics, not UI/diagnostic wording). The
+  two strings from `48265b69`/`3410a9bd` are being restored under the corrected
+  boundary, and the full inventory is being re-run to confirm no other in-scope
+  occurrence was missed.
 
 ## Verification
 
@@ -251,11 +315,130 @@ design, not debt.)
   package, and `tooling/test_repository_consistency.py`'s assertion literals. No
   identifier, signature, executable-statement, serialization, or wire-contract change
   anywhere in the diff.
+- Confirmed via `git log`/`git show` that PR #62 is actually merged to `main`
+  (`bc86f4cc`, merging `a23286e8` into `77f31fa0`) before marking Concept 01.2a
+  `Complete` -- not inferred from the branch's own prior "implementation complete,
+  awaiting merge" note, per this plan's own rule that `Complete` is authoritative only
+  once GitHub's merge record confirms it (`PLAN.md` section 8).
+- 2026-09-13 Concept 01.2b / PR #63 category-B inventory re-run (this session, under
+  the corrected boundary from the scope-boundary reversal above): case-insensitive
+  `git grep -ilI bridge` across `app/lib`, `app/test`, `sdk/dart`, `host/`, `adapter/`,
+  `tooling/`, `integration/` (git-tracked files only) found 95 files. Every hit was
+  classified: (A) current Host/Adapter/DovahLink meaning -> renamed; (B)
+  `bridgeVersion`/`bridgeInstanceId` wire fields and their direct property/doc-comment
+  bindings, plus wire fixtures -- kept, reserved for `01.3a`-`01.3c`; (C) general
+  architecture-narrating comments not bound to an identifier -- kept, `01.2a`'s
+  (already-merged) territory; (D) historical/migration references -- kept.
+  Category-A occurrences found and fixed, all test-description/local-variable wording,
+  no production string changes beyond what the scope-boundary reversal's own restore
+  already covered: `pairing_remote.datasource_test.dart`, `pairing.selectors_test.dart`
+  (plus its one arbitrary placeholder value, `'Bridge unavailable'` ->
+  `'Host unavailable'`), `dovahlink_client_test.dart`, `pairing_service_test.dart`,
+  `reconnect_rejection_classifier_test.dart`, `session_service_test.dart`,
+  `envelope_test.dart` (test description and a local variable,
+  `bridgeMessages` -> `hostMessages`). One out-of-category item was also fixed:
+  `tooling/test_format_staged.py`'s illustrative example path `bridge/main.cpp`
+  (arbitrary, unrelated to any real logic or the retired architecture) ->
+  `adapter/main.cpp`, which required re-sorting one test's expected list order
+  (`adapter/` now sorts before `app/` alphabetically) -- caught by re-running the
+  suite, not by inspection. Explicitly NOT renamed despite superficially matching
+  "bridge version" wording: `pairing_handshake.entity_test.dart`,
+  `pairing.reducer_test.dart` (four occurrences), `pairing.selectors_test.dart`'s own
+  test description, `pairing.state_test.dart`, and
+  `authentication_service_test.dart` -- each of these describes the `bridgeVersion`
+  field/property itself (verified by reading each test's body), which stays excluded
+  per the corrected boundary; renaming only the prose while the field keeps its name
+  would make the documentation wrong, not more correct. Zero E (ambiguous) items
+  remain unresolved. Verification after all renames: `dart analyze`/`dart test`
+  (`sdk/dart/dovahlink_client`) clean, 623/623; `flutter analyze`/`flutter test`
+  (`app/`) clean, 349/349; `python -m unittest tooling.test_format_staged
+  tooling.test_repository_consistency -v`: 62/62 passed.
+- 2026-09-13 Concept 01.2b second scope-boundary reversal (this session): the
+  maintainer reviewed a contradiction between the widened "Public boundary exclusion"
+  (which listed "comments describing current architecture" as in-scope) and the
+  still-narrow "Boundary against 01.2a" (which deferred exactly that category to
+  01.2a). Resolved by broadening, not narrowing: `01.2b-internal-code-test-and-tooling-terminology.md`'s
+  "Why this is a stable concept" and "Boundary against 01.2a" sections are rewritten
+  so the 01.2a boundary is drawn by file ownership (01.2a owns standalone
+  `ai/context/`/`roadmap/`/documentation files; 01.2b owns comments/prose inside the
+  source, test, and tooling files it already owns) rather than by token type
+  (identifier vs. comment). This reopens category C from the prior inventory pass,
+  which had deferred general-architecture comments to 01.2a.
+- 2026-09-13 Concept 01.2b category-C sweep (this session): re-read every category-C
+  line individually (not just the prior pass's per-file counts) across all 92
+  previously-inventoried files. Zero renames were needed in `host/` or `tooling/`:
+  every host/ "bridge" occurrence is either a `bridgeVersion`/`bridgeInstanceId`
+  identifier, or an exact quoted excerpt from `ai/context/protocol/security.md`/
+  `protocol/schema/README.md` (host C# `<c>...</c>` doc comments quote those files
+  verbatim in quotation marks; rewording the quote without the source would misquote
+  it, and those docs are outside 01.2b's file scope -- flagged, not fixed);
+  `tooling/test_repository_consistency.py` is the terminology-guard suite itself,
+  meta-code asserting what *other* files should/shouldn't say, not itself describing
+  current architecture. 21 files needed a same-meaning word swap in comments
+  genuinely describing current Host behavior: `app/lib/features/pairing/data/
+  datasources/pairing_remote.datasource.dart`, `.../domain/entities/
+  pairing_handshake.entity.dart`, `.../domain/repositories/pairing_repository.dart`,
+  `.../domain/usecases/observe_connection_status.usecase.dart`, `.../presentation/
+  state/pairing.actions.dart`, `.../pairing.middleware.dart`, `.../presentation/
+  widgets/pairing_loading.widget.dart`, `pairing_renotify_button.widget.dart`,
+  `pairing_request_code_button.widget.dart`, `pairing_trusted.widget.dart`,
+  `app/lib/shared/constants/enums.dart`, `app/lib/shared/failures/failures.dart` (the
+  2 lines deferred by the first scope-boundary correction), `app/test/app/app_test.dart`
+  (its 2 inline comments, same deferral), `sdk/dart/dovahlink_client/lib/src/protocol/
+  capabilities_payload.dart`, `envelope.dart`, `envelope_validator.dart`,
+  `protocol_timestamp_validator.dart`, `subscription_ack_payload.dart`,
+  `sdk/dart/dovahlink_client/lib/src/shared/enums.dart` (10 occurrences),
+  `sdk/dart/dovahlink_client/test/dovahlink_client_test.dart` (2 inline comments),
+  `test/internal/requests/message_router_test.dart`. Explicitly kept, verified
+  individually rather than trusted from bucket counts: `bridgeVersion`/
+  `bridgeInstanceId` identifiers and their direct field doc comments; `capability.dart`
+  and `host/DovahLink.Host/Client/Protocol/CapabilityDescriptor.cs`'s deliberate
+  "independent of the Bridge/Host release version" phrasing (touches the unresolved
+  compatibility-authority question `01.3a` Section A decides -- choosing either name
+  now would prejudge that decision); `dpapi_client_storage.dart`'s "mirroring the
+  Bridge's own DPAPI decision" (historical design precedent);
+  `host/DovahLink.Host/Constants.cs`'s `PublicProtocolTransitionalBridgeVersion`
+  constant (identifier, deliberately named for its transitional nature, out of a
+  comment-only sweep's scope regardless). Two findings recorded but not fixed, both in
+  `sdk/dart/dovahlink_client/test/transport/websocket_transport_test.dart`: (1) lines
+  15-16's cross-reference to `websocket_transport_bridge_test.dart` is not merely
+  stale wording -- that file was deleted in commit `dd16065a` ("remove Bridge-specific
+  SDK real-process harness... since bridge/ no longer exists"), so the comment is now
+  factually wrong, a dangling-reference bug distinct from a terminology rename; (2)
+  lines 90-92's claim that the fake test server "accepts immediately, unlike the real
+  Bridge (whose connection slot is only released once its own worker thread notices
+  the closed socket)" describes a specific claimed implementation detail of the
+  retired native Bridge's threading model, which may not hold for the current C# Host
+  -- renaming the word without knowing whether the underlying claim still holds would
+  risk turning a correct historical statement into an incorrect current one; left as
+  category E (ambiguous), not renamed. Verification after this sweep: `dart analyze`/
+  `dart test` (`sdk/dart/dovahlink_client`) clean, 623/623; `flutter analyze`/
+  `flutter test` (`app/`) clean, 349/349; `python -m unittest
+  tooling.test_repository_consistency -v`: 40/40 passed.
+- 2026-09-13 Concept 01.2b `websocket_transport_test.dart` comment cleanup (this
+  session): closes both findings the category-C sweep above left flagged rather than
+  fixed. (1) Lines 15-16's file-header comment no longer cross-references the deleted
+  `websocket_transport_bridge_test.dart`; it now states only what this suite actually
+  proves ([WebSocketTransport]'s connection-lifecycle and framing mechanics against
+  [FakeWebSocketServer]), with no reference to a file that no longer exists. (2) Lines
+  90-92's comparison to "the real Bridge (whose connection slot is only released once
+  its own worker thread notices the closed socket)" is removed rather than reworded to
+  "Host" -- that implementation detail was never verified against the current C# Host,
+  so deleting the unverifiable claim was correct where a word-swap would have asserted
+  something unproven. Neither fix touched `bridgeVersion`/`bridgeInstanceId` or any
+  legitimate historical Bridge reference. Verification: `dart analyze`/`dart test`
+  (`sdk/dart/dovahlink_client`) clean, 623/623; `python -m unittest
+  tooling.test_repository_consistency -v`: 40/40 passed.
 
 ## Handoff
 
-Next concept: `01.2a-active-documentation-and-instruction-terminology.md` --
-implementation complete on PR #62 (branch
-`docs/01.2a-active-documentation-and-instruction-terminology`). Blocked by: PR #62's
-review, CI, and merge. After merge: mark 01.2a Complete in `PLAN.md` and unblock
-Concept 01.2b.
+Concept 01.2b implementation is on PR #63 (branch
+`refactor/01.2b-internal-code-test-and-tooling-terminology`), not yet merged. Both
+scope-boundary reversals, the restored Host wording, and two full category-B/C
+inventory re-runs are recorded above with zero-unresolved evidence -- the
+`websocket_transport_test.dart` findings are now fixed rather than flagged; the only
+remaining out-of-scope item is the `ai/context/protocol/security.md`-quoting host/
+comments' own source doc, which stays outside this concept's file scope by design --
+awaiting final maintainer review and merge. Handoff to Concept 01.3a follows once
+PR #63 actually merges to `main`, per `PLAN.md` section 6 (one branch/PR per
+concept, dependent concept waits for merge, not just open/approved).

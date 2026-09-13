@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 
 import '../../../../fixtures/fixtures.dart';
@@ -8,31 +8,31 @@ import '../../../../fixtures/fixtures.dart';
 /// Exercises connection-state initialization and copying.
 void main() {
   group('ConnectionState — initial', () {
-    test('creates a state with the static default Bridge', () {
+    test('creates a state with the static default Host', () {
       final ConnectionState state = ConnectionState.initial();
 
-      expect(state.bridges, [Fixtures.buildBridgeEntity()]);
+      expect(state.hosts, [Fixtures.buildHostEntity()]);
     });
   });
 
   group('ConnectionState — copyWith', () {
-    test('preserves bridges when omitted', () {
+    test('preserves hosts when omitted', () {
       final ConnectionState state = ConnectionState.initial();
 
       final ConnectionState result = state.copyWith();
 
-      expect(result.bridges, state.bridges);
+      expect(result.hosts, state.hosts);
     });
 
-    test('replaces bridges when supplied', () {
+    test('replaces hosts when supplied', () {
       final ConnectionState state = ConnectionState.initial();
-      final List<BridgeEntity> replacement = [
-        Fixtures.buildBridgeEntity(displayName: 'Other Bridge'),
+      final List<HostEntity> replacement = [
+        Fixtures.buildHostEntity(displayName: 'Other Host'),
       ];
 
-      final ConnectionState result = state.copyWith(bridges: replacement);
+      final ConnectionState result = state.copyWith(hosts: replacement);
 
-      expect(result.bridges, replacement);
+      expect(result.hosts, replacement);
     });
   });
 }

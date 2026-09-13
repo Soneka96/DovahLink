@@ -14,15 +14,15 @@ class ConnectionMiddleware extends MiddlewareClass<AppState> {
     next(action);
 
     switch (action) {
-      case ConnectionBridgeSelectedAction _:
-        _connectionBridgeSelected(store, action);
+      case ConnectionHostSelectedAction _:
+        _connectionHostSelected(store, action);
     }
   }
 
-  /// Handles [ConnectionBridgeSelectedAction] by navigating to pairing.
-  void _connectionBridgeSelected(
+  /// Handles [ConnectionHostSelectedAction] by navigating to pairing.
+  void _connectionHostSelected(
     Store<AppState> store,
-    ConnectionBridgeSelectedAction action,
+    ConnectionHostSelectedAction action,
   ) {
     sl<NavigatorService>().go(AppRoutes.pairing);
   }

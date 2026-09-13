@@ -2,7 +2,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/bridge_list_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_list_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -46,10 +46,10 @@ void main() {
   });
 
   group('injection_container — connection registrations', () {
-    test('initDependencies registers the Bridge-list ViewModel factory', () {
+    test('initDependencies registers the Host-list ViewModel factory', () {
       initDependencies();
 
-      expect(sl.isRegistered<BridgeListScreenViewModel>(), isTrue);
+      expect(sl.isRegistered<HostListScreenViewModel>(), isTrue);
     });
   });
 

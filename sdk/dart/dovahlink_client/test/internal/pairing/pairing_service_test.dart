@@ -1100,7 +1100,7 @@ void main() {
     );
 
     test(
-      'Method recoverPendingPairing discards the credential and resets to unpaired when the bridge '
+      'Method recoverPendingPairing discards the credential and resets to unpaired when the host '
       'reports pending_not_found',
       () async {
         when(() => storage.load()).thenAnswer(
@@ -1128,7 +1128,7 @@ void main() {
     );
 
     test(
-      'Method recoverPendingPairing discards the credential and resets to unpaired when the bridge '
+      'Method recoverPendingPairing discards the credential and resets to unpaired when the host '
       'reports pairing_invalidated',
       () async {
         when(() => storage.load()).thenAnswer(

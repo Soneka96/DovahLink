@@ -470,7 +470,7 @@ void main() {
         );
         expect(client.trustState, isNull);
         expect(client.sessionId, isNull);
-        // The bridge already closed this socket (every HandleHello failure path does); the
+        // The host already closed this socket (every HandleHello failure path does); the
         // transport must be reset so the next connect() attempt does not find a stale socket
         // WebSocketTransport still considers open.
         expect(transport.closeCalled, isTrue);
@@ -1213,7 +1213,7 @@ void main() {
 
         trackingTransport.queueResponse(_rawSessionInvalidated('revoked'));
         trackingTransport.failMessagesWithBoth(
-          const SocketException('closed by bridge'),
+          const SocketException('closed by host'),
         );
         await pumpEventQueue();
 
@@ -1317,10 +1317,10 @@ void main() {
       await client.hello();
 
       // Both delivered on the same still-active subscription before either is processed,
-      // simulating the bridge's own follow-up socket close racing this SDK's own
+      // simulating the host's own follow-up socket close racing this SDK's own
       // subscription-cancellation cleanup for session_invalidated.
       transport.queueResponse(_rawSessionInvalidated('blocked'));
-      transport.failMessagesWith(const SocketException('closed by bridge'));
+      transport.failMessagesWith(const SocketException('closed by host'));
       await pumpEventQueue();
 
       expect(
@@ -1709,7 +1709,7 @@ void main() {
 
   group('Behavior credential cleanup during automatic reconnect behaves correctly', () {
     test(
-      'Behavior automatic reconnect discards a credential the bridge rejects as blocked while '
+      'Behavior automatic reconnect discards a credential the host rejects as blocked while '
       'recovering, preserving clientId and ending the cycle without retrying',
       () async {
         await storage.save(
@@ -1727,7 +1727,7 @@ void main() {
         );
         await client.hello();
 
-        // Answers the automatic reconnect's own hello -- the bridge decides, while this device
+        // Answers the automatic reconnect's own hello -- the host decides, while this device
         // was briefly offline, that its presented credential is now blocked.
         transport.queueResponse(
           jsonEncode(<String, dynamic>{

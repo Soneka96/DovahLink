@@ -44,7 +44,7 @@ void main() {
     );
 
     test(
-      'Method isTerminal returns true for every other code the bridge reported as not retryable',
+      'Method isTerminal returns true for every other code the host reported as not retryable',
       () {
         for (final ProtocolErrorCode code in _flagDrivenCodes) {
           final DovahLinkProtocolException error = DovahLinkProtocolException(
@@ -63,7 +63,7 @@ void main() {
     );
 
     test(
-      'Method isTerminal returns false for every other code the bridge reported as retryable',
+      'Method isTerminal returns false for every other code the host reported as retryable',
       () {
         for (final ProtocolErrorCode code in _flagDrivenCodes) {
           final DovahLinkProtocolException error = DovahLinkProtocolException(

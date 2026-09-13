@@ -5,10 +5,10 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/connection.injection_container.dart';
-import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/screens/bridge_list.screen.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/screens/host_list.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/bridge_list_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_list_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
@@ -21,7 +21,7 @@ import '../../../../fixtures/fixtures.dart';
 /// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
 class MockNavigatorService extends Mock implements NavigatorService {}
 
-/// Exercises Bridge-list rendering and selection behavior.
+/// Exercises Host-list rendering and selection behavior.
 void main() {
   late MockNavigatorService mockNavigatorService;
 
@@ -32,26 +32,26 @@ void main() {
     initConnectionDependencies();
   });
 
-  group('BridgeListScreen contains widgets', () {
-    testWidgets('BridgeListScreen contains the static default Bridge tile', (
+  group('HostListScreen contains widgets', () {
+    testWidgets('HostListScreen contains the static default Host tile', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: StoreProvider<AppState>(
             store: const CreateStore()(),
-            child: const BridgeListScreen(),
+            child: const HostListScreen(),
           ),
         ),
       );
 
-      expect(find.byKey(const Key('bridge-tile-Local Bridge')), findsOneWidget);
-      expect(find.text('Local Bridge'), findsOneWidget);
+      expect(find.byKey(const Key('host-tile-Local Host')), findsOneWidget);
+      expect(find.text('Local Host'), findsOneWidget);
     });
   });
 
-  group('BridgeListScreen selection', () {
-    testWidgets('BridgeListScreen tapping a Bridge tile navigates to pairing', (
+  group('HostListScreen selection', () {
+    testWidgets('HostListScreen tapping a Host tile navigates to pairing', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -60,38 +60,34 @@ void main() {
             store: const CreateStore()(
               middleware: [ConnectionMiddleware().call],
             ),
-            child: const BridgeListScreen(),
+            child: const HostListScreen(),
           ),
         ),
       );
 
-      await tester.tap(find.byKey(const Key('bridge-tile-Local Bridge')));
+      await tester.tap(find.byKey(const Key('host-tile-Local Host')));
       await tester.pump();
 
       verify(() => mockNavigatorService.go(AppRoutes.pairing)).called(1);
     });
 
     testWidgets(
-      'BridgeListScreen tapping the second tile passes that Bridge, not the first',
+      'HostListScreen tapping the second tile passes that Host, not the first',
       (WidgetTester tester) async {
-        final BridgeEntity first = Fixtures.buildBridgeEntity(
-          displayName: 'First Bridge',
+        final HostEntity first = Fixtures.buildHostEntity(
+          displayName: 'First Host',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
-        final BridgeEntity second = Fixtures.buildBridgeEntity(
-          displayName: 'Second Bridge',
+        final HostEntity second = Fixtures.buildHostEntity(
+          displayName: 'Second Host',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
-        BridgeEntity? selected;
-        sl.unregister<BridgeListScreenViewModel>();
-        sl.registerFactoryParam<
-          BridgeListScreenViewModel,
-          Store<AppState>,
-          void
-        >(
-          (Store<AppState> store, void _) => BridgeListScreenViewModel(
-            bridges: [first, second],
-            onSelectBridge: (BridgeEntity bridge) => selected = bridge,
+        HostEntity? selected;
+        sl.unregister<HostListScreenViewModel>();
+        sl.registerFactoryParam<HostListScreenViewModel, Store<AppState>, void>(
+          (Store<AppState> store, void _) => HostListScreenViewModel(
+            hosts: [first, second],
+            onSelectHost: (HostEntity host) => selected = host,
           ),
         );
 
@@ -99,12 +95,12 @@ void main() {
           MaterialApp(
             home: StoreProvider<AppState>(
               store: const CreateStore()(),
-              child: const BridgeListScreen(),
+              child: const HostListScreen(),
             ),
           ),
         );
 
-        await tester.tap(find.byKey(const Key('bridge-tile-Second Bridge')));
+        await tester.tap(find.byKey(const Key('host-tile-Second Host')));
         await tester.pump();
 
         expect(selected, second);
@@ -112,9 +108,9 @@ void main() {
     );
   });
 
-  group('BridgeListScreen meets accessibility recommended guidelines', () {
+  group('HostListScreen meets accessibility recommended guidelines', () {
     testWidgets(
-      'BridgeListScreen labels the Bridge tile and meets its minimum tap-target size',
+      'HostListScreen labels the Host tile and meets its minimum tap-target size',
       (WidgetTester tester) async {
         final SemanticsHandle handle = tester.ensureSemantics();
         try {
@@ -122,7 +118,7 @@ void main() {
             MaterialApp(
               home: StoreProvider<AppState>(
                 store: const CreateStore()(),
-                child: const BridgeListScreen(),
+                child: const HostListScreen(),
               ),
             ),
           );
@@ -134,7 +130,7 @@ void main() {
       },
     );
 
-    testWidgets('BridgeListScreen exposes the Bridge tile label as semantics', (
+    testWidgets('HostListScreen exposes the Host tile label as semantics', (
       WidgetTester tester,
     ) async {
       final SemanticsHandle handle = tester.ensureSemantics();
@@ -143,17 +139,15 @@ void main() {
           MaterialApp(
             home: StoreProvider<AppState>(
               store: const CreateStore()(),
-              child: const BridgeListScreen(),
+              child: const HostListScreen(),
             ),
           ),
         );
 
         expect(
-          tester.getSemantics(
-            find.byKey(const Key('bridge-tile-Local Bridge')),
-          ),
+          tester.getSemantics(find.byKey(const Key('host-tile-Local Host'))),
           matchesSemantics(
-            label: 'Local Bridge',
+            label: 'Local Host',
             isButton: true,
             isEnabled: true,
             isFocusable: true,

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 
@@ -8,30 +8,30 @@ import 'fixtures.dart';
 
 /// Exercises the Flutter app's representative typed fixture builders.
 void main() {
-  group('Method buildBridgeEntity behaves correctly', () {
-    test('Method buildBridgeEntity builds representative defaults', () {
-      final BridgeEntity bridge = Fixtures.buildBridgeEntity();
+  group('Method buildHostEntity behaves correctly', () {
+    test('Method buildHostEntity builds representative defaults', () {
+      final HostEntity host = Fixtures.buildHostEntity();
 
-      expect(bridge.displayName, isA<String>());
-      expect(bridge.displayName, 'Local Bridge');
-      expect(bridge.uri, defaultBridgeUri);
+      expect(host.displayName, isA<String>());
+      expect(host.displayName, 'Local Host');
+      expect(host.uri, defaultHostUri);
     });
 
-    test('Method buildBridgeEntity preserves named overrides', () {
+    test('Method buildHostEntity preserves named overrides', () {
       final Uri uri = Uri.parse('ws://127.0.0.1:1/');
-      final BridgeEntity bridge = Fixtures.buildBridgeEntity(
-        displayName: 'Test Bridge',
+      final HostEntity host = Fixtures.buildHostEntity(
+        displayName: 'Test Host',
         uri: uri,
       );
 
-      expect(bridge.displayName, isA<String>());
-      expect(bridge.displayName, 'Test Bridge');
-      expect(bridge.uri, uri);
+      expect(host.displayName, isA<String>());
+      expect(host.displayName, 'Test Host');
+      expect(host.uri, uri);
     });
 
-    test('Method buildBridgeEntity returns a fresh value per call', () {
-      final BridgeEntity first = Fixtures.buildBridgeEntity();
-      final BridgeEntity second = Fixtures.buildBridgeEntity();
+    test('Method buildHostEntity returns a fresh value per call', () {
+      final HostEntity first = Fixtures.buildHostEntity();
+      final HostEntity second = Fixtures.buildHostEntity();
 
       expect(first, second);
       expect(first.hashCode, second.hashCode);

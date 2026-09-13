@@ -13,7 +13,7 @@ class PairingStartedAction extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Carries the result of authenticating a bridge session.
+/// Carries the result of authenticating a host session.
 class PairingAuthenticatedAction extends Equatable {
   /// Creates an authenticated-state action.
   const PairingAuthenticatedAction({
@@ -58,7 +58,7 @@ class PairingCodeAvailableAction extends Equatable {
   const PairingCodeAvailableAction({this.expiresInSeconds});
 
   /// The active code's remaining validity in seconds, or null when the
-  /// bridge did not report one.
+  /// host did not report one.
   final int? expiresInSeconds;
 
   /// See [Equatable.props].
@@ -92,8 +92,8 @@ class PairingConfirmedAction extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Marks the bridge as unreachable. Distinct from [PairingFailedAction]: this
-/// is an expected transport-level condition -- the bridge may not be running
+/// Marks the host as unreachable. Distinct from [PairingFailedAction]: this
+/// is an expected transport-level condition -- the host may not be running
 /// yet, or a previously trusted session's connection was ordinarily lost and
 /// the SDK's own bounded recovery may still succeed -- not a rejected pairing
 /// attempt.
@@ -217,7 +217,7 @@ class PairingConfirmFailedWithAttemptsRemainingAction extends Equatable {
 /// [PairingAuthenticatedAction] presenting an already-trusted credential, or
 /// after a [PairingConfirmedAction] completing pairing for the first time.
 /// Carries no state of its own; middleware uses it only to start observing
-/// the bridge connection's status (ordinary loss and recovery, and
+/// the host connection's status (ordinary loss and recovery, and
 /// administrative invalidation), per
 /// `ai/context/flutter/architecture.md`'s "To share handler logic, dispatch
 /// a dedicated action rather than calling a raw-parameter helper".

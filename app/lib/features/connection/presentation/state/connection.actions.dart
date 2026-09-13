@@ -1,16 +1,16 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 
-/// Requests navigating to pairing for the selected Bridge.
-class ConnectionBridgeSelectedAction extends Equatable {
-  /// Creates a Bridge-selection action.
-  const ConnectionBridgeSelectedAction(this.bridge);
+/// Requests navigating to pairing for the selected Host.
+class ConnectionHostSelectedAction extends Equatable {
+  /// Creates a Host-selection action.
+  const ConnectionHostSelectedAction(this.host);
 
-  /// The Bridge the user selected.
-  final BridgeEntity bridge;
+  /// The Host the user selected.
+  final HostEntity host;
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [bridge];
+  List<Object?> get props => [host];
 }

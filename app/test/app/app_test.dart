@@ -12,16 +12,13 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 void main() {
   group('DovahLinkApp', () {
     testWidgets(
-      'DovahLinkApp renders the Bridge list before a connection exists',
+      'DovahLinkApp renders the Host list before a connection exists',
       (WidgetTester tester) async {
         initDependencies();
         await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
-        expect(
-          find.byKey(const Key('bridge-tile-Local Bridge')),
-          findsOneWidget,
-        );
-        expect(find.text('Local Bridge'), findsOneWidget);
+        expect(find.byKey(const Key('host-tile-Local Host')), findsOneWidget);
+        expect(find.text('Local Host'), findsOneWidget);
       },
     );
 
@@ -33,14 +30,14 @@ void main() {
 
         sl<GoRouter>().go(AppRoutes.pairing);
         // Not pumpAndSettle: PairingScreen auto-starts a real connection attempt
-        // with no bridge listening in this test, so it retries forever by
+        // with no host listening in this test, so it retries forever by
         // design and never quiesces. The route-transition duration is enough
         // to mount the destination screen, which is all this asserts.
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('bridge-tile-Local Bridge')), findsNothing);
+        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
       },
     );
 
@@ -52,12 +49,12 @@ void main() {
 
         sl<NavigatorService>().go(AppRoutes.pairing);
         // See the comment above: PairingScreen never quiesces without a real
-        // bridge, so this waits out the route transition instead.
+        // host, so this waits out the route transition instead.
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('bridge-tile-Local Bridge')), findsNothing);
+        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
       },
     );
   });

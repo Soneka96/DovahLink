@@ -2,7 +2,7 @@ import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart
 
 /// Validates UTC RFC 3339 timestamps used by protocol payloads.
 class ProtocolTimestampValidator {
-  /// Matches the canonical UTC form emitted by the Bridge, with optional microsecond precision.
+  /// Matches the canonical UTC form emitted by the Host, with optional microsecond precision.
   static final RegExp _utcRfc3339 = RegExp(
     r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z$',
   );

@@ -3,7 +3,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import 'package:dovahlink_client/shared/usecase/usecase_stream.dart';
 
-/// Observes the bridge connection's status while a session is active, per
+/// Observes the host connection's status while a session is active, per
 /// [IPairingRepository.connectionStatus].
 class ObserveConnectionStatusUseCase
     extends UseCaseStream<PairingConnectionStatus, NoParams> {

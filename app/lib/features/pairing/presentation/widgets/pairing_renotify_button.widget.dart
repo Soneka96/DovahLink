@@ -96,7 +96,7 @@ class _PairingRenotifyButtonViewModel {
   /// Whether the pairing code may be redisplayed now.
   final bool isAvailable;
 
-  /// Remaining cooldown duration, or `null` when the bridge did not report one.
+  /// Remaining cooldown duration, or `null` when the host did not report one.
   final int? cooldownSeconds;
 
   /// Callback that requests redisplay when the button is enabled.
