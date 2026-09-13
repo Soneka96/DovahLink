@@ -232,6 +232,25 @@ design, not debt.)
   not inferred from the branch's own prior "implementation complete, awaiting merge"
   note, per this plan's own rule that `Complete` is authoritative only once GitHub's
   merge record confirms it (`PLAN.md` section 8).
+- 2026-09-13 Concept 01.2a / PR #62 verification (this session, implementation --
+  supersedes the planning-only evidence above for this concept; base `77f31fa0` is
+  unchanged, but the file count and every check below are 01.2a's own, not D4's
+  planning-time estimate): base `77f31fa0`, head `39d565d3e2948b456a74f940c91ab7c444aff04d`,
+  `git diff --name-only base...HEAD` = **34 files**. `python -m unittest discover -s
+  tooling -p "test_*.py"`: 166/166 passed. `dart analyze` (`sdk/dart/dovahlink_client`):
+  no issues found. `dart test` (same package): 623/623 passed. Final Bridge inventory
+  on this concept's two prose-fix targets (`ai/context/integration/testing.md`,
+  `ai/context/sdk/api-design.md`): the only remaining case-insensitive `bridge` hits
+  are `Bridge/client version`, `Bridge compatibility mechanics`, `Bridge version`,
+  `SDK/Bridge compatibility`, `bridgeInstanceId`, and `"Bridge is older/newer than
+  supported"` -- all category D (compatibility/identity vocabulary reserved for
+  `01.3a`-`01.3c`); no category-A occurrence remains. Diff audit across all 34 changed
+  files: every `+`/`-` line in the 10 touched `.dart` source files is a `///`/`//`
+  comment line (verified by filtering the diff for non-comment changes -- none found);
+  the remaining 24 files are Markdown/YAML/Papyrus documentation, the planning
+  package, and `tooling/test_repository_consistency.py`'s assertion literals. No
+  identifier, signature, executable-statement, serialization, or wire-contract change
+  anywhere in the diff.
 
 ## Handoff
 
