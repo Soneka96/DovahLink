@@ -15,7 +15,7 @@ area; only genuinely language-wide conventions live here.
   contract establishes the invariant; otherwise handle null explicitly.
 - Every finite canonical wire vocabulary, including protocol message types and error codes, is a
   typed enum. Decode it at the DTO boundary with `@JsonValue`; an unrecognized value is a typed,
-  fail-closed protocol-format failure. A compatible Bridge/SDK pair must never rely on raw wire
+  fail-closed protocol-format failure. A compatible Host/SDK pair must never rely on raw wire
   strings for branching.
 
 ## Behavior-bearing boundaries

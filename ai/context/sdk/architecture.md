@@ -14,37 +14,37 @@ Dart SDK implementation
 Official Flutter app (and any other Dart consumer)
 ```
 
-`protocol/` remains the sole canonical language-neutral Bridge/client contract. The SDK implements
+`protocol/` remains the sole canonical language-neutral Host/client contract. The SDK implements
 that contract for Dart consumers; it is not a second protocol authority, and its convenient typed
 client/domain models never become wire-contract authority. Bridge-version compatibility ownership
 (the SDK's declared supported range, the compatibility bootstrap, contract-change assessment) is
 defined by `ai/context/protocol/compatibility.md`; do not restate it here, and do not give the SDK
 an independent historical protocol-generation model.
 
-## Bridge versus SDK ownership
+## Host versus SDK ownership
 
-The Bridge remains authoritative for live Skyrim game state, authoritative revisions, the current
-`playContextId`, server-side trusted-client records, revocation, trust administration, Bridge
+The Host remains authoritative for live Skyrim game state, authoritative revisions, the current
+`playContextId`, server-side trusted-client records, revocation, trust administration, Host
 capabilities, and server-side security decisions. The SDK is a client library: it must never become
 authoritative over Skyrim or server-side trust.
 
 Trust has two sides, and the SDK owns only its own:
 
 ```text
-Bridge:            "These clients are trusted."
+Host:               "These clients are trusted."
 SDK on a client:    "This is my clientId and credential."
 ```
 
 The SDK owns its local `clientId`, credential, pairing `CONFIRMING` recovery state, and other
-client-side authentication persistence. It may expose typed APIs for Bridge trust-administration
-capabilities (list/revoke/reset), but the authoritative mutation always happens on the Bridge; see
+client-side authentication persistence. It may expose typed APIs for Host trust-administration
+capabilities (list/revoke/reset), but the authoritative mutation always happens on the Host; see
 `ai/context/protocol/security.md` for the trust model itself.
 
 ## App independence
 
 After the Dart Client SDK Foundation phase, the official app depends on the SDK's public API for
 normal DovahLink communication. It must not construct a new parallel raw WebSocket implementation,
-Bridge compatibility implementation, protocol decoder, authentication implementation, pairing
+Host compatibility implementation, protocol decoder, authentication implementation, pairing
 implementation, reconnect state machine, revision tracker, or subscription engine. If the app needs
 behavior the SDK cannot provide, treat that as evidence the SDK needs to be extended, not as
 justification for private app-side plumbing.
@@ -89,7 +89,7 @@ see `ai/context/dart/dart-style.md`, not a restatement here.
 
 The SDK owns exactly one inbound reader over the transport's message stream; individual methods
 must not each consume "the next incoming message" as their own reply. The reader maintains a table
-of pending operations keyed by the outgoing `messageId` each generates, and matches a Bridge reply
+of pending operations keyed by the outgoing `messageId` each generates, and matches a Host reply
 to its operation by the reply's `correlationId` — never by arrival order, message type, or timing.
 A message whose `correlationId` is `null` is unsolicited and is routed to the appropriate typed
 unsolicited handler or SDK surface according to its message type. It must never be consumed as the

@@ -17,7 +17,7 @@ subscriptions, snapshots, recovery, or reusable client persistence themselves.
 ```text
 Skyrim
    |
-DovahLink Bridge / mod
+DovahLink Host / Adapter
    |
 protocol/
    |
@@ -26,7 +26,7 @@ Dart Client SDK
 Official Flutter app
 ```
 
-`protocol/` remains the sole canonical language-neutral Bridge/client contract; the SDK implements
+`protocol/` remains the sole canonical language-neutral Host/client contract; the SDK implements
 that contract for Dart consumers and is not a second protocol authority. The official Flutter app is
 the SDK's first production consumer, not a privileged one — see
 [ARCHITECTURE.md](../ARCHITECTURE.md#sdk).
@@ -44,7 +44,7 @@ sdk/
 ```
 
 It currently provides the connect/hello/pairing/disconnect protocol client, proven against the real
-bridge harness, plus SDK-owned `clientId`, credential, and `CONFIRMING` pairing-recovery persistence
+Host harness, plus SDK-owned `clientId`, credential, and `CONFIRMING` pairing-recovery persistence
 behind the `IClientStorage` interface (a real Windows DPAPI-backed implementation ships today) --
 see `ai/context/sdk/persistence.md`. The official Flutter app depends on it
 (`dovahlink_client_sdk` in `app/pubspec.yaml`), but nothing in the app consumes it yet; the

@@ -6,14 +6,14 @@ If persisted data is required for correct reusable DovahLink client behavior, th
 persisted data exists only for the official product experience, the app owns it.
 
 SDK-owned persistence includes: the stable local `clientId`, the client credential, pairing
-recovery state, reusable known-Bridge information required by approved connection semantics,
+recovery state, reusable known-Host information required by approved connection semantics,
 reusable resource/cache metadata, cache-format version, and SDK persistence-format version.
-App-owned persistence includes product/UI preferences such as preferred Bridge selection, dashboard
+App-owned persistence includes product/UI preferences such as preferred Host selection, dashboard
 layout, map zoom, selected marker, and UI filters.
 
 Administrative invalidation reasons are not persisted as authoritative trust state: `blocked`,
 `revoked`, `trustReset`, and `factoryReset` may be exposed in the current SDK lifecycle state but
-must be re-established from the Bridge after an application restart. When an authoritative device
+must be re-established from the Host after an application restart. When an authoritative device
 credential invalidation is received, the SDK removes the obsolete local credential while preserving
 the stable local `clientId`; a Factory Reset ending a developer-token session does not delete the
 configured developer token.

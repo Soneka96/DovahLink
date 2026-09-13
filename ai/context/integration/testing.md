@@ -1,6 +1,6 @@
 # Integration testing
 
-Integration tests prove that the SKSE bridge and Flutter client agree on the canonical protocol. They do not replace unit tests inside either side.
+Integration tests prove that the Adapter and Flutter client agree on the canonical protocol. They do not replace unit tests inside either side.
 
 ## Shared fixtures
 
@@ -8,9 +8,9 @@ Integration tests prove that the SKSE bridge and Flutter client agree on the can
 - Include valid snapshots, valid events, unavailable values, malformed messages, unknown optional fields, and stale revisions.
 - When Stage 4 registers production state areas, assert their capability advertisement, exact domain
   data shape, update mode, revision behavior, and unavailable-value representation from shared
-  Bridge/SDK/.NET fixtures.
+  Adapter/SDK/.NET fixtures.
 - Expected decoded values are asserted in the consuming test rather than duplicated in fixture metadata.
-- Shared fixtures are the source of truth for cross-side contract tests; client- or bridge-only fixtures must not redefine them.
+- Shared fixtures are the source of truth for cross-side contract tests; client- or adapter-only fixtures must not redefine them.
 
 ## Contract tests
 
@@ -72,20 +72,20 @@ Do not use a running Skyrim process for tests that only verify protocol mapping,
 
 ## Real-harness disconnect/reconnect timing
 
-A single-session Bridge process (`kMaxConnectedClients == 1`) releases its previous session slot
-asynchronously, across the process boundary, after processing a client's socket teardown. A
-client-side `disconnect()`/transport `close()` future only waits for that side's own teardown, not
-for the Bridge to finish releasing the slot.
+A single-session Host process (today's capacity-one session-registry boundary) releases its
+previous session slot asynchronously, across the process boundary, after processing a client's
+socket teardown. A client-side `disconnect()`/transport `close()` future only waits for that side's
+own teardown, not for the Host to finish releasing the slot.
 
-- A real-harness test that disconnects and then immediately reconnects to the *same* Bridge process
-  must not treat completion of the client-side `disconnect()` future as proof the Bridge has
-  released the previous session slot. Doing so races the Bridge's asynchronous release: if the new
-  `hello()` arrives first, admission sees the slot still occupied and can return `unauthorized`.
+- A real-harness test that disconnects and then immediately reconnects to the *same* Host process
+  must not treat completion of the client-side `disconnect()` future as proof the Host has released
+  the previous session slot. Doing so races the Host's asynchronous release: if the new `hello()`
+  arrives first, admission sees the slot still occupied and can return `unauthorized`.
 - Such a test must use a bounded reconnect/admission retry, or another deterministic
   release-synchronization mechanism, cleaning up each failed attempt before trying again. Do not use
   an arbitrary fixed sleep, and do not loop unboundedly -- fail with a clear terminal error once the
   retry budget is exhausted.
 - This is a test-harness lifecycle race, not a production condition: do not broaden production
   `unauthorized` handling to be globally retryable to work around it. It also does not apply when a
-  test disposes the previous Bridge process and starts a fresh one before reconnecting -- a new
+  test disposes the previous Host process and starts a fresh one before reconnecting -- a new
   process has no prior session slot to race.

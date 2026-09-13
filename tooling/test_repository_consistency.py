@@ -1644,9 +1644,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "detection,\nauthentication, pairing recovery, reconnect, session and "
             "authoritative-state identity, revisions,\nsubscriptions, snapshots, recovery, or "
             "reusable client persistence themselves.",
-            "Skyrim\n   |\nDovahLink Bridge / mod\n   |\nprotocol/\n   |\nDart Client SDK\n   |\n"
+            "Skyrim\n   |\nDovahLink Host / Adapter\n   |\nprotocol/\n   |\nDart Client SDK\n   |\n"
             "Official Flutter app",
-            "`protocol/` remains the sole canonical language-neutral Bridge/client contract",
+            "`protocol/` remains the sole canonical language-neutral Host/client contract",
             "the SDK implements\nthat contract for Dart consumers and is not a second protocol "
             "authority",
             "the SDK's first production consumer, not a privileged one — see",
@@ -1656,7 +1656,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "larger later migration.",
             "sdk/\n  dart/\n    dovahlink_client/",
             "It currently provides the connect/hello/pairing/disconnect protocol client, proven "
-            "against the real\nbridge harness, plus SDK-owned `clientId`, credential, and "
+            "against the real\nHost harness, plus SDK-owned `clientId`, credential, and "
             "`CONFIRMING` pairing-recovery persistence",
             "Phase 5's remaining scope -- Bridge-version\ncompatibility detection, reconnect, "
             "revisions, subscriptions, snapshots, and retiring the app's\nseparate "
@@ -1790,16 +1790,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
         sdk_testing = self._read("ai/context/sdk/testing.md")
 
         for required_phrase in (
-            "`protocol/` remains the sole canonical language-neutral Bridge/client contract.",
-            "The Bridge remains authoritative for live Skyrim game state, authoritative "
+            "`protocol/` remains the sole canonical language-neutral Host/client contract.",
+            "The Host remains authoritative for live Skyrim game state, authoritative "
             "revisions, the current\n`playContextId`, server-side trusted-client records, "
-            "revocation, trust administration, Bridge\ncapabilities, and server-side security "
+            "revocation, trust administration, Host\ncapabilities, and server-side security "
             "decisions.",
             "The SDK has one underlying client engine/state machine.",
             "The reusable client core must not depend on Flutter widgets, Redux, `GetIt`, "
             "navigation",
             "it must never become\nauthoritative over Skyrim or server-side trust.",
-            "It must not construct a new parallel raw WebSocket implementation,\nBridge "
+            "It must not construct a new parallel raw WebSocket implementation,\nHost "
             "compatibility implementation, protocol decoder, authentication implementation, "
             "pairing\nimplementation, reconnect state machine, revision tracker, or subscription "
             "engine.",
@@ -1807,7 +1807,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(required_phrase, sdk_architecture)
 
         for required_phrase in (
-            "The long-term simple\nexperience trends toward: find/select a Bridge, pair if "
+            "The long-term simple\nexperience trends toward: find/select a Host, pair if "
             "necessary, listen to typed state.",
             '"Advanced" must not mean\n"bypass invariants"',
             "Do not duplicate `ai/context/protocol/security.md` here; obey it.",
@@ -1842,6 +1842,72 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for sdk_doc in (sdk_architecture, sdk_api_design, sdk_persistence, sdk_testing):
             self.assertNotIn(retired_duplication_phrase, sdk_doc)
             self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
+
+        # These docs still legitimately say "Bridge-version"/"bridgeVersion"/"bridgeInstanceId" --
+        # that is version/identity vocabulary a later concept decides. This guards only against the
+        # retired Bridge *actor* language this pass corrected to Host reappearing.
+        for stale_actor_phrase in (
+            "Bridge versus SDK ownership",
+            "The Bridge remains authoritative",
+            "Bridge compatibility implementation",
+            "matches a Bridge reply",
+        ):
+            self.assertNotIn(stale_actor_phrase, sdk_architecture)
+        for stale_actor_phrase in (
+            "Bridge compatibility mechanics",
+            "find/select a Bridge",
+            "connected\nBridge version",
+            "Bridge unavailable",
+            "incompatible Bridge",
+            '"Bridge is older than supported"',
+            "tells the\nBridge to stop traffic",
+            "whether the Bridge already executed it",
+        ):
+            self.assertNotIn(stale_actor_phrase, sdk_api_design)
+
+    def test_sdk_and_integration_docs_describe_host_not_bridge_actor(self) -> None:
+        """Guard the remaining SDK/integration convention docs against describing the retired
+        Bridge, rather than the Host or the Adapter, as the current server-side actor. Wire-field
+        names (`bridgeInstanceId`, `bridgeVersion`) and version-vocabulary phrasing
+        ("Bridge-version compatibility") are deliberately left untouched here -- that decision
+        belongs to a later concept, not this terminology pass.
+        """
+        dart_style = self._read("ai/context/dart/dart-style.md")
+        sdk_persistence = self._read("ai/context/sdk/persistence.md")
+        sdk_testing = self._read("ai/context/sdk/testing.md")
+        integration_testing = self._read("ai/context/integration/testing.md")
+
+        self.assertIn(
+            "A compatible Host/SDK pair must never rely on raw wire\n  strings for branching.",
+            dart_style,
+        )
+        self.assertNotIn("Bridge/SDK pair", dart_style)
+
+        self.assertIn("reusable known-Host information", sdk_persistence)
+        self.assertIn("preferred Host selection", sdk_persistence)
+        self.assertIn("must be re-established from the Host after", sdk_persistence)
+        self.assertNotIn("known-Bridge", sdk_persistence)
+
+        self.assertIn("not the Host harness -- is required only when", sdk_testing)
+        self.assertIn("do not depend on the Host\nharness", sdk_testing)
+        self.assertNotIn("Bridge harness", sdk_testing)
+
+        self.assertIn(
+            "Integration tests prove that the Adapter and Flutter client agree on the canonical "
+            "protocol.",
+            integration_testing,
+        )
+        self.assertIn("shared\n  Adapter/SDK/.NET fixtures.", integration_testing)
+        self.assertIn(
+            "client- or adapter-only fixtures must not redefine them.",
+            integration_testing,
+        )
+        self.assertIn(
+            "A single-session Host process (today's capacity-one session-registry boundary)",
+            integration_testing,
+        )
+        self.assertNotIn("SKSE bridge", integration_testing)
+        self.assertNotIn("kMaxConnectedClients", integration_testing)
 
     def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(
         self,
