@@ -9,14 +9,13 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.2a-active-documentation-and-instruction-terminology.md`
-- Status: implementation complete on PR #62 (branch
-  `docs/01.2a-active-documentation-and-instruction-terminology`) -- awaiting maintainer
-  review, green CI, and merge.
-- Prerequisites: Concept 01.1 merged (`main` @ `77f31fa0`, PR #61) -- satisfied.
-- Next action: resolve PR #62's review and CI findings and merge it. Per D4, Concept 02
-  still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain,
-  same as Concept 03 -- do not unblock 02 or 03 until 01.3c actually merges.
+- File: `01.2b-internal-code-test-and-tooling-terminology.md`
+- Status: planned -- not yet started.
+- Prerequisites: Concept 01.2a merged (`main` @ `bc86f4cc`, PR #62) -- satisfied.
+- Next action: implement 01.2b (its own re-run category-B inventory, then the internal
+  identifier/comment renames it scopes). Per D4, Concept 02 still waits behind the
+  entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 --
+  do not unblock 02 or 03 until 01.3c actually merges.
 
 ## Completed concepts
 
@@ -24,6 +23,8 @@ Status: active (package frozen 2026-09-13)
   `8847fcdc`, 2026-09-13).
 - `01.1-adapter-enum-and-constants-physical-normalization.md` -- merged to `main` via
   PR #61 (merge commit `77f31fa0`, 2026-09-13).
+- `01.2a-active-documentation-and-instruction-terminology.md` -- merged to `main` via
+  PR #62 (merge commit `bc86f4cc`, 2026-09-13).
 
 ## Decisions and approved deviations
 
@@ -194,6 +195,15 @@ design, not debt.)
   to `main` as `77f31fa0`); Concept 01.2a's row updated `Blocked by 01.1` -> `Planned`.
   `CONTEXT.md`'s Active concept, Completed concepts, and Handoff sections updated to
   match -- Concept 01.1 moved to Completed, Concept 01.2a is now Active/next.
+- 2026-09-13 second post-merge bookkeeping (this session, planning-only): `PLAN.md`'s
+  status table row for Concept 01.2a updated `In progress | #62` -> `Complete | #62`
+  (PR #62 merged to `main` as `bc86f4cc`); Concept 01.2b's row updated
+  `Blocked by 01.2a` -> `Planned`. `CONTEXT.md`'s Active concept, Completed concepts,
+  and Handoff sections updated to match -- Concept 01.2a moved to Completed, Concept
+  01.2b is now Active/next. This mirrors the same gap the first post-merge bookkeeping
+  pass fixed for 01.1/01.2a: the concept's own PR (122c226a) could only record
+  `In progress` before merging, and no follow-up commit had flipped it to `Complete`
+  until now.
 
 ## Verification
 
@@ -251,11 +261,16 @@ design, not debt.)
   package, and `tooling/test_repository_consistency.py`'s assertion literals. No
   identifier, signature, executable-statement, serialization, or wire-contract change
   anywhere in the diff.
+- Confirmed via `git log`/`git show` that PR #62 is actually merged to `main`
+  (`bc86f4cc`, merging `a23286e8` into `77f31fa0`) before marking Concept 01.2a
+  `Complete` -- not inferred from the branch's own prior "implementation complete,
+  awaiting merge" note, per this plan's own rule that `Complete` is authoritative only
+  once GitHub's merge record confirms it (`PLAN.md` section 8).
 
 ## Handoff
 
-Next concept: `01.2a-active-documentation-and-instruction-terminology.md` --
-implementation complete on PR #62 (branch
-`docs/01.2a-active-documentation-and-instruction-terminology`). Blocked by: PR #62's
-review, CI, and merge. After merge: mark 01.2a Complete in `PLAN.md` and unblock
-Concept 01.2b.
+Next concept: `01.2b-internal-code-test-and-tooling-terminology.md` -- not yet
+started. Prerequisite (Concept 01.2a merged, `main` @ `bc86f4cc`, PR #62) is
+satisfied. Implementation starts on its own new branch, per `PLAN.md` section 6 (one
+branch/PR per concept) -- this bookkeeping commit itself lands directly on `main`,
+not on that branch, matching the precedent set by `403868de` for 01.1 -> 01.2a.
