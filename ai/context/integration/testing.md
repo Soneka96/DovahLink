@@ -4,18 +4,18 @@ Integration tests prove that the Host and Flutter client agree on the canonical 
 
 ## Shared fixtures
 
-- Keep language-neutral protocol fixtures in the protocol area, not inside only the Flutter or SKSE test tree.
+- Keep language-neutral protocol fixtures in the protocol area, not inside only the Flutter or Host test tree.
 - Include valid snapshots, valid events, unavailable values, malformed messages, unknown optional fields, and stale revisions.
 - When Stage 4 registers production state areas, assert their capability advertisement, exact domain
   data shape, update mode, revision behavior, and unavailable-value representation from shared
-  Adapter/SDK/.NET fixtures.
+  SDK/.NET fixtures.
 - Expected decoded values are asserted in the consuming test rather than duplicated in fixture metadata.
 - Shared fixtures are the source of truth for cross-side contract tests; client- or adapter-only fixtures must not redefine them.
 
 ## Contract tests
 
-- SKSE adapter tests prove native response values serialize to the expected canonical messages.
-- Flutter adapter tests prove canonical messages decode into the expected client models.
+- Host tests prove that native state received from the Adapter over the private IPC channel serializes to the expected canonical messages.
+- Flutter client tests prove canonical messages decode into the expected client models.
 - Both sides must test the same fixture, not equivalent hand-written examples.
 - Assert exact field values, units, enum meanings, revisions, and unavailable-data behavior.
 
