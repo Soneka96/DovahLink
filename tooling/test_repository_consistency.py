@@ -1912,10 +1912,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("Bridge harness", sdk_testing)
 
         self.assertIn(
-            "Integration tests prove that the Adapter and Flutter client agree on the canonical "
+            "Integration tests prove that the Host and Flutter client agree on the canonical "
             "protocol.",
             integration_testing,
         )
+        self.assertNotIn("the Adapter and Flutter client agree", integration_testing)
         self.assertIn("shared\n  Adapter/SDK/.NET fixtures.", integration_testing)
         self.assertIn(
             "client- or adapter-only fixtures must not redefine them.",

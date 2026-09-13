@@ -1,6 +1,6 @@
 # Integration testing
 
-Integration tests prove that the Adapter and Flutter client agree on the canonical protocol. They do not replace unit tests inside either side.
+Integration tests prove that the Host and Flutter client agree on the canonical protocol. They do not replace unit tests inside either side.
 
 ## Shared fixtures
 
