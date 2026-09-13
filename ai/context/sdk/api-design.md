@@ -9,8 +9,8 @@ The common developer experience hides boring reusable connection mechanics: raw 
 Ping/Pong, heartbeat implementation, ports once discovery/selection own them, credentials, secure
 storage, session teardown, retry/backoff, revision recovery, snapshot reconciliation, stale-session
 suppression, subscription recovery, and Bridge compatibility mechanics. The long-term simple
-experience trends toward: find/select a Bridge, pair if necessary, listen to typed state. Only
-expose behavior the roadmap phases completed at the time actually support — do not pull discovery,
+experience trends toward: find/select a DovahLink instance, pair if necessary, listen to typed state.
+Only expose behavior the roadmap phases completed at the time actually support — do not pull discovery,
 multi-instance, or automatic-connection behavior forward merely to satisfy this shape early; extend
 the simple API when those phases land instead.
 

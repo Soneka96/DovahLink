@@ -1826,8 +1826,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(required_phrase, sdk_architecture)
 
         for required_phrase in (
-            "The long-term simple\nexperience trends toward: find/select a Bridge, pair if "
-            "necessary, listen to typed state.",
+            "The long-term simple\nexperience trends toward: find/select a DovahLink instance, "
+            "pair if necessary, listen to typed state.",
             '"Advanced" must not mean\n"bypass invariants"',
             "Do not duplicate `ai/context/protocol/security.md` here; obey it.",
             "The SDK owns typed meaning; the app owns user-facing wording and presentation.",
@@ -1924,7 +1924,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             integration_testing,
         )
         self.assertNotIn("the Adapter and Flutter client agree", integration_testing)
-        self.assertIn("shared\n  Adapter/SDK/.NET fixtures.", integration_testing)
+        self.assertIn("shared\n  SDK/.NET fixtures.", integration_testing)
         self.assertIn(
             "client- or adapter-only fixtures must not redefine them.",
             integration_testing,
