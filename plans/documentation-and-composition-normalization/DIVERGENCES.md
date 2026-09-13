@@ -72,6 +72,13 @@ Concept 03's dependency changes from "Concept 01 merged" to "Concept 01.1 merged
 Concept 02 (Host composition) is unaffected and may still proceed independently once
 Concept 01 merges.
 
+*Superseded by D4 below:* this last sentence was true when D2 was written, but D4
+inserts the 01.2a-01.3c vocabulary chain between Concept 01.1 and Concept 02, so
+Concept 02 is no longer unaffected -- it now depends on Concept 01.3c, not Concept 01
+directly. This historical entry is left unedited above (D2's own decision about
+Concept 03's dependency on 01.1 remains correct and unchanged); only its now-false
+claim about Concept 02 is annotated here rather than silently rewritten.
+
 **Impact:** Adds one concept and one PR to the package; no requirement ID is added or
 changed. No behavior change is introduced by Concept 01 or 01.1 individually --
 01.1's file move is intended to be behavior-neutral and must be verified by the full
@@ -123,8 +130,9 @@ moved to Host + Adapter while active instructions, internal names, and transitio
 public protocol terms still contain retired Bridge vocabulary.
 
 **Observed conflict:** A full-repository inventory (236 files, 1,342 case-insensitive
-`bridge` hits, baseline `main` @ `456f03b`) found the remaining references are not one
-kind of debt. Some are stale current-architecture terminology (`AGENTS.md` still
+`bridge` hits, both content and path/filename search, planning baseline @
+`9ef61c51699bfd78f3810d99f684025f4c6009ad` -- the pre-D4 commit on this branch, not
+`main`, which is `499bd4f4`) found the remaining references are not one kind of debt. Some are stale current-architecture terminology (`AGENTS.md` still
 names `Bridge/Core` as a current investigation boundary; `console-admin/dovahlink.yaml`
 and `DovahLinkAdmin.psc` cite a deleted implementation path,
 `bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`, that no longer exists

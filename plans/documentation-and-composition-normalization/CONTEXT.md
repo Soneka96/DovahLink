@@ -160,6 +160,38 @@ design, not debt.)
   gate (D4's protocol exception), and Objective/Non-goals (D4's scope and exception);
   added `DIVERGENCES.md` D4; updated `02-host-composition-and-di-lifetimes.md`'s and
   `03-adapter-runtime-composition.md`'s `Depends on` lines to the new chain.
+- 2026-09-13 D4 correction pass (this session, planning-only, four items from
+  maintainer review plus one scope broadening): (1) the inventory baseline was
+  mislabeled "main @ 456f03b" -- 456f03b is a commit on this branch, never on `main`
+  (`main` is `499bd4f4`); re-ran both required searches (content and path/filename)
+  against the actual pre-D4 commit `9ef61c51699bfd78f3810d99f684025f4c6009ad` and
+  relabeled it "planning inventory baseline" everywhere it was cited (D4, `01.2a`,
+  here) -- counts were unchanged (236 files, 1,342 hits), only the label was wrong.
+  (2) Fixed three stale dependency/handoff statements that survived D4: `01`'s
+  completion criteria said "handoff to Concepts 02/03" (now: Concept 01.1); `01.1`'s
+  said merging it "unblocks Concept 03" (now: unblocks 01.2a, with 03 noted as
+  requiring the full chain); D2's "Concept 02 is unaffected" claim is now explicitly
+  annotated as superseded by D4 rather than silently left to contradict it. (3)
+  Broadened `01.2a` to own active documentation/comment prose regardless of physical
+  file type (Markdown, Doxygen/Dart doc comments, Papyrus/YAML comments), since public
+  SDK doc comments like `dovahlink_client.dart`'s "if the bridge rejects
+  authentication" were previously owned by neither `01.2a` (scoped to `.md`/
+  `ai/context/` only) nor `01.2b` (identifiers only) -- with an explicit rule
+  distinguishing general architectural prose (01.2a) from wire-field-specific
+  documentation that stays `01.3a`-`01.3c`'s territory (`envelope.dart`'s
+  `bridgeInstanceId` doc comment, `HelloAckPayload.cs`'s legacy-field-name comment)
+  and from identifier-bound comments that stay `01.2b`'s
+  (`adapter_task_marshaller.hpp`'s stale `IBridgeCallbackRegistry` reference).
+  Re-estimated `01.2a`'s file count to ~30-40 (up from ~20-30, not the ~72 a naive
+  "any comment containing bridge" sweep would suggest, since that sweep does not
+  distinguish the three categories above). (4) Removed `01.3c`'s unsafe
+  split-by-fixture-family example -- splitting one shared-envelope-header field's
+  rename across fixture families would create a broken intermediate wire state,
+  contradicting D4's own "never leave main broken" rule two sentences later -- and
+  replaced it with a tiered policy (<=80 normal PR; 81-100 stop for maintainer
+  review, who may approve one large atomic PR; >100 return to `01.3a` for a genuinely
+  staged design or stop). Confirmed via fresh-eyes phrase search that no other D4
+  file has the same unsafe pattern.
 
 ## Verification
 
@@ -175,9 +207,24 @@ design, not debt.)
 - `python -m unittest tooling.test_repository_consistency -v`: re-run after the D4
   planning insertion, 36/36 passed -- unaffected, since this pass touched only the
   `plans/` package and no `ai/context/`/`CHANGELOG.md`/test-file content.
-- Bridge inventory baseline @ `main` 456f03b (recorded in each new concept file, see
-  `01.2a` for the full category breakdown): 236 files, 1,342 case-insensitive `bridge`
+- Bridge inventory planning baseline @ `9ef61c51699bfd78f3810d99f684025f4c6009ad`
+  (the pre-D4 commit on this branch -- not `main`, which is `499bd4f4`; see `01.2a`
+  for the full category breakdown and both required search commands): 236 files,
+  1,342 case-insensitive `bridge`
   hits. Planning-time estimate only; each implementation concept re-runs it.
+- `python -m unittest tooling.test_repository_consistency -v`: re-run after the D4
+  correction pass, 36/36 passed -- unaffected, planning-only.
+- `git diff --check`: clean (no whitespace errors; only routine LF/CRLF line-ending
+  notices, not errors).
+- Whole-PR changed-file count vs. `main` (`git merge-base HEAD main` = `499bd4f4`,
+  then `git diff --name-only base...HEAD`): **20 files**, unchanged by this
+  correction pass (it only edited files already modified earlier on this branch) --
+  comfortably under both the 80 re-plan threshold and the 100 hard stop.
+- Fresh-eyes phrase search (`456f03b`, `unblocks Concept 03`, `handoff to Concepts
+  02/03`, `02/03 may`, `Concept 02 is unaffected`, `Bridge/Core`, `>80`, `fixture
+  family`) across the whole planning package: every remaining hit is either already
+  fixed, historical record of a prior correction, or `SOURCE.md`'s frozen text --
+  none is a live stale claim.
 
 ## Handoff
 

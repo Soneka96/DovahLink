@@ -116,4 +116,6 @@ two concepts touch the same file concurrently.
   and traceable to a specific edit in the files above.
 - `PLAN.md`'s status table updated to `Complete` with this concept's PR number, once
   that PR is actually merged.
-- `CONTEXT.md` updated with completed-concept evidence before handoff to Concepts 02/03.
+- `CONTEXT.md` updated with completed-concept evidence before handoff to Concept 01.1
+  -- per `DIVERGENCES.md` D4, Concepts 02/03 no longer follow directly; they wait
+  behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain.
