@@ -9,7 +9,7 @@ abstract final class Fixtures {
   /// Builds a Host identity with the representative local endpoint.
   static HostEntity buildHostEntity({
     /// The user-facing Host name.
-    String displayName = 'Local Bridge',
+    String displayName = 'Local Host',
 
     /// The Host endpoint, or the representative local endpoint when omitted.
     Uri? uri,

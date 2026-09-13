@@ -17,8 +17,8 @@ void main() {
         initDependencies();
         await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
-        expect(find.byKey(const Key('host-tile-Local Bridge')), findsOneWidget);
-        expect(find.text('Local Bridge'), findsOneWidget);
+        expect(find.byKey(const Key('host-tile-Local Host')), findsOneWidget);
+        expect(find.text('Local Host'), findsOneWidget);
       },
     );
 
@@ -37,7 +37,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('host-tile-Local Bridge')), findsNothing);
+        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
       },
     );
 
@@ -54,7 +54,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('host-tile-Local Bridge')), findsNothing);
+        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
       },
     );
   });

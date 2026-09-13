@@ -59,7 +59,7 @@ class SessionInvalidatedFailure extends Failure {
   /// (revoked, blocked, trust reset, or factory reset).
   static const SessionInvalidatedFailure administrative =
       SessionInvalidatedFailure(
-        'This device was disconnected by the bridge. Try again.',
+        'This device was disconnected by the host. Try again.',
       );
 
   /// Creates a session-invalidated failure.

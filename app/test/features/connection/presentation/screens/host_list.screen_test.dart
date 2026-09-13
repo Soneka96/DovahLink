@@ -45,8 +45,8 @@ void main() {
         ),
       );
 
-      expect(find.byKey(const Key('host-tile-Local Bridge')), findsOneWidget);
-      expect(find.text('Local Bridge'), findsOneWidget);
+      expect(find.byKey(const Key('host-tile-Local Host')), findsOneWidget);
+      expect(find.text('Local Host'), findsOneWidget);
     });
   });
 
@@ -65,7 +65,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byKey(const Key('host-tile-Local Bridge')));
+      await tester.tap(find.byKey(const Key('host-tile-Local Host')));
       await tester.pump();
 
       verify(() => mockNavigatorService.go(AppRoutes.pairing)).called(1);
@@ -75,11 +75,11 @@ void main() {
       'HostListScreen tapping the second tile passes that Host, not the first',
       (WidgetTester tester) async {
         final HostEntity first = Fixtures.buildHostEntity(
-          displayName: 'First Bridge',
+          displayName: 'First Host',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
         final HostEntity second = Fixtures.buildHostEntity(
-          displayName: 'Second Bridge',
+          displayName: 'Second Host',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         HostEntity? selected;
@@ -100,7 +100,7 @@ void main() {
           ),
         );
 
-        await tester.tap(find.byKey(const Key('host-tile-Second Bridge')));
+        await tester.tap(find.byKey(const Key('host-tile-Second Host')));
         await tester.pump();
 
         expect(selected, second);
@@ -145,9 +145,9 @@ void main() {
         );
 
         expect(
-          tester.getSemantics(find.byKey(const Key('host-tile-Local Bridge'))),
+          tester.getSemantics(find.byKey(const Key('host-tile-Local Host'))),
           matchesSemantics(
-            label: 'Local Bridge',
+            label: 'Local Host',
             isButton: true,
             isEnabled: true,
             isFocusable: true,

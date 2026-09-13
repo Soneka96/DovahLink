@@ -27,7 +27,7 @@ void main() {
     test('replaces hosts when supplied', () {
       final ConnectionState state = ConnectionState.initial();
       final List<HostEntity> replacement = [
-        Fixtures.buildHostEntity(displayName: 'Other Bridge'),
+        Fixtures.buildHostEntity(displayName: 'Other Host'),
       ];
 
       final ConnectionState result = state.copyWith(hosts: replacement);

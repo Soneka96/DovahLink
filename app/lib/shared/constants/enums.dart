@@ -39,7 +39,7 @@ enum PairingPhase {
   String get label => switch (this) {
     PairingPhase.none => 'Unknown',
     PairingPhase.connecting => 'Connecting',
-    PairingPhase.disconnected => 'Waiting for bridge',
+    PairingPhase.disconnected => 'Waiting for host',
     PairingPhase.unpaired => 'Not paired',
     PairingPhase.requestingCode => 'Requesting code',
     PairingPhase.awaitingCode => 'Awaiting code',
