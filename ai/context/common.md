@@ -1,8 +1,8 @@
 # Common conventions
 
 These conventions define versioning, repository ownership, and quality rules shared by the Flutter
-client, SKSE bridge, protocol, and integration work. AI authority belongs to `AGENTS.md`; branch and
-pull request workflow belongs to `CONTRIBUTING.md`.
+client, native Adapter, C# Host, protocol, and integration work. AI authority belongs to
+`AGENTS.md`; branch and pull request workflow belongs to `CONTRIBUTING.md`.
 
 ## Versioning
 
@@ -39,7 +39,8 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 ## Repository boundaries
 
 - `app/` is reserved for the Flutter client.
-- `bridge/` is reserved for the native SKSE bridge.
+- `adapter/` is reserved for the native SKSE Adapter plugin.
+- `host/` is reserved for the C# Host process.
 - `protocol/` is the sole home for canonical cross-side schemas and shared protocol fixtures.
 - `sdk/` is reserved for reusable, supported client SDK implementations; see `sdk/README.md`.
 - `integration/` is reserved for tests and scenarios that exercise boundaries between areas.
@@ -129,7 +130,7 @@ action value types, because those values jointly define the feature's dispatch v
 file name and grouping convention is area-specific; see:
 
 - Dart (Flutter client and SDK): `ai/context/dart/dart-style.md`
-- C++ (Skyrim bridge): `ai/context/skse/cpp-style.md`
+- C++ (native Adapter): `ai/context/skse/cpp-style.md`
 - C# (Host, validation client, and tooling): `ai/context/dotnet/csharp-style.md`
 - Python (repository tooling): `ai/context/python/python-style.md`
 
@@ -301,7 +302,7 @@ Skyrim component required the DovahLink Companion App, which had no public way t
   data format, or behavior solely because an older unreleased implementation used it, and do not add
   a compatibility shim, deprecated alias, migration, fallback protocol, or convenience default
   merely to keep an unreleased version working. Prefer the cleanest current architecture, and update
-  Bridge, SDK, app, tests, and docs together when a contract changes.
+  Adapter, Host, SDK, app, tests, and docs together when a contract changes.
 - "Previous DovahLink versions need to keep working" is not a valid justification on its own unless
   a genuine supported public release already exists.
 - Once the first supported public release ships, this section's rule no longer applies as written;

@@ -39,3 +39,46 @@ Concept 03 can rely on a corrected convention document.
 
 **Decision source:** User message, 2026-09-13 (`SOURCE.md` Block B item 2, confirmed
 in Block C item 4).
+
+## D2 -- New Concept 01.1 inserted between Concept 01 and Concept 03
+
+**Original requirement:** None in `SOURCE.md`. This concept did not exist in the
+original five-issue decomposition; it emerged from Concept 01's own review process.
+
+**Observed conflict:** Concept 01's first implementation pass fixed
+`ai/context/skse/cpp-style.md`'s enum-consolidation rule by pointing it at the real
+`ipc/ipc_enums.hpp` file instead of an invented `adapter/shared/enums.hpp`. Review
+found that fix itself flawed: it told future non-IPC enums (for example a hypothetical
+`capture/`-owned enum) to live inside a file physically and namespace-scoped to
+`ipc/`, making the IPC module the physical owner of concepts it has no domain
+relationship to -- a new design problem, not a documentation-accuracy one. The
+maintainer's resolution: the intended convention (mirroring `csharp-style.md`'s
+per-project `Enums.cs`/`Constants.cs`) is one project-wide `adapter/enums.hpp` and one
+project-wide `adapter/constants.hpp`, with domain namespaces preserved inside each
+file. `ipc/ipc_enums.hpp` and the current per-module `constants.hpp` files are today's
+not-yet-relocated location, not the intended one. Concept 01 documents that target
+rule (docs-only, per its own scope boundary); actually moving the files is a real
+source-code change across ~10 `adapter/` files plus CMake, which does not belong in a
+documentation-only concept.
+
+**Proposed change:** Insert Concept 01.1 (see
+`01.1-adapter-enum-and-constants-physical-normalization.md`) between Concept 01 and
+Concept 03: it performs the physical file move/consolidation only, no other Adapter
+restructuring. It is not folded into Concept 03 (Adapter runtime composition) because
+that concept's purpose -- process-lifetime object-graph ownership -- is a different
+concern from where enum/constant declarations physically live; Concept 03 should start
+from an already-normalized layout rather than absorb this cleanup as a side quest.
+Concept 03's dependency changes from "Concept 01 merged" to "Concept 01.1 merged".
+Concept 02 (Host composition) is unaffected and may still proceed independently once
+Concept 01 merges.
+
+**Impact:** Adds one concept and one PR to the package; no requirement ID is added or
+changed. No behavior change is introduced by Concept 01 or 01.1 individually --
+01.1's file move is itself behavior-neutral, verified by the full Adapter test suite.
+
+**Status:** approved.
+
+**Decision source:** User messages, 2026-09-13 (maintainer review of Concept 01's
+first implementation and its correction pass; the module-owned-enum-header
+alternative was proposed and then explicitly withdrawn in favor of this one-file-per-
+project resolution, in the same review exchange).

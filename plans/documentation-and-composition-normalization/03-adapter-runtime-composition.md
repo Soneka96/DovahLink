@@ -5,9 +5,12 @@
 **Covers:** R3.1-R3.10 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`
 Block A Issue 3).
 
-**Depends on:** Concept 01 merged to `main` (`ai/context/skse/cpp-style.md` must
+**Depends on:** Concept 01.1 merged to `main` (`ai/context/skse/cpp-style.md` must
 already be free of normative Bridge-genealogy dependencies, per D1/R1.14, before this
-concept's design work and documentation are written against it).
+concept's design work and documentation are written against it; the enum/constants
+physical normalization 01.1 performs must also be in place first, so this concept's
+`AdapterRuntime` composition work reads from the already-normalized `adapter/enums.hpp`
+and `adapter/constants.hpp` rather than the pre-normalization per-module layout).
 
 ## Why this is a stable concept
 

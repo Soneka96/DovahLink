@@ -555,6 +555,25 @@ class RepositoryConsistencyTests(unittest.TestCase):
             common,
         )
 
+    def test_common_repository_boundaries_describe_adapter_and_host_not_bridge(
+        self,
+    ) -> None:
+        """Guard common.md's repository-boundary and area-pointer prose against
+        describing the deleted bridge/ directory as current architecture."""
+        common = self._read("ai/context/common.md")
+
+        self.assertNotIn("Bridge", common)
+        self.assertNotIn("bridge", common)
+        self.assertIn(
+            "`adapter/` is reserved for the native SKSE Adapter plugin", common
+        )
+        self.assertIn("`host/` is reserved for the C# Host process", common)
+        self.assertIn("native Adapter, C# Host, protocol", common)
+        self.assertIn("C++ (native Adapter): `ai/context/skse/cpp-style.md`", common)
+        self.assertIn(
+            "update\n  Adapter, Host, SDK, app, tests, and docs together", common
+        )
+
     def test_csharp_style_defines_semantic_member_ordering(self) -> None:
         """Guard the semantic C# member-ordering rule that replaced append-only
         placement, and the required-but-concise parameter/return/exception rule."""
@@ -632,12 +651,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn(
             "Every enum in `adapter/` is a single project-wide exception", cpp_style
         )
+        self.assertIn("Every `adapter/` enum belongs in one project-wide", cpp_style)
+        self.assertIn("adapter/enums.hpp", cpp_style)
+        self.assertIn("adapter/constants.hpp", cpp_style)
+        self.assertIn(
+            "one physical file\n  does not require flattening domain namespaces",
+            cpp_style,
+        )
+        # ipc/ipc_enums.hpp and the per-module constants.hpp layout are cited as today's
+        # not-yet-relocated location, not the intended long-term destination -- guard that
+        # framing stays honest rather than silently re-declaring either as canonical.
         self.assertIn("ipc/ipc_enums.hpp", cpp_style)
+        self.assertIn("pending a physical normalization", cpp_style)
+        self.assertIn("pending the same physical\n  normalization", cpp_style)
         self.assertIn("Never reorder existing data members", cpp_style)
         self.assertIn("## Member ordering", cpp_style)
         self.assertIn("Data members are the one deliberate exception", cpp_style)
-        self.assertIn("not consolidated adapter-wide like enums are", cpp_style)
         self.assertNotIn("bridge-wide", cpp_style)
+        self.assertNotIn("not consolidated adapter-wide like enums are", cpp_style)
         self.assertIn("Document each parameter with `@param`", cpp_style)
         self.assertIn("with `@return`, normally in one or two lines", cpp_style)
 

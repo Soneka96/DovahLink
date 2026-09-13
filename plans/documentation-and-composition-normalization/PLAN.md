@@ -159,27 +159,36 @@ remaining non-normative/historical cleanup, stays with Concept 05 above.)
 ```text
 01 conventions + changelog
         │
-        ├──────────────────┐
-        ▼                  ▼
-02 Host composition    03 Adapter composition
-        │                  │
-        ▼                  ▼
-04 Host docs           05 Adapter docs
+        ├──────────────────────────────────┐
+        ▼                                  ▼
+01.1 Adapter enum/constants            02 Host composition
+    physical normalization                 │
+        │                                  ▼
+        ▼                              04 Host docs
+03 Adapter composition
+        │
+        ▼
+05 Adapter docs
 ```
 
-Concept 01 must merge before 02 or 03 begin, so the corrected conventions are
-authoritative before any composition or documentation work reads them. 04 depends on
+Concept 01 must merge before 01.1 or 02 begin, so the corrected conventions are
+authoritative before any composition, physical normalization, or documentation work
+reads them. Concept 01.1 (see `DIVERGENCES.md` D2 for why it exists) makes `adapter/`'s
+actual enum/constants layout match the convention Concept 01 wrote, so Concept 03
+starts its composition work from an already-normalized source layout rather than doing
+that cleanup as an unplanned side quest. 03 depends on 01.1, not just 01. 04 depends on
 02 (not just 01) so it never documents/reorganizes Host code that composition is about
-to move; 05 depends on 03 for the same reason on the Adapter side. 02 and 03 have no
-dependency on each other and may proceed in parallel once 01 is merged.
+to move; 05 depends on 03 for the same reason on the Adapter side. 02 has no dependency
+on 01.1/03 and may proceed independently once 01 is merged.
 
 ## 6. Execution contract
 
 - Each concept is implemented in its own feature branch and PR.
 - A dependent concept must not begin implementation until its dependency's PR is
   merged to `main` -- not merely opened or approved.
-- After Concept 01 merges: Concepts 02 and 03 may proceed independently/in parallel.
-  Concept 04 requires Concept 02 merged. Concept 05 requires Concept 03 merged.
+- After Concept 01 merges: Concept 02 may proceed independently. Concept 01.1 may also
+  start once Concept 01 merges, and must merge before Concept 03 begins. Concept 04
+  requires Concept 02 merged. Concept 05 requires Concept 03 merged.
 - Stop for maintainer review after every concept/PR. Do not automatically continue to
   the next concept after completing one, even when its dependency is already merged.
 - Re-check this `PLAN.md`'s source fingerprint and the traceability matrix at the start
@@ -197,13 +206,17 @@ dependency on each other and may proceed in parallel once 01 is merged.
 | R5.1-R5.5, R5.7-R5.10 | 05 | preserved |
 | R5.6b | 05 | decomposed (split from Issue 5's R5.6, see D1) |
 
+Concept 01.1 covers no requirement ID -- it did not exist in the original decomposition.
+See `DIVERGENCES.md` D2.
+
 ## 8. Status tracking
 
 | Concept | Status | PR |
 | --- | --- | --- |
 | 01 -- Conventions and changelog | In progress | -- |
+| 01.1 -- Adapter enum/constants physical normalization | Blocked by 01 | -- |
 | 02 -- Host composition and DI lifetimes | Blocked by 01 | -- |
-| 03 -- Adapter runtime composition | Blocked by 01 | -- |
+| 03 -- Adapter runtime composition | Blocked by 01.1 | -- |
 | 04 -- Host documentation sweep | Blocked by 02 | -- |
 | 05 -- Adapter documentation sweep | Blocked by 03 | -- |
 
