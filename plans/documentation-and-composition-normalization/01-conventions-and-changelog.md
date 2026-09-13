@@ -1,6 +1,6 @@
 # Concept 01 -- Documentation and changelog conventions
 
-**Status:** pending
+**Status:** active
 
 **Covers:** R1.1-R1.15 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`
 Block A Issue 1, Block B, Block C item 3).

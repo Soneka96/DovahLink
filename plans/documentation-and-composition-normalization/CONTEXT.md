@@ -5,17 +5,17 @@ Source fingerprint: SHA-256
 `6b09702f2b038be5c5d1d1c81048f9c2cce5b7e079c45797bc77c49ed59fea5f`
 Phase: Documentation and composition normalization
 Package: `plans/documentation-and-composition-normalization/`
-Status: pending
+Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
 - File: `01-conventions-and-changelog.md`
-- Status: pending
+- Status: active
 - Prerequisites: PR #58 merged (baseline `499bd4f4`) -- satisfied.
 - Next action: Implement Concept 01 on its own branch/PR -- fix
   `ai/context/common.md`'s Addition convention and Documentation sections,
   `ai/context/dotnet/csharp-style.md`'s member ordering, `ai/context/skse/cpp-style.md`'s
-  normative Bridge references (R1.14/D1), add the `[Unreleased]` workflow to
+  normative Bridge references (R1.14/R5.6a per D1), add the `[Unreleased]` workflow to
   `CHANGELOG.md` backfilled since `0.3.3` (R1.15), and the matching
   `tooling/test_repository_consistency.py` checks.
 

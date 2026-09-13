@@ -10,6 +10,10 @@
   2026-09-13.
 - **Match status:** Current as of this writing. Re-verify the hash at the start of every
   concept turn; if it no longer matches, stop and reconcile before continuing.
+- **Package status:** Frozen 2026-09-13, after two maintainer review passes
+  (`DIVERGENCES.md` D1 and the CONTEXT.md decision log record both). No further
+  restructuring of the five concepts; changes from here are tracked as new
+  divergences, not edits to this package's design.
 
 There is no pre-existing roadmap phase or repository `PLAN.md` behind this initiative --
 it is cross-cutting engineering hygiene (documentation/changelog conventions plus
@@ -197,7 +201,7 @@ dependency on each other and may proceed in parallel once 01 is merged.
 
 | Concept | Status | PR |
 | --- | --- | --- |
-| 01 -- Conventions and changelog | Planned | -- |
+| 01 -- Conventions and changelog | In progress | -- |
 | 02 -- Host composition and DI lifetimes | Blocked by 01 | -- |
 | 03 -- Adapter runtime composition | Blocked by 01 | -- |
 | 04 -- Host documentation sweep | Blocked by 02 | -- |
