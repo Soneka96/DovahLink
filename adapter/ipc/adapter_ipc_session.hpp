@@ -1,13 +1,13 @@
 #pragma once
 
 #include "capture/adapter_capture_handoff_queue.hpp"
+#include "constants.hpp"
 #include "dispatch/adapter_native_dispatcher.hpp"
 #include "enums.hpp"
 #include "identity/adapter_instance_id.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 #include "ipc/adapter_ipc_target.hpp"
 #include "ipc/adapter_pairing_notification_sink.hpp"
-#include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_message.hpp"
 #include "ipc/pending_dispatch_cancellation_state.hpp"
 #include "ipc/trust_admin_request_result.hpp"

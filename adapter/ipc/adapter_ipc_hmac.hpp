@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ipc/ipc_constants.hpp"
+#include "constants.hpp"
 
 #include <array>
 #include <cstddef>
@@ -28,10 +28,10 @@ ComputeIpcHmacSha256(std::span<const std::byte> key,
 ///  identically to compute the expected proof (adapter side) and, in a
 ///  future concept, the actual proof (host side, mirrored in C#).
 std::array<std::byte, kIpcHostProofMessageBytes> BuildHostProofMessage(
-    const std::array<std::byte, kIpcChallengeBytes> &challenge,
+    const std::array<std::byte, kIpcChallengeBytes>& challenge,
     std::uint64_t correlationId,
-    const std::array<std::byte, 16> &adapterInstanceId,
-    const std::array<std::byte, kIpcOwnerLifetimeIdBytes> &ownerLifetimeId);
+    const std::array<std::byte, 16>& adapterInstanceId,
+    const std::array<std::byte, kIpcOwnerLifetimeIdBytes>& ownerLifetimeId);
 
 ///  Compares two byte spans in constant time with respect to their content
 ///  (though not their length), so comparing a computed proof against a

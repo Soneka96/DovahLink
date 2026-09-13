@@ -3,7 +3,7 @@
 Publishes the Host self-contained, single-file, win-x64 (this repository's production .NET
 publishing strategy -- a self-contained Host never depends on an end user having a matching .NET
 runtime installed), then copies it alongside an already-built Adapter plugin DLL and its runtime
-dependencies into the Vortex `Data/SKSE/Plugins/...` layout `adapter/process/adapter_host_constants.hpp`'s
+dependencies into the Vortex `Data/SKSE/Plugins/...` layout `adapter/constants.hpp`'s
 `kAdapterHostExecutableRelativePath` expects, and zips the result.
 """
 

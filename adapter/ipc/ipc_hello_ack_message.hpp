@@ -4,8 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "constants.hpp"
 #include "enums.hpp"
-#include "ipc/ipc_constants.hpp"
 
 namespace dovahlink::adapter::ipc {
 
