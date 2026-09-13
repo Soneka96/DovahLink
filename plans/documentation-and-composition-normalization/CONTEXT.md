@@ -415,16 +415,30 @@ design, not debt.)
   `dart test` (`sdk/dart/dovahlink_client`) clean, 623/623; `flutter analyze`/
   `flutter test` (`app/`) clean, 349/349; `python -m unittest
   tooling.test_repository_consistency -v`: 40/40 passed.
+- 2026-09-13 Concept 01.2b `websocket_transport_test.dart` comment cleanup (this
+  session): closes both findings the category-C sweep above left flagged rather than
+  fixed. (1) Lines 15-16's file-header comment no longer cross-references the deleted
+  `websocket_transport_bridge_test.dart`; it now states only what this suite actually
+  proves ([WebSocketTransport]'s connection-lifecycle and framing mechanics against
+  [FakeWebSocketServer]), with no reference to a file that no longer exists. (2) Lines
+  90-92's comparison to "the real Bridge (whose connection slot is only released once
+  its own worker thread notices the closed socket)" is removed rather than reworded to
+  "Host" -- that implementation detail was never verified against the current C# Host,
+  so deleting the unverifiable claim was correct where a word-swap would have asserted
+  something unproven. Neither fix touched `bridgeVersion`/`bridgeInstanceId` or any
+  legitimate historical Bridge reference. Verification: `dart analyze`/`dart test`
+  (`sdk/dart/dovahlink_client`) clean, 623/623; `python -m unittest
+  tooling.test_repository_consistency -v`: 40/40 passed.
 
 ## Handoff
 
 Concept 01.2b implementation is on PR #63 (branch
 `refactor/01.2b-internal-code-test-and-tooling-terminology`), not yet merged. Both
 scope-boundary reversals, the restored Host wording, and two full category-B/C
-inventory re-runs are recorded above with zero-unresolved evidence (two findings
-explicitly flagged as out-of-scope-for-this-PR rather than silently fixed or
-silently dropped: the `ai/context/protocol/security.md`-quoting host/ comments'
-own source doc, and `websocket_transport_test.dart`'s dangling file reference) --
+inventory re-runs are recorded above with zero-unresolved evidence -- the
+`websocket_transport_test.dart` findings are now fixed rather than flagged; the only
+remaining out-of-scope item is the `ai/context/protocol/security.md`-quoting host/
+comments' own source doc, which stays outside this concept's file scope by design --
 awaiting final maintainer review and merge. Handoff to Concept 01.3a follows once
 PR #63 actually merges to `main`, per `PLAN.md` section 6 (one branch/PR per
 concept, dependent concept waits for merge, not just open/approved).

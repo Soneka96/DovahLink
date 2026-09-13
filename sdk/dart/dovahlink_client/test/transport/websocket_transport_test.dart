@@ -12,8 +12,7 @@ const Duration _socketTimeout = Duration(seconds: 5);
 
 /// Runs WebSocket transport behavior tests against a real local socket. Deliberately
 /// protocol-agnostic: these prove [WebSocketTransport]'s own connection-lifecycle and framing
-/// mechanics against a [FakeWebSocketServer], not any peer's protocol semantics -- Bridge-specific
-/// wire compatibility lives in `websocket_transport_bridge_test.dart` instead.
+/// mechanics against a [FakeWebSocketServer], not any peer's protocol semantics.
 void main() {
   group('Behavior transport connection lifecycle behaves correctly', () {
     test(
@@ -87,9 +86,7 @@ void main() {
         await transport.close();
         await firstConnect;
 
-        // A fake local server accepts immediately, unlike the real Bridge (whose connection slot
-        // is only released once its own worker thread notices the closed socket) -- so, unlike
-        // that real-peer scenario, no retry-until-accepted loop is needed here.
+        // A fake local server accepts immediately, so no retry-until-accepted loop is needed here.
         await transport.connect(server.uri).timeout(_socketTimeout);
 
         // Proves the new socket was actually adopted this time, not discarded like the first.
