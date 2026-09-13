@@ -1213,7 +1213,7 @@ void main() {
 
         trackingTransport.queueResponse(_rawSessionInvalidated('revoked'));
         trackingTransport.failMessagesWithBoth(
-          const SocketException('closed by host'),
+          const SocketException('closed by bridge'),
         );
         await pumpEventQueue();
 
@@ -1317,10 +1317,10 @@ void main() {
       await client.hello();
 
       // Both delivered on the same still-active subscription before either is processed,
-      // simulating the host's own follow-up socket close racing this SDK's own
+      // simulating the bridge's own follow-up socket close racing this SDK's own
       // subscription-cancellation cleanup for session_invalidated.
       transport.queueResponse(_rawSessionInvalidated('blocked'));
-      transport.failMessagesWith(const SocketException('closed by host'));
+      transport.failMessagesWith(const SocketException('closed by bridge'));
       await pumpEventQueue();
 
       expect(

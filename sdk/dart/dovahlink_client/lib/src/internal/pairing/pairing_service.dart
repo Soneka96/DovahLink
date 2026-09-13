@@ -230,7 +230,7 @@ class PairingService implements IPairingService {
     if (credential == null) {
       throw const DovahLinkProtocolException(
         code: ProtocolErrorCode.malformedMessage,
-        message: 'The host reported credential_issued with no credential.',
+        message: 'The bridge reported credential_issued with no credential.',
         retryable: false,
       );
     }

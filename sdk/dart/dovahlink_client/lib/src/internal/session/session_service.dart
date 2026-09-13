@@ -317,7 +317,9 @@ class SessionService implements ISessionService {
         ),
         onDone: () => _handleReceiveFailure(
           generation,
-          const DovahLinkConnectionException('Connection closed by the host.'),
+          const DovahLinkConnectionException(
+            'Connection closed by the bridge.',
+          ),
         ),
       ),
     );

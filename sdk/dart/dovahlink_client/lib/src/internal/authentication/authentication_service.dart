@@ -158,7 +158,7 @@ class AuthenticationService implements IAuthenticationService {
         // accepts silently the way the pre-extraction field assignment once did.
         throw const DovahLinkProtocolException(
           code: ProtocolErrorCode.malformedMessage,
-          message: 'The host reported hello_ack with no sessionId.',
+          message: 'The bridge reported hello_ack with no sessionId.',
           retryable: false,
         );
       }
