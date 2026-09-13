@@ -13,8 +13,12 @@ baseline `499bd4f4`.
 This is the one concept every other concept reads before writing a line of code or
 documentation: it fixes the rules themselves. It touches no production Host or Adapter
 code, only convention documents, the changelog, and the repository consistency tooling
-that encodes those conventions -- a self-contained, independently reviewable unit with
-no shared files with any other concept.
+that encodes those conventions -- a self-contained, independently reviewable unit.
+`ai/context/skse/cpp-style.md` and `tooling/test_repository_consistency.py` are shared
+with later concepts (`01.1` removes this concept's "pending relocation" framing once
+its file move lands; Concept 05 makes its own residual `R5.6b` trim to `cpp-style.md`
+afterward) -- the dependency graph in `PLAN.md` section 5 sequences those edits so no
+two concepts touch the same file concurrently.
 
 ## Design
 

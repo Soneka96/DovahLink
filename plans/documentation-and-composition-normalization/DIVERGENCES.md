@@ -74,7 +74,8 @@ Concept 01 merges.
 
 **Impact:** Adds one concept and one PR to the package; no requirement ID is added or
 changed. No behavior change is introduced by Concept 01 or 01.1 individually --
-01.1's file move is itself behavior-neutral, verified by the full Adapter test suite.
+01.1's file move is intended to be behavior-neutral and must be verified by the full
+Adapter test suite before that concept is marked `Complete`.
 
 **Status:** approved.
 
@@ -82,3 +83,34 @@ changed. No behavior change is introduced by Concept 01 or 01.1 individually --
 first implementation and its correction pass; the module-owned-enum-header
 alternative was proposed and then explicitly withdrawn in favor of this one-file-per-
 project resolution, in the same review exchange).
+
+## D3 -- PLAN.md's status table tracks PR only, not merge SHA
+
+**Original requirement:** `SOURCE.md` Block C item 7: "Let `PLAN.md` track concept
+status, PR number and merge SHA; do not mutate `SOURCE.md` as work progresses."
+
+**Observed conflict:** A concept's own PR cannot record its own merge commit's SHA
+inside itself -- that SHA does not exist until after the PR merges, so requiring it as
+part of that PR's own completion evidence is circular. The `Status | PR` table
+actually in `PLAN.md` section 8 does not include a Merge SHA column, which is a real,
+intentional divergence from Block C item 7's literal text, not an oversight -- but it
+had never been given its own `DIVERGENCES.md` entry, so a reader (or an automated
+reviewer) checking the table against the frozen source alone would see an
+unexplained gap rather than a recorded decision.
+
+**Proposed change:** Track `Status | PR` only. `Complete` is authoritative only once
+that PR is actually merged to `main`; GitHub's own merge-commit record is the
+permanent, already-existing traceability for which SHA a PR merged as, so this table
+does not duplicate it. This was already implemented in `PLAN.md` section 8 and
+recorded in `CONTEXT.md`'s decision log; this entry is the missing `DIVERGENCES.md`
+record making that override auditable against `SOURCE.md` Block C on its own terms.
+
+**Impact:** No behavior change. `PLAN.md`'s status table has one fewer column than
+Block C's original instruction described; no requirement ID is affected.
+
+**Status:** approved.
+
+**Decision source:** User message, 2026-09-13 (`SOURCE.md` Block C item 7's original
+ask, superseded by the maintainer's own follow-up in the same review exchange: "Status
+tracking: drop the merge-SHA column entirely. Track `Status | PR`... This avoids
+creating a closeout PR just to record metadata.").

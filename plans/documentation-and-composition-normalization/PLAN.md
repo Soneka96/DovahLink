@@ -244,9 +244,12 @@ The phase is complete only when:
 
 ## 10. Divergence policy
 
-See `DIVERGENCES.md`. Two entries are currently recorded and approved: D1 -- Issue 5's
-`R5.6` splits into the convention-document normative-correctness slice (`R5.6a`,
+See `DIVERGENCES.md`. Three entries are currently recorded and approved: D1 -- Issue
+5's `R5.6` splits into the convention-document normative-correctness slice (`R5.6a`,
 reassigned to Concept 01 as `R1.14`) and the remaining non-normative/historical
-cleanup (`R5.6b`, staying with Concept 05) -- and D2 -- Concept 01.1 is inserted
-between Concept 01 and Concept 03 to physically normalize `adapter/`'s enum and
-constants layout, a new concept outside the original five-issue decomposition.
+cleanup (`R5.6b`, staying with Concept 05); D2 -- Concept 01.1 is inserted between
+Concept 01 and Concept 03 to physically normalize `adapter/`'s enum and constants
+layout, a new concept outside the original five-issue decomposition; and D3 -- the
+status table in section 8 tracks `Status | PR` only, not the merge SHA `SOURCE.md`
+Block C item 7 originally asked for, since a PR cannot record its own merge SHA
+before merging and GitHub already owns that record permanently.
