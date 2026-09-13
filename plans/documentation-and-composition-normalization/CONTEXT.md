@@ -9,17 +9,14 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.2b-internal-code-test-and-tooling-terminology.md`
-- Status: in progress on PR #63 (branch `refactor/01.2b-internal-code-test-and-tooling-terminology`).
-  The `BridgeEntity`->`HostEntity` cluster, Adapter internal terminology, and tooling
-  fixture renames are implemented. An earlier scope-boundary correction (see Decisions
-  log) reverted the runtime/user-visible and public SDK diagnostic string-literal
-  changes the PR had also made; the maintainer reversed that correction (see the
-  "scope-boundary reversal" entry below) -- those strings are restored, the concept's
-  own file documents the wider boundary, and the re-run category-B inventory is
-  recorded with zero-unresolved evidence.
-- Prerequisites: Concept 01.2a merged (`main` @ `bc86f4cc`, PR #62) -- satisfied.
-- Next action: maintainer review of PR #63, then merge to `main`.
+- File: `01.3a-public-vocabulary-and-identity-semantics.md`
+- Status: planned, not yet started. Design-only gate: resolves the public
+  `bridgeVersion`/`bridgeInstanceId` vocabulary and compatibility-authority semantics
+  before `01.3b`/`01.3c` touch any wire code. No protocol schema, fixture, Host, SDK,
+  or app source file changes in this concept -- decision documentation only.
+- Prerequisites: Concept 01.2b merged (`main` @ `d4734dba`, PR #63) -- satisfied.
+- Next action: resolve mandatory decisions A-F in the concept's own file, then update
+  `ai/context/protocol/compatibility.md`'s deferred-decision sections to match.
   Per D4, Concept 02 still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a ->
   01.3b -> 01.3c chain, same as Concept 03 -- do not unblock 02 or 03 until 01.3c
   actually merges.
@@ -32,6 +29,8 @@ Status: active (package frozen 2026-09-13)
   PR #61 (merge commit `77f31fa0`, 2026-09-13).
 - `01.2a-active-documentation-and-instruction-terminology.md` -- merged to `main` via
   PR #62 (merge commit `bc86f4cc`, 2026-09-13).
+- `01.2b-internal-code-test-and-tooling-terminology.md` -- merged to `main` via PR #63
+  (merge commit `d4734dba`, 2026-09-13).
 
 ## Decisions and approved deviations
 
@@ -429,16 +428,23 @@ design, not debt.)
   legitimate historical Bridge reference. Verification: `dart analyze`/`dart test`
   (`sdk/dart/dovahlink_client`) clean, 623/623; `python -m unittest
   tooling.test_repository_consistency -v`: 40/40 passed.
+- 2026-09-13 third post-merge bookkeeping (this session, planning-only, committed
+  directly to `main` -- no branch, per the same "in-progress -> complete is bookkeeping,
+  not a feature branch" rule the first two post-merge passes established): `PLAN.md`'s
+  status table row for Concept 01.2b updated `In progress | #63` -> `Complete | #63`
+  (PR #63 merged to `main` as `d4734dba`); Concept 01.3a's row updated
+  `Blocked by 01.2b` -> `Planned`. `CONTEXT.md`'s Active concept, Completed concepts,
+  and Handoff sections updated to match -- Concept 01.2b moved to Completed, Concept
+  01.3a is now Active/next.
 
 ## Handoff
 
-Concept 01.2b implementation is on PR #63 (branch
-`refactor/01.2b-internal-code-test-and-tooling-terminology`), not yet merged. Both
+Concept 01.2b merged to `main` via PR #63 (merge commit `d4734dba`, 2026-09-13). Both
 scope-boundary reversals, the restored Host wording, and two full category-B/C
 inventory re-runs are recorded above with zero-unresolved evidence -- the
-`websocket_transport_test.dart` findings are now fixed rather than flagged; the only
+`websocket_transport_test.dart` findings were fixed rather than left flagged; the only
 remaining out-of-scope item is the `ai/context/protocol/security.md`-quoting host/
-comments' own source doc, which stays outside this concept's file scope by design --
-awaiting final maintainer review and merge. Handoff to Concept 01.3a follows once
-PR #63 actually merges to `main`, per `PLAN.md` section 6 (one branch/PR per
-concept, dependent concept waits for merge, not just open/approved).
+comments' own source doc, which stays outside this concept's file scope by design.
+Handoff to Concept 01.3a is now active, per `PLAN.md` section 6 (one branch/PR per
+concept, dependent concept waits for merge, not just open/approved) -- 01.3a's own
+prerequisite (01.2b merged) is satisfied.
