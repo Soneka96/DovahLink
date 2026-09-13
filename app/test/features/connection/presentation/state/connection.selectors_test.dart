@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
@@ -11,14 +11,14 @@ import '../../../../fixtures/fixtures.dart';
 /// Exercises connection selectors over root application state.
 void main() {
   group('ConnectionSelectors', () {
-    test('selects the Bridge list from AppState', () {
-      final BridgeEntity bridge = Fixtures.buildBridgeEntity();
+    test('selects the Host list from AppState', () {
+      final HostEntity host = Fixtures.buildHostEntity();
       final AppState state = AppState(
-        connection: ConnectionState(bridges: [bridge]),
+        connection: ConnectionState(hosts: [host]),
         pairing: PairingState.initial(),
       );
 
-      expect(ConnectionSelectors.bridgesSelector(state), [bridge]);
+      expect(ConnectionSelectors.hostsSelector(state), [host]);
     });
   });
 }

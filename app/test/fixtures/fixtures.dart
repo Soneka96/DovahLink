@@ -1,4 +1,4 @@
-import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 
@@ -6,14 +6,14 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 abstract final class Fixtures {
   // ---- Connection ----
 
-  /// Builds a Bridge identity with the representative local endpoint.
-  static BridgeEntity buildBridgeEntity({
-    /// The user-facing Bridge name.
-    String displayName = 'Local Bridge',
+  /// Builds a Host identity with the representative local endpoint.
+  static HostEntity buildHostEntity({
+    /// The user-facing Host name.
+    String displayName = 'Local Host',
 
-    /// The Bridge endpoint, or the representative local endpoint when omitted.
+    /// The Host endpoint, or the representative local endpoint when omitted.
     Uri? uri,
-  }) => BridgeEntity(displayName: displayName, uri: uri ?? defaultBridgeUri);
+  }) => HostEntity(displayName: displayName, uri: uri ?? defaultBridgeUri);
 
   // ---- Pairing ----
 

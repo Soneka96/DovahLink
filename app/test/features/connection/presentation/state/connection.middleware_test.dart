@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -52,13 +52,13 @@ void main() {
     reset(store);
   });
 
-  group('ConnectionMiddleware — ConnectionBridgeSelectedAction', () {
+  group('ConnectionMiddleware — ConnectionHostSelectedAction', () {
     test('navigates to the pairing route', () {
-      final BridgeEntity bridge = Fixtures.buildBridgeEntity();
+      final HostEntity host = Fixtures.buildHostEntity();
 
-      middleware.call(store, ConnectionBridgeSelectedAction(bridge), next);
+      middleware.call(store, ConnectionHostSelectedAction(host), next);
 
-      expect(actionLog, [ConnectionBridgeSelectedAction(bridge)]);
+      expect(actionLog, [ConnectionHostSelectedAction(host)]);
       verify(() => mockNavigatorService.go(AppRoutes.pairing)).called(1);
     });
   });

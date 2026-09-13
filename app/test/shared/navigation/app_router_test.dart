@@ -3,7 +3,7 @@ import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/screens/bridge_list.screen.dart';
+import 'package:dovahlink_client/features/connection/presentation/screens/host_list.screen.dart';
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
@@ -16,7 +16,7 @@ void main() {
   setUp(initDependencies);
 
   group('createRouter', () {
-    testWidgets('createRouter resolves the home route to BridgeListScreen', (
+    testWidgets('createRouter resolves the home route to HostListScreen', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -26,7 +26,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(BridgeListScreen), findsOneWidget);
+      expect(find.byType(HostListScreen), findsOneWidget);
       expect(find.byType(PairingScreen), findsNothing);
     });
 
@@ -43,14 +43,14 @@ void main() {
 
       router.go(AppRoutes.pairing);
       // Not pumpAndSettle: PairingScreen auto-starts a real connection attempt
-      // with no bridge listening in this test, so it retries forever by
+      // with no host listening in this test, so it retries forever by
       // design and never quiesces. The route-transition duration is enough
       // to mount the destination screen, which is all this asserts.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byType(PairingScreen), findsOneWidget);
-      expect(find.byType(BridgeListScreen), findsNothing);
+      expect(find.byType(HostListScreen), findsNothing);
     });
 
     testWidgets(
@@ -67,7 +67,7 @@ void main() {
         router.go('/does-not-exist');
         await tester.pumpAndSettle();
 
-        expect(find.byType(BridgeListScreen), findsNothing);
+        expect(find.byType(HostListScreen), findsNothing);
         expect(find.byType(PairingScreen), findsNothing);
       },
     );
