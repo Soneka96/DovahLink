@@ -25,7 +25,7 @@ import 'package:dovahlink_client/shared/usecase/no_params.dart';
 /// container.
 class PairingMiddleware extends MiddlewareClass<AppState> {
   /// Creates pairing middleware. [reconnectDelay] is the wait before
-  /// silently retrying after the bridge is found unreachable; injectable so
+  /// silently retrying after the host is found unreachable; injectable so
   /// tests don't wait in real time.
   PairingMiddleware({this.reconnectDelay = const Duration(seconds: 3)});
 

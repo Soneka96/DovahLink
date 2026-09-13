@@ -30,7 +30,7 @@ void main() {
 
         sl<GoRouter>().go(AppRoutes.pairing);
         // Not pumpAndSettle: PairingScreen auto-starts a real connection attempt
-        // with no bridge listening in this test, so it retries forever by
+        // with no host listening in this test, so it retries forever by
         // design and never quiesces. The route-transition duration is enough
         // to mount the destination screen, which is all this asserts.
         await tester.pump();
@@ -49,7 +49,7 @@ void main() {
 
         sl<NavigatorService>().go(AppRoutes.pairing);
         // See the comment above: PairingScreen never quiesces without a real
-        // bridge, so this waits out the route transition instead.
+        // host, so this waits out the route transition instead.
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
 

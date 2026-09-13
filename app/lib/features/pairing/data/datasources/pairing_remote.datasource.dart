@@ -13,7 +13,7 @@ abstract interface class IPairingRemoteDataSource {
   Future<Either<Failure, PairingHandshakeEntity>> authenticate();
 
   /// Starts, or queries the status of, a pairing challenge.
-  /// Returns the active code's remaining validity in seconds, or null when the bridge did not
+  /// Returns the active code's remaining validity in seconds, or null when the host did not
   /// report one.
   Future<Either<Failure, int?>> requestPairingCode();
 
@@ -33,7 +33,7 @@ abstract interface class IPairingRemoteDataSource {
   /// Cancels the owned active pairing challenge or pending credential.
   Future<Either<Failure, Unit>> cancelPairing();
 
-  /// Emits every change in the bridge connection's status while a session is active -- ordinary
+  /// Emits every change in the host connection's status while a session is active -- ordinary
   /// transport loss and recovery, and administrative invalidation, unified rather than split
   /// into a narrower administrative-only slice -- including one that arrives with nothing
   /// pending -- unlike every method above, this never completes and carries no request of its

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Shows that a pairing operation (connecting, waiting for the bridge,
+/// Shows that a pairing operation (connecting, waiting for the host,
 /// requesting a code, or confirming) is in progress.
 class PairingLoadingIndicator extends StatelessWidget {
   /// Creates a pairing loading indicator.

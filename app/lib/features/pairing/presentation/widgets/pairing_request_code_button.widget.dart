@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// A button requesting a new pairing challenge from the bridge.
+/// A button requesting a new pairing challenge from the host.
 class PairingRequestCodeButton extends StatelessWidget {
   /// Creates a pairing request-code button.
   const PairingRequestCodeButton({required this.onRequestCode, super.key});
