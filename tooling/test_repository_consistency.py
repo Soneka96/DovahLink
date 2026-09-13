@@ -1826,7 +1826,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(required_phrase, sdk_architecture)
 
         for required_phrase in (
-            "The long-term simple\nexperience trends toward: find/select a Host, pair if "
+            "The long-term simple\nexperience trends toward: find/select a Bridge, pair if "
             "necessary, listen to typed state.",
             '"Advanced" must not mean\n"bypass invariants"',
             "Do not duplicate `ai/context/protocol/security.md` here; obey it.",
@@ -1873,16 +1873,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertNotIn(stale_actor_phrase, sdk_architecture)
         for stale_actor_phrase in (
-            "Bridge compatibility mechanics",
-            "find/select a Bridge",
-            "connected\nBridge version",
             "Bridge unavailable",
-            "incompatible Bridge",
-            '"Bridge is older than supported"',
             "tells the\nBridge to stop traffic",
             "whether the Bridge already executed it",
         ):
             self.assertNotIn(stale_actor_phrase, sdk_api_design)
+
+        # These are compatibility/version vocabulary, not stale actor language: the compatibility
+        # authority remains the Bridge/mod release version until 01.3b activates the Host cutover
+        # (`ai/context/protocol/compatibility.md`), so api-design.md must keep naming it Bridge here
+        # even though ordinary actor language elsewhere in this same file correctly says Host.
+        for compatibility_vocabulary_phrase in (
+            "Bridge compatibility mechanics",
+            "connected\nBridge version, SDK/Bridge compatibility result",
+            "incompatible Bridge\nversion",
+            '"Bridge is older than supported" from "Bridge is\nnewer than supported"',
+        ):
+            self.assertIn(compatibility_vocabulary_phrase, sdk_api_design)
 
     def test_sdk_and_integration_docs_describe_host_not_bridge_actor(self) -> None:
         """Guard the remaining SDK/integration convention docs against describing the retired
