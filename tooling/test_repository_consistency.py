@@ -675,6 +675,30 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("Document each parameter with `@param`", cpp_style)
         self.assertIn("with `@return`, normally in one or two lines", cpp_style)
 
+    def test_adapter_enums_and_constants_are_physically_consolidated(self) -> None:
+        """Guard Concept 01.1's physical move: the project-wide enums.hpp/constants.hpp
+        exist and the per-module headers they replaced are gone, so cpp-style.md's
+        documented target can't silently drift back to the pre-01.1 layout.
+        """
+        for consolidated_header in ("adapter/enums.hpp", "adapter/constants.hpp"):
+            self.assertTrue(
+                (REPOSITORY_ROOT / consolidated_header).is_file(),
+                consolidated_header,
+            )
+
+        for retired_header in (
+            "adapter/ipc/ipc_enums.hpp",
+            "adapter/ipc/ipc_constants.hpp",
+            "adapter/capture/adapter_capture_constants.hpp",
+            "adapter/process/adapter_host_constants.hpp",
+            "adapter/runtime/adapter_runtime_constants.hpp",
+        ):
+            self.assertFalse(
+                (REPOSITORY_ROOT / retired_header).exists(),
+                f"{retired_header} was consolidated by Concept 01.1 and must not be "
+                "reintroduced",
+            )
+
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
         """Require every workflow action reference to be SHA-pinned with its version documented.
 
