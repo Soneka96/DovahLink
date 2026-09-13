@@ -373,8 +373,8 @@ void main() {
       },
     );
 
-    test('Method fromJson rejects clientId on bridge-originated messages', () {
-      const Map<String, String?> bridgeMessages = <String, String?>{
+    test('Method fromJson rejects clientId on host-originated messages', () {
+      const Map<String, String?> hostMessages = <String, String?>{
         'pairing_status': 'message-1',
         'pairing_outcome': 'message-1',
         'rename_outcome': 'message-1',
@@ -386,7 +386,7 @@ void main() {
         'pong': 'message-1',
       };
 
-      for (final MapEntry<String, String?> entry in bridgeMessages.entries) {
+      for (final MapEntry<String, String?> entry in hostMessages.entries) {
         final JsonMap payload = _readFixture('connection/hello.json')
           ..['messageType'] = entry.key
           ..['sessionId'] = 'session-1'

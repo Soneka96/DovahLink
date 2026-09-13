@@ -1709,7 +1709,7 @@ void main() {
 
   group('Behavior credential cleanup during automatic reconnect behaves correctly', () {
     test(
-      'Behavior automatic reconnect discards a credential the bridge rejects as blocked while '
+      'Behavior automatic reconnect discards a credential the host rejects as blocked while '
       'recovering, preserving clientId and ending the cycle without retrying',
       () async {
         await storage.save(

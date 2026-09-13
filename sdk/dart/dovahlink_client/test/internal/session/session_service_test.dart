@@ -438,7 +438,7 @@ void main() {
 
   group('Method onUnsolicitedError behaves correctly', () {
     test(
-      'Method onUnsolicitedError tears down without orphaning, carrying the bridge-reported '
+      'Method onUnsolicitedError tears down without orphaning, carrying the host-reported '
       'classification',
       () {
         service.onUnsolicitedError(

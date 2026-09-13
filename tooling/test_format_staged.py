@@ -18,10 +18,10 @@ class FormatStagedTests(unittest.TestCase):
         """Reject only files that have both index and worktree changes."""
         self.assertEqual(
             format_staged.partial_staged_paths(
-                ["app/main.dart", "bridge/main.cpp"],
-                ["bridge/main.cpp", "README.md"],
+                ["app/main.dart", "adapter/main.cpp"],
+                ["adapter/main.cpp", "README.md"],
             ),
-            ["bridge/main.cpp"],
+            ["adapter/main.cpp"],
         )
 
     def test_comparison_paths_combines_branch_and_local_paths(self) -> None:
@@ -36,7 +36,7 @@ class FormatStagedTests(unittest.TestCase):
                 completed(b"base-sha\n"),
                 completed(b"app/main.dart\0"),
                 completed(b"tooling/new.py\0"),
-                completed(b"bridge/main.cpp\0"),
+                completed(b"adapter/main.cpp\0"),
                 completed(b"app/main.dart\0"),
             ],
         ):
@@ -44,7 +44,7 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertEqual(
             paths,
-            ["app/main.dart", "bridge/main.cpp", "tooling/new.py"],
+            ["adapter/main.cpp", "app/main.dart", "tooling/new.py"],
         )
 
     def test_comparison_paths_fails_closed_when_git_selection_fails(self) -> None:
@@ -73,7 +73,7 @@ class FormatStagedTests(unittest.TestCase):
     def test_formatter_group_selects_supported_extensions(self) -> None:
         """Map the selected core-language extensions and leave other files unsupported."""
         self.assertEqual(format_staged.formatter_group("app/main.dart"), "dart")
-        self.assertEqual(format_staged.formatter_group("bridge/main.cpp"), "cpp")
+        self.assertEqual(format_staged.formatter_group("adapter/main.cpp"), "cpp")
         self.assertEqual(format_staged.formatter_group("tooling/check.py"), "python")
         self.assertEqual(
             format_staged.formatter_group("tooling/check.ps1"), "powershell"
@@ -188,7 +188,7 @@ class FormatStagedTests(unittest.TestCase):
             root = Path(temporary_directory)
             paths = [
                 "app/main.dart",
-                "bridge/main.cpp",
+                "adapter/main.cpp",
                 "tooling/check.py",
                 "tooling/check.ps1",
             ]

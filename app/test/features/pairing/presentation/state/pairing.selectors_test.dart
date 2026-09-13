@@ -31,14 +31,14 @@ void main() {
         pairing: const PairingState(
           phase: PairingPhase.failed,
           bridgeVersion: '1.2.3',
-          error: 'Bridge unavailable',
+          error: 'Host unavailable',
           codeExpiresAt: null,
           renotifyAvailableAt: null,
         ),
       );
 
       expect(PairingSelectors.bridgeVersionSelector(state), '1.2.3');
-      expect(PairingSelectors.errorSelector(state), 'Bridge unavailable');
+      expect(PairingSelectors.errorSelector(state), 'Host unavailable');
     });
   });
 

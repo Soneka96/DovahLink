@@ -14,13 +14,12 @@ Status: active (package frozen 2026-09-13)
   The `BridgeEntity`->`HostEntity` cluster, Adapter internal terminology, and tooling
   fixture renames are implemented. An earlier scope-boundary correction (see Decisions
   log) reverted the runtime/user-visible and public SDK diagnostic string-literal
-  changes the PR had also made; the maintainer has since reversed that correction (see
-  the later "scope-boundary reversal" entry below) -- those strings are being restored
-  and the concept's own file now documents the wider boundary.
+  changes the PR had also made; the maintainer reversed that correction (see the
+  "scope-boundary reversal" entry below) -- those strings are restored, the concept's
+  own file documents the wider boundary, and the re-run category-B inventory is
+  recorded with zero-unresolved evidence.
 - Prerequisites: Concept 01.2a merged (`main` @ `bc86f4cc`, PR #62) -- satisfied.
-- Next action: restore the reverted Host wording, rerun the full category-B inventory
-  across host/adapter/sdk/app/integration/tooling under the corrected boundary, record
-  zero-unresolved evidence in this file, then stop for maintainer review before merge.
+- Next action: maintainer review of PR #63, then merge to `main`.
   Per D4, Concept 02 still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a ->
   01.3b -> 01.3c chain, same as Concept 03 -- do not unblock 02 or 03 until 01.3c
   actually merges.
@@ -321,12 +320,46 @@ design, not debt.)
   `Complete` -- not inferred from the branch's own prior "implementation complete,
   awaiting merge" note, per this plan's own rule that `Complete` is authoritative only
   once GitHub's merge record confirms it (`PLAN.md` section 8).
+- 2026-09-13 Concept 01.2b / PR #63 category-B inventory re-run (this session, under
+  the corrected boundary from the scope-boundary reversal above): case-insensitive
+  `git grep -ilI bridge` across `app/lib`, `app/test`, `sdk/dart`, `host/`, `adapter/`,
+  `tooling/`, `integration/` (git-tracked files only) found 95 files. Every hit was
+  classified: (A) current Host/Adapter/DovahLink meaning -> renamed; (B)
+  `bridgeVersion`/`bridgeInstanceId` wire fields and their direct property/doc-comment
+  bindings, plus wire fixtures -- kept, reserved for `01.3a`-`01.3c`; (C) general
+  architecture-narrating comments not bound to an identifier -- kept, `01.2a`'s
+  (already-merged) territory; (D) historical/migration references -- kept.
+  Category-A occurrences found and fixed, all test-description/local-variable wording,
+  no production string changes beyond what the scope-boundary reversal's own restore
+  already covered: `pairing_remote.datasource_test.dart`, `pairing.selectors_test.dart`
+  (plus its one arbitrary placeholder value, `'Bridge unavailable'` ->
+  `'Host unavailable'`), `dovahlink_client_test.dart`, `pairing_service_test.dart`,
+  `reconnect_rejection_classifier_test.dart`, `session_service_test.dart`,
+  `envelope_test.dart` (test description and a local variable,
+  `bridgeMessages` -> `hostMessages`). One out-of-category item was also fixed:
+  `tooling/test_format_staged.py`'s illustrative example path `bridge/main.cpp`
+  (arbitrary, unrelated to any real logic or the retired architecture) ->
+  `adapter/main.cpp`, which required re-sorting one test's expected list order
+  (`adapter/` now sorts before `app/` alphabetically) -- caught by re-running the
+  suite, not by inspection. Explicitly NOT renamed despite superficially matching
+  "bridge version" wording: `pairing_handshake.entity_test.dart`,
+  `pairing.reducer_test.dart` (four occurrences), `pairing.selectors_test.dart`'s own
+  test description, `pairing.state_test.dart`, and
+  `authentication_service_test.dart` -- each of these describes the `bridgeVersion`
+  field/property itself (verified by reading each test's body), which stays excluded
+  per the corrected boundary; renaming only the prose while the field keeps its name
+  would make the documentation wrong, not more correct. Zero E (ambiguous) items
+  remain unresolved. Verification after all renames: `dart analyze`/`dart test`
+  (`sdk/dart/dovahlink_client`) clean, 623/623; `flutter analyze`/`flutter test`
+  (`app/`) clean, 349/349; `python -m unittest tooling.test_format_staged
+  tooling.test_repository_consistency -v`: 62/62 passed.
 
 ## Handoff
 
 Concept 01.2b implementation is on PR #63 (branch
-`refactor/01.2b-internal-code-test-and-tooling-terminology`), not yet merged --
-awaiting the category-B inventory re-run/evidence and final maintainer review.
-Handoff to Concept 01.3a follows once PR #63 actually merges to `main`, per `PLAN.md`
-section 6 (one branch/PR per concept, dependent concept waits for merge, not just
-open/approved).
+`refactor/01.2b-internal-code-test-and-tooling-terminology`), not yet merged. The
+scope-boundary reversal, restored Host wording, and category-B inventory re-run are
+all recorded above with zero-unresolved evidence -- awaiting final maintainer review
+and merge. Handoff to Concept 01.3a follows once PR #63 actually merges to `main`, per
+`PLAN.md` section 6 (one branch/PR per concept, dependent concept waits for merge, not
+just open/approved).

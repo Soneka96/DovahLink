@@ -424,7 +424,7 @@ void main() {
     );
 
     test(
-      'Method requestPairingCode returns Right with null when available but the bridge does not report an expiry',
+      'Method requestPairingCode returns Right with null when available but the host does not report an expiry',
       () async {
         when(() => mockClient.requestPairing()).thenAnswer(
           (_) async => const PairingChallengeStatus(
