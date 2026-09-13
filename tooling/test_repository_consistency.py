@@ -530,6 +530,64 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 workflow,
             )
 
+    def test_documentation_and_ordering_conventions_are_semantic_not_append_only(
+        self,
+    ) -> None:
+        """Guard the semantic member/collection ordering rule and the documentation
+        economy rules that replaced the old universal append-only convention."""
+        common = self._read("ai/context/common.md")
+
+        self.assertIn("## Member and collection ordering", common)
+        self.assertNotIn("## Addition convention", common)
+        self.assertIn(
+            "There is no single universal rule requiring\nevery ordered collection to grow by "
+            "appending to its end",
+            common,
+        )
+        self.assertIn(
+            "The newest versioned release stays the first `##\n  [x.y.z]` section, with an "
+            "`[Unreleased]` section above every versioned release",
+            common,
+        )
+        self.assertIn(
+            "Append-only ordering survives only where a collection's own semantics require it",
+            common,
+        )
+        self.assertIn(
+            "High documentation coverage and low documentation verbosity are both required",
+            common,
+        )
+        self.assertIn(
+            "documentation approaching 20-40 lines for an ordinary\n  method or parameter is a "
+            "signal that the extra information belongs somewhere else",
+            common,
+        )
+        self.assertIn("Route information to its owning home", common)
+        self.assertIn(
+            "updates `CHANGELOG.md`'s\n  `[Unreleased]` section as part of that same PR",
+            common,
+        )
+        self.assertIn(
+            "promotes `CHANGELOG.md`'s accumulated\n  `[Unreleased]` entries into a new dated "
+            "`## [x.y.z] - YYYY-MM-DD` section",
+            common,
+        )
+        self.assertNotIn("versioned Bridge ZIP", common)
+        self.assertIn(
+            "append new\n  members at the end, before the closing brace, so no existing member's "
+            "numeric value shifts",
+            common,
+        )
+        self.assertIn(
+            "append new entries after the existing ones, since there is no other meaningful order "
+            "to prefer",
+            common,
+        )
+        self.assertIn(
+            "C++ data members are the one exception: never reorder them",
+            common,
+        )
+
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
         """Require every workflow action reference to be SHA-pinned with its version documented.
 
