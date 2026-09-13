@@ -82,7 +82,7 @@ are recorded here to avoid a second verbatim copy.
 | R1.11 | No runtime behavior changes. | Block A, Issue 1 Acceptance criteria |
 | R1.12 | `CHANGELOG.md` describes DovahLink (not only the old Bridge); reconciled with roadmap/`common.md`. | Block A, Issue 1 "Existing changelog cleanup" |
 | R1.13 | Ordered-section rules are semantic, not universal: reverse-chronological collections (changelog) keep newest-first; append-only survives only where semantics require it. | Block B, item 4 (first quoted addition) |
-| R1.14 | Convention docs must describe the current repository; no deleted-directory/retired-type as a primary normative example -- this is what pulls the `cpp-style.md` Bridge-reference fix forward from Issue 5. | Block B, items 2 and 4 |
+| R1.14 (= R5.6a) | Convention docs must describe the current repository; no deleted-directory/retired-type as a primary normative example -- the normative-correctness slice of `cpp-style.md`'s Bridge-reference fix, split forward from Issue 5's R5.6 per D1. | Block B, items 2 and 4 |
 | R1.15 | Introducing `[Unreleased]` requires backfilling it with notable outcomes already merged to `main` since the `0.3.3` release baseline, not starting it empty. | Block C, item 3 |
 
 ### Concept 02 -- Host composition (`SOURCE.md` Block A, Issue 2)
@@ -131,7 +131,7 @@ are recorded here to avoid a second verbatim copy.
 | R4.10 | Host tests remain green. |
 | R4.11 | No runtime behavior changes. |
 
-### Concept 05 -- Adapter documentation sweep (`SOURCE.md` Block A, Issue 5; excludes the slice moved to R1.14 per D1)
+### Concept 05 -- Adapter documentation sweep (`SOURCE.md` Block A, Issue 5; `R5.6` split per D1 -- the `R5.6a` normative-correctness slice moves to Concept 01 as `R1.14`, the `R5.6b` non-normative slice stays here)
 
 | ID | Paraphrase |
 | --- | --- |
@@ -139,14 +139,16 @@ are recorded here to avoid a second verbatim copy.
 | R5.2 | Params/results/Doxygen remain useful and concise. |
 | R5.3 | Long method-body narration removed. |
 | R5.4 | SKSE/Windows/concurrency/ownership safety rationale remains. |
-| R5.5 | Legacy Bridge/migration genealogy removed from Adapter *implementation and test* documentation (convention-file genealogy is R1.14's responsibility, per D1). |
+| R5.5 | Legacy Bridge/migration genealogy removed from Adapter *implementation and test* documentation (convention-file genealogy is `R5.6a`/`R1.14`'s responsibility, per D1). |
+| R5.6b | Remaining non-normative/historical verbosity cleanup in `ai/context/skse/cpp-style.md`, once its normative rules are already correct per `R5.6a`/`R1.14`. |
 | R5.7 | Interface/public methods and private helpers organized consistently. |
 | R5.8 | C++ data-member ordering not changed blindly. |
 | R5.9 | Adapter tests remain green. |
 | R5.10 | No runtime behavior changes. |
 
-(`R5.6`, the convention-document rule-focus requirement, is reassigned to R1.14 -- see
-`DIVERGENCES.md` D1.)
+(`R5.6` is split per `DIVERGENCES.md` D1: `R5.6a`, the convention-document
+normative-correctness slice, is reassigned to Concept 01 as `R1.14`; `R5.6b`, the
+remaining non-normative/historical cleanup, stays with Concept 05 above.)
 
 ## 5. Concept graph
 
@@ -184,32 +186,36 @@ dependency on each other and may proceed in parallel once 01 is merged.
 | Requirement | Concept | Status |
 | --- | --- | --- |
 | R1.1-R1.13, R1.15 | 01 | preserved |
-| R1.14 | 01 | decomposed (moved forward from Issue 5's R5.6, see D1) |
+| R1.14 (= R5.6a) | 01 | decomposed (split from Issue 5's R5.6, see D1) |
 | R2.1-R2.10 | 02 | preserved |
 | R3.1-R3.10 | 03 | preserved |
 | R4.1-R4.11 | 04 | preserved |
 | R5.1-R5.5, R5.7-R5.10 | 05 | preserved |
-| R5.6 | 01 (as R1.14) | decomposed, see D1 |
+| R5.6b | 05 | decomposed (split from Issue 5's R5.6, see D1) |
 
 ## 8. Status tracking
 
-| Concept | Status | Branch/PR | Merge SHA |
-| --- | --- | --- | --- |
-| 01 -- Conventions and changelog | Planned | -- | -- |
-| 02 -- Host composition and DI lifetimes | Blocked by 01 | -- | -- |
-| 03 -- Adapter runtime composition | Blocked by 01 | -- | -- |
-| 04 -- Host documentation sweep | Blocked by 02 | -- | -- |
-| 05 -- Adapter documentation sweep | Blocked by 03 | -- | -- |
+| Concept | Status | PR |
+| --- | --- | --- |
+| 01 -- Conventions and changelog | Planned | -- |
+| 02 -- Host composition and DI lifetimes | Blocked by 01 | -- |
+| 03 -- Adapter runtime composition | Blocked by 01 | -- |
+| 04 -- Host documentation sweep | Blocked by 02 | -- |
+| 05 -- Adapter documentation sweep | Blocked by 03 | -- |
 
 Status values: `Planned` -> `In progress` -> `Complete` (or `Blocked by <n>` while its
-dependency is unmerged). Update this table after every PR merges; never rewrite
-`SOURCE.md` to reflect execution progress.
+dependency is unmerged). `Complete` is authoritative only once that concept's PR is
+actually merged to `main` -- GitHub's own merge-commit record is the permanent
+traceability for which SHA a PR merged as; this table does not duplicate it. Update
+this table after every PR merges; never rewrite `SOURCE.md` to reflect execution
+progress.
 
 ## 9. Phase completion gate
 
 The phase is complete only when:
 
-- All five concepts are `Complete` in the status table above, each with a merge SHA.
+- All five concepts are `Complete` in the status table above, each merged via its
+  recorded PR.
 - Every requirement ID in the traceability matrix is `preserved`/`decomposed` into a
   completed concept, or has an approved `DIVERGENCES.md` entry explaining why it is
   deferred or changed.
@@ -219,6 +225,7 @@ The phase is complete only when:
 
 ## 10. Divergence policy
 
-See `DIVERGENCES.md`. One entry (D1) is currently recorded and approved: the
-convention-document normative-correctness slice of Issue 5's Bridge-genealogy cleanup
-(`R5.6`) is reassigned to Concept 01 as `R1.14`.
+See `DIVERGENCES.md`. One entry (D1) is currently recorded and approved: Issue 5's
+`R5.6` splits into the convention-document normative-correctness slice (`R5.6a`,
+reassigned to Concept 01 as `R1.14`) and the remaining non-normative/historical
+cleanup (`R5.6b`, staying with Concept 05).

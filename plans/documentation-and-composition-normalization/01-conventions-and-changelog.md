@@ -54,10 +54,15 @@ no shared files with any other concept.
   outcome-focused bullets under the new `[Unreleased]` section -- not a commit-by-commit
   log, not every internal refactor. Judgment call: include what would have been worth
   an `[Unreleased]` bullet had the rule existed since `0.3.3`.
-- **CHANGELOG Bridge->DovahLink cleanup (R1.12):** reread every existing entry's
-  wording; where an entry describes the product in terms of "the Bridge" as if that
-  were still the current architecture, reword to describe DovahLink/Host/Adapter as
-  appropriate without rewriting historical entries' actual content or dates.
+- **CHANGELOG Bridge->DovahLink cleanup (R1.12):** update the changelog's title,
+  header prose, release-workflow description, and the new `[Unreleased]` section to
+  describe current DovahLink/Host/Adapter terminology. Do not rewrite a versioned
+  historical entry merely because it says "Bridge" -- an entry for `0.1.0`-`0.3.x`
+  describing the Bridge is historically accurate, since that was the architecture at
+  the time, and rewriting it to retroactively describe Host/Adapter would corrupt the
+  historical record `CHANGELOG.md` exists to preserve. Edit a versioned entry only when
+  its wording is factually misleading about what actually shipped in that release, not
+  merely because the terminology is now dated.
 - **`cpp-style.md` normative-correctness fix (R1.14, D1):** remove or replace every
   place a *normative* rule depends on the deleted `bridge/` directory or a deleted type
   as its load-bearing example -- the file's opening paragraph, the enum-consolidation
@@ -105,6 +110,6 @@ no shared files with any other concept.
 
 - Every acceptance bullet in `SOURCE.md` Block A Issue 1, plus R1.13-R1.15, is satisfied
   and traceable to a specific edit in the files above.
-- `PLAN.md`'s status table updated to `Complete` with this concept's PR number and
-  merge SHA.
+- `PLAN.md`'s status table updated to `Complete` with this concept's PR number, once
+  that PR is actually merged.
 - `CONTEXT.md` updated with completed-concept evidence before handoff to Concepts 02/03.

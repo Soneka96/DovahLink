@@ -16,12 +16,19 @@ any Adapter composition work done in Concept 03 -- which happens first, per the
 dependency graph -- would be guided by a convention document that is not just verbose
 but factually describes a directory structure that no longer exists on disk.
 
-**Proposed change:** Split R5.6. The correctness-critical slice -- making
-`cpp-style.md`'s normative rules accurate and free of deleted-path/deleted-type
-examples where those examples are load-bearing for applying the rule -- becomes R1.14,
-owned by Concept 01. Concept 05 keeps the broader verbosity/historical-comment pass
-over actual Adapter production code and tests, plus any residual non-normative
-trimming left in `cpp-style.md` once its rules are already correct.
+**Proposed change:** Split R5.6 explicitly into two tracked requirements rather than
+reassigning it wholesale:
+
+- `R5.6a` -- normative correctness of `cpp-style.md`: its current rules must not rely
+  on deleted Bridge paths/types as their load-bearing worked examples. Owned by
+  Concept 01, tracked there as `R1.14`.
+- `R5.6b` -- remaining non-normative/historical verbosity cleanup in the C++
+  convention documents (any residual example trimming left in `cpp-style.md` once its
+  rules are already correct), plus the broader verbosity/historical-comment pass over
+  actual Adapter production code and tests. Stays with Concept 05.
+
+Both halves are named directly in `PLAN.md`'s Requirement IDs and Traceability
+sections so neither loses its own ID.
 
 **Impact:** No behavior change. Changes only which concept's file list touches
 `ai/context/skse/cpp-style.md`, and moves that touch earlier in the sequence so

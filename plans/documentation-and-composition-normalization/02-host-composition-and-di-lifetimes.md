@@ -25,15 +25,27 @@ the result.
   client-scoped, session-scoped, connection-scoped, or transient, per the domain
   distinctions in `SOURCE.md` Block A Issue 2 -- decide from responsibility, not from
   the issue's example lists.
-- Replace any static-dictionary-keyed scoped state (the
-  `static Dictionary<string, PublicStateSubscription> Instances`-shaped pattern) with
-  an explicit session/connection aggregate or factory (`IPublicSessionFactory`,
-  `IPublicConnectionFactory`, or equivalent names matching current Host vocabulary).
+- If the lifetime audit discovers static/global keyed storage being used to emulate
+  client/session/connection scoping (a `static Dictionary<string, PublicStateSubscription>
+  Instances`-shaped pattern is the illustrative shape, not a claim that one currently
+  exists), replace it with an explicit session/connection aggregate or factory
+  (`IPublicSessionFactory`, `IPublicConnectionFactory`, or equivalent names matching
+  current Host vocabulary). Do not assume such a pattern exists, and do not introduce
+  a factory/aggregate abstraction solely to satisfy this example when the audit finds
+  nothing that needs it.
 - Keep DI responsible only for constructing dependencies. Introduce or retain one
   explicit Host lifecycle orchestrator (`DovahLinkHostRuntime` or equivalent) that
-  enforces: build graph -> initialize persistent/security state -> start Adapter IPC ->
-  publish readiness/rendezvous -> expose public listener/admission -> run -> ordered
-  shutdown. This ordering must not be delegated to implicit `IHostedService` ordering.
+  controls startup and shutdown ordering explicitly rather than delegating it to
+  implicit `IHostedService` ordering. This concept is about **composition
+  equivalence** -- making today's ownership and lifetimes explicit -- not a license to
+  redesign startup or networking behavior. Do not treat any illustrative lifecycle
+  sequence as authority over the current implementation: before restructuring
+  anything, establish the actual current startup/shutdown ordering by reading
+  `Program.cs` and its existing tests, and preserve that exact ordering. The one
+  non-negotiable invariant, already verified in the current code, is that trust/
+  security state finishes loading (and fails closed on error) strictly before any
+  externally reachable listener or admission path is exposed; everything else about
+  the current sequence is preserved as observed, not re-derived from a template.
 - No sync-over-async in any registration; no service locator or static
   `IServiceProvider` access anywhere in the new composition code.
 - Reduce `Program.cs` to bootstrap/composition wiring only.
@@ -80,4 +92,5 @@ Per R2.9: composition/lifetime tests proving --
 
 - Every R2.x acceptance bullet satisfied and traceable to a specific file/test.
 - Full Host test suite green; new composition/lifetime tests included and passing.
-- `PLAN.md` status table updated with PR number and merge SHA; unblocks Concept 04.
+- `PLAN.md` status table updated with this concept's PR number, marked `Complete` once
+  merged; unblocks Concept 04.

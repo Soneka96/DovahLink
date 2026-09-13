@@ -68,4 +68,5 @@ would mix two very different review questions in one PR.
 
 - Every R4.x acceptance bullet satisfied and traceable to specific files.
 - Full Host test suite green.
-- `PLAN.md` status table updated with PR number and merge SHA.
+- `PLAN.md` status table updated with this concept's PR number, marked `Complete` once
+  merged.

@@ -2,9 +2,9 @@
 
 **Status:** pending
 
-**Covers:** R5.1-R5.5, R5.7-R5.10 (see `PLAN.md` Requirement IDs; original wording in
-`SOURCE.md` Block A Issue 5). `R5.6` is not covered here -- its normative-correctness
-slice is `R1.14`, owned by Concept 01; see `DIVERGENCES.md` D1.
+**Covers:** R5.1-R5.5, R5.6b, R5.7-R5.10 (see `PLAN.md` Requirement IDs; original
+wording in `SOURCE.md` Block A Issue 5). `R5.6`'s other half, `R5.6a` (= `R1.14`), is
+owned by Concept 01; see `DIVERGENCES.md` D1.
 
 **Depends on:** Concept 03 merged to `main` (documenting/reorganizing Adapter code
 before composition settles would mean redoing this work when Concept 03 moves things).
@@ -21,6 +21,10 @@ change itself, and must not be mixed with it.
   Adapter tests, applying Concept 01's corrected conventions (which, per D1, already
   made `ai/context/skse/cpp-style.md`'s normative rules Bridge-free before this concept
   starts).
+- `R5.6b`: once `cpp-style.md`'s rules are already correct per Concept 01/`R5.6a`,
+  trim any remaining non-normative verbosity or historical color left in that file's
+  prose -- illustrative examples, worked-through genealogy of a since-replaced type,
+  and similar -- without touching the normative rules themselves.
 - Every handwritten class/interface, struct, enum and enum value, type alias,
   constructor/destructor, field, method, free function, and private/file-local/test
   helper keeps concise Doxygen-compatible documentation; shrink oversized blocks to
@@ -49,9 +53,9 @@ change itself, and must not be mixed with it.
 
 - All current Adapter production code, plugin entry point, and Adapter tests --
   documentation and member ordering only, no logic changes.
-- `ai/context/skse/cpp-style.md`, only for residual non-normative example trimming, if
-  any remains after Concept 01's R1.14 fix (the normative-correctness slice is already
-  done; do not re-touch normative rules here).
+- `ai/context/skse/cpp-style.md`, for `R5.6b`'s residual non-normative example
+  trimming only (the `R5.6a`/`R1.14` normative-correctness slice is already done in
+  Concept 01; do not re-touch normative rules here).
 
 ## Tests / proof obligations
 
@@ -73,5 +77,6 @@ change itself, and must not be mixed with it.
 
 - Every covered R5.x acceptance bullet satisfied and traceable to specific files.
 - Full Adapter/C++ test suite green.
-- `PLAN.md` status table updated with PR number and merge SHA -- this is the package's
-  final concept; on completion, verify the phase completion gate in `PLAN.md` section 9.
+- `PLAN.md` status table updated with this concept's PR number, marked `Complete` once
+  merged -- this is the package's final concept; on completion, verify the phase
+  completion gate in `PLAN.md` section 9.

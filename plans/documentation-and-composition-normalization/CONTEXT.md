@@ -38,6 +38,16 @@ Status: pending
 - Package-wide invariant: no opportunistic cleanup; preserve runtime/protocol/security/
   public behavior in every concept unless that concept's own scope states otherwise;
   report unrelated findings separately. See `PLAN.md` section 3.
+- 2026-09-13 correction pass (five items, approved before freezing the package):
+  status tracking drops the merge-SHA column (`Status | PR` only, GitHub owns the SHA);
+  `R5.6` is split explicitly into `R5.6a` (Concept 01/`R1.14`, normative correctness)
+  and `R5.6b` (Concept 05, non-normative cleanup) rather than reassigned wholesale;
+  Concept 01's changelog cleanup no longer rewrites historically-accurate versioned
+  entries for saying "Bridge", only header/workflow/`[Unreleased]` prose and factually
+  misleading entries; Concept 02's prescriptive startup pseudo-sequence is replaced
+  with a requirement to establish and preserve the actual current ordering from
+  `Program.cs`/tests, framed as "composition equivalence"; Concept 02's static-
+  dictionary example is now explicitly conditional on what the lifetime audit finds.
 
 ## Deferred debt
 

@@ -83,4 +83,5 @@ test the signaling and construction guarantees that actually exist.
 - Every R3.x acceptance bullet satisfied and traceable to a specific file/test.
 - Full Adapter/C++ test suite green; new composition/lifecycle tests included and
   passing.
-- `PLAN.md` status table updated with PR number and merge SHA; unblocks Concept 05.
+- `PLAN.md` status table updated with this concept's PR number, marked `Complete` once
+  merged; unblocks Concept 05.
