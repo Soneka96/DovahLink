@@ -158,7 +158,7 @@ Security rules apply before the Host accepts any client connection. A local-netw
   Skyrim, never silently trusts a client, never invents or merges uncertain credentials, and always
   supports a clean reset-and-re-pair path. This phase's trust-store implementation only needs to
   satisfy a single Host process, but its boundary must not make later multi-process synchronization
-  (Stage 10, Multi-Bridge and Local Discovery Foundation) require rewriting the pairing protocol or
+  (Stage 10, Multi-Instance and Local Discovery Foundation) require rewriting the pairing protocol or
   trust-domain model.
 - Revocation is immediate: revoking a trusted client removes its active trust, invalidates its
   current authenticated session, closes that connection, and rejects reuse of the revoked credential;
@@ -235,8 +235,9 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     The glue script and ConsoleUtil Extended's YAML config are kept outside `adapter/`: they are not
     part of the native DovahLink core, only an optional way to reach it. Each native function does
     nothing but call `TrustAdminService` and return a formatted string; it owns no trust logic of its
-    own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
-    introduce Papyrus into the core bridge/adapter" rule -- the Papyrus surface is glue only, never policy.
+    own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s Papyrus rule
+    (originally written for the retired Bridge, now the Adapter's own boundary) -- the Papyrus
+    surface is glue only, never policy.
   - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
     the native Adapter or Host themselves. The Adapter attempts native Papyrus-function registration
     unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing

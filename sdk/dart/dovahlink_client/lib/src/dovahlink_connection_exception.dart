@@ -1,5 +1,5 @@
 /// Thrown when establishing or maintaining the transport connection fails -- a socket-level
-/// problem, not a bridge-reported failure.
+/// problem, not a Host-reported failure.
 class DovahLinkConnectionException implements Exception {
   /// Creates a connection exception with a diagnostic [message].
   const DovahLinkConnectionException(this.message);

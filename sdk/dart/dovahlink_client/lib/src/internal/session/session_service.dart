@@ -75,7 +75,7 @@ abstract interface class ISessionService {
   void onSessionInvalidated(AdministrativeInvalidationReason reason);
 
   /// Reports a decoded unsolicited `error` push (`correlationId: null`), sent for a violation the
-  /// bridge detects before it can correlate a reply -- for example before decoding completes, or
+  /// Host detects before it can correlate a reply -- for example before decoding completes, or
   /// before a session exists. Not ordinary connectivity loss: the connection is torn down without
   /// automatic reconnect, carrying [error]'s own code/message/retryable classification rather than
   /// a generic malformed-message reason.
@@ -240,7 +240,7 @@ class SessionService implements ISessionService {
   /// retry, so this precedes best-effort resource closure rather than waiting on it, matching
   /// [ConnectionTeardownCoordinator.tearDown]'s ordering for every other reactive path -- then
   /// delegates resource closure to [ConnectionTeardownCoordinator.closeAfterInvalidation]. A
-  /// following socket close the bridge itself performs cannot overwrite this typed reason back to
+  /// following socket close the Host itself performs cannot overwrite this typed reason back to
   /// generic transport loss -- see [_handleReceiveFailure]'s generation/state guard.
   @override
   void onSessionInvalidated(AdministrativeInvalidationReason reason) {
@@ -277,7 +277,7 @@ class SessionService implements ISessionService {
 
   /// Implements [ISessionService.onUnsolicitedError]. Not ordinary connectivity loss -- torn down
   /// without orphaning any retry-safe operation for automatic reconnect, carrying [error]'s own
-  /// bridge-reported classification rather than a generic malformed-message reason.
+  /// Host-reported classification rather than a generic malformed-message reason.
   @override
   void onUnsolicitedError(ErrorPayload error) {
     unawaited(

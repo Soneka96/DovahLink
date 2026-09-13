@@ -9,12 +9,12 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.1-adapter-enum-and-constants-physical-normalization.md`
-- Status: implementation complete on PR #61 (branch
-  `refactor/01.1-adapter-enums-and-constants-normalization`) -- awaiting maintainer
+- File: `01.2a-active-documentation-and-instruction-terminology.md`
+- Status: implementation complete on PR #62 (branch
+  `docs/01.2a-active-documentation-and-instruction-terminology`) -- awaiting maintainer
   review, green CI, and merge.
-- Prerequisites: Concept 01 merged (`main` @ `8847fcdc`, PR #60) -- satisfied.
-- Next action: resolve PR #61's review and CI findings and merge it. Per D4, Concept 02
+- Prerequisites: Concept 01.1 merged (`main` @ `77f31fa0`, PR #61) -- satisfied.
+- Next action: resolve PR #62's review and CI findings and merge it. Per D4, Concept 02
   still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain,
   same as Concept 03 -- do not unblock 02 or 03 until 01.3c actually merges.
 
@@ -22,6 +22,8 @@ Status: active (package frozen 2026-09-13)
 
 - `01-conventions-and-changelog.md` -- merged to `main` via PR #60 (merge commit
   `8847fcdc`, 2026-09-13).
+- `01.1-adapter-enum-and-constants-physical-normalization.md` -- merged to `main` via
+  PR #61 (merge commit `77f31fa0`, 2026-09-13).
 
 ## Decisions and approved deviations
 
@@ -187,6 +189,11 @@ design, not debt.)
   review, who may approve one large atomic PR; >100 return to `01.3a` for a genuinely
   staged design or stop). Confirmed via fresh-eyes phrase search that no other D4
   file has the same unsafe pattern.
+- 2026-09-13 post-merge bookkeeping (this session, planning-only): `PLAN.md`'s status
+  table row for Concept 01.1 updated `In progress` -> `Complete | #61` (PR #61 merged
+  to `main` as `77f31fa0`); Concept 01.2a's row updated `Blocked by 01.1` -> `Planned`.
+  `CONTEXT.md`'s Active concept, Completed concepts, and Handoff sections updated to
+  match -- Concept 01.1 moved to Completed, Concept 01.2a is now Active/next.
 
 ## Verification
 
@@ -220,13 +227,35 @@ design, not debt.)
   family`) across the whole planning package: every remaining hit is either already
   fixed, historical record of a prior correction, or `SOURCE.md`'s frozen text --
   none is a live stale claim.
+- Confirmed via `git log`/`git show` that PR #61 is actually merged to `main`
+  (`77f31fa0`, parents `8847fcdc`+`3d2215c5`) before marking Concept 01.1 `Complete` --
+  not inferred from the branch's own prior "implementation complete, awaiting merge"
+  note, per this plan's own rule that `Complete` is authoritative only once GitHub's
+  merge record confirms it (`PLAN.md` section 8).
+- 2026-09-13 Concept 01.2a / PR #62 verification (this session, implementation --
+  supersedes the planning-only evidence above for this concept; base `77f31fa0` is
+  unchanged, but the file count and every check below are 01.2a's own, not D4's
+  planning-time estimate): base `77f31fa0`, head `39d565d3e2948b456a74f940c91ab7c444aff04d`,
+  `git diff --name-only base...HEAD` = **34 files**. `python -m unittest discover -s
+  tooling -p "test_*.py"`: 166/166 passed. `dart analyze` (`sdk/dart/dovahlink_client`):
+  no issues found. `dart test` (same package): 623/623 passed. Final Bridge inventory
+  on this concept's two prose-fix targets (`ai/context/integration/testing.md`,
+  `ai/context/sdk/api-design.md`): the only remaining case-insensitive `bridge` hits
+  are `Bridge/client version`, `Bridge compatibility mechanics`, `Bridge version`,
+  `SDK/Bridge compatibility`, `bridgeInstanceId`, and `"Bridge is older/newer than
+  supported"` -- all category D (compatibility/identity vocabulary reserved for
+  `01.3a`-`01.3c`); no category-A occurrence remains. Diff audit across all 34 changed
+  files: every `+`/`-` line in the 10 touched `.dart` source files is a `///`/`//`
+  comment line (verified by filtering the diff for non-comment changes -- none found);
+  the remaining 24 files are Markdown/YAML/Papyrus documentation, the planning
+  package, and `tooling/test_repository_consistency.py`'s assertion literals. No
+  identifier, signature, executable-statement, serialization, or wire-contract change
+  anywhere in the diff.
 
 ## Handoff
 
-Next concept: `01.1-adapter-enum-and-constants-physical-normalization.md` --
-implementation complete on PR #61 (branch
-`refactor/01.1-adapter-enums-and-constants-normalization`). The D4 planning
-insertion (five new concepts, `01.2a`-`01.3c`) is still awaiting maintainer review
-before any of them may begin implementation; 01.1 does not depend on that review.
-Blocked by: PR #61's review, CI, and merge. After merge: mark 01.1 Complete in
-`PLAN.md` and unblock Concept 01.2a.
+Next concept: `01.2a-active-documentation-and-instruction-terminology.md` --
+implementation complete on PR #62 (branch
+`docs/01.2a-active-documentation-and-instruction-terminology`). Blocked by: PR #62's
+review, CI, and merge. After merge: mark 01.2a Complete in `PLAN.md` and unblock
+Concept 01.2b.

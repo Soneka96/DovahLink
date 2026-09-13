@@ -9,9 +9,9 @@ The common developer experience hides boring reusable connection mechanics: raw 
 Ping/Pong, heartbeat implementation, ports once discovery/selection own them, credentials, secure
 storage, session teardown, retry/backoff, revision recovery, snapshot reconciliation, stale-session
 suppression, subscription recovery, and Bridge compatibility mechanics. The long-term simple
-experience trends toward: find/select a Bridge, pair if necessary, listen to typed state. Only
-expose behavior the roadmap phases completed at the time actually support — do not pull discovery,
-multi-Bridge, or automatic-connection behavior forward merely to satisfy this shape early; extend
+experience trends toward: find/select a DovahLink instance, pair if necessary, listen to typed state.
+Only expose behavior the roadmap phases completed at the time actually support — do not pull discovery,
+multi-instance, or automatic-connection behavior forward merely to satisfy this shape early; extend
 the simple API when those phases land instead.
 
 ## Expert capabilities
@@ -44,7 +44,7 @@ curated public API.
 ## Typed errors, app-owned wording
 
 The SDK converts infrastructure/contract failures into typed semantic client failures/events (for
-example: pairing code expired, client/device revoked, Bridge unavailable, incompatible Bridge
+example: pairing code expired, client/device revoked, Host unavailable, incompatible Bridge
 version, connection lost, recovery failed, state unavailable) rather than freezing exact type names
 speculatively. The SDK owns typed meaning; the app owns user-facing wording and presentation. The
 app must not parse raw socket exceptions or diagnostic strings to determine product behavior, and
@@ -96,7 +96,7 @@ SDK knows whether the remote subscription and recovery state are actually valid.
 
 An SDK consumer subscribes and unsubscribes explicitly per domain; subscription must never be
 inferred from whether a Dart Stream happens to have listeners. `unsubscribe` for a domain tells the
-Bridge to stop traffic for that domain/client rather than only detaching the local listener. After
+Host to stop traffic for that domain/client rather than only detaching the local listener. After
 ordinary reconnect, the SDK restores previously desired subscriptions automatically. After
 administrative invalidation, desired subscriptions remain remembered but stay dormant — the SDK
 does not reactivate them until an explicit user-initiated Retry succeeds, mirroring the
@@ -126,8 +126,8 @@ Every SDK request/operation carries three independent properties, not one combin
   duplicate effect, not that it retries indefinitely; a `retrySafe` operation may be retried once
   automatically after reconnect, and a repeated failure is surfaced rather than retried again. A
   non-`retrySafe` operation whose response is lost must not be automatically re-sent — the SDK
-  cannot know whether the Bridge already executed it. This is a transport-level property, unrelated
-  to any future Bridge-side command idempotency/replay-protection design.
+  cannot know whether the Host already executed it. This is a transport-level property, unrelated
+  to any future Host-side command idempotency/replay-protection design.
 - Session requirement — the connection/trust state an operation requires (connected, unpaired,
   trusted, ...), expressed with the existing trust/session concepts rather than a new privilege
   layer. A queued operation that survives reconnect is revalidated against the new session state

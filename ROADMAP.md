@@ -42,7 +42,7 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   outward in focused phases/PRs:
 
   ```text
-  Core / Skyrim / Bridge
+  Adapter / Host
           ↓
   SDK / Client Integration
           ↓
@@ -100,7 +100,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |
 | 8 | Planned | [Stage 8 — Live Player State](roadmap/08-live-player-state.md) |
 | 9 | Planned. Extends the capacity-one session-registry boundary established by Stage 4.2. | [Stage 9 — Multi-Client Runtime Foundation](roadmap/09-multi-client-runtime-foundation.md) |
-| 10 | Planned | [Stage 10 — Multi-Bridge and Local Discovery Foundation](roadmap/10-multi-bridge-and-local-discovery-foundation.md) |
+| 10 | Planned | [Stage 10 — Multi-Instance and Local Discovery Foundation](roadmap/10-multi-bridge-and-local-discovery-foundation.md) |
 | 11 | Planned | [Stage 11 — Automatic Connection and Transport Selection](roadmap/11-automatic-connection-and-transport-selection.md) |
 | 12 | Planned | [Stage 12 — Mod Awareness](roadmap/12-mod-awareness.md) |
 | 13 | Planned | [Stage 13 — Interactive Map Foundation](roadmap/13-interactive-map-foundation.md) |
@@ -119,7 +119,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 26 | Planned | [Stage 26 — Installed UI Detection](roadmap/26-installed-ui-detection.md) |
 | 27 | Planned | [Stage 27 — Optional UI Mod Adapters](roadmap/27-optional-ui-mod-adapters.md) |
 | 28 | Planned after read-only product validation | [Stage 28 — Safe Companion Authorization Foundation](roadmap/28-safe-companion-authorization-foundation.md) |
-| 29 | Planned | [Stage 29 — Runtime Profiling and Advanced Bridge Hardening](roadmap/29-runtime-profiling-and-advanced-bridge-hardening.md) |
+| 29 | Planned | [Stage 29 — Runtime Profiling and Advanced Hardening](roadmap/29-runtime-profiling-and-advanced-bridge-hardening.md) |
 | 30 | Planned | [Stage 30 — CommonLib Dependency Maintenance Audit](roadmap/30-commonlib-dependency-maintenance-audit.md) |
 
 ## Major dependencies

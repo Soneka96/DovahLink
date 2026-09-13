@@ -266,12 +266,12 @@ class DovahLinkClient {
   /// Sends `hello` and negotiates the session. Resolves and persists this installation's
   /// `clientId` on first use, and automatically presents a stored trusted credential as
   /// `trusted_device_credential` for an ordinary reconnect. Admits `unpaired` both when no
-  /// credential is stored yet and when a `CONFIRMING` pairing is still outstanding -- the bridge
+  /// credential is stored yet and when a `CONFIRMING` pairing is still outstanding -- the Host
   /// has not yet committed that credential as trusted, so it must not be presented as one. Once
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
   /// trust state; see [RequestPolicy.requiredTrustState] and [IAuthenticationService.hello].
-  /// @throws [DovahLinkProtocolException] if the bridge rejects authentication.
+  /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
   Future<HelloResult> hello() => _authenticationService.hello();
 
   /// See [IAuthenticationService.authenticate].
@@ -315,7 +315,7 @@ class DovahLinkClient {
   /// Echoes back a [credential] durably saved from [confirmPairingCode], completing pairing.
   /// [trustState] becomes [DovahLinkTrustState.trusted] on success, and the persisted recovery
   /// state clears back to [PairingRecoveryState.none] while keeping the credential.
-  /// @throws [DovahLinkPairingException] if the bridge has no matching pending confirmation or
+  /// @throws [DovahLinkPairingException] if the Host has no matching pending confirmation or
   ///     an administrative mutation invalidated the pending credential.
   Future<void> acknowledgeTrustedCredential(String credential) =>
       _pairingService.acknowledgeTrustedCredential(credential);
@@ -326,7 +326,7 @@ class DovahLinkClient {
   ///
   /// A no-op returning [DovahLinkTrustState.unpaired] when no confirmation is outstanding. When
   /// one is, retries [acknowledgeTrustedCredential] with the stored credential: a
-  /// `pending_not_found` outcome (the bridge restarted and lost the pending credential) or
+  /// `pending_not_found` outcome (the Host restarted and lost the pending credential) or
   /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
   /// discards the local credential and resets to unpaired rather than treating that as a fatal
   /// error; any other failure leaves the `CONFIRMING` state untouched so a later relaunch can retry
@@ -350,7 +350,7 @@ class DovahLinkClient {
   Future<void> disconnect() => _sessionService.disconnect();
 
   /// Discards the persisted pairing credential and recovery state while preserving [clientId], so
-  /// the next [hello] presents [AuthMethod.unpaired] instead of a credential the bridge has
+  /// the next [hello] presents [AuthMethod.unpaired] instead of a credential the Host has
   /// already rejected. Call after a `trusted_device_credential` hello is rejected
   /// (`unauthenticated`/`revoked`) and before retrying -- this installation's identity is not
   /// itself invalid, only its stored credential. Does not touch the transport or in-memory

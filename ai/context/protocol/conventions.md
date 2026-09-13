@@ -1,6 +1,6 @@
 # Protocol conventions
 
-The protocol is the canonical contract joining the SKSE bridge and Flutter client. Its sole source of truth is `protocol/schema/`; shared contract fixtures live in `protocol/fixtures/`. It is not a shared implementation library and must not contain Flutter, Dart, C++, CommonLib, Redux, or Skyrim runtime types.
+The protocol is the canonical contract joining the DovahLink Host and Flutter client. Its sole source of truth is `protocol/schema/`; shared contract fixtures live in `protocol/fixtures/`. It is not a shared implementation library and must not contain Flutter, Dart, C++, CommonLib, Redux, or Skyrim runtime types.
 
 ## Ownership model
 
@@ -26,7 +26,7 @@ Flutter client model
 
 Use the correct category instead of treating every message as a generic response:
 
-- **Command:** a client asks the bridge to do something. The first release should have none that change game state.
+- **Command:** a client asks the Host to do something. The first release should have none that change game state.
 - **Response:** the direct result of a command, including success or failure.
 - **Snapshot:** a complete current view of a state area that can rebuild a client after connection or recovery.
 - **Event:** an ordered update describing a change since a known state.
@@ -41,7 +41,7 @@ Use the correct category instead of treating every message as a generic response
 - State whether a field is required, optional, nullable, or version-gated.
 - Use explicit units, coordinate systems, enum meanings, and timestamp semantics.
 - Do not encode presentation concerns such as widget layout, theme, or screen position into game-state messages.
-- Do not use plausible defaults when the bridge does not know a value; represent unavailable data explicitly.
+- Do not use plausible defaults when the Host does not know a value; represent unavailable data explicitly.
 
 ## State flow
 

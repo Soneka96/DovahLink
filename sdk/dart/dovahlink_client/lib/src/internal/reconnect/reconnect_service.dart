@@ -28,7 +28,7 @@ abstract interface class IReconnectService {
 /// caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
 /// constructs one of its own dependencies.
 class ReconnectService implements IReconnectService {
-  /// Reconnects to and disconnects from the bridge, and reports live connection state.
+  /// Reconnects to and disconnects from the Host, and reports live connection state.
   final ISessionService _sessionService;
 
   /// Re-authenticates the reconnected transport, admitting a fresh session on success.
@@ -77,7 +77,7 @@ class ReconnectService implements IReconnectService {
   /// installation's credential (per [CredentialRejectionReason.fromProtocolErrorCode] -- `revoked`
   /// or `blocked`, not a generic `unauthorized`/`malformedMessage`), forgets that credential before
   /// stopping, the same way `IAuthenticationService.authenticate`'s own explicit-retry path
-  /// already does: a credential the bridge has permanently rejected must not be presented again by
+  /// already does: a credential the Host has permanently rejected must not be presented again by
   /// a later automatic recovery attempt. Also stops, without touching the connection again, if
   /// something else (an explicit disconnect or an administrative invalidation) already moved the
   /// session out of `reconnecting`. On exhaustion or terminal rejection, finalizes the cycle with

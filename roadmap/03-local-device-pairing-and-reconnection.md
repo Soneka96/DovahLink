@@ -142,14 +142,14 @@ simultaneously logged-in local account is a separate threat boundary to solve de
 becomes required, not something assumed from `127.0.0.1`. See `ai/context/protocol/security.md` for
 the full threat-boundary documentation this phase must produce.
 
-The Phase 3 trust-store implementation only needs to satisfy the current single-Bridge-process
+The Phase 3 trust-store implementation only needs to satisfy the current single-Host-process
 requirement, but its boundary must not make later multi-process support require rewriting the
-pairing protocol or trust-domain model; Phase 10 will eventually permit multiple Bridge processes for
-the same Windows user, and shared per-user trust must be able to gain multi-process synchronization
-later without changing client authentication semantics. This phase does not implement Phase 9
-concurrent-client delivery, Phase 10 multi-Bridge discovery, or Phase 11 automatic connection/transport
-selection; reconnect here targets the already-known local endpoint rather than discovering or
-selecting among Bridge processes.
+pairing protocol or trust-domain model; Phase 10 will eventually permit multiple DovahLink instances
+for the same Windows user, and shared per-user trust must be able to gain multi-process
+synchronization later without changing client authentication semantics. This phase does not
+implement Phase 9 concurrent-client delivery, Phase 10 multi-instance discovery, or Phase 11
+automatic connection/transport selection; reconnect here targets the already-known local endpoint
+rather than discovering or selecting among instances.
 
 ### Acceptance criteria
 

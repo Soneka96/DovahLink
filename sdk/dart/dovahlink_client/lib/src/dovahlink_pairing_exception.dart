@@ -2,10 +2,10 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Thrown when a pairing operation reports a non-success outcome.
 class DovahLinkPairingException implements Exception {
-  /// Creates a pairing exception from the bridge's reported [outcome] and optional retry delay.
+  /// Creates a pairing exception from the Host's reported [outcome] and optional retry delay.
   const DovahLinkPairingException(this.outcome, {this.retryAfterSeconds});
 
-  /// The bridge's reported outcome: [PairingOutcome.expired], [PairingOutcome.invalid],
+  /// The Host's reported outcome: [PairingOutcome.expired], [PairingOutcome.invalid],
   /// [PairingOutcome.pacingLimited], or [PairingOutcome.hardLimitReached] (from
   /// `pairing_confirm`), [PairingOutcome.pendingNotFound] or
   /// [PairingOutcome.pairingInvalidated] (from `pairing_ack`).

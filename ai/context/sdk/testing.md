@@ -61,9 +61,9 @@ consume them rather than redefining equivalent examples.
 
 Use a controllable, thread-safe fake transport for state-machine, compatibility, session, and
 recovery tests; a real local socket check -- against a fake local WebSocket server (see
-`test/support/fake_websocket_server.dart`), not the Bridge harness -- is required only when
+`test/support/fake_websocket_server.dart`), not the Host harness -- is required only when
 transport framing or platform networking changes, mirroring `ai/context/integration/testing.md`'s
-end-to-end boundary. Do not depend on a running Skyrim process, and do not depend on the Bridge
+end-to-end boundary. Do not depend on a running Skyrim process, and do not depend on the Host
 harness, for behavior that can be proven deterministically without either.
 
 ## Service test boundaries

@@ -16,7 +16,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Owns `hello`/authentication and credential-rejection recovery, per
 /// `ai/context/sdk/architecture.md`'s "Internal composition". Resolves and persists this
-/// installation's `clientId`, negotiates trust with the bridge, and recovers from a rejected
+/// installation's `clientId`, negotiates trust with the Host, and recovers from a rejected
 /// `trusted_device_credential` hello by discarding it and retrying once as `unpaired`.
 abstract interface class IAuthenticationService {
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
@@ -25,23 +25,23 @@ abstract interface class IAuthenticationService {
   /// Sends `hello` and negotiates the session. Resolves and persists this installation's
   /// `clientId` on first use, and automatically presents a stored trusted credential as
   /// `trusted_device_credential` for an ordinary reconnect. Admits `unpaired` both when no
-  /// credential is stored yet and when a `CONFIRMING` pairing is still outstanding -- the bridge
+  /// credential is stored yet and when a `CONFIRMING` pairing is still outstanding -- the Host
   /// has not yet committed that credential as trusted, so it must not be presented as one. Once
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
   /// trust state.
-  /// @throws [DovahLinkProtocolException] if the bridge rejects authentication.
+  /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
   Future<HelloResult> hello();
 
   /// Connects to [uri] and authenticates, recovering from a rejected `trusted_device_credential`
   /// hello (`revoked` or an unrecognized credential) by discarding it and retrying once as
-  /// `unpaired` -- the bridge always accepts that, so a recoverable rejection never surfaces as a
+  /// `unpaired` -- the Host always accepts that, so a recoverable rejection never surfaces as a
   /// thrown exception here. [HelloResult.recoveredFromRejectedCredential] reports whether that
   /// happened and why, so a caller can still explain it to the user. A transport failure, a
   /// non-recoverable protocol rejection, or the retry attempt's own failure still throws normally.
   ///
   /// A no-op that returns the cached result of the last [hello] when this client is already
-  /// connected and trusted -- the bridge's one-session-per-connection limit
+  /// connected and trusted -- the Host's one-session-per-connection limit
   /// (`handshake_handler.cpp`'s `TryCreateSession`) rejects a second `hello` on a socket that
   /// already holds a session, so re-authenticating an already-trusted, still-open connection must
   /// not re-send one. Otherwise disconnects first whenever a connection is already open --
@@ -54,7 +54,7 @@ abstract interface class IAuthenticationService {
   Future<HelloResult> authenticate(Uri uri);
 
   /// Discards the persisted pairing credential and recovery state while preserving [clientId], so
-  /// the next [hello] presents `AuthMethod.unpaired` instead of a credential the bridge has
+  /// the next [hello] presents `AuthMethod.unpaired` instead of a credential the Host has
   /// already rejected. Call after a `trusted_device_credential` hello is rejected
   /// (`unauthenticated`/`revoked`) and before retrying -- this installation's identity is not
   /// itself invalid, only its stored credential. Does not touch the transport or in-memory
@@ -171,7 +171,7 @@ class AuthenticationService implements IAuthenticationService {
       );
       _bridgeVersion = ack.bridgeVersion;
 
-      // The bridge always sends an unprompted `capabilities` message right after `hello_ack`; it
+      // The Host always sends an unprompted `capabilities` message right after `hello_ack`; it
       // arrives as an unsolicited (null-correlationId) message and is discarded by
       // MessageRouter -- exposing it is out of this client's current scope. hello() does not
       // wait for it.

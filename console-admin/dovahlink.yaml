@@ -1,6 +1,6 @@
-# ConsoleUtil Extended command definition for DovahLink Bridge's trust-administration console
-# adapter. Optional: only takes effect if ConsoleUtil Extended is installed alongside DovahLink
-# Bridge. Place this file in Data\SKSE\CustomConsole\ per ConsoleUtil Extended's documented config
+# ConsoleUtil Extended command definition for DovahLink's trust-administration console
+# adapter. Optional: only takes effect if ConsoleUtil Extended is installed alongside DovahLink.
+# Place this file in Data\SKSE\CustomConsole\ per ConsoleUtil Extended's documented config
 # location. See ../README.md for the full install and dependency notes.
 
 version: 1

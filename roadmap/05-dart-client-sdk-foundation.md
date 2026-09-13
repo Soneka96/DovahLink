@@ -27,7 +27,8 @@ production consumer proving the supported SDK API is sufficient to build a compl
 ### Scope and behavior
 
 - Complete `sdk/dart/dovahlink_client/` as a first-class repository ownership boundary alongside
-  `app/`, `bridge/`, `protocol/`, and `integration/`, per `ARCHITECTURE.md` and `ai/context/sdk/`.
+  `app/`, `host/`, `adapter/`, `protocol/`, and `integration/`, per `ARCHITECTURE.md` and
+  `ai/context/sdk/`.
 - Complete the reusable Dart-side connection, compatibility, authentication, pairing, reconnect,
   session, revision, subscription, and recovery behavior in the SDK boundary rather than rebuilding
   it in Flutter. The current pairing/reconnect work remains pulled forward; Stage 5 adds the
@@ -118,7 +119,7 @@ This phase depends on Phases 2, 3, and 4 and consumes their approved identity, p
 protocol, and live-synchronization semantics rather than redesigning them. The separate Stage 5A
 development slice consumes the SDK's pulled-forward platform-port and transport boundaries but does
 not close this phase. Stage 5 itself does not implement Phase 9 concurrent-client delivery, Phase 10
-multi-Bridge discovery, Phase 11 automatic connection/transport selection, or the generalized Stage
+multi-instance discovery, Phase 11 automatic connection/transport selection, or the generalized Stage
 22 secure LAN transport; when those phases are implemented, their Dart client behavior extends the
 SDK rather than being built privately into the app again. The independent .NET validation client
 remains a separate implementation of the canonical contract and does not consume, wrap, or generate

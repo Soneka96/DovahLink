@@ -18,7 +18,7 @@ class RequestPolicy {
   /// session that still satisfies [requiredTrustState]; a repeated failure of that retry is
   /// surfaced rather than retried again. A non-`retrySafe` operation whose response is lost to an
   /// ambiguous transport failure is never automatically re-sent -- the SDK cannot know whether the
-  /// Bridge already executed it.
+  /// Host already executed it.
   final bool retrySafe;
 
   /// The trust state the current session must already be at before this request may be sent, or
