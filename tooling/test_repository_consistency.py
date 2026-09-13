@@ -588,6 +588,37 @@ class RepositoryConsistencyTests(unittest.TestCase):
             common,
         )
 
+    def test_csharp_style_defines_semantic_member_ordering(self) -> None:
+        """Guard the semantic C# member-ordering rule that replaced append-only placement."""
+        dotnet_style = self._read("ai/context/dotnet/csharp-style.md")
+
+        self.assertIn("## Member ordering", dotnet_style)
+        for ordered_item in (
+            "1. constants and static state;",
+            "2. injected dependencies (fields populated by the constructor);",
+            "3. mutable instance state;",
+            "4. constructors;",
+            "5. properties and events;",
+            "6. interface implementation and override methods, kept together as one group;",
+            "7. other public and internal methods;",
+            "8. private helper methods;",
+            "9. nested types.",
+        ):
+            self.assertIn(ordered_item, dotnet_style)
+        self.assertIn(
+            "not automatically appended after\nthe last existing member of its kind",
+            dotnet_style,
+        )
+        self.assertIn(
+            "Do not interleave a private helper between two interface or\noverride methods "
+            "merely because it was added later",
+            dotnet_style,
+        )
+        self.assertIn(
+            "it does not apply to a project's\n`Enums.cs`/`Constants.cs` files",
+            dotnet_style,
+        )
+
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
         """Require every workflow action reference to be SHA-pinned with its version documented.
 

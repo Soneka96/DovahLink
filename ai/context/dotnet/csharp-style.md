@@ -22,6 +22,30 @@ file-organization rule. A nested type is appropriate only when it is structurall
 its owner (for example it requires `private`-member access no file boundary could express), not
 merely because it is small or currently used in one place.
 
+## Member ordering
+
+Order a class or struct's members semantically, by role, not by insertion time -- see
+`ai/context/common.md`'s "Member and collection ordering" for the shared principle behind this.
+Use this order for a normal class:
+
+1. constants and static state;
+2. injected dependencies (fields populated by the constructor);
+3. mutable instance state;
+4. constructors;
+5. properties and events;
+6. interface implementation and override methods, kept together as one group;
+7. other public and internal methods;
+8. private helper methods;
+9. nested types.
+
+A newly added member goes where its role places it in this order, not automatically appended after
+the last existing member of its kind. Do not interleave a private helper between two interface or
+override methods merely because it was added later or is called from one of them; keep interface
+and override methods grouped together and move private helpers below the whole group. This ordering
+rule governs ordinary members within a class or struct; it does not apply to a project's
+`Enums.cs`/`Constants.cs` files, whose own area-grouping banner convention (this file's "Files and
+types" section above) already gives their entries a defined order.
+
 ## Behavior-bearing boundaries
 
 - Every behavior-bearing C# class or equivalent type has an explicit interface or abstract
