@@ -1,6 +1,7 @@
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
@@ -16,9 +17,9 @@ namespace DovahLink.Host.Client.Authentication;
 /// validates the required initial <c>hello</c>, authenticates it through the three approved methods,
 /// admits a fresh session with the correct trust tier, enforces the pre-authentication admission
 /// deadline, replay protection, and the protocol-violation close policy. Enforces the per-tier
-/// inbound message allowlist, directly answers the mechanical post-admission exchanges that need no
-/// other service -- <c>capabilities</c>, <c>subscribe</c>, and <c>snapshot_request</c>, all currently
-/// answered uniformly since no capability or state area is registered -- and routes every other
+/// inbound message allowlist, directly answers <c>capabilities</c> (currently answered uniformly
+/// since no capability is registered), delegates <c>subscribe</c> and <c>snapshot_request</c> to the
+/// injected <see cref="IPublicStateSubscription"/>, and routes every other
 /// authorized message (<c>ping</c>, every pairing_* message, and <c>rename_request</c>) to the
 /// injected <see cref="IClientMessageDispatcher"/>. A dispatch that reports
 /// <see cref="ClientDispatchResult.UpgradeToFullTrust"/> upgrades this connection's own session to
@@ -85,6 +86,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// invalidation without any WebSocket type crossing into the trust/pairing/session layers.
     /// </summary>
     private readonly IPublicSessionConnectionRegistry connectionRegistry;
+
+    /// <summary>
+    /// This connection's own state-area subscription and event-forwarding gate, or
+    /// <see langword="null"/> when no subscription capability is available -- <c>subscribe</c> and
+    /// <c>snapshot_request</c> then reject every request, matching the behavior before this concept
+    /// existed.
+    /// </summary>
+    private readonly IPublicStateSubscription? subscription;
 
     /// <summary>How long this connection may remain unadmitted before it is closed.</summary>
     private readonly TimeSpan admissionDeadline;
@@ -153,6 +162,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <param name="pairingCoordinator">Records this connection's disconnect and reconnect for pairing reconnect-grace tracking.</param>
     /// <param name="connectionRegistry">Registers this connection's exact live context under its admitted session identity.</param>
     /// <param name="admissionDeadline">How long this connection may remain unadmitted before it is closed. Defaults to <see cref="Constants.PublicHelloAdmissionDeadline"/>.</param>
+    /// <param name="subscription">This connection's own state-area subscription and event-forwarding gate. Defaults to <see langword="null"/>, under which <c>subscribe</c> and <c>snapshot_request</c> reject every request.</param>
     public PublicHelloAdmissionHandler(
         IPublicEnvelopeCodec codec,
         ISessionRegistry sessionRegistry,
@@ -164,7 +174,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         IClientMessageDispatcher dispatcher,
         IPairingCoordinator pairingCoordinator,
         IPublicSessionConnectionRegistry connectionRegistry,
-        TimeSpan? admissionDeadline = null)
+        TimeSpan? admissionDeadline = null,
+        IPublicStateSubscription? subscription = null)
     {
         this.codec = codec;
         this.sessionRegistry = sessionRegistry;
@@ -177,6 +188,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         this.pairingCoordinator = pairingCoordinator;
         this.connectionRegistry = connectionRegistry;
         this.admissionDeadline = admissionDeadline ?? Constants.PublicHelloAdmissionDeadline;
+        this.subscription = subscription;
     }
 
     /// <inheritdoc/>
@@ -455,7 +467,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.UnsupportedCapability, "No capability is currently supported.");
     }
 
-    /// <summary>Answers a <c>subscribe</c> request: every requested area is rejected, since no state area is currently registered.</summary>
+    /// <summary>
+    /// Answers a <c>subscribe</c> request: delegates the accept/reject decision to
+    /// <see cref="subscription"/>, or rejects every requested area when no subscription capability is
+    /// available. Always sends <c>subscription_ack</c> before requesting delivery of any accepted
+    /// area's baseline, so the client can never observe a baseline snapshot ahead of the ack that
+    /// admitted it.
+    /// </summary>
     private void HandleSubscribe(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
     {
         if (!codec.TryDecodePayload(envelope, out SubscribePayload? payload) || payload.StateAreas.Any(stateArea => stateArea is null))
@@ -473,7 +491,11 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             currentSessionId = sessionId;
         }
 
-        var ackPayload = new SubscriptionAckPayload { AcceptedStateAreas = [], RejectedStateAreas = payload.StateAreas };
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription is null
+            ? ([], payload.StateAreas)
+            : subscription.HandleSubscribe(payload.StateAreas, reservedControlCapacity: 1);
+
+        var ackPayload = new SubscriptionAckPayload { AcceptedStateAreas = accepted, RejectedStateAreas = rejected };
         PlayContextSnapshot snapshot = playContextTracker.GetSnapshot();
         byte[] bytes = codec.Encode(
             PublicMessageType.SubscriptionAck,
@@ -483,19 +505,32 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             null,
             ackPayload);
-        connectionContext.TrySend(bytes);
+        connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
+
+        subscription?.EstablishAcceptedBaselines(accepted, envelope.MessageId);
     }
 
-    /// <summary>Answers a <c>snapshot_request</c>: always rejected as unsupported, since no state area is currently registered.</summary>
+    /// <summary>
+    /// Answers a <c>snapshot_request</c>: delegates to <see cref="subscription"/>, which sends the
+    /// fresh baseline itself when the area is registered and a value is available; rejects as
+    /// <see cref="PublicProtocolErrorCode.UnsupportedCapability"/> when the area is not registered or
+    /// no subscription capability is available.
+    /// </summary>
     private void HandleSnapshotRequest(IPublicConnectionContext connectionContext, PublicEnvelope envelope)
     {
-        if (!codec.TryDecodePayload(envelope, out SnapshotRequestPayload? _))
+        if (!codec.TryDecodePayload(envelope, out SnapshotRequestPayload? payload))
         {
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The snapshot_request message is malformed.");
             return;
         }
 
-        RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.UnsupportedCapability, "No state area is currently registered.");
+        bool isRegistered = subscription?.HandleSnapshotRequest(payload.StateArea, envelope.MessageId) ?? false;
+        if (isRegistered)
+        {
+            return;
+        }
+
+        RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.UnsupportedCapability, "This state area is not registered.");
     }
 
     /// <summary>
@@ -611,7 +646,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             null,
             payload);
-        connectionContext.TrySend(bytes);
+        connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>Validates a decoded <c>hello</c> and dispatches to the presented authentication method.</summary>
@@ -890,6 +925,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         deadlineCts?.Cancel();
         pairingCoordinator.NotifyReconnected(admittedClientId);
+        subscription?.Bind(connectionContext, newSessionId);
 
         ClientIdentityKind identityKind = source == SessionAuthenticationSource.TrustedDeviceCredential
             ? ClientIdentityKind.Paired
@@ -909,7 +945,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             admittedClientId.ToString(),
             ackPayload);
-        connectionContext.TrySend(ackBytes);
+        connectionContext.TrySend(ackBytes, PublicOutboundLane.ControlOrRecovery);
 
         var capabilitiesPayload = new CapabilitiesPayload { Capabilities = [] };
         byte[] capabilitiesBytes = codec.Encode(
@@ -920,7 +956,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             snapshot.Current?.ToString(),
             null,
             capabilitiesPayload);
-        connectionContext.TrySend(capabilitiesBytes);
+        connectionContext.TrySend(capabilitiesBytes, PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <inheritdoc/>
@@ -942,6 +978,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         deadlineCts?.Cancel();
         connectionRegistry.Unregister(connectionId);
+        subscription?.Unsubscribe();
 
         if (wasAdmitted)
         {

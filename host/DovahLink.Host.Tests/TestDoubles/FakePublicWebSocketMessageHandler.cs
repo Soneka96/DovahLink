@@ -57,7 +57,7 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
 
         if (AutoRespondPayload is not null)
         {
-            connection.TrySend(AutoRespondPayload);
+            connection.TrySend(AutoRespondPayload, PublicOutboundLane.ControlOrRecovery);
         }
 
         if (HangOnHandleMessageIgnoringCancellation)

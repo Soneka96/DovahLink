@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
@@ -5,12 +6,14 @@ using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
 using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
+using DovahLink.Host.State;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
 
@@ -90,6 +93,12 @@ internal static class Program
     /// part of its own return value or a new production service. Never invoked by the production
     /// <see cref="Main"/> entry point.
     /// </param>
+    /// <param name="hostSettingsProvider">
+    /// The provider the user-configured device cap is resolved from. Defaults to the real
+    /// <see cref="HostSettingsProvider"/>, reading the production settings file. A test that calls
+    /// this method directly may override it to exercise a specific resolved cap without touching a
+    /// real file.
+    /// </param>
     /// <returns>A successful process exit code once <paramref name="shutdown"/> is cancelled and teardown completes.</returns>
     /// <exception cref="System.Net.Sockets.SocketException">A listener could not bind its configured port.</exception>
     /// <exception cref="InvalidDataException">The persisted trust store exists but could not be decrypted or parsed.</exception>
@@ -101,7 +110,8 @@ internal static class Program
         CancellationTokenSource shutdown,
         int? publicListenerPort = null,
         ITrustStorePersistence? trustStorePersistence = null,
-        Action<SessionRegistry, PairingCoordinator>? onComposed = null)
+        Action<SessionRegistry, PairingCoordinator>? onComposed = null,
+        IHostSettingsProvider? hostSettingsProvider = null)
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -109,17 +119,28 @@ internal static class Program
         var codec = new IpcFrameCodec();
         var clock = new SystemClock();
 
+        // Resolved once and reused for both the session registry and the public listener below, so
+        // one user-configured device cap governs exactly how many authenticated sessions and how
+        // many raw connections the host admits -- the two bounds never drift apart.
+        HostSettings hostSettings = (hostSettingsProvider ?? new HostSettingsProvider()).Load();
+
         // Trust-services composition: shared by adapter-originated trust-admin requests and by the
         // public client boundary composed below, over this same instance graph.
         var securityStateGate = new SecurityStateGate();
         ITrustStore trustStore = await TrustStore.CreateAsync(
             trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), clock, securityStateGate);
-        var sessionRegistry = new SessionRegistry(securityStateGate);
+        var sessionRegistry = new SessionRegistry(securityStateGate, hostSettings.MaxActiveSessions);
         var pairingCoordinator = new PairingCoordinator(trustStore, clock);
         onComposed?.Invoke(sessionRegistry, pairingCoordinator);
         var playContextTracker = new PlayContextTracker();
         var envelopeCodec = new PublicEnvelopeCodec();
         var connectionRegistry = new PublicSessionConnectionRegistry();
+
+        // No state area is registered yet and no real domain feed exists -- a later concept
+        // registers each real Skyrim domain here and supplies a feed that adapts its captured
+        // values, per ai/context/protocol/security.md's "no state area is currently registered".
+        IRegisteredStateAreaPolicy registeredStateAreaPolicy = new RegisteredStateAreaPolicy();
+        IStatePublicationFeed statePublicationFeed = NullStatePublicationFeed.Instance;
         ISessionTerminationNotifier terminationNotifier = new PublicSessionTerminationNotifier(connectionRegistry, envelopeCodec, playContextTracker);
         IClientSessionInvalidator sessionInvalidator = new ClientSessionInvalidator(sessionRegistry, terminationNotifier);
         ITrustAdminService trustAdminService = new TrustAdminService(trustStore, sessionInvalidator, pairingCoordinator);
@@ -136,14 +157,19 @@ internal static class Program
             envelopeCodec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
 
         using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
-            ? new PublicWebSocketListener(boundPublicPort, stream => new PublicWebSocketConnection(
-                stream,
-                new PublicHelloAdmissionHandler(
-                    envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
-                    playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry),
-                clock,
-                new PublicWebSocketTransportOptions(),
-                NullPublicWebSocketTransportDiagnostics.Instance))
+            ? new PublicWebSocketListener(
+                boundPublicPort,
+                stream => new PublicWebSocketConnection(
+                    stream,
+                    new PublicHelloAdmissionHandler(
+                        envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
+                        playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry,
+                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, envelopeCodec, playContextTracker)),
+                    clock,
+                    new PublicWebSocketTransportOptions(),
+                    NullPublicWebSocketTransportDiagnostics.Instance,
+                    new DataLaneOutboundQueue()),
+                hostSettings.MaxActiveSessions)
             : null;
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
@@ -275,6 +301,41 @@ internal static class Program
             {
                 // Must never throw or block; see the interface's own documented contract.
             }
+        }
+    }
+
+    /// <summary>
+    /// A minimal composition-time placeholder for <see cref="IStatePublicationFeed"/>: never has a
+    /// current value and never raises <see cref="IStatePublicationFeed.EventOccurred"/>. Correct
+    /// today's composition root's production behavior, since no state area is registered yet --
+    /// <see cref="IRegisteredStateAreaPolicy.IsRegistered"/> already rejects every area before any
+    /// caller would ever reach this feed, so its own responses are never actually exercised in
+    /// production. A later concept, once a real domain is registered, supplies a real feed instead.
+    /// </summary>
+    private sealed class NullStatePublicationFeed : IStatePublicationFeed
+    {
+        /// <summary>The shared, stateless instance every connection reads through.</summary>
+        public static readonly NullStatePublicationFeed Instance = new();
+
+        /// <inheritdoc/>
+        public event Action<StateEventPublication>? EventOccurred
+        {
+            add { }
+            remove { }
+        }
+
+        /// <inheritdoc/>
+        public event Action<StateSnapshotPublication>? SnapshotChanged
+        {
+            add { }
+            remove { }
+        }
+
+        /// <inheritdoc/>
+        public bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot)
+        {
+            snapshot = null;
+            return false;
         }
     }
 }

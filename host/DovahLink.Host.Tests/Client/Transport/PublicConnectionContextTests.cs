@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Client.Transport;
@@ -7,18 +8,19 @@ namespace DovahLink.Host.Tests.Client.Transport;
 /// <summary>Tests for <see cref="PublicConnectionContext"/>.</summary>
 public class PublicConnectionContextTests
 {
-    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> forwards the exact payload to the wrapped connection and returns its result when the connection admits the message.</summary>
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> forwards the exact payload and lane to the wrapped connection and returns its result when the connection admits the message.</summary>
     [Fact]
-    public void TrySend_ConnectionAdmitsMessage_ForwardsPayloadAndReturnsTrue()
+    public void TrySend_ConnectionAdmitsMessage_ForwardsPayloadAndLaneAndReturnsTrue()
     {
         var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendResult = true };
         var context = new PublicConnectionContext(connection);
         byte[] payload = "response"u8.ToArray();
 
-        bool result = context.TrySend(payload);
+        bool result = context.TrySend(payload, PublicOutboundLane.Data);
 
         Assert.True(result);
         Assert.Equal(payload, Assert.Single(connection.SentPayloads));
+        Assert.Equal(PublicOutboundLane.Data, Assert.Single(connection.SentLanes));
     }
 
     /// <summary>Verifies that <see cref="PublicConnectionContext.TrySend"/> returns <see langword="false"/> when the wrapped connection does not admit the message, rather than swallowing that outcome.</summary>
@@ -29,10 +31,40 @@ public class PublicConnectionContextTests
         var context = new PublicConnectionContext(connection);
         byte[] payload = "response"u8.ToArray();
 
-        bool result = context.TrySend(payload);
+        bool result = context.TrySend(payload, PublicOutboundLane.ControlOrRecovery);
 
         Assert.False(result);
         Assert.Equal(payload, Assert.Single(connection.SentPayloads));
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, Assert.Single(connection.SentLanes));
+    }
+
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySendSnapshot"/> forwards the exact area and payload to the wrapped connection and returns its result when the connection admits the value.</summary>
+    [Fact]
+    public void TrySendSnapshot_ConnectionAdmitsValue_ForwardsAreaAndPayloadAndReturnsTrue()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendSnapshotResult = true };
+        var context = new PublicConnectionContext(connection);
+        var areaId = new StateAreaId("example_area");
+        byte[] payload = "snapshot"u8.ToArray();
+
+        bool result = context.TrySendSnapshot(areaId, payload);
+
+        Assert.True(result);
+        (StateAreaId SentAreaId, byte[] SentPayload) sent = Assert.Single(connection.SentSnapshots);
+        Assert.Equal(areaId, sent.SentAreaId);
+        Assert.Equal(payload, sent.SentPayload);
+    }
+
+    /// <summary>Verifies that <see cref="PublicConnectionContext.TrySendSnapshot"/> returns <see langword="false"/> when the wrapped connection declines the value, rather than swallowing that outcome.</summary>
+    [Fact]
+    public void TrySendSnapshot_ConnectionDeclinesValue_ReturnsFalse()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { TrySendSnapshotResult = false };
+        var context = new PublicConnectionContext(connection);
+
+        bool result = context.TrySendSnapshot(new StateAreaId("example_area"), "snapshot"u8.ToArray());
+
+        Assert.False(result);
     }
 
     /// <summary>Verifies that <see cref="PublicConnectionContext.RequestClose"/> forwards to the wrapped connection.</summary>
@@ -45,6 +77,18 @@ public class PublicConnectionContextTests
         context.RequestClose();
 
         Assert.Equal(1, connection.RequestCloseCalls);
+    }
+
+    /// <summary>Verifies that <see cref="PublicConnectionContext.RemainingOutboundCapacity"/> forwards the exact lane to the wrapped connection and returns its result.</summary>
+    [Fact]
+    public void RemainingOutboundCapacity_DelegatesLaneAndResultToConnection()
+    {
+        var connection = new FakePublicWebSocketConnection(new MemoryStream()) { RemainingOutboundCapacityResult = 5 };
+        var context = new PublicConnectionContext(connection);
+
+        int result = context.RemainingOutboundCapacity(PublicOutboundLane.Data);
+
+        Assert.Equal(5, result);
     }
 
     /// <summary>

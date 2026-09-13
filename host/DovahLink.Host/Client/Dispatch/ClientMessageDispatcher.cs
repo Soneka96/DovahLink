@@ -146,7 +146,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
         }
 
-        connection.TrySend(Encode(PublicMessageType.Pong, sessionId, envelope.MessageId, new EmptyPayload()));
+        connection.TrySend(Encode(PublicMessageType.Pong, sessionId, envelope.MessageId, new EmptyPayload()), PublicOutboundLane.ControlOrRecovery);
         return Task.FromResult(new ClientDispatchResult());
     }
 
@@ -384,14 +384,14 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         IPublicConnectionContext connection, SessionId sessionId, string correlationId, PairingStatusWireState state, int? expiresInSeconds)
     {
         var payload = new PairingStatusPayload { State = state, ExpiresInSeconds = expiresInSeconds };
-        connection.TrySend(Encode(PublicMessageType.PairingStatus, sessionId, correlationId, payload));
+        connection.TrySend(Encode(PublicMessageType.PairingStatus, sessionId, correlationId, payload), PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>Sends an <c>other_device_pairing</c> <c>pairing_status</c> reply, omitting <c>expiresInSeconds</c> entirely.</summary>
     private void SendPairingStatusOtherDevice(IPublicConnectionContext connection, SessionId sessionId, string correlationId)
     {
         var payload = new PairingStatusOtherDevicePayload { State = PairingStatusWireState.OtherDevicePairing };
-        connection.TrySend(Encode(PublicMessageType.PairingStatus, sessionId, correlationId, payload));
+        connection.TrySend(Encode(PublicMessageType.PairingStatus, sessionId, correlationId, payload), PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>Sends a <c>rename_outcome</c> reply, correlated to the request it answers.</summary>
@@ -399,7 +399,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         IPublicConnectionContext connection, SessionId sessionId, string correlationId, RenameOutcomeWireValue outcome, string? displayName)
     {
         var payload = new RenameOutcomePayload { Outcome = outcome, DisplayName = displayName };
-        connection.TrySend(Encode(PublicMessageType.RenameOutcome, sessionId, correlationId, payload));
+        connection.TrySend(Encode(PublicMessageType.RenameOutcome, sessionId, correlationId, payload), PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>Sends a canonical <c>error</c> reply, correlated to the request that triggered it.</summary>
@@ -407,7 +407,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         IPublicConnectionContext connection, SessionId sessionId, string correlationId, PublicProtocolErrorCode code, string message, bool retryable = false)
     {
         var payload = new ErrorPayload { Code = code, Message = message, Retryable = retryable };
-        connection.TrySend(Encode(PublicMessageType.Error, sessionId, correlationId, payload));
+        connection.TrySend(Encode(PublicMessageType.Error, sessionId, correlationId, payload), PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>
@@ -538,7 +538,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
 
     /// <summary>Sends a <c>pairing_outcome</c> reply, correlated to the request it answers.</summary>
     private void SendPairingOutcome(IPublicConnectionContext connection, SessionId sessionId, string correlationId, PairingOutcomePayload payload) =>
-        connection.TrySend(Encode(PublicMessageType.PairingOutcome, sessionId, correlationId, payload));
+        connection.TrySend(Encode(PublicMessageType.PairingOutcome, sessionId, correlationId, payload), PublicOutboundLane.ControlOrRecovery);
 
     /// <summary>Rounds a duration up to the nearest whole second, never negative.</summary>
     private static int RoundUpSeconds(TimeSpan duration) => (int)Math.Ceiling(Math.Max(duration.TotalSeconds, 0));

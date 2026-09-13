@@ -2,8 +2,8 @@ namespace DovahLink.Host.Client.Protocol;
 
 /// <summary>
 /// The <c>subscribe</c> message payload, per <c>protocol/schema/README.md</c>'s "<c>subscribe</c>"
-/// section. Full-session only; no state area is currently registered, so every requested area is
-/// rejected into <see cref="SubscriptionAckPayload.RejectedStateAreas"/>.
+/// section. Full-session only; a requested area is accepted only when it is currently registered,
+/// otherwise it is rejected into <see cref="SubscriptionAckPayload.RejectedStateAreas"/>.
 /// </summary>
 public sealed record SubscribePayload
 {

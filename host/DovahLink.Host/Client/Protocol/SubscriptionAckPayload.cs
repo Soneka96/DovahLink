@@ -2,9 +2,9 @@ namespace DovahLink.Host.Client.Protocol;
 
 /// <summary>
 /// The <c>subscription_ack</c> message payload, per <c>protocol/schema/README.md</c>'s
-/// "<c>subscription_ack</c>" section. Host-originated reply to <c>subscribe</c>. No state area is
-/// currently registered, so <see cref="AcceptedStateAreas"/> is always empty and every requested area
-/// appears in <see cref="RejectedStateAreas"/>.
+/// "<c>subscription_ack</c>" section. Host-originated reply to <c>subscribe</c>. A requested area
+/// appears in <see cref="AcceptedStateAreas"/> only when it is currently registered; every other
+/// requested area appears in <see cref="RejectedStateAreas"/> instead.
 /// </summary>
 public sealed record SubscriptionAckPayload
 {

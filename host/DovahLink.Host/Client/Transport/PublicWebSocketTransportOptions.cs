@@ -35,22 +35,25 @@ public sealed record PublicWebSocketTransportOptions
     public TimeSpan InboundMessageRateWindow { get; init; } = Constants.PublicWebSocketMessageRateWindow;
 
     /// <summary>
-    /// The maximum number of outbound messages this connection may own at once before
-    /// <see cref="IPublicWebSocketConnection.TrySend"/> fails -- counting both a frame still waiting
-    /// to be sent and one the writer has already dequeued but not yet finished sending, not merely
-    /// how many currently sit in the waiting queue. Currently one flat pool covering every outbound
-    /// message: no live application data is published over this transport yet, so nothing competes
-    /// with connection/control traffic for the capacity. A design that publishes live state must
-    /// split this capacity by traffic class -- a small slice reserved for connection-level control
-    /// messages, kept separate from bulk state-publication traffic -- so a slow client under
-    /// state-publication pressure cannot delay or crowd out timely control-message delivery; until
-    /// that split exists, this single bound stands in for both.
+    /// The maximum number of <see cref="PublicOutboundLane.ControlOrRecovery"/>-lane outbound messages
+    /// this connection may own at once before <see cref="IPublicWebSocketConnection.TrySend"/> fails
+    /// for that lane -- counting both a frame still waiting to be sent and one the writer has already
+    /// dequeued but not yet finished sending, not merely how many currently sit in the waiting queue.
+    /// Reserved separately from <see cref="DataOutboundQueueMaxMessages"/> so a slow client under
+    /// data-publication pressure cannot delay or crowd out timely control-message delivery.
     /// </summary>
-    public int OutboundQueueMaxMessages { get; init; } = Constants.PublicWebSocketOutboundQueueMaxMessages;
+    public int ControlOutboundQueueMaxMessages { get; init; } = Constants.PublicWebSocketControlOutboundQueueMaxMessages;
 
     /// <summary>
-    /// The maximum total encoded byte size of the outbound queue. Not yet split by traffic class,
-    /// for the same reason as <see cref="OutboundQueueMaxMessages"/>.
+    /// The maximum number of <see cref="PublicOutboundLane.Data"/>-lane outbound messages this
+    /// connection may own at once before <see cref="IPublicWebSocketConnection.TrySend"/> fails for
+    /// that lane, counted the same way as <see cref="ControlOutboundQueueMaxMessages"/>.
+    /// </summary>
+    public int DataOutboundQueueMaxMessages { get; init; } = Constants.PublicWebSocketDataOutboundQueueMaxMessages;
+
+    /// <summary>
+    /// The maximum total encoded byte size of the outbound queue, shared across both lanes in
+    /// <see cref="PublicOutboundLane"/> rather than split per lane.
     /// </summary>
     public long OutboundQueueMaxBytes { get; init; } = Constants.PublicWebSocketOutboundQueueMaxBytes;
 

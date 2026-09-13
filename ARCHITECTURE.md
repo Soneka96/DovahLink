@@ -108,8 +108,9 @@ Render companion views and manage local layout preferences. A client should rema
 
 ## Runtime and identity model
 
-One live Skyrim process owns one DovahLink adapter instance connected to one host process. A host may
-eventually serve multiple concurrent clients, and one machine may host multiple adapter/host pairs when multiple supported
+One live Skyrim process owns one DovahLink adapter instance connected to one host process. A host
+serves multiple concurrent clients, up to a configurable device cap (`ai/context/protocol/security.md`'s
+"maximum connected clients"), and one machine may host multiple adapter/host pairs when multiple supported
 Skyrim processes exist. Transport location is not identity: an address, port, hostname, or transport
 path locates an endpoint but must not become the durable identity of a bridge, play context, client,
 or connection.
@@ -158,10 +159,11 @@ host process and its per-user persistence adapter.
 
 ### Session registry and delivery ownership
 
-The host uses a bounded session registry rather than a singleton delivery architecture. The
-current admission policy is one active client session, owned by the host's session registry,
-so the host remains single-client until the multi-client phase. The registry shape is
-collection-based: each authenticated session record owns its `sessionId`, client-specific
+The host uses a bounded session registry rather than a singleton delivery architecture. Admission
+capacity is the configurable device cap from "Runtime and identity model" above
+(`ai/context/protocol/security.md`'s "maximum connected clients"), defaulting to one active client
+session until Stage 9 raises it and proves concurrent-client behavior in production. The registry
+shape is collection-based: each authenticated session record owns its `sessionId`, client-specific
 capabilities and subscriptions, outbound queue, recovery barriers, serialized writer, and
 diagnostics.
 

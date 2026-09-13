@@ -17,7 +17,8 @@ public class PublicWebSocketTransportOptionsTests
         Assert.Equal(Constants.PublicWebSocketMaxMessageBytes, options.MaxMessageBytes);
         Assert.Equal(Constants.PublicWebSocketMaxMessagesPerSecond, options.MaxInboundMessagesPerSecond);
         Assert.Equal(Constants.PublicWebSocketMessageRateWindow, options.InboundMessageRateWindow);
-        Assert.Equal(Constants.PublicWebSocketOutboundQueueMaxMessages, options.OutboundQueueMaxMessages);
+        Assert.Equal(Constants.PublicWebSocketControlOutboundQueueMaxMessages, options.ControlOutboundQueueMaxMessages);
+        Assert.Equal(Constants.PublicWebSocketDataOutboundQueueMaxMessages, options.DataOutboundQueueMaxMessages);
         Assert.Equal(Constants.PublicWebSocketOutboundQueueMaxBytes, options.OutboundQueueMaxBytes);
         Assert.Equal(Constants.PublicWebSocketGracefulCloseTimeout, options.GracefulCloseTimeout);
         Assert.Equal(Constants.PublicWebSocketMaxHandshakeRequestBytes, options.MaxHandshakeRequestBytes);

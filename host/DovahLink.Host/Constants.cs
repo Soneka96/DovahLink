@@ -107,8 +107,36 @@ public static class Constants
 
     // ---- Sessions ----
 
-    /// <summary>The maximum number of active client sessions admitted by the first host proof.</summary>
+    /// <summary>
+    /// The shipped default maximum number of concurrent active client sessions and connections,
+    /// used when the user-editable settings file at <see cref="HostSettingsFilePath"/> supplies no
+    /// valid override. See <see cref="HostSettingsProvider"/>.
+    /// </summary>
     public const int MaxActiveSessions = 1;
+
+    /// <summary>
+    /// The highest <c>maxActiveSessions</c> value <see cref="HostSettingsProvider"/> accepts from
+    /// the settings file before falling back to <see cref="MaxActiveSessions"/>. Generous headroom
+    /// over the shipped default so a legitimate household of devices is never blocked, while still
+    /// bounding a misconfigured value from defeating the bounded-resource design every per-connection
+    /// queue and byte budget assumes.
+    /// </summary>
+    public const int MaxActiveSessionsCeiling = 32;
+
+    /// <summary>The default per-Windows-user file the user-editable host settings are read from.</summary>
+    public static string HostSettingsFilePath
+    {
+        get
+        {
+            string localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localApplicationData))
+            {
+                throw new InvalidOperationException("The current Windows user has no local application-data directory.");
+            }
+
+            return Path.Combine(localApplicationData, "DovahLink", "host", "settings.json");
+        }
+    }
 
     // ---- Adapter IPC ----
 
@@ -343,14 +371,31 @@ public static class Constants
     public static readonly TimeSpan PublicWebSocketMessageRateWindow = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// The maximum number of outbound messages queued per public connection, per
-    /// <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy.
+    /// The maximum number of control-or-recovery-lane outbound messages queued per public connection,
+    /// per <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy: 16 reserved
+    /// control/recovery slots out of the 128-message total, kept separate from the data lane so a slow
+    /// client under data-publication pressure cannot delay or crowd out timely control-message
+    /// delivery.
     /// </summary>
-    public const int PublicWebSocketOutboundQueueMaxMessages = 128;
+    public const int PublicWebSocketControlOutboundQueueMaxMessages = 16;
 
     /// <summary>
-    /// The maximum total encoded byte size of the outbound queue per public connection, per
-    /// <c>ai/context/protocol/security.md</c>'s "outbound queue byte budget: 2 MiB per client".
+    /// The maximum number of data-lane (state-publication) outbound messages queued per public
+    /// connection, per <c>ai/context/protocol/security.md</c>'s bounded outbound queue policy: the
+    /// remaining 112 of the 128-message total not reserved for the control-or-recovery lane, shared
+    /// between one replaceable keyed Snapshot slot per subscribed state area and the remaining
+    /// ordered Event FIFO capacity -- see <see cref="Client.Transport.DataLaneOutboundQueue"/>. Not
+    /// yet sub-split further into the policy's own Normal/Heavy byte-size classification: per
+    /// <c>ai/context/protocol/security.md</c>'s own note, that threshold is "not yet profiled against
+    /// a real character-domain payload" -- no real Skyrim domain is registered yet, so there is
+    /// nothing to profile it against.
+    /// </summary>
+    public const int PublicWebSocketDataOutboundQueueMaxMessages = 112;
+
+    /// <summary>
+    /// The maximum total encoded byte size of the outbound queue per public connection, shared across
+    /// both lanes, per <c>ai/context/protocol/security.md</c>'s "outbound queue byte budget: 2 MiB per
+    /// client", enforced independently of the per-lane message-count bounds above.
     /// </summary>
     public const long PublicWebSocketOutboundQueueMaxBytes = 2L * 1024 * 1024;
 
@@ -439,4 +484,24 @@ public static class Constants
     /// set bounded and prevents eviction-based replay."
     /// </summary>
     public const int PublicProtocolMaxSessionMessages = 10_000;
+
+    // ---- State ----
+
+    /// <summary>
+    /// The maximum number of state areas <see cref="State.RegisteredStateAreaPolicy"/> ever admits at
+    /// once, per <c>ai/context/protocol/security.md</c>'s "maximum registered state areas: 8
+    /// (kMaxRegisteredStateAreas)". Sized for a small number of near-term production character
+    /// domains with modest headroom; not itself a wire limit.
+    /// </summary>
+    public const int MaxRegisteredStateAreas = 8;
+
+    /// <summary>
+    /// The maximum number of Events one connection's <see cref="Client.Subscription.PublicStateSubscription"/>
+    /// holds for one state area while its recovery barrier is establishing a new baseline, before
+    /// abandoning the held set and re-baselining from the newest authoritative snapshot instead.
+    /// Provisional: baseline admission is a single synchronous send, so the hold window is expected
+    /// to be microseconds and this bound is not expected to bind in practice; revisit if profiling
+    /// shows otherwise.
+    /// </summary>
+    public const int MaxHeldRecoveryEventsPerArea = 8;
 }

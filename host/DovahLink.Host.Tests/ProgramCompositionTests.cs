@@ -564,6 +564,66 @@ public class ProgramCompositionTests
     }
 
     /// <summary>
+    /// Verifies that the session registry is composed with the resolved device cap from the supplied
+    /// <see cref="IHostSettingsProvider"/>, rather than the shipped default.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_HostSettingsProviderSupplied_SessionRegistryUsesResolvedCap()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var hostSettingsProvider = new FakeHostSettingsProvider { Settings = new HostSettings(2) };
+        SessionRegistry? sessionRegistry = null;
+
+        Task<int> runTask = global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,
+            hostSettingsProvider: hostSettingsProvider,
+            onComposed: (composedSessionRegistry, _) => sessionRegistry = composedSessionRegistry);
+        await WaitUntilAsync(() => sessionRegistry is not null, runTask);
+
+        Assert.Equal(2, sessionRegistry!.MaxActiveSessions);
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies end-to-end that the public listener admits exactly the resolved device cap's worth of
+    /// concurrent connections and rejects the next attempt, proving the same resolved cap that governs
+    /// <see cref="SessionRegistry"/> also reaches <see cref="DovahLink.Host.Client.Transport.PublicWebSocketListener"/>.
+    /// </summary>
+    [Fact]
+    public async Task ComposeAndRunAsync_HostSettingsProviderSupplied_PublicListenerAdmitsExactlyResolvedCap()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var output = new SynchronizedTextCapture();
+        var hostSettingsProvider = new FakeHostSettingsProvider { Settings = new HostSettings(2) };
+
+        Task<int> runTask = global::Program.ComposeAndRunAsync(
+            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
+            publicListenerPort: 0, hostSettingsProvider: hostSettingsProvider);
+        await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
+        string rendezvous = output.Snapshot();
+        int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
+
+        using var firstClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        await firstClient.ConnectAsync(IPAddress.Loopback, publicPort);
+        using var secondClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        await secondClient.ConnectAsync(IPAddress.Loopback, publicPort);
+        using var thirdClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        await thirdClient.ConnectAsync(IPAddress.Loopback, publicPort);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!IsDisconnected(thirdClient))
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for the third connection to be rejected.");
+            await Task.Delay(TimeSpan.FromMilliseconds(20));
+        }
+
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Connects, sends an unpaired <c>hello</c> for <paramref name="clientId"/>, and -- once
     /// admitted -- also sends a <c>pairing_request</c>, awaiting exactly one well-defined outcome at
     /// each step for
@@ -635,6 +695,24 @@ public class ProgramCompositionTests
     /// <summary>Builds a unique owner-lifetime-id per test, so parallel and repeated test runs never collide over the same rendezvous file or named event.</summary>
     private static OwnerLifetimeId UniqueOwnerLifetimeId() =>
         new((uint)Random.Shared.Next(), (ulong)Random.Shared.NextInt64());
+
+    /// <summary>Whether a connected socket has since been closed by the remote peer.</summary>
+    /// <param name="socket">The socket to probe.</param>
+    private static bool IsDisconnected(Socket socket)
+    {
+        try
+        {
+            return socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0;
+        }
+        catch (SocketException)
+        {
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
+    }
 
     /// <summary>Polls <paramref name="condition"/> until it is true, failing if <paramref name="runTask"/> ends first or the bound elapses.</summary>
     private static async Task WaitUntilAsync(Func<bool> condition, Task runTask)

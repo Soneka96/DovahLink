@@ -400,7 +400,10 @@ The transport rejects input before application decoding when it exceeds the appr
 - maximum object members: 64
 - maximum inbound messages: 100 per second per client
 - maximum messages in one session: 10,000; the host closes the session before this bound is exceeded
-- maximum connected clients during the first proof: 1
+- maximum connected clients: configurable, defaulting to 1; the host reads an optional override from
+  its user-editable settings file, falling back to the default for anything missing or out of range.
+  This is a device-count/resource bound, not a change to Phase 1 exposure above: every admitted
+  connection is still loopback-only and still authenticates independently.
 - handshake timeout: 5 seconds
 - idle connection timeout: 60 seconds without a valid heartbeat or message
 - pre-authentication hello deadline: 10 seconds. This is a distinct third deadline, not a
@@ -465,8 +468,9 @@ Limit changes require explicit maintainer approval and a documented reason.
   before application handling.
 - A session cannot move to another socket. Another socket presenting the same `sessionId` is
   rejected as `stale_session`.
-- Under the first proof's one-client limit, another connection is rejected while the authenticated
-  client slot is occupied; it does not replace the active session.
+- Once every admission slot (see "Input limits"'s configurable connected-client maximum) is
+  occupied, a further connection attempt is rejected outright; it never replaces an already active
+  session.
 - To enforce the schema's unique `messageId` requirement, the host retains all seen IDs for the
   session; the 10,000-message session bound keeps this set bounded and prevents eviction-based
   replay.
