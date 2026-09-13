@@ -10,12 +10,17 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `01.2b-internal-code-test-and-tooling-terminology.md`
-- Status: planned -- not yet started.
+- Status: in progress on PR #63 (branch `refactor/01.2b-internal-code-test-and-tooling-terminology`).
+  The `BridgeEntity`->`HostEntity` cluster, Adapter internal terminology, and tooling
+  fixture renames are implemented; a scope-boundary correction (see Decisions log) has
+  reverted the runtime/user-visible and public SDK diagnostic string-literal changes
+  the PR had also made, which this concept's behavior-neutrality rule does not permit.
 - Prerequisites: Concept 01.2a merged (`main` @ `bc86f4cc`, PR #62) -- satisfied.
-- Next action: implement 01.2b (its own re-run category-B inventory, then the internal
-  identifier/comment renames it scopes). Per D4, Concept 02 still waits behind the
-  entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 --
-  do not unblock 02 or 03 until 01.3c actually merges.
+- Next action: rerun the full category-B inventory across host/adapter/sdk/app/
+  integration/tooling, record zero-unresolved evidence in this file, then stop for
+  maintainer review before merge. Per D4, Concept 02 still waits behind the entire
+  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 -- do not
+  unblock 02 or 03 until 01.3c actually merges.
 
 ## Completed concepts
 
@@ -204,6 +209,29 @@ design, not debt.)
   pass fixed for 01.1/01.2a: the concept's own PR (122c226a) could only record
   `In progress` before merging, and no follow-up commit had flipped it to `Complete`
   until now.
+- 2026-09-13 Concept 01.2b scope-boundary correction (this session): PR #63 had
+  correctly implemented the `BridgeEntity`->`HostEntity` cluster, Adapter's
+  `adapter_task_marshaller.hpp` `IBridgeCallbackRegistry` cross-reference fix, and the
+  tooling `BridgeBuilder`->`DovahLinkBuilder` fixture rename, but had also rewritten
+  runtime/user-visible string literals (app status labels, pairing failure/rejection
+  text, default display names) and public SDK diagnostic strings
+  (`DovahLinkProtocolException`/`DovahLinkConnectionException.message`, exported from
+  the SDK barrel) from "bridge" to "host" wording -- a behavior-neutrality violation
+  this concept's own scope grants no exception for; `message` is documented as
+  diagnostic-only, never branched on, so the compatibility risk is low, but the text is
+  still publicly observable (logs, error UI) and the concept's rule has no low-risk
+  carve-out. Two category-A comments the PR had also touched despite not being
+  identifier-bound (`failures.dart`'s `PairingFailure`/`SessionInvalidatedFailure` doc
+  comments, `app_test.dart`'s two inline comments) were reverted alongside the strings,
+  per 01.2a's own scope rule that general architecture-narrating prose is not 01.2b's to
+  edit; not fixed forward here, left for an 01.2a correction. Every reverted string was
+  re-verified against a matching test assertion; `dart analyze`/`dart test` (SDK,
+  623/623) and `flutter analyze`/`flutter test` (app, 349/349) re-run clean after each
+  revert. `PLAN.md`'s status table row and this file's Active concept section, still
+  reading `Planned`/"not yet started" despite PR #63 already existing with commits on
+  its branch, are updated to `In progress | #63` to match reality -- caught here before
+  merge, the same gap the 01.1/01.2a post-merge bookkeeping entries above fixed after
+  merge.
 
 ## Verification
 
@@ -269,8 +297,9 @@ design, not debt.)
 
 ## Handoff
 
-Next concept: `01.2b-internal-code-test-and-tooling-terminology.md` -- not yet
-started. Prerequisite (Concept 01.2a merged, `main` @ `bc86f4cc`, PR #62) is
-satisfied. Implementation starts on its own new branch, per `PLAN.md` section 6 (one
-branch/PR per concept) -- this bookkeeping commit itself lands directly on `main`,
-not on that branch, matching the precedent set by `403868de` for 01.1 -> 01.2a.
+Concept 01.2b implementation is on PR #63 (branch
+`refactor/01.2b-internal-code-test-and-tooling-terminology`), not yet merged --
+awaiting the category-B inventory re-run/evidence and final maintainer review.
+Handoff to Concept 01.3a follows once PR #63 actually merges to `main`, per `PLAN.md`
+section 6 (one branch/PR per concept, dependent concept waits for merge, not just
+open/approved).
