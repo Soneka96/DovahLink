@@ -114,9 +114,9 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     CredentialRejectionReason.revoked =>
       "This device's trust was revoked. Requesting a new pairing code.",
     CredentialRejectionReason.unrecognized =>
-      "This device isn't recognized by this host. Requesting a new pairing code.",
+      "This device isn't recognized by this bridge. Requesting a new pairing code.",
     CredentialRejectionReason.blocked =>
-      'This device is blocked by the host and cannot be paired again until an '
+      'This device is blocked by the bridge and cannot be paired again until an '
           'administrator unblocks it.',
     null => null,
   };

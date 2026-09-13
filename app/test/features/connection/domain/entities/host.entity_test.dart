@@ -12,7 +12,7 @@ void main() {
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
 
-      expect(host.displayName, 'Local Host');
+      expect(host.displayName, 'Local Bridge');
       expect(host.uri, Uri.parse('ws://127.0.0.1:58231/'));
     });
 
@@ -32,7 +32,7 @@ void main() {
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
       final HostEntity second = Fixtures.buildHostEntity(
-        displayName: 'Other Host',
+        displayName: 'Other Bridge',
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
 

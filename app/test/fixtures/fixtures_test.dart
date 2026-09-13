@@ -13,19 +13,19 @@ void main() {
       final HostEntity host = Fixtures.buildHostEntity();
 
       expect(host.displayName, isA<String>());
-      expect(host.displayName, 'Local Host');
+      expect(host.displayName, 'Local Bridge');
       expect(host.uri, defaultHostUri);
     });
 
     test('Method buildHostEntity preserves named overrides', () {
       final Uri uri = Uri.parse('ws://127.0.0.1:1/');
       final HostEntity host = Fixtures.buildHostEntity(
-        displayName: 'Test Host',
+        displayName: 'Test Bridge',
         uri: uri,
       );
 
       expect(host.displayName, isA<String>());
-      expect(host.displayName, 'Test Host');
+      expect(host.displayName, 'Test Bridge');
       expect(host.uri, uri);
     });
 

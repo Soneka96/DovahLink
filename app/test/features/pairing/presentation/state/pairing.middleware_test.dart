@@ -272,7 +272,7 @@ void main() {
         'SessionInvalidatedFailure', () {
       fakeAsync((FakeAsync async) {
         const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
-          'disconnected by the host',
+          'disconnected by the bridge',
         );
         when(
           () => mockAuthenticate(any()),
@@ -286,7 +286,7 @@ void main() {
 
         expect(actionLog, [
           isA<PairingStartedAction>(),
-          const PairingFailedAction('disconnected by the host'),
+          const PairingFailedAction('disconnected by the bridge'),
         ]);
 
         // Administrative invalidation must never auto-retry, unlike NetworkFailure above --

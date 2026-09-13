@@ -159,7 +159,7 @@ void main() {
             Fixtures.buildPairingHandshakeEntity(
               trusted: false,
               credentialRejectedMessage:
-                  'This device is blocked by the host and cannot be paired again until an '
+                  'This device is blocked by the bridge and cannot be paired again until an '
                   'administrator unblocks it.',
             ),
           ),
@@ -191,7 +191,7 @@ void main() {
             Fixtures.buildPairingHandshakeEntity(
               trusted: false,
               credentialRejectedMessage:
-                  "This device isn't recognized by this host. Requesting a new pairing code.",
+                  "This device isn't recognized by this bridge. Requesting a new pairing code.",
             ),
           ),
         );
@@ -239,7 +239,7 @@ void main() {
           result,
           const Left<Failure, PairingHandshakeEntity>(
             SessionInvalidatedFailure(
-              'This device was disconnected by the host. Try again.',
+              'This device was disconnected by the bridge. Try again.',
             ),
           ),
         );
@@ -271,7 +271,7 @@ void main() {
           result,
           const Left<Failure, PairingHandshakeEntity>(
             SessionInvalidatedFailure(
-              'This device was disconnected by the host. Try again.',
+              'This device was disconnected by the bridge. Try again.',
             ),
           ),
         );

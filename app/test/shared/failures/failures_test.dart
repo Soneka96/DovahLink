@@ -63,7 +63,7 @@ void main() {
         expect(SessionInvalidatedFailure.administrative.message, isA<String>());
         expect(
           SessionInvalidatedFailure.administrative.message,
-          'This device was disconnected by the host. Try again.',
+          'This device was disconnected by the bridge. Try again.',
         );
       },
     );

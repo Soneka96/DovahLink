@@ -31,7 +31,7 @@ class DatabaseFailure extends Failure {
   const DatabaseFailure(super.message);
 }
 
-/// Indicates that the host rejected a pairing attempt (an expired,
+/// Indicates that the bridge rejected a pairing attempt (an expired,
 /// invalid, or rate-limited code), as distinct from a transport-level
 /// [NetworkFailure].
 class PairingFailure extends Failure {
@@ -49,7 +49,7 @@ class PairingRetriableFailure extends PairingFailure {
   const PairingRetriableFailure(super.message);
 }
 
-/// Indicates the host administratively ended this device's session
+/// Indicates the bridge administratively ended this device's session
 /// (revoked, blocked, trust reset, or factory reset), as distinct from an
 /// ordinary [NetworkFailure]. A consumer must not treat this as transient
 /// transport loss eligible for automatic retry; recovery is always an
@@ -59,7 +59,7 @@ class SessionInvalidatedFailure extends Failure {
   /// (revoked, blocked, trust reset, or factory reset).
   static const SessionInvalidatedFailure administrative =
       SessionInvalidatedFailure(
-        'This device was disconnected by the host. Try again.',
+        'This device was disconnected by the bridge. Try again.',
       );
 
   /// Creates a session-invalidated failure.
