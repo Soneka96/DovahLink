@@ -207,15 +207,15 @@ class FormatStagedTests(unittest.TestCase):
         """Pass only the staged C# file to its owning project formatter."""
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            project_directory = root / "tooling" / "BridgeBuilder"
+            project_directory = root / "tooling" / "DovahLinkBuilder"
             project_directory.mkdir(parents=True)
-            (project_directory / "BridgeBuilder.csproj").touch()
+            (project_directory / "DovahLinkBuilder.csproj").touch()
             source = project_directory / "Program.cs"
             source.write_text("class Program {}", encoding="utf-8")
 
             commands = format_staged.formatter_commands(
                 root,
-                ["tooling/BridgeBuilder/Program.cs"],
+                ["tooling/DovahLinkBuilder/Program.cs"],
                 check=True,
             )
 
@@ -226,7 +226,7 @@ class FormatStagedTests(unittest.TestCase):
                     "dotnet",
                     "format",
                     "whitespace",
-                    str(project_directory / "BridgeBuilder.csproj"),
+                    str(project_directory / "DovahLinkBuilder.csproj"),
                     "--no-restore",
                     "--verify-no-changes",
                     "--include",
