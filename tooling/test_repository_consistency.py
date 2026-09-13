@@ -2035,6 +2035,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertNotIn(stale_phrase, conventions)
         self.assertNotIn("SKSE bridge", protocol_readme)
 
+        security = self._read("ai/context/protocol/security.md")
+        self.assertIn(
+            "the approved, narrow exception to `ai/context/skse/architecture.md`'s Papyrus rule\n"
+            "    (originally written for the retired Bridge, now the Adapter's own boundary)",
+            security,
+        )
+        self.assertNotIn("core bridge/adapter", security)
+
+        # Stage 5 is still Planned/pulled-forward, not a frozen historical record, so its
+        # ownership-boundary list must name the areas that actually exist today.
+        sdk_foundation = self._read("roadmap/05-dart-client-sdk-foundation.md")
+        self.assertIn(
+            "alongside\n  `app/`, `host/`, `adapter/`, `protocol/`, and `integration/`",
+            sdk_foundation,
+        )
+        self.assertNotIn("`app/`, `bridge/`, `protocol/`", sdk_foundation)
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(
         self,
     ) -> None:

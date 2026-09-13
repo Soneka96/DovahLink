@@ -27,7 +27,8 @@ production consumer proving the supported SDK API is sufficient to build a compl
 ### Scope and behavior
 
 - Complete `sdk/dart/dovahlink_client/` as a first-class repository ownership boundary alongside
-  `app/`, `bridge/`, `protocol/`, and `integration/`, per `ARCHITECTURE.md` and `ai/context/sdk/`.
+  `app/`, `host/`, `adapter/`, `protocol/`, and `integration/`, per `ARCHITECTURE.md` and
+  `ai/context/sdk/`.
 - Complete the reusable Dart-side connection, compatibility, authentication, pairing, reconnect,
   session, revision, subscription, and recovery behavior in the SDK boundary rather than rebuilding
   it in Flutter. The current pairing/reconnect work remains pulled forward; Stage 5 adds the

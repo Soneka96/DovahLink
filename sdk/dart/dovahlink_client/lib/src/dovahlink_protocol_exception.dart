@@ -1,9 +1,9 @@
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Thrown when the bridge reports a wire-level `error` message, or replies with an unexpected
+/// Thrown when the Host reports a wire-level `error` message, or replies with an unexpected
 /// message type.
 class DovahLinkProtocolException implements Exception {
-  /// Creates a protocol exception from the bridge's own reported failure fields, or a
+  /// Creates a protocol exception from the Host's own reported failure fields, or a
   /// client-synthesized equivalent for an unexpected reply.
   const DovahLinkProtocolException({
     required this.code,

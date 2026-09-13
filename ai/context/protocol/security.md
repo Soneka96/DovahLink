@@ -235,8 +235,9 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     The glue script and ConsoleUtil Extended's YAML config are kept outside `adapter/`: they are not
     part of the native DovahLink core, only an optional way to reach it. Each native function does
     nothing but call `TrustAdminService` and return a formatted string; it owns no trust logic of its
-    own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
-    introduce Papyrus into the core bridge/adapter" rule -- the Papyrus surface is glue only, never policy.
+    own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s Papyrus rule
+    (originally written for the retired Bridge, now the Adapter's own boundary) -- the Papyrus
+    surface is glue only, never policy.
   - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
     the native Adapter or Host themselves. The Adapter attempts native Papyrus-function registration
     unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing

@@ -18,8 +18,8 @@ class ReconnectRejectionClassifier {
       };
 
   /// Returns whether [error] should stop bounded automatic reconnect immediately. True for any of
-  /// [_alwaysTerminalCodes], or for any other code the bridge itself reported as not
-  /// [DovahLinkProtocolException.retryable]; false only for a code the bridge reported as
+  /// [_alwaysTerminalCodes], or for any other code the Host itself reported as not
+  /// [DovahLinkProtocolException.retryable]; false only for a code the Host reported as
   /// retryable and that is not one of [_alwaysTerminalCodes] -- for example a transient
   /// `rate_limited` or `internal_error` during an intermediate hello.
   static bool isTerminal(DovahLinkProtocolException error) =>
