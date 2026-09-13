@@ -23,9 +23,10 @@ reassigning it wholesale:
   on deleted Bridge paths/types as their load-bearing worked examples. Owned by
   Concept 01, tracked there as `R1.14`.
 - `R5.6b` -- remaining non-normative/historical verbosity cleanup in the C++
-  convention documents (any residual example trimming left in `cpp-style.md` once its
-  rules are already correct), plus the broader verbosity/historical-comment pass over
-  actual Adapter production code and tests. Stays with Concept 05.
+  convention documents: residual example trimming left in `cpp-style.md` once its
+  rules are already correct per `R5.6a`. Stays with Concept 05. This is distinct from
+  `R5.5`, which already owns the broader historical-comment pass over actual Adapter
+  production code and tests -- `R5.6b` touches only the convention document itself.
 
 Both halves are named directly in `PLAN.md`'s Requirement IDs and Traceability
 sections so neither loses its own ID.
