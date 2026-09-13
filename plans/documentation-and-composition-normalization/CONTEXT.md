@@ -12,15 +12,18 @@ Status: active (package frozen 2026-09-13)
 - File: `01.2b-internal-code-test-and-tooling-terminology.md`
 - Status: in progress on PR #63 (branch `refactor/01.2b-internal-code-test-and-tooling-terminology`).
   The `BridgeEntity`->`HostEntity` cluster, Adapter internal terminology, and tooling
-  fixture renames are implemented; a scope-boundary correction (see Decisions log) has
-  reverted the runtime/user-visible and public SDK diagnostic string-literal changes
-  the PR had also made, which this concept's behavior-neutrality rule does not permit.
+  fixture renames are implemented. An earlier scope-boundary correction (see Decisions
+  log) reverted the runtime/user-visible and public SDK diagnostic string-literal
+  changes the PR had also made; the maintainer has since reversed that correction (see
+  the later "scope-boundary reversal" entry below) -- those strings are being restored
+  and the concept's own file now documents the wider boundary.
 - Prerequisites: Concept 01.2a merged (`main` @ `bc86f4cc`, PR #62) -- satisfied.
-- Next action: rerun the full category-B inventory across host/adapter/sdk/app/
-  integration/tooling, record zero-unresolved evidence in this file, then stop for
-  maintainer review before merge. Per D4, Concept 02 still waits behind the entire
-  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 -- do not
-  unblock 02 or 03 until 01.3c actually merges.
+- Next action: restore the reverted Host wording, rerun the full category-B inventory
+  across host/adapter/sdk/app/integration/tooling under the corrected boundary, record
+  zero-unresolved evidence in this file, then stop for maintainer review before merge.
+  Per D4, Concept 02 still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a ->
+  01.3b -> 01.3c chain, same as Concept 03 -- do not unblock 02 or 03 until 01.3c
+  actually merges.
 
 ## Completed concepts
 
@@ -232,6 +235,30 @@ design, not debt.)
   its branch, are updated to `In progress | #63` to match reality -- caught here before
   merge, the same gap the 01.1/01.2a post-merge bookkeeping entries above fixed after
   merge.
+- 2026-09-13 Concept 01.2b scope-boundary reversal (this session): the maintainer
+  reviewed the prior scope-boundary correction above and concluded 01.2b's original
+  reading -- "behavior-neutral" means no observable text may change -- was too narrow
+  for the actual goal: retiring active "Bridge" terminology everywhere it safely can,
+  not just in non-public identifiers. `01.2b-internal-code-test-and-tooling-terminology.md`'s
+  Goal and "Public boundary exclusion" sections are rewritten: human-readable UI
+  labels, log messages, diagnostic/exception message text, test descriptions, and
+  architecture-describing comments/docs are now in scope for this concept, even where
+  a consumer can observe them (logs, error UI, test output). The exclusion narrows to
+  what is actually compatibility-bearing: `bridgeVersion`, `bridgeInstanceId`,
+  JSON/wire fields, persisted keys, public SDK API identifiers a consumer compiles
+  against, error codes, and CLI/env/config contracts -- unless a specific piece of
+  human-readable text is itself explicitly documented or consumed as a stable external
+  contract, in which case it stays excluded and defers to `01.3a`. "Behavior-neutral"
+  is redefined to mean no functional/protocol/wire change, not "no text a user or
+  consumer can see changes." Package-wide invariant compliance: this does not touch
+  public *behavior* (protocol/security/runtime), only display/diagnostic text, so it
+  does not conflict with the package-wide "preserve runtime/protocol/security/public
+  behavior" invariant or with `01.3a`'s wire-vocabulary-only territory (confirmed by
+  re-reading `01.3a-public-vocabulary-and-identity-semantics.md`, which governs only
+  `bridgeVersion`/`bridgeInstanceId` wire semantics, not UI/diagnostic wording). The
+  two strings from `48265b69`/`3410a9bd` are being restored under the corrected
+  boundary, and the full inventory is being re-run to confirm no other in-scope
+  occurrence was missed.
 
 ## Verification
 
