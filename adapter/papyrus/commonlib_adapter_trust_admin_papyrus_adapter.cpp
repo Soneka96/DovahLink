@@ -3,8 +3,8 @@
 
 #include "papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp"
 
+#include "enums.hpp"
 #include "ipc/ipc_constants.hpp"
-#include "ipc/ipc_enums.hpp"
 #include "runtime/game_thread_completion.hpp"
 
 #include <algorithm>
