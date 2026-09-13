@@ -2204,7 +2204,11 @@ public class PublicWebSocketConnectionTests
     /// <see cref="IPublicWebSocketConnection.RequestClose"/> is called, the control-lane frame still
     /// gets its drain opportunity ahead of the data-lane one, matching
     /// <see cref="TrySend_ControlLaneFrameAdmittedAfterDataLaneFrame_StillDrainsFirst"/>'s priority
-    /// proof but through the close path rather than ordinary draining.
+    /// proof but through the close path rather than ordinary draining. Uses the same
+    /// <see cref="BlockingAfterFirstWriteStream"/> technique that proof uses: without it, the writer
+    /// can dequeue and send the data-lane frame before the control-lane one is even admitted, since
+    /// <see cref="IPublicWebSocketConnection.RequestClose"/> cannot reorder a frame already in flight,
+    /// making the assertion depend on scheduler timing rather than genuine lane priority.
     /// </summary>
     [Fact]
     public async Task RequestClose_BothLanesHaveAdmittedFrames_DrainsControlLaneFrameFirst()
@@ -2216,25 +2220,34 @@ public class PublicWebSocketConnectionTests
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream());
         var options = Fixtures.BuildPublicWebSocketTransportOptions(gracefulCloseTimeout: TimeSpan.FromSeconds(2));
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, new SystemClock(), options);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The handshake response was the first write; this sentinel is the second and blocks until
+        // released, so both terminal frames admitted below are provably still queued -- never yet
+        // reached by the writer loop -- when RequestClose is called.
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("sentinel"), PublicOutboundLane.Data));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         // Admitted data-then-control, matching the ordinary-draining priority test above.
         Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("data-terminal"), PublicOutboundLane.Data));
         Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("control-terminal"), PublicOutboundLane.ControlOrRecovery));
         connection.RequestClose();
 
+        blockingStream.Release();
+
         var buffer = new byte[64];
         var received = new List<string>();
-        for (int index = 0; index < 2; index++)
+        for (int index = 0; index < 3; index++)
         {
             WebSocketReceiveResult result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
             received.Add(Encoding.UTF8.GetString(buffer, 0, result.Count));
         }
 
-        Assert.Equal(["control-terminal", "data-terminal"], received);
+        Assert.Equal(["sentinel", "control-terminal", "data-terminal"], received);
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
         listener.Stop();

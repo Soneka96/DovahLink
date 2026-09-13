@@ -159,10 +159,11 @@ host process and its per-user persistence adapter.
 
 ### Session registry and delivery ownership
 
-The host uses a bounded session registry rather than a singleton delivery architecture. The
-current admission policy is one active client session, owned by the host's session registry,
-so the host remains single-client until the multi-client phase. The registry shape is
-collection-based: each authenticated session record owns its `sessionId`, client-specific
+The host uses a bounded session registry rather than a singleton delivery architecture. Admission
+capacity is the configurable device cap from "Runtime and identity model" above
+(`ai/context/protocol/security.md`'s "maximum connected clients"), defaulting to one active client
+session until Stage 9 raises it and proves concurrent-client behavior in production. The registry
+shape is collection-based: each authenticated session record owns its `sessionId`, client-specific
 capabilities and subscriptions, outbound queue, recovery barriers, serialized writer, and
 diagnostics.
 

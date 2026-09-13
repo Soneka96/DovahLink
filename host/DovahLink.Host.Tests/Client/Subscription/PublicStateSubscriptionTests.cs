@@ -690,6 +690,9 @@ public class PublicStateSubscriptionTests
         (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
         Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        // The overflow-triggered re-baseline must still correlate to the original "sub-1" subscribe --
+        // never a fresh host-generated id no client request ever made.
+        Assert.Equal("sub-1", envelope!.CorrelationId);
         Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
         Assert.Equal(99UL, payload!.Revision);
     }

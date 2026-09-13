@@ -300,7 +300,8 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// while <see cref="AreaDeliveryPhase.Recovering"/>, held if the barrier revision is not yet known
     /// (a baseline fetch is still in flight) or the Event is above the barrier once it is known,
     /// discarded if at or below it (abandoning the held set and re-baselining from the newest
-    /// authoritative snapshot if the bounded hold fills up); forwarded immediately, still under
+    /// authoritative snapshot, correlated to the same message that started the abandoned attempt, if
+    /// the bounded hold fills up); forwarded immediately, still under
     /// <see cref="gate"/>, while <see cref="AreaDeliveryPhase.Live"/>. Also discarded outright,
     /// regardless of phase, when its own captured play-context generation does not match the tracker's
     /// current one -- a stale value from before a transition this subscription has not yet been told
@@ -310,6 +311,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     private void OnEventOccurred(StateEventPublication eventPublication)
     {
         bool needsReBaseline = false;
+        string? reBaselineCorrelationMessageId = null;
 
         lock (gate)
         {
@@ -337,6 +339,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
                     if (state.HeldEvents.Count >= Constants.MaxHeldRecoveryEventsPerArea)
                     {
+                        reBaselineCorrelationMessageId = state.RecoveryCorrelationMessageId;
                         state.HeldEvents.Clear();
                         state.RecoveryEpoch++;
                         state.Phase = AreaDeliveryPhase.AwaitingBaseline;
@@ -363,7 +366,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
         if (needsReBaseline)
         {
-            TryEstablishBaseline(eventPublication.StateArea, correlationMessageId: NewMessageId());
+            TryEstablishBaseline(eventPublication.StateArea, reBaselineCorrelationMessageId!);
         }
     }
 
@@ -440,7 +443,12 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// all when this subscription is not currently bound to a connection.
     /// </summary>
     /// <param name="areaId">The state area to establish a baseline for.</param>
-    /// <param name="correlationMessageId">The message id this baseline correlates to.</param>
+    /// <param name="correlationMessageId">
+    /// The message id this baseline correlates to -- the originating <c>subscribe</c> or
+    /// <c>snapshot_request</c>'s own id. Recorded on the area's <see cref="AreaState.RecoveryCorrelationMessageId"/>
+    /// so a later held-Event overflow's re-baseline (see <see cref="OnEventOccurred"/>) can reuse it
+    /// instead of inventing a correlation no client request ever made.
+    /// </param>
     private void TryEstablishBaseline(StateAreaId areaId, string correlationMessageId)
     {
         IPublicConnectionContext? currentConnectionContext;
@@ -450,15 +458,16 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         {
             currentConnectionContext = connectionContext;
             currentSessionId = sessionId;
+            if (currentConnectionContext is null || currentSessionId is null)
+            {
+                return;
+            }
+
             AreaState state = GetOrCreateAreaState(areaId);
             state.Phase = AreaDeliveryPhase.Recovering;
             state.BarrierRevision = null;
+            state.RecoveryCorrelationMessageId = correlationMessageId;
             myEpoch = ++state.RecoveryEpoch;
-        }
-
-        if (currentConnectionContext is null || currentSessionId is null)
-        {
-            return;
         }
 
         bool hasSnapshot = feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot);
@@ -682,5 +691,16 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         /// by it.
         /// </summary>
         public StateSnapshotPublication? PendingSnapshot;
+
+        /// <summary>
+        /// The message id the current or most recently establishing baseline correlates to -- the
+        /// originating <c>subscribe</c> or <c>snapshot_request</c>'s own id, recorded by
+        /// <see cref="TryEstablishBaseline"/>. Reused, rather than replaced with a fresh host-generated
+        /// id, when a held-Event buffer overflow abandons that attempt and starts a re-baseline: the
+        /// new attempt supersedes the old one but still answers the same client request. Meaningful
+        /// only while <see cref="Phase"/> is <see cref="AreaDeliveryPhase.Recovering"/> or
+        /// <see cref="AreaDeliveryPhase.Live"/>.
+        /// </summary>
+        public string? RecoveryCorrelationMessageId;
     }
 }
