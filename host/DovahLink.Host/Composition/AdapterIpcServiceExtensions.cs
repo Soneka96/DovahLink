@@ -9,8 +9,8 @@ public static class AdapterIpcServiceExtensions
     /// <summary>
     /// Constructs the adapter-IPC listener and its collaborators. Every accepted adapter connection
     /// gets its own <see cref="AdapterIpcConnection"/>/<see cref="AdapterIpcSession"/> pair, built
-    /// fresh by the connection factory below -- connection-scoped, never shared across two accepted
-    /// connections.
+    /// fresh by the composed <see cref="IAdapterConnectionFactory"/> -- connection-scoped, never
+    /// shared across two accepted connections.
     /// </summary>
     /// <param name="core">The already-composed core services this graph is built on.</param>
     /// <param name="trust">The already-composed trust-and-session services this graph is built on.</param>
@@ -23,10 +23,10 @@ public static class AdapterIpcServiceExtensions
         var lifecycle = new AdapterConnectionLifecycle(core.AdapterAvailability);
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
+        IAdapterConnectionFactory connectionFactory = new AdapterConnectionFactory(
+            codec, lifecycle, verifier, trust.TrustAdminRequestHandler, ownerLifetimeId, core.Clock);
 
-        var listener = new AdapterIpcListener(
-            listenerPort,
-            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trust.TrustAdminRequestHandler, ownerLifetimeId), core.Clock));
+        var listener = new AdapterIpcListener(listenerPort, connectionFactory.Create);
         var notifier = new AdapterPairingNotifier(listener);
 
         return new AdapterIpcServices(verifier, listener, notifier);
