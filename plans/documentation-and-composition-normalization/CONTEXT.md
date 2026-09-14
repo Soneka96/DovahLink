@@ -9,46 +9,26 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.3a-public-vocabulary-and-identity-semantics.md`
-- Status: Complete on branch `docs/01.3a-public-vocabulary-and-identity-semantics`,
-  not yet opened as a PR. Design-only gate, all six decisions final:
-  - Compatibility authority is the Host release version: `bridgeVersion` -> `hostVersion`.
-  - `bridgeInstanceId` -> `stateAuthorityId`: a Host authoritative-state continuity
-    epoch, not a process/instance identity and not a public counterpart of
-    `adapterInstanceId`.
-  - Rotation happens at continuity-loss detection (Host restart, or Adapter/IPC
-    connection loss observed) -- not when the resync/rebind that follows later
-    succeeds.
-  - One unresolved continuity break is exactly one epoch through every failed
-    reconnect/resync attempt; a later loss starts a new epoch only once a fresh
-    authoritative baseline has been successfully established internally under the
-    current value -- client snapshot publication is never the epoch boundary.
-  - A runtime mint failure after a continuity break is detected is a fatal Host
-    invariant failure: no retained/`null` value, no degraded serving, normal
-    deterministic shutdown (a startup mint failure uses the existing fail-closed
-    startup path instead).
-  - Cache/revision scope is `(stateAuthorityId, playContextId, stateArea)`.
-  - Exact wire presence: only `hello_ack`, `state_snapshot`, and `state_event` carry
-    `stateAuthorityId`, required and non-null; no other message does.
-  - `01.3b` and `01.3c` are two separate implementation PRs but one atomic
-    public-contract release boundary -- no supported/versioned release may be cut
-    between them merging.
-  - Migration policy is intentionally breaking; no aliases, no compatibility shims.
-  `ai/context/protocol/compatibility.md`'s two deferred-decision sections are updated
-  to record the decision as "decided, pending implementation." No protocol schema,
-  fixture, Host, SDK, or app source file changed -- decision documentation only, per
-  this concept's own scope.
-- Prerequisites: Concept 01.2b merged (`main` @ `d4734dba`, PR #63) -- satisfied.
-- PR: #64, open against `main`, under maintainer review.
-- Next action: address maintainer/review findings on PR #64, then merge it. The branch
-  already records `Complete` in `PLAN.md`'s status table, per the pre-PR-Complete
-  workflow `PLAN.md` section 8 documents; merging PR #64 is what makes that state
-  authoritative on `main`, which is what actually satisfies `01.3b`'s own stated
-  dependency ("Concept 01.3a merged to `main`") -- not the branch-level `Complete`
-  label by itself, and `01.3b` stays `Blocked by 01.3a` in `PLAN.md`'s status table
-  until that merge happens. Per D4, Concept 02 still waits behind the entire
-  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 -- do not
-  unblock 02 or 03 until 01.3c actually merges. Do not begin `01.3b` on this branch.
+- File: `01.3b-compatibility-version-vocabulary-cutover.md`
+- Status: In progress on branch `feature/01.3b-compatibility-version-vocabulary-cutover`,
+  not yet opened as a PR. Implements exactly `01.3a`'s Sections A/B decision: the
+  compatibility authority becomes the Host release version, wire field `bridgeVersion`
+  -> `hostVersion`, Host constant `PublicProtocolTransitionalBridgeVersion` ->
+  `PublicProtocolHostVersion`, Dart SDK model/cache field renamed to match, the 3
+  `hello_ack`-family fixtures, `protocol/schema/README.md`,
+  `ai/context/protocol/compatibility.md`, and the SDK-doc compatibility-vocabulary
+  wording `ai/context/sdk/api-design.md`/`architecture.md` carry. Does not touch
+  `bridgeInstanceId`/`stateAuthorityId` -- that is `01.3c`'s field, deliberately left
+  alone here.
+- Prerequisites: Concept 01.3a merged (`main` @ `805d1641`, PR #64) -- confirmed via
+  `git log`/`git branch --contains`, satisfied.
+- PR: not yet opened.
+- Next action: implement the step plan (Host model -> canonical schema/fixtures -> Dart
+  SDK model/codegen -> Flutter app pairing consumers -> documentation/tooling-guard
+  cutover -> plan close-out), each step its own reviewable commit. `01.3c` stays
+  `Blocked by 01.3b` in `PLAN.md`'s status table until this concept's PR actually merges
+  to `main` -- not merely reaches branch-level `Complete`, per the same rule this
+  concept's own dependency on `01.3a` was held to.
 
 ## Completed concepts
 
@@ -60,6 +40,11 @@ Status: active (package frozen 2026-09-13)
   PR #62 (merge commit `bc86f4cc`, 2026-09-13).
 - `01.2b-internal-code-test-and-tooling-terminology.md` -- merged to `main` via PR #63
   (merge commit `d4734dba`, 2026-09-13).
+- `01.3a-public-vocabulary-and-identity-semantics.md` -- merged to `main` via PR #64
+  (merge commit `805d1641`, 2026-09-14). Design-only gate; all six decisions (compatibility
+  authority, canonical version vocabulary, `stateAuthorityId` semantics, cache/revision
+  scope, migration policy, old->new vocabulary table) final -- see this file's prior
+  Verification entries for the full rationale.
 
 ## Decisions and approved deviations
 
@@ -505,12 +490,16 @@ inventory re-runs are recorded above with zero-unresolved evidence -- the
 `websocket_transport_test.dart` findings were fixed rather than left flagged; the only
 remaining out-of-scope item is the `ai/context/protocol/security.md`-quoting host/
 comments' own source doc, which stays outside this concept's file scope by design.
-Handoff to Concept 01.3a is now active, per `PLAN.md` section 6 (one branch/PR per
-concept, dependent concept waits for merge, not just open/approved) -- 01.3a's own
-prerequisite (01.2b merged) is satisfied.
 
-Concept 01.3a's six mandatory decisions (A-F) are now resolved on branch
-`docs/01.3a-public-vocabulary-and-identity-semantics`, not yet opened as a PR --
-see the Verification entry above for the full rationale and the concept file itself
-for the decision text. Handoff to Concept 01.3b follows once this PR merges to
-`main`, per the same one-branch/PR-per-concept rule.
+Concept 01.3a merged to `main` via PR #64 (merge commit `805d1641`, 2026-09-14). Its
+six mandatory decisions (A-F) are final -- see the Verification entry above for the
+full rationale and the concept file itself for the decision text. Handoff to Concept
+01.3b is now active, per `PLAN.md` section 6 (one branch/PR per concept, dependent
+concept waits for merge, not just open/approved) -- 01.3b's own prerequisite (01.3a
+merged) is confirmed satisfied by the merge commit above, not inferred from the prior
+branch-level `Complete` label.
+
+Concept 01.3b is being implemented on branch
+`feature/01.3b-compatibility-version-vocabulary-cutover`, not yet opened as a PR.
+Handoff to Concept 01.3c follows once this PR merges to `main`, per the same
+one-branch/PR-per-concept rule.
