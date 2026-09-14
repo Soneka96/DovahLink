@@ -8,6 +8,7 @@ using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Composition;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
@@ -114,33 +115,20 @@ internal static class Program
         Action<SessionRegistry, PairingCoordinator>? onComposed = null,
         IHostSettingsProvider? hostSettingsProvider = null)
     {
-        var tracker = new AdapterAvailabilityTracker();
-        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown, hostSettingsProvider);
+        var lifecycle = new AdapterConnectionLifecycle(core.AdapterAvailability);
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
-        var clock = new SystemClock();
-
-        // Minted eagerly here so a startup mint failure fails Host composition itself closed, per
-        // 01.3a Section C's "at startup: the Host fails closed" case; FatalFailureOccurred covers the
-        // later runtime-mint-failure case, once the public listener below is composed.
-        var stateAuthorityLifecycle = new StateAuthorityLifecycle(tracker);
-        stateAuthorityLifecycle.FatalFailureOccurred += () => shutdown.Cancel();
-
-        // Resolved once and reused for both the session registry and the public listener below, so
-        // one user-configured device cap governs exactly how many authenticated sessions and how
-        // many raw connections the host admits -- the two bounds never drift apart.
-        HostSettings hostSettings = (hostSettingsProvider ?? new HostSettingsProvider()).Load();
 
         // Trust-services composition: shared by adapter-originated trust-admin requests and by the
         // public client boundary composed below, over this same instance graph.
-        var securityStateGate = new SecurityStateGate();
         ITrustStore trustStore = await TrustStore.CreateAsync(
-            trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), clock, securityStateGate);
-        var sessionRegistry = new SessionRegistry(securityStateGate, hostSettings.MaxActiveSessions);
-        var pairingCoordinator = new PairingCoordinator(trustStore, clock);
+            trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), core.Clock, core.SecurityGate);
+        var sessionRegistry = new SessionRegistry(core.SecurityGate, core.Settings.MaxActiveSessions);
+        var pairingCoordinator = new PairingCoordinator(trustStore, core.Clock);
         onComposed?.Invoke(sessionRegistry, pairingCoordinator);
         var playContextTracker = new PlayContextTracker();
-        var envelopeCodec = new PublicEnvelopeCodec(stateAuthorityLifecycle);
+        var envelopeCodec = new PublicEnvelopeCodec(core.StateAuthorityLifecycle);
         var connectionRegistry = new PublicSessionConnectionRegistry();
 
         // No state area is registered yet and no real domain feed exists -- a later concept
@@ -151,17 +139,17 @@ internal static class Program
         ISessionTerminationNotifier terminationNotifier = new PublicSessionTerminationNotifier(connectionRegistry, envelopeCodec, playContextTracker);
         IClientSessionInvalidator sessionInvalidator = new ClientSessionInvalidator(sessionRegistry, terminationNotifier);
         ITrustAdminService trustAdminService = new TrustAdminService(trustStore, sessionInvalidator, pairingCoordinator);
-        ITrustResetService trustResetService = new TrustResetService(trustStore, sessionInvalidator, pairingCoordinator, clock);
-        IAdapterTrustAdminRequestHandler trustAdminRequestHandler = new AdapterTrustAdminRequestHandler(trustAdminService, trustResetService, clock);
+        ITrustResetService trustResetService = new TrustResetService(trustStore, sessionInvalidator, pairingCoordinator, core.Clock);
+        IAdapterTrustAdminRequestHandler trustAdminRequestHandler = new AdapterTrustAdminRequestHandler(trustAdminService, trustResetService, core.Clock);
 
         using IAdapterIpcListener adapterListener = new AdapterIpcListener(
             listenerPort,
-            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, ownerLifetimeId), clock));
+            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, ownerLifetimeId), core.Clock));
         IPairingAdapterNotifier adapterNotifier = new AdapterPairingNotifier(adapterListener);
-        ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(clock);
-        ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(clock);
+        ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(core.Clock);
+        ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(core.Clock);
         IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
-            envelopeCodec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
+            envelopeCodec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, core.Clock, sessionRegistry);
 
         using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
             ? new PublicWebSocketListener(
@@ -170,13 +158,13 @@ internal static class Program
                     stream,
                     new PublicHelloAdmissionHandler(
                         envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
-                        playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry,
-                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, envelopeCodec, playContextTracker, stateAuthorityLifecycle)),
-                    clock,
+                        playContextTracker, core.Clock, dispatcher, pairingCoordinator, connectionRegistry,
+                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, envelopeCodec, playContextTracker, core.StateAuthorityLifecycle)),
+                    core.Clock,
                     new PublicWebSocketTransportOptions(),
                     NullPublicWebSocketTransportDiagnostics.Instance,
                     new DataLaneOutboundQueue()),
-                hostSettings.MaxActiveSessions)
+                core.Settings.MaxActiveSessions)
             : null;
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));

@@ -9,9 +9,39 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.3c-public-authoritative-instance-identity-cutover.md`
-- Status: Complete on branch `feature/01.3c-public-authoritative-instance-identity-cutover`,
-  not yet opened as a PR. Implements exactly `01.3a`'s Section C decision across seven
+- File: `02-host-composition-and-di-lifetimes.md`
+- Status: In progress on branch `feature/02-host-composition-and-di-lifetimes`. Prerequisite
+  (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit `3768c1e0`, PR #66),
+  not inferred from the branch's own prior `Complete` label.
+- Next action: audit every current Host service's lifetime from `Program.cs`, split
+  `ComposeAndRunAsync` into cohesive `Composition/*ServiceExtensions.cs` modules, introduce an
+  explicit `DovahLinkHostRuntime` lifecycle orchestrator, and add the composition/lifetime tests
+  R2.9 requires -- see this session's step-build plan.
+
+## Completed concepts
+
+- `01-conventions-and-changelog.md` -- merged to `main` via PR #60 (merge commit
+  `8847fcdc`, 2026-09-13).
+- `01.1-adapter-enum-and-constants-physical-normalization.md` -- merged to `main` via
+  PR #61 (merge commit `77f31fa0`, 2026-09-13).
+- `01.2a-active-documentation-and-instruction-terminology.md` -- merged to `main` via
+  PR #62 (merge commit `bc86f4cc`, 2026-09-13).
+- `01.2b-internal-code-test-and-tooling-terminology.md` -- merged to `main` via PR #63
+  (merge commit `d4734dba`, 2026-09-13).
+- `01.3a-public-vocabulary-and-identity-semantics.md` -- merged to `main` via PR #64
+  (merge commit `805d1641`, 2026-09-14). Design-only gate; all six decisions (compatibility
+  authority, canonical version vocabulary, `stateAuthorityId` semantics, cache/revision
+  scope, migration policy, old->new vocabulary table) final -- see this file's prior
+  Verification entries for the full rationale.
+- `01.3b-compatibility-version-vocabulary-cutover.md` -- merged to `main` via PR #65
+  (merge commit `5f8ca28d`, 2026-09-14). Implemented `01.3a`'s Sections A/B decision
+  (`bridgeVersion` -> `hostVersion`) across Host, canonical schema, Dart SDK, and the
+  Flutter app; two correction passes (a 5-file documentation gap, and D5/the
+  VERSION-invariant/bookkeeping pass) are recorded in this file's earlier Verification
+  entries. Did not touch `bridgeInstanceId`/`stateAuthorityId` -- that was `01.3c`'s
+  field, deliberately left alone.
+- `01.3c-public-authoritative-instance-identity-cutover.md` -- merged to `main` via PR #66
+  (merge commit `3768c1e0`, 2026-09-14). Implements exactly `01.3a`'s Section C decision across seven
   reviewable steps: (1) package bookkeeping fixing PR #65's merge lag in `PLAN.md`/
   `CONTEXT.md`; (2) a new internal `StateAuthorityLifecycle` rotation state machine
   (mint at Host startup fail-closed, rotate exactly once per detected continuity
@@ -59,34 +89,11 @@ Status: active (package frozen 2026-09-13)
   `git log`, satisfied. No release was cut between `01.3b` merging and this concept's
   completion (`VERSION` still `0.3.3`, `CHANGELOG.md`'s newest section still
   `[0.3.3]`, no newer git tag).
-- PR: none yet.
-- Next action: open the PR, address review, then merge it. This is the last concept in
-  the D4 chain -- once merged, Concepts 02 and 03 (03 also requiring Concept 01.1
-  merged) become eligible to start, per `PLAN.md` section 6's merge-not-just-complete
-  rule.
-
-## Completed concepts
-
-- `01-conventions-and-changelog.md` -- merged to `main` via PR #60 (merge commit
-  `8847fcdc`, 2026-09-13).
-- `01.1-adapter-enum-and-constants-physical-normalization.md` -- merged to `main` via
-  PR #61 (merge commit `77f31fa0`, 2026-09-13).
-- `01.2a-active-documentation-and-instruction-terminology.md` -- merged to `main` via
-  PR #62 (merge commit `bc86f4cc`, 2026-09-13).
-- `01.2b-internal-code-test-and-tooling-terminology.md` -- merged to `main` via PR #63
-  (merge commit `d4734dba`, 2026-09-13).
-- `01.3a-public-vocabulary-and-identity-semantics.md` -- merged to `main` via PR #64
-  (merge commit `805d1641`, 2026-09-14). Design-only gate; all six decisions (compatibility
-  authority, canonical version vocabulary, `stateAuthorityId` semantics, cache/revision
-  scope, migration policy, old->new vocabulary table) final -- see this file's prior
-  Verification entries for the full rationale.
-- `01.3b-compatibility-version-vocabulary-cutover.md` -- merged to `main` via PR #65
-  (merge commit `5f8ca28d`, 2026-09-14). Implemented `01.3a`'s Sections A/B decision
-  (`bridgeVersion` -> `hostVersion`) across Host, canonical schema, Dart SDK, and the
-  Flutter app; two correction passes (a 5-file documentation gap, and D5/the
-  VERSION-invariant/bookkeeping pass) are recorded in this file's earlier Verification
-  entries. Did not touch `bridgeInstanceId`/`stateAuthorityId` -- that was `01.3c`'s
-  field, deliberately left alone.
+- PR #66 merged to `main` as `3768c1e0` (confirmed via `git log`, not inferred from the
+  branch's own prior `Complete` label). This was the last concept in the D4 chain --
+  Concepts 02 (Host composition) and 03 (Adapter composition, also requiring Concept
+  01.1 merged, already satisfied) are now both eligible to start, per `PLAN.md`
+  section 6's merge-not-just-complete rule. Concept 02 is the one now active, above.
 
 ## Decisions and approved deviations
 
@@ -735,11 +742,13 @@ maintainer explicitly approved proceeding as one atomic PR rather than any split
 the gate's own escape hatch and `01.3a` Section E's ban on splitting one wire-contract
 change across PRs.
 
-Concept 01.3c's implementation is complete on branch
-`feature/01.3c-public-authoritative-instance-identity-cutover` -- see the Verification
-entry above for the full acceptance-gate evidence and the Active-concept entry for the
-step-by-step breakdown. No PR opened yet. This is the last concept in the D4
-vocabulary-normalization chain: once its PR merges to `main`, Concepts 02 (Host
-composition) and 03 (Adapter composition, also requiring Concept 01.1 merged) become
-eligible to start, per `PLAN.md` section 6's merge-not-just-complete rule -- the same
-rule this concept's own dependency on `01.3b` was held to.
+Concept 01.3c's implementation merged to `main` via PR #66 (merge commit `3768c1e0`) --
+see the Verification entry above for the full acceptance-gate evidence and the
+Completed-concepts entry for the step-by-step breakdown. This was the last concept in
+the D4 vocabulary-normalization chain. Handoff to Concept 02 (Host composition and DI
+lifetimes) is now active on branch `feature/02-host-composition-and-di-lifetimes`, per
+the same one-branch/PR-per-concept rule -- `02`'s own prerequisite (01.3c merged) is
+confirmed satisfied by the merge commit above, not inferred from the branch's own prior
+`Complete` label. Concept 03 (Adapter composition, also requiring Concept 01.1 merged,
+already satisfied) is independently eligible to start as well, per `PLAN.md` section 6,
+but is not the one this session is picking up.
