@@ -1,9 +1,10 @@
 # Concept 02 -- Host composition, DI scopes, and service lifetimes
 
-**Status:** in progress (see `CONTEXT.md` D8: maintainer-approved scope expansion to a
-real `Microsoft.Extensions.DependencyInjection` composition mechanism and production
-connection factories, overriding this file's original "manual composition, factory
-only if the audit needs one" design)
+**Status:** Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet
+opened as a PR (see `CONTEXT.md`'s Active concept entry and D8 for the full step-build
+history and the maintainer-approved scope expansion to a real
+`Microsoft.Extensions.DependencyInjection` composition mechanism, overriding this
+file's original "manual composition, factory only if the audit needs one" design).
 
 **Covers:** R2.1-R2.10 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`
 Block A Issue 2).
@@ -100,3 +101,18 @@ Per R2.9: composition/lifetime tests proving --
 - Full Host test suite green; new composition/lifetime tests included and passing.
 - `PLAN.md` status table updated with this concept's PR number, marked `Complete` once
   merged; unblocks Concept 04.
+
+### R2.1-R2.10 traceability
+
+| Req | Requirement | Evidence |
+| --- | --- | --- |
+| R2.1 | `Program.cs` reduced to bootstrap/composition | `Program.ComposeAndRunAsync` (`host/DovahLink.Host/Program.cs`): resolve configuration, run the one pre-container fail-closed trust bootstrap, build one `IServiceCollection`/`ServiceProvider`, resolve `DovahLinkHostRuntime`, run it. No manual `new Foo(new Bar(...))` graph assembly remains. |
+| R2.2 | Registrations split into cohesive composition modules | `Composition/CoreServiceExtensions.cs`, `TrustServiceExtensions.cs`, `AdapterIpcServiceExtensions.cs`, `PublicClientServiceExtensions.cs`, `HostRuntimeServiceExtensions.cs` -- one `Add*Services`/`AddHostRuntime` extension per area, one authoritative `IServiceCollection` graph. |
+| R2.3 | Every behavior-bearing dependency has a deliberate lifetime | All Host services registered `AddSingleton` (host-lifetime, one per process); `PublicConnectionFactory`/`AdapterConnectionFactory` are themselves Host-lifetime singletons whose `Create(Stream)` produces connection-owned state per call. `CoreServiceExtensionsTests.AddCoreServices_ClockResolvedTwice_ReturnsSameInstance` and `TrustServiceExtensionsTests.AddTrustServices_TrustStoreResolvedTwice_ReturnsSameInstance`/`_ConcreteAndInterfaceRegistrations_ResolveToSameInstance` prove singleton identity, including that a concrete/interface pair (`SessionRegistry`/`ISessionRegistry`, `PairingCoordinator`/`IPairingCoordinator`) resolves to one shared instance rather than two. |
+| R2.4 | Client/session/connection identities remain distinct | `PublicHelloAdmissionHandler` keeps `ConnectionId`, `SessionId`, and `ClientId` as three separate fields (unchanged by this concept); `PublicClientConnectionLifetimeTests.Hello_ReconnectWithSameClientIdAndMessageId_GetsFreshSessionNotRejectedAsReplay` proves persistent `clientId` never collapses into session/connection identity. |
+| R2.5 | No cross-session or cross-connection state sharing | `PublicClientConnectionLifetimeTests.CurrentConnections_TwoAcceptedConnections_OutboundStateIsIsolated` proves two simultaneously accepted connections' outbound state (`DataLaneOutboundQueue`) is isolated; `PublicConnectionFactoryTests`/`AdapterConnectionFactoryTests` prove the factories never return the same connection instance twice. |
+| R2.6 | Fail-closed async security startup; no sync-over-async | `Program.ComposeAndRunAsync` awaits `TrustServiceExtensions.CreateTrustStoreAsync` (a real `await`, no `.Result`/`.Wait()`/`.GetAwaiter().GetResult()`) before the `ServiceCollection` is even built; `ProgramCompositionTests`' existing malformed-trust-store and bad-port `SocketException`/`InvalidDataException` tests pass unmodified, proving the fail-closed ordering and exception types are unchanged. |
+| R2.7 | Explicit Host runtime owns lifecycle | `DovahLinkHostRuntime` (`host/DovahLink.Host/Process/DovahLinkHostRuntime.cs`, unchanged by this concept) remains the sole lifecycle owner; `HostRuntimeServiceExtensions.AddHostRuntime` only constructs it via DI, it does not replace or duplicate its orchestration. |
+| R2.8 | No service locator/static `IServiceProvider` | No production class holds an injected `IServiceProvider` field; every `sp.GetRequiredService<T>()`/`sp.GetService<T>()` call lives inside a composition-root registration factory (`Add*Services`/`AddHostRuntime`), not inside a resolved service's own business logic. |
+| R2.9 | Lifetime boundaries proven by tests | See R2.3 (singleton identity) and R2.5 (connection isolation) rows above, plus the reconnect/replay-state proof under R2.4. The previously recorded "structurally guaranteed but not independently wire-observable" gap is closed -- `CONTEXT.md`'s Active concept entry records its removal. |
+| R2.10 | Behavior remains equivalent | `ProgramCompositionTests.cs` and `DovahLinkHostRuntimeTests.cs` required **zero** edits across the whole DI migration (confirmed via `git diff --stat` after the migration step); full Host suite green throughout. |

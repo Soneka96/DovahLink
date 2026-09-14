@@ -12,44 +12,68 @@ Status: active (package frozen 2026-09-13)
 - File: `02-host-composition-and-di-lifetimes.md`
 - Status: Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet opened as a
   PR. Prerequisite (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit
-  `3768c1e0`, PR #66), not inferred from a prior label. Implemented across six reviewable
-  step-build steps: (1) `Composition/CoreServiceExtensions.cs` -- adapter-availability tracker,
-  clock, resolved settings, security gate, state-authority lifecycle; (2)
-  `Composition/TrustServiceExtensions.cs` -- the trust-and-session graph shared by the adapter and
-  public-client boundaries; (3) `Composition/AdapterIpcServiceExtensions.cs` -- the private
-  adapter-IPC listener/verifier/notifier, with wiring proofs the pre-existing
-  `AdapterIpcChannelIntegrationTests` never covered (it uses a fake trust-admin handler) --
-  a real trust-admin request routed through the real composed handler, an `ownerLifetimeId`
-  mismatch rejecting handshake, the composed notifier reaching the connection accepted through
-  the same listener; (4) `Composition/PublicClientServiceExtensions.cs` -- the public
-  WebSocket listener and its connection-scoped admission/subscription cluster, with wiring proofs
-  for the supplied adapter notifier and the listener's cap coming from the same resolved settings
-  `SessionRegistry` uses; (5) `Process/DovahLinkHostRuntime.cs` -- the explicit lifecycle
-  orchestrator R2.7 requires, replacing `Program.cs`'s implicit publish/start/run/teardown
-  sequence (including the trivial `Program.RunAsync` exit-code mapping, whose one direct test was
-  retired in favor of equivalent coverage on the new type -- a genuine seam-construction change,
-  not mechanics-only), with dedicated tests proving startup ordering, ordered/idempotent shutdown,
-  and strict rendezvous line ordering; (6) final wiring confirmation (no further production change
-  needed -- `ComposeAndRunAsync` already read as pure composition after step 5) plus the
-  phase-closing acceptance gate.
-- `ProgramCompositionTests.cs` -- the file most directly proving composition equivalence -- is
-  confirmed byte-for-byte unmodified across the whole build (`git diff --stat` against it is
-  empty), and its full suite passed unmodified after every single step.
-- Final acceptance gate: `dotnet build ... -p:GenerateDocumentationFile=true
-  -p:TreatWarningsAsErrors=true` clean; `dotnet test host/DovahLink.Host.Tests` 1763/1763 passed
-  (1746 baseline + 17 new); `python -m unittest discover -s tooling -p "test_*.py"` 170/170
-  passed, unaffected. Whole-branch changed-file count vs. `main` (`git merge-base HEAD main` =
-  `3768c1e0`, then `git diff --name-only base...HEAD`): **22 files** -- comfortably under both the
-  80 re-plan threshold and the 100 hard stop.
-- One known, deliberate gap: R2.9's public-side connection/reconnect-isolation bullet
-  (`PublicStateSubscription`/`DataLaneOutboundQueue` freshness per accepted connection) is
-  structurally guaranteed -- each is constructed fresh by the connection-factory lambda, the same
-  proof-shape already accepted for the pre-existing adapter-side reconnect test -- but is not
-  independently wire-observable today, since no state area is registered yet
-  (`RegisteredStateAreaPolicy` rejects every subscribe attempt before reaching that state), the
-  same documented, not-yet-reachable constraint `01.3c`'s own `IStatePublicationFeed` note already
-  recorded for whoever implements the real domain-feed producer in a later concept. Not a defect
-  in this concept's own scope.
+  `3768c1e0`, PR #66), not inferred from a prior label.
+- First implementation pass (manual composition, six reviewable step-build steps) introduced
+  `Composition/CoreServiceExtensions.cs`, `TrustServiceExtensions.cs`,
+  `AdapterIpcServiceExtensions.cs`, `PublicClientServiceExtensions.cs` as static `Compose*` methods
+  returning `*Services` records, plus `Process/DovahLinkHostRuntime.cs` as the explicit lifecycle
+  orchestrator R2.7 requires. That pass recorded one known, deliberate gap: R2.9's public-side
+  connection/reconnect-isolation bullet was structurally guaranteed (each connection-owned
+  collaborator constructed fresh by an inline connection-factory lambda) but not independently
+  wire-observable, since no state area was registered yet.
+- Second pass (this session, maintainer-directed scope expansion, see D8): closed that gap and
+  went further, per the maintainer's explicit instruction that stable Host dependencies use real
+  dependency injection throughout, not just the R2.9 proof. Eight reviewable step-build steps: (1)
+  extracted `Client/Transport/PublicConnectionFactory.cs` (`IPublicConnectionFactory`) from the
+  public-client inline connection lambda; (2) extracted `Adapter/Ipc/AdapterConnectionFactory.cs`
+  (`IAdapterConnectionFactory`) from the adapter-IPC inline connection lambda; (3) one atomic
+  cutover of all four composition modules from manual `Compose*`/`*Services`-record methods to
+  `Microsoft.Extensions.DependencyInjection` `IServiceCollection` registration extensions
+  (`AddCoreServices`/`AddTrustServices`/`AddAdapterIpcServices`/`AddPublicClientServices`), plus new
+  `HostRuntimeServiceExtensions.AddHostRuntime`, plus `Program.ComposeAndRunAsync` rewritten to
+  build one `ServiceCollection`/`ServiceProvider` -- done as one step because the four modules'
+  shared `CoreServices`/`TrustServices`/`AdapterIpcServices`/`PublicClientServices` records were
+  exactly what DI replaced, so no independently compiling intermediate state existed between
+  converting one module and converting all four; (4)-(5) the R2.9 proof tests
+  (`PublicClientConnectionLifetimeTests.cs`: outbound-isolation, reconnect/replay-state isolation);
+  (6) fixed two stale test doc comments claiming production `Main` defaults to no public listener
+  (`Main`'s own `ResolvePublicListenerPort` always resolves a real port; only test code calling
+  `ComposeAndRunAsync`/`DovahLinkHostRuntime` directly can omit one); (7) this close-out, including
+  removing the first pass's now-closed R2.9 gap note above and adding Concept 02's own R2.1-R2.10
+  traceability table.
+- `ProgramCompositionTests.cs` and `DovahLinkHostRuntimeTests.cs` required **zero** edits across the
+  entire DI migration (confirmed via `git diff --stat` immediately after the migration step) --
+  `Program.ComposeAndRunAsync`'s public signature and every observable behavior (fail-closed
+  ordering, exception types, rendezvous line ordering) are unchanged; only the internal composition
+  *mechanism* changed.
+- `ValidateOnBuild` is deliberately not set when building the `ServiceProvider`: it eagerly
+  constructs every registered service at build time and wraps any resulting exception in
+  `AggregateException`, which would have turned `ProgramCompositionTests`' expected direct
+  `SocketException`/`InvalidDataException` into a wrapped one. Resolving `DovahLinkHostRuntime`
+  once, immediately after building the provider, achieves the same fail-fast-at-startup goal
+  through ordinary lazy singleton resolution, which propagates exceptions directly -- documented
+  inline in `Program.cs` and in `HostRuntimeServiceExtensions.cs`.
+- Final acceptance gate (this session's second pass): `dotnet build ... -p:GenerateDocumentationFile=true
+  -p:TreatWarningsAsErrors=true` clean; `dotnet test host/DovahLink.Host.Tests` 1771/1771 passed
+  (1763 first-pass baseline + 8 new); `python -m unittest discover -s tooling -p "test_*.py"`
+  170/170 passed, unaffected. Whole-branch changed-file count vs. `main` (`git merge-base HEAD main`
+  = `3768c1e0`, then `git diff --name-only base...HEAD`): **27 files** -- comfortably under both the
+  80 re-plan threshold and the 100 hard stop (up from the first pass's 22, net of four `*Services.cs`
+  records created and later deleted within this same branch, which cancel out against `main`).
+  While verifying this pass, the suite twice hit an unrelated, pre-existing flake in tests that
+  read the real per-Windows-user DPAPI trust-store file with no cross-class serialization
+  protecting them from other tests/processes doing the same (confirmed absent from a clean
+  `git worktree` checkout of this branch's own base commit, and traced on this run to an orphaned
+  `vstest.console` process from an earlier invocation still holding the file open); not a defect in
+  this concept's own composition/DI work, and a follow-up task was filed separately rather than
+  fixed here (out of this concept's file scope).
+- R2.9's previously recorded gap is closed: `PublicClientConnectionLifetimeTests.cs` proves both
+  outbound-state isolation between two simultaneously accepted connections and that a reconnect
+  under the same persistent `clientId` and the identical `messageId` gets a fresh session rather
+  than being rejected as replayed -- proving fresh connection state, fresh replay state, a new
+  session, and that persistent `clientId` retains no connection-scoped state, all in one test. No
+  known Concept 02 gap remains. See the concept file's own R2.1-R2.10 traceability table for the
+  full per-requirement mapping.
 - Next action: maintainer review, then open the PR. Once merged, Concept 04 (Host documentation
   sweep) becomes eligible to start, per `PLAN.md` section 6's merge-not-just-complete rule; Concept
   03 (Adapter composition) remains independently eligible regardless, per its own dependency on
