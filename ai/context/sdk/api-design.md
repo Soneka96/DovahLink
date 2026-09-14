@@ -8,7 +8,7 @@ one-engine/multiple-views rule this API surface sits on top of.
 The common developer experience hides boring reusable connection mechanics: raw WebSockets,
 Ping/Pong, heartbeat implementation, ports once discovery/selection own them, credentials, secure
 storage, session teardown, retry/backoff, revision recovery, snapshot reconciliation, stale-session
-suppression, subscription recovery, and Bridge compatibility mechanics. The long-term simple
+suppression, subscription recovery, and Host compatibility mechanics. The long-term simple
 experience trends toward: find/select a DovahLink instance, pair if necessary, listen to typed state.
 Only expose behavior the roadmap phases completed at the time actually support — do not pull discovery,
 multi-instance, or automatic-connection behavior forward merely to satisfy this shape early; extend
@@ -17,7 +17,7 @@ the simple API when those phases land instead.
 ## Expert capabilities
 
 Advanced developers may inspect lifecycle and diagnostic information: connection state, connected
-Bridge version, SDK/Bridge compatibility result, current `bridgeInstanceId`/`playContextId`/
+Host version, SDK/Host compatibility result, current `bridgeInstanceId`/`playContextId`/
 `sessionId`, capabilities, revision/recovery diagnostics, subscription diagnostics, structured
 connection/recovery events, and supported administration operations. "Advanced" must not mean
 "bypass invariants": an expert API still preserves contract validation, session safety, lifecycle
@@ -44,12 +44,12 @@ curated public API.
 ## Typed errors, app-owned wording
 
 The SDK converts infrastructure/contract failures into typed semantic client failures/events (for
-example: pairing code expired, client/device revoked, Host unavailable, incompatible Bridge
+example: pairing code expired, client/device revoked, Host unavailable, incompatible Host
 version, connection lost, recovery failed, state unavailable) rather than freezing exact type names
 speculatively. The SDK owns typed meaning; the app owns user-facing wording and presentation. The
 app must not parse raw socket exceptions or diagnostic strings to determine product behavior, and
 the SDK must not return product-specific UI strings. For incompatibility, the SDK provides enough
-structured information for the app to distinguish "Bridge is older than supported" from "Bridge is
+structured information for the app to distinguish "Host is older than supported" from "Host is
 newer than supported" when that is safely knowable, per
 `ai/context/protocol/compatibility.md`.
 

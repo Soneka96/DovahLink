@@ -16,7 +16,7 @@ Official Flutter app (and any other Dart consumer)
 
 `protocol/` remains the sole canonical language-neutral Host/client contract. The SDK implements
 that contract for Dart consumers; it is not a second protocol authority, and its convenient typed
-client/domain models never become wire-contract authority. Bridge-version compatibility ownership
+client/domain models never become wire-contract authority. Host-version compatibility ownership
 (the SDK's declared supported range, the compatibility bootstrap, contract-change assessment) is
 defined by `ai/context/protocol/compatibility.md`; do not restate it here, and do not give the SDK
 an independent historical protocol-generation model.
@@ -310,7 +310,7 @@ keeps it as a field. Every other consumer — `IRequestService`,
 `IAuthenticationService`, `IPairingService`, `IReconnectService` — depends on the appropriate Service
 contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
 another service merely because it's needed there; the one documented, accepted exception is
-`AuthenticationService`'s own cached `clientId`/`bridgeVersion`, which are read-caches of values
+`AuthenticationService`'s own cached `clientId`/`hostVersion`, which are read-caches of values
 whose durable source of truth is `IClientStorage`, refreshed every `hello()` — not a competing copy
 of anything `SessionState` owns.
 

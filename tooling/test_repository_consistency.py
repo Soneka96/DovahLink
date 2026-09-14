@@ -1864,9 +1864,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertNotIn(retired_duplication_phrase, sdk_doc)
             self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
 
-        # These docs still legitimately say "Bridge-version"/"bridgeVersion"/"bridgeInstanceId" --
-        # that is version/identity vocabulary a later concept decides. This guards only against the
-        # retired Bridge *actor* language this pass corrected to Host reappearing.
+        # These docs still legitimately say "bridgeInstanceId" -- that is identity vocabulary
+        # `01.3c` decides (`bridgeVersion` was cut over to `hostVersion` by `01.3b`). This guards
+        # only against the retired Bridge *actor* language this pass corrected to Host reappearing.
         for stale_actor_phrase in (
             "Bridge versus SDK ownership",
             "The Bridge remains authoritative",
@@ -1881,24 +1881,29 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertNotIn(stale_actor_phrase, sdk_api_design)
 
-        # These are compatibility/version vocabulary, not stale actor language: the compatibility
-        # authority remains the Bridge/mod release version until 01.3b activates the Host cutover
-        # (`ai/context/protocol/compatibility.md`), so api-design.md must keep naming it Bridge here
-        # even though ordinary actor language elsewhere in this same file correctly says Host.
+        # 01.3b activated the Host cutover (`ai/context/protocol/compatibility.md`), so
+        # api-design.md's compatibility vocabulary now says Host, not Bridge.
         for compatibility_vocabulary_phrase in (
-            "Bridge compatibility mechanics",
-            "connected\nBridge version, SDK/Bridge compatibility result",
-            "incompatible Bridge\nversion",
-            '"Bridge is older than supported" from "Bridge is\nnewer than supported"',
+            "Host compatibility mechanics",
+            "connected\nHost version, SDK/Host compatibility result",
+            "incompatible Host\nversion",
+            '"Host is older than supported" from "Host is\nnewer than supported"',
         ):
             self.assertIn(compatibility_vocabulary_phrase, sdk_api_design)
+        for retired_compatibility_phrase in (
+            "Bridge compatibility mechanics",
+            "Bridge version, SDK/Bridge compatibility result",
+            "incompatible Bridge\nversion",
+            '"Bridge is older than supported"',
+        ):
+            self.assertNotIn(retired_compatibility_phrase, sdk_api_design)
 
     def test_sdk_and_integration_docs_describe_host_not_bridge_actor(self) -> None:
         """Guard the remaining SDK/integration convention docs against describing the retired
-        Bridge, rather than the Host or the Adapter, as the current server-side actor. Wire-field
-        names (`bridgeInstanceId`, `bridgeVersion`) and version-vocabulary phrasing
-        ("Bridge-version compatibility") are deliberately left untouched here -- that decision
-        belongs to a later concept, not this terminology pass.
+        Bridge, rather than the Host or the Adapter, as the current server-side actor. The
+        `bridgeInstanceId` wire-field name is deliberately left untouched here -- that decision
+        belongs to `01.3c`, not this terminology pass (`bridgeVersion`/"Bridge-version
+        compatibility" wording was cut over to Host by `01.3b`).
         """
         dart_style = self._read("ai/context/dart/dart-style.md")
         sdk_persistence = self._read("ai/context/sdk/persistence.md")
@@ -2181,9 +2186,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         (`bridge/application/`, `bridge/game_state/`, and similar): several `ai/context/skse/*.md`
         files and adapter/ source comments deliberately cite the retired Bridge's real file layout
         as a worked-example precedent, and a broad ban would flag that legitimate history alongside
-        genuine regressions. It also does not ban the word "Bridge" -- the wire fields
-        `bridgeInstanceId`/`bridgeVersion` and genuine history in CHANGELOG.md/PLAN.md are
-        legitimate and excluded below.
+        genuine regressions. It also does not ban the word "Bridge" -- the wire field
+        `bridgeInstanceId` (pending `01.3c`), the retired `bridgeVersion` field name as it appears
+        in genuine history in CHANGELOG.md/PLAN.md, and other genuine history there are legitimate
+        and excluded below.
         """
         deleted_paths = (
             "host/PLAN.md",
