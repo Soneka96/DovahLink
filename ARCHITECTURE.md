@@ -119,8 +119,9 @@ For historical compatibility, the old bridge behavior is recorded here.
 A bridge restart creates a new identity in the old bridge implementation; in
 the replacement this means a Skyrim process restart creates a new
 `adapterInstanceId`.
-The target architecture distinguishes five
-identifiers across four lifetimes:
+The target architecture fixes five private
+identifiers across four lifetimes (a sixth, public-only identifier on a fifth lifetime
+is added further below):
 the transport `ConnectionId` and authenticated `sessionId` share the per-socket
 lifetime.
 
@@ -135,6 +136,22 @@ lifetime.
 - `ConnectionId` identifies one host-owned transport connection.
 - `sessionId` identifies one authenticated socket session. It is valid only for that socket and is
   invalidated when the connection ends in the historical contract as well as in the replacement.
+
+These four private lifetimes are unchanged by the public vocabulary decided in
+`plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+Section C, which adds a sixth identifier on its own, fifth lifetime:
+
+- `stateAuthorityId` identifies the Host's current authoritative-state *continuity
+  epoch* -- it changes exactly when cached state revisions from before an event are no
+  longer safely comparable to revisions after it, and does not change otherwise. A new
+  `adapterInstanceId` always forces a new `stateAuthorityId` (a new Adapter run is
+  always a continuity break), but the reverse does not hold: the same Adapter's IPC
+  connection dropping and being re-established, with neither the Host nor the Adapter
+  process restarting, is also a continuity break under the existing "Host-to-adapter
+  IPC contract" resynchronization rule (`ai/context/host/architecture.md`), so it
+  rotates `stateAuthorityId` without changing `adapterInstanceId`. It must never be
+  read as an alias of `adapterInstanceId`, the Host's OS process identity, or any
+  transport/session identifier above.
 
 Each identifier must be created, validated, and invalidated at its own lifecycle boundary.
 A client reconnect creates a new `sessionId` without silently changing its `clientId`; it also creates a new

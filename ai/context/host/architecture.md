@@ -168,7 +168,11 @@ reused as the internal IPC message model, and this section does not touch `proto
   resynchronization request through an approved game-thread path and the host treats the result as
   a fresh authoritative baseline, not an incremental update layered on stale state -- the same
   Snapshot-establishes-a-new-baseline rule the public transport already uses
-  (`ai/context/protocol/security.md`'s "Input limits" queue policy).
+  (`ai/context/protocol/security.md`'s "Input limits" queue policy). This is a continuity break in
+  the public `stateAuthorityId` sense even though `adapterInstanceId` does not change here -- see
+  `ARCHITECTURE.md`'s "Runtime and identity model" and
+  `plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+  Section C for the full public-identity rule this behavior must satisfy once implemented.
 
 Concrete wire shapes, message types, and the exact version/limit numbers are Stage 3 implementation
 work; this section fixes the decisions those numbers must satisfy.
