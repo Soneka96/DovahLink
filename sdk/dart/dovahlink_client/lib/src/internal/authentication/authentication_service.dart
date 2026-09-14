@@ -105,10 +105,10 @@ class AuthenticationService implements IAuthenticationService {
        _clientIdResolver = clientIdResolver,
        _clientIdCache = clientIdCache;
 
-  /// The DovahLink Bridge/mod release version reported by the last successful [hello], or `null`
+  /// The Host's own release version reported by the last successful [hello], or `null`
   /// before [hello] succeeds. Cached so [authenticate] can report it again without re-sending
   /// `hello` on an already-admitted session.
-  String? _bridgeVersion;
+  String? _hostVersion;
 
   /// Implements [IAuthenticationService.clientId].
   @override
@@ -169,17 +169,14 @@ class AuthenticationService implements IAuthenticationService {
         sessionId: sessionId,
         trustState: trustState,
       );
-      _bridgeVersion = ack.bridgeVersion;
+      _hostVersion = ack.hostVersion;
 
       // The Host always sends an unprompted `capabilities` message right after `hello_ack`; it
       // arrives as an unsolicited (null-correlationId) message and is discarded by
       // MessageRouter -- exposing it is out of this client's current scope. hello() does not
       // wait for it.
 
-      return HelloResult(
-        bridgeVersion: ack.bridgeVersion,
-        trustState: trustState,
-      );
+      return HelloResult(hostVersion: ack.hostVersion, trustState: trustState);
     } on Object {
       // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
       // always sets closeConnection), and a genuine transport failure leaves the socket equally
@@ -198,12 +195,12 @@ class AuthenticationService implements IAuthenticationService {
   /// Implements [IAuthenticationService.authenticate].
   @override
   Future<HelloResult> authenticate(Uri uri) async {
-    final String? cachedBridgeVersion = _bridgeVersion;
+    final String? cachedHostVersion = _hostVersion;
     if (_sessionService.connectionState == DovahLinkConnectionState.connected &&
         _sessionService.currentTrustState == DovahLinkTrustState.trusted &&
-        cachedBridgeVersion != null) {
+        cachedHostVersion != null) {
       return HelloResult(
-        bridgeVersion: cachedBridgeVersion,
+        hostVersion: cachedHostVersion,
         trustState: DovahLinkTrustState.trusted,
       );
     }
@@ -227,7 +224,7 @@ class AuthenticationService implements IAuthenticationService {
       await _sessionService.connect(uri);
       final HelloResult result = await hello();
       return HelloResult(
-        bridgeVersion: result.bridgeVersion,
+        hostVersion: result.hostVersion,
         trustState: result.trustState,
         recoveredFromRejectedCredential: reason,
       );

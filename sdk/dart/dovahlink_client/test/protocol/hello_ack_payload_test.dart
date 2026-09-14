@@ -23,7 +23,7 @@ void main() {
 
       final HelloAckPayload payload = HelloAckPayload.fromJson(json);
 
-      expect(payload.bridgeVersion, '0.3.3');
+      expect(payload.hostVersion, '0.3.3');
       expect(payload.clientIdentityKind, ClientIdentityKind.unpaired);
     });
 
@@ -41,7 +41,7 @@ void main() {
       () {
         expect(
           () => HelloAckPayload.fromJson(<String, dynamic>{
-            'bridgeVersion': '0.2.0',
+            'hostVersion': '0.2.0',
             'clientIdentityKind': 'not-a-real-kind',
           }),
           throwsA(isA<ProtocolFormatException>()),
@@ -52,7 +52,7 @@ void main() {
     test('Method fromJson rejects a payload missing a required key', () {
       final JsonMap withMissingKey =
           (_readFixture('connection/hello-ack.json')['payload'] as JsonMap)
-            ..remove('bridgeVersion');
+            ..remove('hostVersion');
 
       expect(
         () => HelloAckPayload.fromJson(withMissingKey),
@@ -65,7 +65,7 @@ void main() {
       () {
         final JsonMap withWrongType =
             _readFixture('connection/hello-ack.json')['payload'] as JsonMap;
-        withWrongType['bridgeVersion'] = 42;
+        withWrongType['hostVersion'] = 42;
 
         expect(
           () => HelloAckPayload.fromJson(withWrongType),
@@ -98,10 +98,10 @@ void main() {
         );
       },
     );
-    test('Method fromJson rejects an empty bridgeVersion', () {
+    test('Method fromJson rejects an empty hostVersion', () {
       expect(
         () => HelloAckPayload.fromJson(<String, dynamic>{
-          'bridgeVersion': '',
+          'hostVersion': '',
           'clientIdentityKind': 'unpaired',
         }),
         throwsA(isA<ProtocolFormatException>()),

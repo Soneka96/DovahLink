@@ -5,13 +5,13 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 class HelloResult {
   /// Creates a hello result.
   const HelloResult({
-    required this.bridgeVersion,
+    required this.hostVersion,
     required this.trustState,
     this.recoveredFromRejectedCredential,
   });
 
-  /// The DovahLink Bridge/mod release version.
-  final String bridgeVersion;
+  /// The Host's own release version, the compatibility authority.
+  final String hostVersion;
 
   /// The trust tier the session was admitted at.
   final DovahLinkTrustState trustState;

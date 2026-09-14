@@ -424,7 +424,7 @@ void main() {
 
         final HelloResult result = await client.hello();
 
-        expect(result.bridgeVersion, '0.3.3');
+        expect(result.hostVersion, '0.3.3');
         expect(result.trustState, DovahLinkTrustState.unpaired);
         expect(client.trustState, DovahLinkTrustState.unpaired);
         expect(client.sessionId, 'session-1');
@@ -599,7 +599,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'bridgeVersion': '0.2.0',
+              'hostVersion': '0.2.0',
               'clientIdentityKind': 'paired',
             },
             'bridgeInstanceId': 'bridge-1',
@@ -621,7 +621,7 @@ void main() {
             'sessionId': 'session-2',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'bridgeVersion': '0.2.0',
+              'hostVersion': '0.2.0',
               'clientIdentityKind': 'paired',
             },
             'bridgeInstanceId': 'bridge-1',
@@ -1024,7 +1024,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'no-such-pending-operation',
             'payload': <String, dynamic>{
-              'bridgeVersion': '0.3.2',
+              'hostVersion': '0.3.2',
               'clientIdentityKind': 'unpaired',
             },
             'bridgeInstanceId': 'bridge-1',
@@ -1460,7 +1460,7 @@ void main() {
           'sessionId': 'session-2',
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
-            'bridgeVersion': '0.2.0',
+            'hostVersion': '0.2.0',
             'clientIdentityKind': 'paired',
           },
           'bridgeInstanceId': 'bridge-1',
