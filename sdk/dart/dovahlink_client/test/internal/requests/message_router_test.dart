@@ -33,7 +33,12 @@ String rawEnvelope({
   'sessionId': 'session-1',
   'correlationId': correlationId,
   'payload': payload,
-  'bridgeInstanceId': 'bridge-1',
+  if (<String>{
+    'hello_ack',
+    'state_snapshot',
+    'state_event',
+  }.contains(messageType))
+    'stateAuthorityId': 'state-authority-1',
   'playContextId': null,
   'clientId':
       <String>{
@@ -98,7 +103,7 @@ void main() {
         expect(resolved.correlationId, 'message-outgoing-1');
         expect(resolved.payload, <String, dynamic>{'state': 'unavailable'});
         expect(resolved.sessionId, 'session-1');
-        expect(resolved.bridgeInstanceId, 'bridge-1');
+        expect(resolved.stateAuthorityId, isNull);
         verifyNever(
           () => sessionService.onProtocolViolation(
             any(),

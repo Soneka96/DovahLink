@@ -27,7 +27,7 @@ void main() {
 
         expect(envelope.messageType, ProtocolMessageType.hello);
         expect(envelope.sessionId, isNull);
-        expect(envelope.bridgeInstanceId, isNull);
+        expect(envelope.stateAuthorityId, isNull);
         expect(envelope.clientId, isNull);
         expect(envelope.toJson(), json);
       },
@@ -43,7 +43,7 @@ void main() {
         expect(envelope.messageType, ProtocolMessageType.helloAck);
         expect(envelope.sessionId, 'session-1');
         expect(envelope.correlationId, 'message-hello-1');
-        expect(envelope.bridgeInstanceId, 'bridge-1');
+        expect(envelope.stateAuthorityId, 'state-authority-1');
         expect(envelope.playContextId, isNull);
         expect(envelope.clientId, 'client-1');
         expect(envelope.toJson(), json);
@@ -113,7 +113,7 @@ void main() {
           'sessionId',
           'correlationId',
           'payload',
-          'bridgeInstanceId',
+          'stateAuthorityId',
           'playContextId',
           'clientId',
         ]) {
@@ -157,7 +157,7 @@ void main() {
 
     test('Method fromJson rejects empty optional identity values', () {
       for (final String field in <String>[
-        'bridgeInstanceId',
+        'stateAuthorityId',
         'playContextId',
         'clientId',
       ]) {
@@ -181,7 +181,7 @@ void main() {
           'sessionId': null,
           'correlationId': null,
           'payload': <String, dynamic>{},
-          'bridgeInstanceId': null,
+          'stateAuthorityId': null,
           'playContextId': null,
           'clientId': null,
         });
@@ -201,7 +201,7 @@ void main() {
           'sessionId': 'session-1',
           'correlationId': null,
           'payload': <String, dynamic>{},
-          'bridgeInstanceId': null,
+          'stateAuthorityId': null,
           'playContextId': null,
           'clientId': null,
         });
@@ -218,7 +218,7 @@ void main() {
         'sessionId': 'session-1',
         'correlationId': 'request-1',
         'payload': <String, dynamic>{},
-        'bridgeInstanceId': null,
+        'stateAuthorityId': null,
         'playContextId': null,
         'clientId': null,
       });
@@ -234,7 +234,7 @@ void main() {
           'sessionId': 'session-1',
           'correlationId': null,
           'payload': 'not-an-object',
-          'bridgeInstanceId': null,
+          'stateAuthorityId': null,
           'playContextId': null,
           'clientId': null,
         }),
@@ -250,7 +250,7 @@ void main() {
           'messageId': 7,
           'sessionId': 7,
           'correlationId': 7,
-          'bridgeInstanceId': 7,
+          'stateAuthorityId': 7,
           'playContextId': 7,
           'clientId': 7,
         };
@@ -279,7 +279,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'message-1',
             'payload': <String, dynamic>{},
-            'bridgeInstanceId': null,
+            'stateAuthorityId': null,
             'playContextId': null,
             'clientId': null,
           }),
@@ -311,7 +311,7 @@ void main() {
         'connection/hello-ack.json',
       )..['clientId'] = null;
       final JsonMap helloWithIdentity = _readFixture('connection/hello.json')
-        ..['bridgeInstanceId'] = 'bridge-1';
+        ..['stateAuthorityId'] = 'state-authority-1';
       final JsonMap capabilitiesWithCorrelation =
           _readFixture('connection/hello.json')
             ..['messageType'] = 'capabilities'
@@ -386,12 +386,21 @@ void main() {
         'pong': 'message-1',
       };
 
+      const Set<String> gatedMessageTypes = <String>{
+        'hello_ack',
+        'state_snapshot',
+        'state_event',
+      };
+
       for (final MapEntry<String, String?> entry in hostMessages.entries) {
         final JsonMap payload = _readFixture('connection/hello.json')
           ..['messageType'] = entry.key
           ..['sessionId'] = 'session-1'
           ..['correlationId'] = entry.value
           ..['clientId'] = 'client-1';
+        if (gatedMessageTypes.contains(entry.key)) {
+          payload['stateAuthorityId'] = 'state-authority-1';
+        }
 
         expect(
           () => Envelope.fromJson(payload),
@@ -457,6 +466,12 @@ void main() {
         ProtocolMessageType.snapshotRequest,
         ProtocolMessageType.ping,
       };
+      const Set<ProtocolMessageType> stateAuthorityIdRequired =
+          <ProtocolMessageType>{
+            ProtocolMessageType.helloAck,
+            ProtocolMessageType.stateSnapshot,
+            ProtocolMessageType.stateEvent,
+          };
       for (final MapEntry<ProtocolMessageType, String> entry
           in wireValues.entries) {
         final JsonMap json = _readFixture('connection/hello.json')
@@ -472,6 +487,9 @@ void main() {
                   clientIdRequired.contains(entry.key)
               ? 'client-1'
               : null;
+        if (stateAuthorityIdRequired.contains(entry.key)) {
+          json['stateAuthorityId'] = 'state-authority-1';
+        }
 
         final Envelope envelope = Envelope.fromJson(json);
 
@@ -482,31 +500,48 @@ void main() {
   });
 
   group('Method toJson behaves correctly', () {
-    test('Method toJson always includes the identity keys, value or null', () {
-      final Envelope envelope = Fixtures.buildEnvelope(
-        messageType: ProtocolMessageType.pong,
-        messageId: 'message-1',
-        sessionId: 'session-1',
-        correlationId: 'ping-1',
-        payload: <String, dynamic>{},
-        bridgeInstanceId: null,
-        playContextId: null,
-        clientId: null,
-      );
+    test(
+      'Method toJson always includes playContextId/clientId, value or null, but omits stateAuthorityId when null',
+      () {
+        final Envelope envelope = Fixtures.buildEnvelope(
+          messageType: ProtocolMessageType.pong,
+          messageId: 'message-1',
+          sessionId: 'session-1',
+          correlationId: 'ping-1',
+          payload: <String, dynamic>{},
+          stateAuthorityId: null,
+          playContextId: null,
+          clientId: null,
+        );
 
-      final JsonMap json = envelope.toJson();
-      final Envelope decoded = Envelope.fromJson(json);
+        final JsonMap json = envelope.toJson();
+        final Envelope decoded = Envelope.fromJson(json);
 
-      expect(json.containsKey('bridgeInstanceId'), isTrue);
-      expect(json.containsKey('playContextId'), isTrue);
-      expect(json.containsKey('clientId'), isTrue);
-      expect(json['bridgeInstanceId'], isNull);
-      expect(json['playContextId'], isNull);
-      expect(json['clientId'], isNull);
-      expect(json['messageType'], 'pong');
-      expect(decoded.messageType, ProtocolMessageType.pong);
-      expect(decoded.messageId, 'message-1');
-      expect(decoded.sessionId, 'session-1');
-    });
+        expect(json.containsKey('stateAuthorityId'), isFalse);
+        expect(json.containsKey('playContextId'), isTrue);
+        expect(json.containsKey('clientId'), isTrue);
+        expect(json['playContextId'], isNull);
+        expect(json['clientId'], isNull);
+        expect(json['messageType'], 'pong');
+        expect(decoded.messageType, ProtocolMessageType.pong);
+        expect(decoded.messageId, 'message-1');
+        expect(decoded.sessionId, 'session-1');
+      },
+    );
+
+    test(
+      'Method toJson includes a non-null stateAuthorityId for a gated message type',
+      () {
+        final Envelope envelope = Fixtures.buildEnvelope(
+          messageType: ProtocolMessageType.helloAck,
+          stateAuthorityId: 'state-authority-1',
+        );
+
+        final JsonMap json = envelope.toJson();
+
+        expect(json.containsKey('stateAuthorityId'), isTrue);
+        expect(json['stateAuthorityId'], 'state-authority-1');
+      },
+    );
   });
 }

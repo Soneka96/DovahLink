@@ -20,7 +20,7 @@ class Envelope {
     required this.sessionId,
     required this.correlationId,
     required this.payload,
-    required this.bridgeInstanceId,
+    required this.stateAuthorityId,
     required this.playContextId,
     required this.clientId,
   });
@@ -34,7 +34,7 @@ class Envelope {
         messageId: envelope.messageId,
         sessionId: envelope.sessionId,
         correlationId: envelope.correlationId,
-        bridgeInstanceId: envelope.bridgeInstanceId,
+        stateAuthorityId: envelope.stateAuthorityId,
         playContextId: envelope.playContextId,
         clientId: envelope.clientId,
       );
@@ -65,11 +65,12 @@ class Envelope {
   @JsonKey(required: true)
   final JsonMap payload;
 
-  /// The identity of the bridge instance that produced this message. `null`
-  /// on the client's own `hello` and on a narrow set of early
-  /// connection-hygiene rejections; present otherwise.
-  @JsonKey(required: true)
-  final String? bridgeInstanceId;
+  /// Identifies the Host's current authoritative-state continuity epoch. Required and non-null on
+  /// `hello_ack`, `state_snapshot`, and `state_event`; `null` (and, per `includeIfNull: false`,
+  /// genuinely absent from this SDK's own outgoing envelopes) on every other message, including
+  /// every client-originated one.
+  @JsonKey(includeIfNull: false)
+  final String? stateAuthorityId;
 
   /// The identity of the currently loaded play context, when one is active.
   @JsonKey(required: true)

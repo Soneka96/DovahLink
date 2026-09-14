@@ -36,14 +36,16 @@ abstract final class Fixtures {
 
   // ---- Protocol ----
 
-  /// Builds a decoded protocol envelope with representative identity defaults.
+  /// Builds a decoded protocol envelope with representative identity defaults. The default
+  /// [messageType] (`pong`) requires [stateAuthorityId] to be absent, so its default is `null`; a
+  /// test building a `hello_ack`/`state_snapshot`/`state_event` envelope overrides both together.
   static Envelope buildEnvelope({
     ProtocolMessageType messageType = ProtocolMessageType.pong,
     String messageId = 'reply-1',
     String? sessionId = 'session-1',
     String? correlationId = 'req-1',
     JsonMap payload = const <String, dynamic>{},
-    String? bridgeInstanceId = 'bridge-1',
+    String? stateAuthorityId,
     String? playContextId,
     String? clientId,
   }) => Envelope(
@@ -52,7 +54,7 @@ abstract final class Fixtures {
     sessionId: sessionId,
     correlationId: correlationId,
     payload: payload,
-    bridgeInstanceId: bridgeInstanceId,
+    stateAuthorityId: stateAuthorityId,
     playContextId: playContextId,
     clientId: clientId,
   );

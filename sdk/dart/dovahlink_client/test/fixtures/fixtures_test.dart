@@ -87,7 +87,7 @@ void main() {
       expect(envelope.messageId, 'reply-1');
       expect(envelope.sessionId, 'session-1');
       expect(envelope.correlationId, 'req-1');
-      expect(envelope.bridgeInstanceId, 'bridge-1');
+      expect(envelope.stateAuthorityId, isNull);
       expect(envelope.playContextId, isNull);
       expect(envelope.clientId, isNull);
       expect(envelope.payload, isEmpty);
@@ -102,7 +102,7 @@ void main() {
           sessionId: null,
           correlationId: null,
           payload: <String, dynamic>{'hostVersion': '1.2.3'},
-          bridgeInstanceId: null,
+          stateAuthorityId: null,
           playContextId: 'context-1',
           clientId: 'client-1',
         );
@@ -112,7 +112,7 @@ void main() {
         expect(envelope.sessionId, isNull);
         expect(envelope.correlationId, isNull);
         expect(envelope.payload, <String, dynamic>{'hostVersion': '1.2.3'});
-        expect(envelope.bridgeInstanceId, isNull);
+        expect(envelope.stateAuthorityId, isNull);
         expect(envelope.playContextId, 'context-1');
         expect(envelope.clientId, 'client-1');
       },
