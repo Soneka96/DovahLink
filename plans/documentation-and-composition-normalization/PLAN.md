@@ -258,8 +258,8 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 01.1 -- Adapter enum/constants physical normalization | Complete | #61 |
 | 01.2a -- Active docs/instructions terminology | Complete | #62 |
 | 01.2b -- Internal code/test/tooling terminology | Complete | #63 |
-| 01.3a -- Public vocabulary + identity/version design | In progress | -- |
-| 01.3b -- Compatibility/version vocabulary cutover | Blocked by 01.3a | -- |
+| 01.3a -- Public vocabulary + identity/version design | Complete | -- |
+| 01.3b -- Compatibility/version vocabulary cutover | Planned | -- |
 | 01.3c -- Public state-authority continuity identity cutover | Blocked by 01.3b | -- |
 | 02 -- Host composition and DI lifetimes | Blocked by 01.3c | -- |
 | 03 -- Adapter runtime composition | Blocked by 01.1, 01.3c | -- |
@@ -267,11 +267,13 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 05 -- Adapter documentation sweep | Blocked by 03 | -- |
 
 Status values: `Planned` -> `In progress` -> `Complete` (or `Blocked by <n>` while its
-dependency is unmerged). `Complete` is authoritative only once that concept's PR is
-actually merged to `main` -- GitHub's own merge-commit record is the permanent
+dependency is unmerged). A concept's own branch may record `Complete` before its PR
+exists or merges, once that concept's own work is finished -- no PR number or merge is
+required to write `Complete` here. Merging to `main` is what makes a `Complete` concept
+authoritative *on `main`*: GitHub's own merge-commit record is the permanent
 traceability for which SHA a PR merged as; this table does not duplicate it. Update
-this table after every PR merges; never rewrite `SOURCE.md` to reflect execution
-progress.
+this table after every PR merges (and, for a concept completed pre-PR, when its own
+work finishes); never rewrite `SOURCE.md` to reflect execution progress.
 
 ## 9. Phase completion gate
 
