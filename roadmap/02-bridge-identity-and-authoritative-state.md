@@ -13,9 +13,9 @@ revision semantics defined in `ARCHITECTURE.md` while the protocol surface is st
 
 ### Scope and behavior
 
-- Add the approved `bridgeInstanceId`, `playContextId`, `clientId`, and socket-bound `sessionId`
+- Add the approved `stateAuthorityId`, `playContextId`, `clientId`, and socket-bound `sessionId`
   lifetimes to the canonical contract and adapters.
-- Define authoritative state identity as one `bridgeInstanceId`, `playContextId`, and state area;
+- Define authoritative state identity as one `stateAuthorityId`, `playContextId`, and state area;
   a bridge restart creates a new state identity even when the same play context remains loaded.
 - Keep `sessionId` scoped to authenticated socket delivery only; reconnecting creates a new session
   without resetting the current authoritative revision.

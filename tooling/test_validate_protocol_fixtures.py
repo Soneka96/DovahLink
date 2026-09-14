@@ -23,7 +23,6 @@ def _valid_hello() -> dict:
         "sessionId": None,
         "correlationId": None,
         "payload": {},
-        "bridgeInstanceId": None,
         "playContextId": None,
         "clientId": None,
     }
@@ -37,7 +36,7 @@ def _valid_snapshot() -> dict:
         "sessionId": "session-1",
         "correlationId": "m-1",
         "payload": {},
-        "bridgeInstanceId": "bridge-1",
+        "stateAuthorityId": "state-authority-1",
         "playContextId": None,
         "clientId": "client-1",
     }
@@ -63,7 +62,6 @@ def _valid_error(session_id: str | None) -> dict:
             "retryable": False,
             "details": None,
         },
-        "bridgeInstanceId": None,
         "playContextId": None,
         "clientId": None,
     }
@@ -93,12 +91,42 @@ class ValidateEnvelopeTests(unittest.TestCase):
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
 
-    def test_missing_bridge_instance_id_rejected(self) -> None:
-        """Reject an envelope missing the bridgeInstanceId key entirely."""
+    def test_missing_state_authority_id_rejected(self) -> None:
+        """Reject an envelope missing the stateAuthorityId key when its message type requires it."""
         message = _valid_snapshot()
-        del message["bridgeInstanceId"]
+        del message["stateAuthorityId"]
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
+
+    def test_state_authority_id_present_for_non_gated_type_rejected(self) -> None:
+        """Reject an envelope carrying stateAuthorityId on a message type outside the closed presence table."""
+        message = _valid_hello()
+        message["stateAuthorityId"] = "state-authority-1"
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
+    def test_null_state_authority_id_for_gated_type_rejected(self) -> None:
+        """Reject a null stateAuthorityId on a message type that requires a real value."""
+        message = _valid_snapshot()
+        message["stateAuthorityId"] = None
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
+    def test_empty_state_authority_id_for_gated_type_rejected(self) -> None:
+        """Reject an empty stateAuthorityId on a message type that requires a real value."""
+        message = _valid_snapshot()
+        message["stateAuthorityId"] = ""
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
+    def test_missing_state_authority_id_rejected_for_every_gated_type(self) -> None:
+        """Reject a missing stateAuthorityId for each message type the closed presence table requires it on, not only state_snapshot."""
+        for message_type in ("hello_ack", "state_event"):
+            message = _valid_snapshot()
+            message["messageType"] = message_type
+            del message["stateAuthorityId"]
+            with self.assertRaises(FixtureError):
+                validate_envelope("bad.json", message)
 
     def test_missing_play_context_id_rejected(self) -> None:
         """Reject an envelope missing the playContextId key entirely."""
@@ -119,10 +147,10 @@ class ValidateEnvelopeTests(unittest.TestCase):
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", [])
 
-    def test_non_string_bridge_instance_id_rejected(self) -> None:
-        """Reject a bridgeInstanceId with the wrong type."""
+    def test_non_string_state_authority_id_rejected(self) -> None:
+        """Reject a stateAuthorityId with the wrong type."""
         message = _valid_snapshot()
-        message["bridgeInstanceId"] = 1
+        message["stateAuthorityId"] = 1
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
 

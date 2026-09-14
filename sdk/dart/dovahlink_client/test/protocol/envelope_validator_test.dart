@@ -9,7 +9,8 @@ void expectValidEnvelope({
   required ProtocolMessageType messageType,
   required String? sessionId,
   required String? correlationId,
-  required String? bridgeInstanceId,
+  required String? stateAuthorityId,
+  bool? stateAuthorityIdPresent,
   required String? playContextId,
   required String? clientId,
 }) {
@@ -19,7 +20,9 @@ void expectValidEnvelope({
       messageId: 'message-1',
       sessionId: sessionId,
       correlationId: correlationId,
-      bridgeInstanceId: bridgeInstanceId,
+      stateAuthorityId: stateAuthorityId,
+      stateAuthorityIdPresent:
+          stateAuthorityIdPresent ?? (stateAuthorityId != null),
       playContextId: playContextId,
       clientId: clientId,
     ),
@@ -27,13 +30,20 @@ void expectValidEnvelope({
   );
 }
 
-/// Expects [EnvelopeValidator] to reject one typed envelope shape.
+/// Expects [EnvelopeValidator] to reject one typed envelope shape. Defaults to `pong` with a
+/// `null` [stateAuthorityId] (a valid combination on its own) so a default-driven call only
+/// throws because of the field the test actually overrides, not incidentally from the default
+/// shape itself. [stateAuthorityIdPresent] defaults to whether [stateAuthorityId] is non-null,
+/// the ordinary case where "present" and "non-null" coincide; pass it explicitly to construct the
+/// key-present-but-null shape a real decoded JSON payload can have but a typed value alone cannot
+/// distinguish.
 void expectInvalidEnvelope({
   ProtocolMessageType messageType = ProtocolMessageType.pong,
   String messageId = 'message-1',
   String? sessionId = 'session-1',
   String? correlationId = 'message-1',
-  String? bridgeInstanceId = 'bridge-1',
+  String? stateAuthorityId,
+  bool? stateAuthorityIdPresent,
   String? playContextId,
   String? clientId,
 }) {
@@ -43,7 +53,9 @@ void expectInvalidEnvelope({
       messageId: messageId,
       sessionId: sessionId,
       correlationId: correlationId,
-      bridgeInstanceId: bridgeInstanceId,
+      stateAuthorityId: stateAuthorityId,
+      stateAuthorityIdPresent:
+          stateAuthorityIdPresent ?? (stateAuthorityId != null),
       playContextId: playContextId,
       clientId: clientId,
     ),
@@ -61,7 +73,7 @@ void main() {
           messageType: ProtocolMessageType.hello,
           sessionId: null,
           correlationId: null,
-          bridgeInstanceId: null,
+          stateAuthorityId: null,
           playContextId: null,
           clientId: null,
         );
@@ -69,7 +81,7 @@ void main() {
           messageType: ProtocolMessageType.error,
           sessionId: null,
           correlationId: null,
-          bridgeInstanceId: null,
+          stateAuthorityId: null,
           playContextId: null,
           clientId: null,
         );
@@ -77,7 +89,7 @@ void main() {
           messageType: ProtocolMessageType.capabilities,
           sessionId: 'session-1',
           correlationId: null,
-          bridgeInstanceId: 'bridge-1',
+          stateAuthorityId: null,
           playContextId: null,
           clientId: 'client-1',
         );
@@ -91,7 +103,7 @@ void main() {
           messageType: ProtocolMessageType.helloAck,
           sessionId: 'session-1',
           correlationId: 'message-1',
-          bridgeInstanceId: 'bridge-1',
+          stateAuthorityId: 'state-authority-1',
           playContextId: null,
           clientId: 'client-1',
         );
@@ -99,7 +111,7 @@ void main() {
           messageType: ProtocolMessageType.pairingStatus,
           sessionId: 'session-1',
           correlationId: 'message-1',
-          bridgeInstanceId: 'bridge-1',
+          stateAuthorityId: null,
           playContextId: null,
           clientId: null,
         );
@@ -107,7 +119,7 @@ void main() {
           messageType: ProtocolMessageType.pairingRequest,
           sessionId: 'session-1',
           correlationId: null,
-          bridgeInstanceId: 'bridge-1',
+          stateAuthorityId: null,
           playContextId: null,
           clientId: 'client-1',
         );
@@ -115,7 +127,7 @@ void main() {
           messageType: ProtocolMessageType.ping,
           sessionId: 'session-1',
           correlationId: null,
-          bridgeInstanceId: 'bridge-1',
+          stateAuthorityId: null,
           playContextId: null,
           clientId: 'client-1',
         );
@@ -134,12 +146,14 @@ void main() {
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.helloAck,
         correlationId: null,
+        stateAuthorityId: 'state-authority-1',
+        clientId: 'client-1',
       );
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.hello,
         correlationId: 'message-1',
         sessionId: null,
-        bridgeInstanceId: null,
+        stateAuthorityId: null,
       );
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.pairingRequest,
@@ -149,6 +163,7 @@ void main() {
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.stateEvent,
         correlationId: 'message-1',
+        stateAuthorityId: 'state-authority-1',
         clientId: null,
       );
     });
@@ -158,7 +173,7 @@ void main() {
         messageType: ProtocolMessageType.hello,
         sessionId: 'session-1',
         correlationId: null,
-        bridgeInstanceId: null,
+        stateAuthorityId: null,
       );
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.error,
@@ -166,20 +181,21 @@ void main() {
         correlationId: null,
       );
       expectInvalidEnvelope(sessionId: null);
-      expectInvalidEnvelope(bridgeInstanceId: '');
+      expectInvalidEnvelope(stateAuthorityId: '');
       expectInvalidEnvelope(playContextId: '');
       expectInvalidEnvelope(clientId: '');
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.hello,
         sessionId: null,
         correlationId: null,
-        bridgeInstanceId: 'bridge-1',
+        stateAuthorityId: 'state-authority-1',
       );
     });
 
     test('Method validate rejects invalid client identity requirements', () {
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.helloAck,
+        stateAuthorityId: 'state-authority-1',
         clientId: null,
       );
       expectInvalidEnvelope(
@@ -197,6 +213,56 @@ void main() {
         clientId: 'client-1',
       );
     });
+
+    test(
+      'Method validate rejects stateAuthorityId absent on a gated message type',
+      () {
+        expectInvalidEnvelope(messageType: ProtocolMessageType.stateSnapshot);
+      },
+    );
+
+    test(
+      'Method validate rejects stateAuthorityId absent for every gated message type, not only state_snapshot',
+      () {
+        expectInvalidEnvelope(
+          messageType: ProtocolMessageType.stateEvent,
+          correlationId: null,
+        );
+      },
+    );
+
+    test(
+      'Method validate rejects an empty stateAuthorityId on a gated message type',
+      () {
+        expectInvalidEnvelope(
+          messageType: ProtocolMessageType.helloAck,
+          stateAuthorityId: '',
+          clientId: 'client-1',
+        );
+      },
+    );
+
+    test(
+      'Method validate rejects a non-null stateAuthorityId on a non-gated message type',
+      () {
+        expectInvalidEnvelope(
+          messageType: ProtocolMessageType.pairingStatus,
+          correlationId: 'message-1',
+          stateAuthorityId: 'state-authority-1',
+        );
+      },
+    );
+
+    test(
+      'Method validate rejects a present stateAuthorityId key with a null value on a non-gated message type',
+      () {
+        expectInvalidEnvelope(
+          messageType: ProtocolMessageType.pong,
+          stateAuthorityId: null,
+          stateAuthorityIdPresent: true,
+        );
+      },
+    );
   });
 
   group('Method isClientIdRequired behaves correctly', () {

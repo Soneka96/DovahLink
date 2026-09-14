@@ -4,10 +4,9 @@ using DovahLink.Host.Identity;
 namespace DovahLink.Host.Adapter;
 
 /// <summary>
-/// The host's view of the native adapter's connection identity and availability -- the host-owned
-/// successor to the old single-process <c>bridgeInstanceId</c>. A restarted host starts
-/// unavailable with no known adapter instance, and every connection or reconnection requires an
-/// explicit resynchronization before adapter-sourced state can be published as current.
+/// The host's view of the native adapter's connection identity and availability. A restarted host
+/// starts unavailable with no known adapter instance, and every connection or reconnection requires
+/// an explicit resynchronization before adapter-sourced state can be published as current.
 /// </summary>
 public interface IAdapterAvailabilityTracker
 {
@@ -25,6 +24,13 @@ public interface IAdapterAvailabilityTracker
 
     /// <summary>Raised after an availability transition is committed.</summary>
     event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
+
+    /// <summary>
+    /// Raised after <see cref="NotifyResynchronized"/> records a real resynchronization, outside any
+    /// internal lock -- the same publish-outside-the-lock discipline <see cref="PublishTransition"/>
+    /// documents for <see cref="AvailabilityChanged"/>.
+    /// </summary>
+    event Action<AdapterInstanceId, long>? Resynchronized;
 
     /// <summary>Claims the current connection's one-time resynchronization authorization.</summary>
     IAdapterResynchronizationToken? TryClaimResynchronizationToken();
@@ -226,16 +232,21 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     /// <inheritdoc/>
     public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration)
     {
+        bool resynchronized;
         lock (gate)
         {
-            if (current != AdapterAvailability.Available || currentInstanceId != instanceId || currentConnectionGeneration != connectionGeneration)
+            resynchronized = current == AdapterAvailability.Available && currentInstanceId == instanceId && currentConnectionGeneration == connectionGeneration;
+            if (resynchronized)
             {
-                return;
+                needsResynchronization = false;
+                currentResynchronizationToken = null;
+                resynchronizationTokenClaimed = false;
             }
+        }
 
-            needsResynchronization = false;
-            currentResynchronizationToken = null;
-            resynchronizationTokenClaimed = false;
+        if (resynchronized)
+        {
+            Resynchronized?.Invoke(instanceId, connectionGeneration);
         }
     }
 
@@ -250,6 +261,9 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
 
     /// <inheritdoc/>
     public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
+
+    /// <inheritdoc/>
+    public event Action<AdapterInstanceId, long>? Resynchronized;
 
     /// <inheritdoc/>
     public void PublishTransition(AdapterAvailabilityTransition transition)

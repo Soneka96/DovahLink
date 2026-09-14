@@ -9,7 +9,8 @@ class EnvelopeValidator {
     required String messageId,
     required String? sessionId,
     required String? correlationId,
-    required String? bridgeInstanceId,
+    required String? stateAuthorityId,
+    required bool stateAuthorityIdPresent,
     required String? playContextId,
     required String? clientId,
   }) {
@@ -78,9 +79,23 @@ class EnvelopeValidator {
           );
         }
     }
-    if (bridgeInstanceId?.isEmpty ?? false) {
-      throw const ProtocolFormatException(
-        'bridgeInstanceId must be null or non-empty.',
+    final bool stateAuthorityIdIsRequired = switch (messageType) {
+      ProtocolMessageType.helloAck ||
+      ProtocolMessageType.stateSnapshot ||
+      ProtocolMessageType.stateEvent => true,
+      _ => false,
+    };
+    if (stateAuthorityIdIsRequired) {
+      if (stateAuthorityId == null || stateAuthorityId.isEmpty) {
+        throw ProtocolFormatException(
+          'stateAuthorityId must be present for $messageType.',
+        );
+      }
+    } else if (stateAuthorityIdPresent) {
+      // The key itself must be entirely absent, not merely null: an explicit `"stateAuthorityId":
+      // null` is still a presence the Host's own wire contract forbids for this message type.
+      throw ProtocolFormatException(
+        'stateAuthorityId must be absent (not merely null) for $messageType.',
       );
     }
     if (playContextId?.isEmpty ?? false) {
@@ -105,9 +120,7 @@ class EnvelopeValidator {
       throw ProtocolFormatException('clientId must be null for $messageType.');
     }
     if (messageType == ProtocolMessageType.hello &&
-        (bridgeInstanceId != null ||
-            playContextId != null ||
-            clientId != null)) {
+        (playContextId != null || clientId != null)) {
       throw const ProtocolFormatException(
         'hello identity fields must be null.',
       );

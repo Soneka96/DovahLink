@@ -86,11 +86,11 @@ The current recovery sequence and error codes belong to `protocol/schema/README.
 
 Simultaneous support for more than one historical contract generation is deferred, not prohibited. Revisit it only when a concrete requirement exists — established third-party clients, independently distributed components that cannot update together, a public backwards-compatibility guarantee, or a comparable constraint — and design that system from the requirements in force at that time.
 
-## Decided, pending implementation: public state-authority continuity identifier
+## Public state-authority continuity identifier
 
-Whether the public protocol exposes a state-authority continuity identifier is now decided in
+The public protocol exposes a state-authority continuity identifier, per
 `plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
-Section C, not left to a later protocol revision stage. It is deliberately not a public counterpart
+Section C, implemented by Concept `01.3c`. It is deliberately not a public counterpart
 of the host-observed `adapterInstanceId` -- see the Decision below for why the two are independent
 axes, not aliases. `ARCHITECTURE.md`'s "Runtime and identity model" fixes the four private identity
 lifetimes; this decision adds a fifth, public-only concept without changing any of them.
@@ -110,12 +110,12 @@ own. `01.3a`'s Section C records the full lifecycle (creation point, stability a
 reconnects, null-after-startup answer, exact wire presence, comparison semantics);
 `01.3c` implements it.
 
-This remains a hard gate, not a soft preference: `state_snapshot` and `state_event` publication must
-not go live until `01.3c` actually implements this field with real values. A state revision's
-identity is scoped to `(stateAuthorityId, playContextId, stateArea)` (renamed from
+This was a hard gate, not a soft preference: `state_snapshot` and `state_event` publication was not
+permitted to go live until `01.3c` implemented this field with real values, which it now does. A
+state revision's identity is scoped to `(stateAuthorityId, playContextId, stateArea)` (renamed from
 `(bridgeInstanceId, playContextId, stateArea)` -- see `01.3a` Section D), and clients rely on the
 authority component to reject state from an earlier authoritative-store lifetime; publishing live
-state before that component has a real, decided value would let a client silently accept state from
-the wrong lifetime. Do not substitute `adapterInstanceId`, an OS process ID, a port, a path, or an
-owner-lifetime ID for it -- none of them identify the same thing this field identifies, per
+state before that component had a real, decided value would have let a client silently accept state
+from the wrong lifetime. Do not substitute `adapterInstanceId`, an OS process ID, a port, a path, or
+an owner-lifetime ID for it -- none of them identify the same thing this field identifies, per
 `ARCHITECTURE.md`'s "Runtime and identity model" and `01.3a` Section C's reasoning.

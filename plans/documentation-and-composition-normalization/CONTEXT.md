@@ -9,38 +9,61 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.3b-compatibility-version-vocabulary-cutover.md`
-- Status: Complete on branch `feature/01.3b-compatibility-version-vocabulary-cutover`,
-  PR #65 open (draft). Implements exactly `01.3a`'s Sections A/B decision across six
-  reviewable commits: (1) Host model -- `HelloAckPayload.BridgeVersion` ->
-  `HostVersion`, `Constants.PublicProtocolTransitionalBridgeVersion` ->
-  `PublicProtocolHostVersion`, `PublicHelloAdmissionHandler`'s assignment,
-  `CapabilityDescriptor`'s doc comment; (2) canonical schema
-  (`protocol/schema/README.md`, including dropping the stale `adapter/vcpkg.json`
-  cross-reference per `01.3a`'s explicit finding) and the 3 `hello_ack`-family fixtures,
-  plus the version-sync tooling guard; (3) Dart SDK model
-  (`HelloAckPayload`/`HelloResult`/`AuthenticationService`'s cache field) and its
-  generated codec (gitignored, regenerated via `build_runner`, not committed); (4) the
-  Flutter app's pairing feature (entity, actions, reducer, middleware, selectors,
-  state, viewmodel, datasource); (5) documentation cutover
-  (`ARCHITECTURE.md`, `ai/context/protocol/compatibility.md`,
-  `ai/context/sdk/api-design.md`/`architecture.md`) and flipping the
-  repository-consistency guard that used to *require* the old Bridge wording in
-  `api-design.md` to require the new Host wording instead; (6) this close-out. Does not
-  touch `bridgeInstanceId`/`stateAuthorityId` -- that is `01.3c`'s field, deliberately
-  left alone here. One item not in the original step plan was found and fixed during
-  step 5: `ARCHITECTURE.md`'s "pre-cutover... Bridge/mod release version... target host
-  contract will use..." sentence -- `01.3a`'s own PR-size gate had explicitly flagged
-  `ARCHITECTURE.md` as part of this concept's documentation tail, and the sentence went
-  factually stale the moment this concept activated the cutover it was describing as
-  still pending.
-- Prerequisites: Concept 01.3a merged (`main` @ `805d1641`, PR #64) -- confirmed via
-  `git log`/`git branch --contains`, satisfied.
-- PR: #65, open (draft).
-- Next action: address review on PR #65, then merge it. `01.3c` stays
-  `Blocked by 01.3b` in `PLAN.md`'s status table until this concept's PR actually
-  merges to `main` -- not merely reaches branch-level `Complete`, per the same rule
-  this concept's own dependency on `01.3a` was held to.
+- File: `01.3c-public-authoritative-instance-identity-cutover.md`
+- Status: Complete on branch `feature/01.3c-public-authoritative-instance-identity-cutover`,
+  not yet opened as a PR. Implements exactly `01.3a`'s Section C decision across seven
+  reviewable steps: (1) package bookkeeping fixing PR #65's merge lag in `PLAN.md`/
+  `CONTEXT.md`; (2) a new internal `StateAuthorityLifecycle` rotation state machine
+  (mint at Host startup fail-closed, rotate exactly once per detected continuity
+  break, repeated-loss lock-down until a fresh baseline, fatal on runtime mint
+  failure) plus a new `Resynchronized` event on `IAdapterAvailabilityTracker` it
+  observes, wired into `Program.cs` with no wire change yet; (3) the Host wire cutover
+  itself -- `PublicEnvelope`/`PublicEnvelopeCodec` stamp `stateAuthorityId` on
+  `hello_ack`/`state_snapshot`/`state_event` only (encode fails closed with no
+  lifecycle configured) and omit it from every other message per the closed
+  wire-presence table, all 57 `protocol/fixtures/**/*.json` fixtures renamed or
+  stripped accordingly, `tooling/validate_protocol_fixtures.py` updated to match; (4)
+  the Dart SDK mirror (`Envelope`/`EnvelopeValidator`, `@JsonKey(includeIfNull:
+  false)` so outgoing client envelopes never carry the key at all); (5) the Adapter's
+  one real-process E2E test file's hardcoded wire literals; (6) documentation cutover
+  across `ARCHITECTURE.md`, the canonical schema, and five `ai/context`/roadmap docs,
+  plus `tooling/test_repository_consistency.py`'s pinned strings -- recording D6 for
+  one roadmap bullet (`roadmap/10`, Status: Planned) that could not be mechanically
+  renamed because `01.3a` Section C rules `stateAuthorityId` out for instance-identity
+  purposes; (7) this close-out. Every fresh-eyes test-gap pass (Host, Dart) found and
+  fixed real gaps (a missing subscriber-exception-isolation fix, missing per-gated-type
+  empty/missing-field tests) before this concept's own acceptance gate ran.
+- Independent maintainer review (this session, after the above seven steps) found two
+  real defects the concept's own mandatory invariants require proving but the
+  implementation did not: `PublicStateSubscription` never invalidated a connection's
+  live baseline on a `stateAuthorityId` rotation (only a play-context transition did),
+  leaving the post-rotation baseline rule unenforced; and the Dart SDK could not
+  distinguish an absent `stateAuthorityId` key from one present with an explicit JSON
+  `null`, disagreeing with the Host's own wire-presence check. Both are now fixed:
+  `StateAuthorityLifecycle` raises a new `Rotated` event that `PublicStateSubscription`
+  listens for to reset every area to `AwaitingBaseline`, sharing the same invalidation
+  path a play-context transition already used; `Envelope.fromJson` now records
+  `json.containsKey('stateAuthorityId')` and `EnvelopeValidator.validate` rejects a
+  present-but-null key on every message type that must omit it entirely. See the
+  Verification entry below for the fresh-eyes gaps this fix pass itself found and
+  closed, and `DIVERGENCES.md` D7 for the file-count consequence.
+- Re-run PR-size inventory: 86 predicted files (81-100 "stop for maintainer review"
+  band); the maintainer explicitly approved one atomic PR rather than a split, since
+  no safe split point exists for one shared envelope field. Final actual count: **102
+  files**, over the concept's own 100-file hard stop -- the maintainer explicitly
+  approved this as a one-time exception per `DIVERGENCES.md` D7, since the two
+  additional files (`PublicStateSubscription.cs`, a new `FakeStateAuthorityLifecycle.cs`
+  test double) were required to fix the mandatory-invariant defects above, not new
+  scope. See the concept file's own PR-size gate section for the full accounting.
+- Prerequisites: Concept 01.3b merged (`main` @ `5f8ca28d`, PR #65) -- confirmed via
+  `git log`, satisfied. No release was cut between `01.3b` merging and this concept's
+  completion (`VERSION` still `0.3.3`, `CHANGELOG.md`'s newest section still
+  `[0.3.3]`, no newer git tag).
+- PR: none yet.
+- Next action: open the PR, address review, then merge it. This is the last concept in
+  the D4 chain -- once merged, Concepts 02 and 03 (03 also requiring Concept 01.1
+  merged) become eligible to start, per `PLAN.md` section 6's merge-not-just-complete
+  rule.
 
 ## Completed concepts
 
@@ -57,6 +80,13 @@ Status: active (package frozen 2026-09-13)
   authority, canonical version vocabulary, `stateAuthorityId` semantics, cache/revision
   scope, migration policy, old->new vocabulary table) final -- see this file's prior
   Verification entries for the full rationale.
+- `01.3b-compatibility-version-vocabulary-cutover.md` -- merged to `main` via PR #65
+  (merge commit `5f8ca28d`, 2026-09-14). Implemented `01.3a`'s Sections A/B decision
+  (`bridgeVersion` -> `hostVersion`) across Host, canonical schema, Dart SDK, and the
+  Flutter app; two correction passes (a 5-file documentation gap, and D5/the
+  VERSION-invariant/bookkeeping pass) are recorded in this file's earlier Verification
+  entries. Did not touch `bridgeInstanceId`/`stateAuthorityId` -- that was `01.3c`'s
+  field, deliberately left alone.
 
 ## Decisions and approved deviations
 
@@ -124,6 +154,24 @@ Status: active (package frozen 2026-09-13)
   dependency lines were both updated explicitly (02: blocked by 01.3c; 03: blocked by
   01.1 AND 01.3c, both named even though 01.1 is transitively implied, since they
   document Adapter composition's two independent prerequisites).
+- D6 (2026-09-14, this session, during `01.3c`'s documentation-cutover step):
+  `roadmap/10-multi-bridge-and-local-discovery-foundation.md`'s "Validate records
+  against authenticated `bridgeInstanceId`" bullet (Status: Planned) is reworded
+  rather than mechanically renamed to `stateAuthorityId` -- `01.3a` Section C rules
+  that field out for instance-identity purposes, so a blind rename would bake an
+  undecided design choice into a phase nobody has designed yet. Stage 10's own
+  identity mechanism remains an open question for whoever implements it.
+- D7 (2026-09-14, this session, independent maintainer review of `01.3c`'s already-
+  `Complete` implementation): the review found `PublicStateSubscription` never
+  invalidated a live baseline on `stateAuthorityId` rotation and the Dart SDK could not
+  tell an absent `stateAuthorityId` key apart from an explicit JSON `null` -- both real
+  defects in invariants `01.3c` itself requires proving, not new scope. Fixing them
+  touched two files the branch had not touched before (`PublicStateSubscription.cs`, a
+  new `FakeStateAuthorityLifecycle.cs` test double), raising the final changed-file
+  count from an already-stale "99" to 102 -- over `01.3c`'s own 100-file hard stop. The
+  maintainer explicitly approved 102 as a one-time exception for this PR rather than
+  splitting the fix, removing tests, or reopening `01.3a`'s design. The package-wide
+  `>100` rule itself is unchanged for every other concept.
 
 ## Deferred debt
 
@@ -577,6 +625,80 @@ design, not debt.)
   analyze`/`test` clean/349/349, `python -m unittest discover -s tooling -p
   "test_*.py"` 166/166, all green. Fresh sweep for "52 files"/"not yet opened as a
   PR" confirms only the intentionally-preserved historical entry remains.
+- 2026-09-14 Concept 01.3c implementation, seven steps (this session, branch
+  `feature/01.3c-public-authoritative-instance-identity-cutover`): implemented
+  `01.3a` Section C's `stateAuthorityId` continuity-epoch identity exactly, per the
+  Active-concept entry above's full step breakdown. Two fresh-eyes test-gap passes
+  (Host, Dart) each found and fixed real gaps before this concept's own tests were
+  considered complete -- a missing `FatalFailureOccurred` subscriber-exception
+  isolation fix (mirroring `AdapterAvailabilityTracker.PublishTransition`'s own
+  documented discipline) plus two missing lock-down/concurrency tests on the Host
+  side; three missing per-gated-type empty/missing-`stateAuthorityId` tests on the
+  Dart side. One maintainer decision point mid-implementation: the re-run PR-size
+  inventory came in at 86 predicted files (81-100 "stop for maintainer review" band,
+  not "comfortably under 80"); the maintainer explicitly approved one atomic PR
+  rather than any split. One documentation gap required its own maintainer decision:
+  `roadmap/10-multi-bridge-and-local-discovery-foundation.md`'s discovery-record
+  identity bullet could not be mechanically renamed (`01.3a` Section C rules
+  `stateAuthorityId` out for instance-identity purposes) -- reworded and recorded as
+  D6 rather than silently deciding a new, undesigned mechanism. Final acceptance
+  gate, full branch-wide: `dotnet test` 1740/1740, `dart analyze`/`test`
+  clean/628/628, `flutter analyze`/`test` clean/349/349, `python -m unittest
+  discover -s tooling -p "test_*.py"` 166/166 plus `test_validate_protocol_fixtures`
+  bringing the total to 170/170 (57/57 fixtures satisfy the envelope contract), and
+  the Adapter's native `ctest --preset windows-x64-debug` 477/477 (2 skips,
+  pre-existing/unrelated to this concept -- they require a Release-configuration
+  adapter build). Final changed-file count vs. `main`: 99, under the 100 hard stop.
+  Fresh repo-wide sweep (`git grep -n "bridgeInstanceId"`) confirms every remaining
+  hit is genuinely historical (frozen-reference `ARCHITECTURE.md` prose,
+  `CHANGELOG.md`, this package's own decision records) or this concept's own
+  before/after documentation of the rename -- zero live identifier or
+  requirement-bearing prose reference remains anywhere in the repository.
+- 2026-09-14 `01.3c` review-fix pass (this session, same branch, after the concept had
+  already recorded itself `Complete` above): an independent maintainer review found two
+  real defects in invariants `01.3c` itself lists as mandatory to prove. (1)
+  `PublicStateSubscription` reacted to `feed.EventOccurred`/`SnapshotChanged` and
+  `playContextTracker.Transitioned` but never to a `stateAuthorityId` rotation, so an
+  already-`Live` area's baseline stayed live across a rotation with no invalidation --
+  the concept's own "a rotation invalidates incremental continuity from the previous
+  value until a fresh `state_snapshot` establishes the new baseline" invariant was
+  unenforced. Fixed in two steps: `IStateAuthorityLifecycle` gained a `Rotated` event,
+  raised exactly at the rotation point (mirroring `FatalFailureOccurred`'s per-
+  subscriber exception isolation); `PublicStateSubscription` now takes it as a
+  constructor dependency and resets every area to `AwaitingBaseline` on `Rotated`,
+  sharing the invalidation logic already extracted from `OnPlayContextTransitioned`
+  into a common `InvalidateAllAreasUnderGate()` helper. (2) The Dart SDK's
+  `Envelope.fromJson` decoded `stateAuthorityId` as a nullable field without ever
+  recording whether the JSON key itself was present, so `EnvelopeValidator`'s
+  forbidden-on-non-gated-types check (`stateAuthorityId != null`) could not
+  distinguish a genuinely absent key from one present with an explicit `null` --
+  silently accepting a shape the Host's own `PublicEnvelopeCodec.TryGetStateAuthorityId`
+  already rejects. Fixed by adding a `stateAuthorityIdPresent` parameter, derived from
+  `json.containsKey('stateAuthorityId')` at the one real call site, checked separately
+  from the decoded value's nullness. Fixing the Dart bug surfaced 8 pre-existing test
+  literals (5 in `dovahlink_client_test.dart`, 3 in `envelope_test.dart`) that only
+  passed because of it; all 8 fixed to the now-correct shape. Two fresh-eyes test-gap
+  passes (Host, Dart) each found and fixed real gaps before this fix pass's own tests
+  were considered complete -- three missing `Rotated`-event assertions on already-
+  existing lock-down/repeated-loss/concurrency tests, and one missing symmetric
+  `Unsubscribe` assertion extending `Unsubscribe_AfterBind_RemovesSubscriptions` to
+  cover the new collaborator; no gaps found in the Dart fix beyond what was already
+  covered. A third, narrower finding -- a theoretical race between authority rotation
+  and event delivery -- was investigated and found to have no executable path today:
+  `IStatePublicationFeed` has no real producer yet (still `NullStatePublicationFeed`),
+  `StatePublisher.ApplyCore` gates every event on adapter availability checked before
+  disconnection even triggers rotation, and `AdapterIpcConnection.ReadLoopAsync`
+  processes one adapter connection's frames as one strictly sequential async chain.
+  Recorded as a documented constraint on `IStatePublicationFeed`'s own contract for
+  whoever implements the real domain-feed producer in a later concept, not a defect in
+  `01.3c`. Final acceptance gate for this fix pass: `dotnet test` 1746/1746 (Host,
+  full suite, including the exact CI command --
+  `--configuration Release -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true`
+  -- clean), `dart analyze`/`test` clean/630/630 (Dart SDK, full suite, including a
+  `dart run build_runner build` confirming zero generated-source drift); App/tooling/
+  Adapter suites unchanged from the entry above since no file in those areas was
+  touched. Final changed-file count vs. `main`: 102, over the concept's own 100-file
+  hard stop -- see `DIVERGENCES.md` D7 for the maintainer's explicit one-time exception.
 
 ## Handoff
 
@@ -600,6 +722,24 @@ Concept 01.3b's implementation is complete on branch
 passes -- the 5-file documentation gap an independent review found, and the
 D5/VERSION-invariant/bookkeeping pass recorded in the Verification entry below -- see
 the Verification entries above and below for the full acceptance-gate evidence. PR
-#65 is open (draft). Handoff to Concept 01.3c follows once this PR merges to `main`,
-per the same one-branch/PR-per-concept rule -- `01.3c` stays `Blocked by 01.3b` in
-`PLAN.md`'s status table until then.
+#65 merged to `main` (merge commit `5f8ca28d`, 2026-09-14). Handoff to Concept 01.3c
+is now active on branch `feature/01.3c-public-authoritative-instance-identity-cutover`,
+per the same one-branch/PR-per-concept rule -- `01.3c`'s own prerequisite (01.3b
+merged) is confirmed satisfied by the merge commit above. Its re-run file-count
+inventory came in at 86 files (73 in the core implementation dirs, plus 7
+mechanically-required doc/tooling files, plus 6 live-prose-consistency files --
+`roadmap/02` and `roadmap/03` among them, since `tooling/test_repository_consistency.py`
+pins exact wording from both against the old field name), landing in `01.3c`'s own
+81-100 "stop for maintainer review" band rather than "comfortably under 80." The
+maintainer explicitly approved proceeding as one atomic PR rather than any split, per
+the gate's own escape hatch and `01.3a` Section E's ban on splitting one wire-contract
+change across PRs.
+
+Concept 01.3c's implementation is complete on branch
+`feature/01.3c-public-authoritative-instance-identity-cutover` -- see the Verification
+entry above for the full acceptance-gate evidence and the Active-concept entry for the
+step-by-step breakdown. No PR opened yet. This is the last concept in the D4
+vocabulary-normalization chain: once its PR merges to `main`, Concepts 02 (Host
+composition) and 03 (Adapter composition, also requiring Concept 01.1 merged) become
+eligible to start, per `PLAN.md` section 6's merge-not-just-complete rule -- the same
+rule this concept's own dependency on `01.3b` was held to.

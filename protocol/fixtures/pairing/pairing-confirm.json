@@ -7,7 +7,6 @@
     "code": "123456",
     "displayName": "My PC"
   },
-  "bridgeInstanceId": "bridge-1",
   "playContextId": null,
   "clientId": "client-1"
 }

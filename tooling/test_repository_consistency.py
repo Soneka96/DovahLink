@@ -19,7 +19,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         normalized_architecture = self._normalize_whitespace(architecture)
 
         for identity in (
-            "`bridgeInstanceId`",
+            "`stateAuthorityId`",
             "`playContextId`",
             "`clientId`",
             "`sessionId`",
@@ -35,8 +35,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "one authoritative state store for the active play context",
             "captured once and shared with subscribed clients",
             "adding a client must not repeat equivalent Skyrim reads",
-            "within one state area, `playContextId`, and the authoritative-lineage identity "
-            "for that state",
+            "within one state area, `playContextId`, and `stateAuthorityId`",
             "A revision advances only when that authoritative state changes",
             "Sending or requesting another snapshot does not advance the revision",
             "reconnecting does not create a new authoritative revision",
@@ -52,10 +51,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(required_phrase, normalized_architecture)
 
         self.assertIn(
-            "belongs to that authoritative bridge instance, play context, and state area",
+            "belongs to that authority continuity epoch, play context, and state area",
             schema,
         )
-        for target_identity in ("bridgeInstanceId", "playContextId", "clientId"):
+        for target_identity in ("stateAuthorityId", "playContextId", "clientId"):
             self.assertIn(target_identity, schema)
         # The retired protocol-generation compatibility model must not silently creep back in.
         for retired_term in (
@@ -1297,7 +1296,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Permit only one active pairing challenge globally",
             "final confirmation is idempotent",
             "Persist completed trust so it survives Skyrim, Bridge, and Windows restarts, save "
-            "changes, `playContextId` changes, and `bridgeInstanceId` changes",
+            "changes, `playContextId` changes, and `stateAuthorityId` changes",
             "Persistent trust belongs to the current Windows user profile running the client and "
             "the Bridge",
             "Scope `clientId` to the client installation and the Windows user profile running it",
@@ -1870,9 +1869,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertNotIn(retired_duplication_phrase, sdk_doc)
             self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
 
-        # These docs still legitimately say "bridgeInstanceId" -- that is identity vocabulary
-        # `01.3c` decides (`bridgeVersion` was cut over to `hostVersion` by `01.3b`). This guards
-        # only against the retired Bridge *actor* language this pass corrected to Host reappearing.
+        # This guards only against the retired Bridge *actor* language this pass corrected to Host
+        # reappearing; the separate `bridgeInstanceId` -> `stateAuthorityId` identity rename was
+        # `01.3c`'s own later concept (`bridgeVersion` was cut over to `hostVersion` by `01.3b`).
         for stale_actor_phrase in (
             "Bridge versus SDK ownership",
             "The Bridge remains authoritative",
@@ -1906,10 +1905,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
     def test_sdk_and_integration_docs_describe_host_not_bridge_actor(self) -> None:
         """Guard the remaining SDK/integration convention docs against describing the retired
-        Bridge, rather than the Host or the Adapter, as the current server-side actor. The
-        `bridgeInstanceId` wire-field name is deliberately left untouched here -- that decision
-        belongs to `01.3c`, not this terminology pass (`bridgeVersion`/"Bridge-version
-        compatibility" wording was cut over to Host by `01.3b`).
+        Bridge, rather than the Host or the Adapter, as the current server-side actor
+        (`bridgeVersion`/"Bridge-version compatibility" wording was cut over to Host by `01.3b`;
+        the separate `bridgeInstanceId` -> `stateAuthorityId` identity rename was `01.3c`'s own
+        later concept).
         """
         dart_style = self._read("ai/context/dart/dart-style.md")
         sdk_persistence = self._read("ai/context/sdk/persistence.md")
@@ -2104,7 +2103,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         normalized_live_state = self._normalize_whitespace(live_state)
 
         self.assertIn(
-            "authoritative state identity as one `bridgeInstanceId`, `playContextId`, and state area",
+            "authoritative state identity as one `stateAuthorityId`, `playContextId`, and state area",
             normalized_identity,
         )
         self.assertIn(
@@ -2192,10 +2191,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         (`bridge/application/`, `bridge/game_state/`, and similar): several `ai/context/skse/*.md`
         files and adapter/ source comments deliberately cite the retired Bridge's real file layout
         as a worked-example precedent, and a broad ban would flag that legitimate history alongside
-        genuine regressions. It also does not ban the word "Bridge" -- the wire field
-        `bridgeInstanceId` (pending `01.3c`), the retired `bridgeVersion` field name as it appears
-        in genuine history in CHANGELOG.md/PLAN.md, and other genuine history there are legitimate
-        and excluded below.
+        genuine regressions. It also does not ban the word "Bridge" -- the retired `bridgeInstanceId`
+        and `bridgeVersion` field names as they appear in genuine history in CHANGELOG.md/PLAN.md,
+        and other genuine history there are legitimate and excluded below.
         """
         deleted_paths = (
             "host/PLAN.md",

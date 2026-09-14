@@ -265,3 +265,95 @@ correct despite `01.3a`'s loosely worded sentence, not a scope change to `01.3b`
 2026-09-14), confirming the vocabulary-only rename is the correct direction and
 explicitly declining to pull Stage 5's compatibility-enforcement work forward into
 `01.3b`.
+
+## D6 -- roadmap/10's discovery-record identity bullet not resolved by 01.3c
+
+**Original requirement:** None in `SOURCE.md` -- part of D4's vocabulary-normalization
+programme. `roadmap/10-multi-bridge-and-local-discovery-foundation.md` ("Status:
+Planned") has a scope bullet: "Validate records against authenticated
+`bridgeInstanceId` and tolerate stale records."
+
+**Observed conflict:** `01.3c`'s own documentation-cutover step renames every live
+`bridgeInstanceId` reference to `stateAuthorityId`. This one bullet cannot receive that
+same mechanical rename: `01.3a` Section C is explicit that `stateAuthorityId`
+identifies a Host authoritative-state *continuity epoch*, not an Adapter/Host process
+instance, and is deliberately not a public instance identifier -- the exact opposite of
+what this bullet needs for validating a same-machine discovery record against forgery
+by a different running instance. Silently renaming the field here would bake a wrong,
+undecided design choice into a phase nobody has designed yet, which `01.3c`'s own
+Non-goals forbid ("Any decision not already made in `01.3a` -- if a gap is found, stop
+and return to `01.3a`").
+
+**Proposed change:** Reword the bullet to state the requirement (validate against *an*
+authenticated per-instance identity) without naming a specific field, and note
+explicitly that `stateAuthorityId` is not that identity and why, citing `01.3a` Section
+C. The actual identity mechanism Stage 10 uses (most plausibly a public counterpart of
+`adapterInstanceId`, if one is ever decided, or a fresh discovery-scoped identifier) is
+left as that phase's own open design question -- not decided here, and not blocking
+`01.3c`'s completion, since Stage 10 has not started implementation.
+
+**Impact:** No requirement ID changes, no concept added or removed. Documentation-only:
+one roadmap bullet's wording changes from a stale, now-misleading field reference to an
+explicit statement of what remains undecided. Stage 10 itself is unaffected -- it was
+already unimplemented and un-designed for this specific mechanism before this
+divergence.
+
+**Status:** approved.
+
+**Decision source:** User confirmation (this session, 2026-09-14), choosing to reword
+the bullet and record this divergence rather than leave the stale reference untouched.
+
+## D7 -- 01.3c exceeds its own 100-file PR-size hard stop, approved as a one-time exception
+
+**Original requirement:** None in `SOURCE.md` -- part of D4's vocabulary-normalization
+programme. D4's own "Proposed change" text sets "a hard 100-changed-file-per-PR limit
+[...] package-wide," and `01.3c`'s own PR-size gate section restates it as a closed
+rule: "`>100` predicted files: do not implement. Return to `01.3a` and design a
+genuinely coherent staged migration [...] or stop for maintainer direction."
+
+**Observed conflict:** An independent maintainer review of `01.3c`'s implementation (on
+branch `feature/01.3c-public-authoritative-instance-identity-cutover`, after the
+concept had already recorded itself `Complete` at a claimed "99 files") found two real
+defects in the mandatory invariants `01.3c` itself lists as required to prove: (1)
+`PublicStateSubscription` never invalidated a connection's live per-area baseline when
+`stateAuthorityId` rotated -- only a play-context transition reset it -- so the
+concept's own "a rotation invalidates incremental continuity from the previous value
+until a fresh `state_snapshot` establishes the new baseline" invariant was unproven and
+unenforced in code; (2) the Dart SDK's `Envelope.fromJson`/`EnvelopeValidator` could not
+distinguish a `stateAuthorityId` key that was genuinely absent from one present with an
+explicit JSON `null`, so it silently accepted a shape the Host's own
+`PublicEnvelopeCodec.TryGetStateAuthorityId` already rejected -- a live Host/SDK wire-
+contract disagreement. Fixing both required two files this branch had not touched
+before: `host/DovahLink.Host/Client/Subscription/PublicStateSubscription.cs` itself
+(the concept's original implementation never modified this file, only wired a new
+dependency into it now) and a new test double,
+`host/DovahLink.Host.Tests/TestDoubles/FakeStateAuthorityLifecycle.cs`. That is a real
+count of 100 (the branch's actual pre-review total; the concept's own "99" claim was
+already stale before this review) plus these 2, landing at 102 -- over the concept's own
+`>100` "do not implement... or stop for maintainer direction" threshold.
+
+**Proposed change:** Do not remove tests, split `PublicStateSubscription`'s fix into a
+separate follow-up PR, or reopen `01.3a`'s design to dodge the number -- each of those
+would either destroy real coverage, merge `01.3c` while it still fails its own mandatory
+post-rotation baseline invariant, or treat a two-file correctness fix as if it were a
+scope decision requiring a redesign. The maintainer reviewed the two-file gap directly
+and explicitly approved proceeding at 102 files as a one-time exception for this PR,
+per the gate's own escape hatch ("stop for maintainer direction") and the same
+atomic-cutover rationale D4 and the 86-to-99-file gap in `01.3c`'s own PR-size gate
+section already rely on: splitting one wire-contract-correctness fix across PRs would
+create an intermediate state where the Host either ships the post-rotation baseline
+defect or merges a partial fix, neither of which is a valid intermediate state. The
+package-wide `>100` hard stop itself is unchanged for every other/future concept; this
+is recorded as an exception for `01.3c` specifically, not a change to the general rule.
+
+**Impact:** No requirement ID changes, no concept added or removed, no change to the
+package-wide PR-size gate rule text itself. `01.3c`'s own file-count evidence (its
+PR-size gate section and "Completion criteria and evidence" bullet) is corrected from
+the stale "99" to the true 102, both citing this divergence.
+
+**Status:** approved.
+
+**Decision source:** User confirmation (this session, 2026-09-14), reviewing the
+two-file gap the correctness fixes required and explicitly authorizing 102 files as a
+one-time exception for this PR rather than splitting the fix, removing tests, or
+reopening `01.3a`.

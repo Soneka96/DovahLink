@@ -260,7 +260,7 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 01.2b -- Internal code/test/tooling terminology | Complete | #63 |
 | 01.3a -- Public vocabulary + identity/version design | Complete | #64 |
 | 01.3b -- Compatibility/version vocabulary cutover | Complete | #65 |
-| 01.3c -- Public state-authority continuity identity cutover | Blocked by 01.3b | -- |
+| 01.3c -- Public state-authority continuity identity cutover | Complete | -- |
 | 02 -- Host composition and DI lifetimes | Blocked by 01.3c | -- |
 | 03 -- Adapter runtime composition | Blocked by 01.1, 01.3c | -- |
 | 04 -- Host documentation sweep | Blocked by 02 | -- |
@@ -295,7 +295,7 @@ The phase is complete only when:
 
 ## 10. Divergence policy
 
-See `DIVERGENCES.md`. Five entries are currently recorded and approved: D1 -- Issue
+See `DIVERGENCES.md`. Six entries are currently recorded and approved: D1 -- Issue
 5's `R5.6` splits into the convention-document normative-correctness slice (`R5.6a`,
 reassigned to Concept 01 as `R1.14`) and the remaining non-normative/historical
 cleanup (`R5.6b`, staying with Concept 05); D2 -- Concept 01.1 is inserted between
@@ -313,4 +313,10 @@ Section A's sentence claiming the SDK's supported-range enforcement mechanism is
 this codebase, confirmed repo-wide), corrected by divergence rather than by editing
 `01.3a`'s own merged file: `01.3b` implements the compatibility-authority
 vocabulary rename only, and SDK-side range enforcement remains
-`roadmap/05-dart-client-sdk-foundation.md` Stage 5's own documented-undone scope.
+`roadmap/05-dart-client-sdk-foundation.md` Stage 5's own documented-undone scope; and
+D6 -- `roadmap/10-multi-bridge-and-local-discovery-foundation.md`'s "Validate records
+against authenticated `bridgeInstanceId`" bullet is not mechanically renamed to
+`stateAuthorityId`, since `01.3a` Section C explicitly rules that field out for
+instance-identity purposes -- the bullet is reworded to state the requirement without
+naming a specific field, leaving Stage 10's own identity mechanism as its own
+undecided design question.

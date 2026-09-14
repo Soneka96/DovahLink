@@ -2,8 +2,9 @@ namespace DovahLink.Host.Identity;
 
 /// <summary>
 /// Identifies one native adapter connection instance. An adapter restart (SKSE plugin reload or a
-/// Skyrim process restart) always produces a new value; it is the host-observed successor to the
-/// old single-process <c>bridgeInstanceId</c> concept.
+/// Skyrim process restart) always produces a new value. A private Host-internal/IPC concept,
+/// deliberately never exposed on the public wire and never an alias for <see cref="StateAuthorityId"/>
+/// -- see that type's own documentation for why the two are independent axes.
 /// </summary>
 public readonly record struct AdapterInstanceId
 {

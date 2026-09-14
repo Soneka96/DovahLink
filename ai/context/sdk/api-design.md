@@ -17,7 +17,7 @@ the simple API when those phases land instead.
 ## Expert capabilities
 
 Advanced developers may inspect lifecycle and diagnostic information: connection state, connected
-Host version, SDK/Host compatibility result, current `bridgeInstanceId`/`playContextId`/
+Host version, SDK/Host compatibility result, current `stateAuthorityId`/`playContextId`/
 `sessionId`, capabilities, revision/recovery diagnostics, subscription diagnostics, structured
 connection/recovery events, and supported administration operations. "Advanced" must not mean
 "bypass invariants": an expert API still preserves contract validation, session safety, lifecycle

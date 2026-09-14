@@ -17,7 +17,11 @@ Multiple DovahLink instances coexist on one machine without port collisions or a
 - Select another local port when the preferred port is occupied, or use an OS-selected port when no
   deterministic port is required.
 - Publish a small non-secret same-machine discovery record for each instance.
-- Validate records against authenticated `bridgeInstanceId` and tolerate stale records.
+- Validate records against an authenticated per-instance identity (not `stateAuthorityId`, which
+  identifies Host state-authority continuity rather than Adapter/Host instance identity, per
+  `plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+  Section C -- this phase's own exact identity mechanism remains an open design question) and
+  tolerate stale records.
 - Remove records on clean shutdown and isolate records owned by other instances.
 - Let official and independent clients enumerate the same discovery surface.
 - Avoid a resident machine-level discovery service.

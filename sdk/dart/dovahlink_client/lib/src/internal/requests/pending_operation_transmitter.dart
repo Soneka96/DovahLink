@@ -92,7 +92,7 @@ class PendingOperationTransmitter {
       sessionId: _sessionService.currentSessionId,
       correlationId: null,
       payload: operation.payload,
-      bridgeInstanceId: null,
+      stateAuthorityId: null,
       playContextId: null,
       clientId: clientId,
     );
