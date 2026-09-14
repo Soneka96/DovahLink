@@ -10,8 +10,9 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `02-host-composition-and-di-lifetimes.md`
-- Status: In Progress on branch `feature/02-host-composition-and-di-lifetimes` (see D9) --
-  previously recorded `Complete`, reopened per the maintainer's clarified DI requirement.
+- Status: Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet opened
+  as a PR. Reopened from a prior `Complete` label per D9's maintainer-clarified DI
+  requirement, then closed out again after D9's six step-build steps (see below).
   Prerequisite (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit
   `3768c1e0`, PR #66), not inferred from a prior label.
 - First implementation pass (manual composition, six reviewable step-build steps) introduced
@@ -75,6 +76,74 @@ Status: active (package frozen 2026-09-13)
   session, and that persistent `clientId` retains no connection-scoped state, all in one test. No
   known Concept 02 gap remains. See the concept file's own R2.1-R2.10 traceability table for the
   full per-requirement mapping.
+- Third pass (D9, this session, six step-build steps): removed every remaining pure
+  constructor-forwarding registration factory across all five composition modules. (1)
+  `SessionRegistry` takes the whole `HostSettings` object (default `null`, falling back to
+  `Constants.MaxActiveSessions`) instead of composition manually extracting
+  `MaxActiveSessions`; `TrustServiceExtensions` registers it with plain
+  `AddSingleton<SessionRegistry>()`. Mid-step, the maintainer further clarified that no
+  production consumer should ever resolve a service by its concrete type at all -- not even
+  the concrete-plus-interface-alias pattern D9 initially used for `SessionRegistry`/
+  `PairingCoordinator` -- so `ISessionRegistry` gained `ActiveCount`/`MaxActiveSessions`
+  (already implemented by `SessionRegistry`), `Program.ComposeAndRunAsync`'s `onComposed`
+  test-hook parameter changed from `Action<SessionRegistry, PairingCoordinator>?` to
+  `Action<ISessionRegistry, IPairingCoordinator>?`, and both services now register as plain
+  `AddSingleton<IX, X>()` with no concrete registration at all. (2) The remaining seven
+  `TrustServiceExtensions` registrations (`PairingCoordinator`, `PublicEnvelopeCodec`,
+  `PublicSessionTerminationNotifier`, `ClientSessionInvalidator`, `TrustAdminService`,
+  `TrustResetService`, `AdapterTrustAdminRequestHandler`) converted to plain `AddSingleton<I,T>()`
+  -- no production constructor changes needed, every dependency was already a registered
+  interface. (3) Introduced `Process/HostInstanceOptions.cs` (wraps `OwnerLifetimeId`) and
+  `Adapter/Ipc/AdapterIpcOptions.cs` (wraps the adapter-IPC listener port);
+  `AdapterConnectionFactory` now depends on `HostInstanceOptions` instead of a raw
+  `OwnerLifetimeId`; `AdapterIpcListener` gained a DI-friendly constructor taking
+  `AdapterIpcOptions`/`IAdapterConnectionFactory`; `AdapterConnectionLifecycle`,
+  `AdapterConnectionFactory`, `AdapterIpcListener`, and `AdapterPairingNotifier` all converted
+  to plain `AddSingleton<I,T>()`. (4) Introduced `Client/Transport/PublicListenerOptions.cs`
+  (wraps the public listener port); `PublicWebSocketListener` gained a DI-friendly constructor
+  taking `PublicListenerOptions`/`HostSettings`/`IPublicConnectionFactory`;
+  `LocalConnectionTokenAuthenticator`, `TrustedCredentialFailureThrottle`,
+  `ClientMessageDispatcher`, `PublicConnectionFactory` (the ~14-dependency factory), and
+  `PublicWebSocketListener` all converted to plain `AddSingleton<I,T>()` -- closing one of the
+  concept's clearest acceptance checks (`PublicConnectionFactory` itself is now DI-constructed).
+  (5) `DovahLinkHostRuntime` now depends on `IAdapterPeerProofVerifier` directly instead of
+  composition extracting raw `ExpectedToken`/`HostProofKey` byte arrays; its `publicListener`
+  parameter moved to the end of the parameter list and defaults to `null`, so Microsoft's own
+  optional-constructor-parameter resolution supplies `null` automatically when
+  `AddPublicClientServices` left `IPublicWebSocketListener` unregistered;
+  `NamedEventHostShutdownSignal`/`FileHostRendezvousPublisher` gained `HostInstanceOptions`-based
+  constructors reusing the same Host-instance identity; `AddHostRuntime` dropped its
+  `ownerLifetimeId` parameter (satisfied by the `HostInstanceOptions` `AddAdapterIpcServices`
+  already registers) and its one large forwarding lambda, replaced by plain
+  `AddSingleton<DovahLinkHostRuntime>()` plus instance registrations for the supplied
+  `IHostProcessLifetime`/`TextWriter`. (6) This close-out: the final composition audit (below)
+  confirmed exactly one justified remaining factory registration in the whole of
+  `Composition/` -- `CoreServiceExtensions`'s `IStateAuthorityLifecycle` event-wiring lambda,
+  unchanged since D8 and explicitly allowed by the concept's own design section -- plus two
+  pre-existing default-fallback instantiations (`HostSettingsProvider`,
+  `WindowsDpapiTrustStorePersistence`) that are bootstrap values, not DI registrations. Every
+  fresh-eyes test-gap pass across all six steps found and fixed real gaps before that step's
+  own tests were considered complete: a missing `AdapterIpcListener`/`PublicWebSocketListener`
+  options-constructor port-already-in-use test (mirroring the existing low-level-constructor
+  test), a missing options-constructor non-positive-cap test for `PublicWebSocketListener`, and
+  missing `NamedEventHostShutdownSignal`/`FileHostRendezvousPublisher`
+  options-vs-explicit-value equivalence tests.
+- D9's final acceptance gate: `dotnet build ... -p:GenerateDocumentationFile=true
+  -p:TreatWarningsAsErrors=true` clean (one cross-namespace `<see cref>` doc error was caught
+  and fixed by this exact check, in `DovahLinkHostRuntime.cs`'s own doc comment); `dotnet test
+  host/DovahLink.Host.Tests --configuration Release` 1787/1787 passed (1771 D8 baseline + 16
+  new); `python -m unittest discover -s tooling -p "test_*.py"` 170/170 passed, unaffected --
+  no `tooling/` file touched by D9. Whole-branch changed-file count vs. `main`
+  (`git merge-base HEAD main` = `3768c1e0`, then `git diff --name-only base...HEAD`): **45
+  files** -- comfortably under both the 80 re-plan threshold and the 100 hard stop (up from
+  D8's 27, reflecting D9's five new production files (`HostInstanceOptions.cs`,
+  `AdapterIpcOptions.cs`, `PublicListenerOptions.cs`, `FakeAdapterPeerProofVerifier.cs` test
+  double, plus `HostRuntimeServiceExtensionsTests.cs`) and edits across the remaining four
+  composition modules, ten production service classes, and their corresponding test files).
+  `ProgramCompositionTests.cs` required a single one-line-shape edit across the whole of D9
+  (its `onComposed` callback's two local variable types, from the interface-only-resolution
+  refinement) -- not the "zero edits" D8 achieved, recorded accurately in the concept file's
+  own R2.10 row rather than left as a stale carried-over claim.
 - Next action: maintainer review, then open the PR. Once merged, Concept 04 (Host documentation
   sweep) becomes eligible to start, per `PLAN.md` section 6's merge-not-just-complete rule; Concept
   03 (Adapter composition) remains independently eligible regardless, per its own dependency on
