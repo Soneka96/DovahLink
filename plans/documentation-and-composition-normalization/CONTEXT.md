@@ -11,7 +11,7 @@ Status: active (package frozen 2026-09-13)
 
 - File: `01.3b-compatibility-version-vocabulary-cutover.md`
 - Status: Complete on branch `feature/01.3b-compatibility-version-vocabulary-cutover`,
-  not yet opened as a PR. Implements exactly `01.3a`'s Sections A/B decision across six
+  PR #65 open (draft). Implements exactly `01.3a`'s Sections A/B decision across six
   reviewable commits: (1) Host model -- `HelloAckPayload.BridgeVersion` ->
   `HostVersion`, `Constants.PublicProtocolTransitionalBridgeVersion` ->
   `PublicProtocolHostVersion`, `PublicHelloAdmissionHandler`'s assignment,
@@ -36,11 +36,11 @@ Status: active (package frozen 2026-09-13)
   still pending.
 - Prerequisites: Concept 01.3a merged (`main` @ `805d1641`, PR #64) -- confirmed via
   `git log`/`git branch --contains`, satisfied.
-- PR: not yet opened.
-- Next action: open the PR. `01.3c` stays `Blocked by 01.3b` in `PLAN.md`'s status
-  table until this concept's PR actually merges to `main` -- not merely reaches
-  branch-level `Complete`, per the same rule this concept's own dependency on `01.3a`
-  was held to.
+- PR: #65, open (draft).
+- Next action: address review on PR #65, then merge it. `01.3c` stays
+  `Blocked by 01.3b` in `PLAN.md`'s status table until this concept's PR actually
+  merges to `main` -- not merely reaches branch-level `Complete`, per the same rule
+  this concept's own dependency on `01.3a` was held to.
 
 ## Completed concepts
 
@@ -549,6 +549,34 @@ design, not debt.)
   `.md`/`.dart`/`.cs`/`.py`) confirms every remaining hit is genuinely historical, an
   intentional `assertNotIn` regression guard, or this concept's own before/after
   documentation of the rename -- zero live stale reference remains.
+- 2026-09-14 Concept 01.3b governance/bookkeeping correction pass (this session, same
+  branch, three steps): a second independent review raised two further points and
+  confirmed PR #65 is genuinely open (draft). (1) Recorded `DIVERGENCES.md` D5: `01.3a`
+  Section A's "mechanism unchanged from today" claim is factually imprecise (no such
+  SDK-side enforcement mechanism exists anywhere in this codebase, `main` included);
+  D5 documents the correction and states `01.3b` implements the authority/vocabulary
+  rename only, deferring enforcement to Stage 5, rather than `01.3b`'s own file
+  asserting that correction on its own authority as the prior pass had done. `PLAN.md`
+  section 10 updated to name D5; `01.3b`'s proof-obligation bullet now cites D5. (2)
+  Hardened `test_version_literals_match_the_published_release` to assert the exact
+  `public const string PublicProtocolHostVersion = "{version}";` declaration in
+  `Constants.cs` (previously unchecked -- the test only verified `adapter/vcpkg.json`
+  and 2 of 3 hello-ack fixtures) and added the third fixture,
+  `hello-ack-paired.json`, to the fixture loop. (3) Bookkeeping: `PLAN.md`'s 01.3b row
+  PR column `--` -> `#65`; `01.3b`'s own Status line and `CONTEXT.md`'s Active-concept
+  section updated from "not yet opened as a PR" to "PR #65, open (draft)"; the
+  concept file's own "final count vs. `main`" completion-criteria line corrected from
+  the prior pass's 52 to the true current **54 files** (D5 itself added
+  `DIVERGENCES.md` as a new file to the diff, which the prior pass's count predated --
+  the dated Verification entry above recording 52 is left untouched, since it
+  correctly describes that earlier pass's own state, not this one's). Final
+  acceptance gate, this pass touching only `DIVERGENCES.md`, `PLAN.md`, the `01.3b`
+  concept file, `CONTEXT.md`, and `tooling/test_repository_consistency.py` (confirmed
+  via `git status` before commit -- zero runtime Host/SDK/App source file changed):
+  `dotnet test` 1717/1717, `dart analyze`/`test` clean/623/623, `flutter
+  analyze`/`test` clean/349/349, `python -m unittest discover -s tooling -p
+  "test_*.py"` 166/166, all green. Fresh sweep for "52 files"/"not yet opened as a
+  PR" confirms only the intentionally-preserved historical entry remains.
 
 ## Handoff
 
@@ -568,11 +596,10 @@ merged) is confirmed satisfied by the merge commit above, not inferred from the 
 branch-level `Complete` label.
 
 Concept 01.3b's implementation is complete on branch
-`feature/01.3b-compatibility-version-vocabulary-cutover`, including the correction pass
-that closed the 5-file documentation gap an independent review found -- see the
-Verification entries above for the full acceptance-gate evidence (all four suites
-green, 52 changed files, zero stray `bridgeVersion`/"Bridge-version compatibility"
-references, and its own concept file closed out in place). Not yet opened as a PR.
-Handoff to Concept 01.3c follows once this PR merges to `main`, per the same
-one-branch/PR-per-concept rule -- `01.3c` stays `Blocked by 01.3b` in `PLAN.md`'s
-status table until then.
+`feature/01.3b-compatibility-version-vocabulary-cutover`, including two correction
+passes -- the 5-file documentation gap an independent review found, and the
+D5/VERSION-invariant/bookkeeping pass recorded in the Verification entry below -- see
+the Verification entries above and below for the full acceptance-gate evidence. PR
+#65 is open (draft). Handoff to Concept 01.3c follows once this PR merges to `main`,
+per the same one-branch/PR-per-concept rule -- `01.3c` stays `Blocked by 01.3b` in
+`PLAN.md`'s status table until then.
