@@ -35,6 +35,7 @@ class Envelope {
         sessionId: envelope.sessionId,
         correlationId: envelope.correlationId,
         stateAuthorityId: envelope.stateAuthorityId,
+        stateAuthorityIdPresent: json.containsKey('stateAuthorityId'),
         playContextId: envelope.playContextId,
         clientId: envelope.clientId,
       );

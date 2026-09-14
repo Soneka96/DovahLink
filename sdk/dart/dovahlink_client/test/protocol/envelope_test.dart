@@ -181,7 +181,6 @@ void main() {
           'sessionId': null,
           'correlationId': null,
           'payload': <String, dynamic>{},
-          'stateAuthorityId': null,
           'playContextId': null,
           'clientId': null,
         });
@@ -201,7 +200,6 @@ void main() {
           'sessionId': 'session-1',
           'correlationId': null,
           'payload': <String, dynamic>{},
-          'stateAuthorityId': null,
           'playContextId': null,
           'clientId': null,
         });
@@ -218,13 +216,33 @@ void main() {
         'sessionId': 'session-1',
         'correlationId': 'request-1',
         'payload': <String, dynamic>{},
-        'stateAuthorityId': null,
         'playContextId': null,
         'clientId': null,
       });
 
       expect(envelope.correlationId, 'request-1');
     });
+
+    test(
+      'Method fromJson rejects a present stateAuthorityId key with an explicit null value on a non-gated message type',
+      () {
+        final JsonMap payload = <String, dynamic>{
+          'messageType': 'pong',
+          'messageId': 'message-1',
+          'sessionId': 'session-1',
+          'correlationId': 'message-1',
+          'payload': <String, dynamic>{},
+          'stateAuthorityId': null,
+          'playContextId': null,
+          'clientId': null,
+        };
+
+        expect(
+          () => Envelope.fromJson(payload),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
     test('Method fromJson rejects a non-object payload', () {
       expect(

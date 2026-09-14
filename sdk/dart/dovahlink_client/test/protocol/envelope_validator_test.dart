@@ -10,6 +10,7 @@ void expectValidEnvelope({
   required String? sessionId,
   required String? correlationId,
   required String? stateAuthorityId,
+  bool? stateAuthorityIdPresent,
   required String? playContextId,
   required String? clientId,
 }) {
@@ -20,6 +21,8 @@ void expectValidEnvelope({
       sessionId: sessionId,
       correlationId: correlationId,
       stateAuthorityId: stateAuthorityId,
+      stateAuthorityIdPresent:
+          stateAuthorityIdPresent ?? (stateAuthorityId != null),
       playContextId: playContextId,
       clientId: clientId,
     ),
@@ -30,13 +33,17 @@ void expectValidEnvelope({
 /// Expects [EnvelopeValidator] to reject one typed envelope shape. Defaults to `pong` with a
 /// `null` [stateAuthorityId] (a valid combination on its own) so a default-driven call only
 /// throws because of the field the test actually overrides, not incidentally from the default
-/// shape itself.
+/// shape itself. [stateAuthorityIdPresent] defaults to whether [stateAuthorityId] is non-null,
+/// the ordinary case where "present" and "non-null" coincide; pass it explicitly to construct the
+/// key-present-but-null shape a real decoded JSON payload can have but a typed value alone cannot
+/// distinguish.
 void expectInvalidEnvelope({
   ProtocolMessageType messageType = ProtocolMessageType.pong,
   String messageId = 'message-1',
   String? sessionId = 'session-1',
   String? correlationId = 'message-1',
   String? stateAuthorityId,
+  bool? stateAuthorityIdPresent,
   String? playContextId,
   String? clientId,
 }) {
@@ -47,6 +54,8 @@ void expectInvalidEnvelope({
       sessionId: sessionId,
       correlationId: correlationId,
       stateAuthorityId: stateAuthorityId,
+      stateAuthorityIdPresent:
+          stateAuthorityIdPresent ?? (stateAuthorityId != null),
       playContextId: playContextId,
       clientId: clientId,
     ),
@@ -240,6 +249,17 @@ void main() {
           messageType: ProtocolMessageType.pairingStatus,
           correlationId: 'message-1',
           stateAuthorityId: 'state-authority-1',
+        );
+      },
+    );
+
+    test(
+      'Method validate rejects a present stateAuthorityId key with a null value on a non-gated message type',
+      () {
+        expectInvalidEnvelope(
+          messageType: ProtocolMessageType.pong,
+          stateAuthorityId: null,
+          stateAuthorityIdPresent: true,
         );
       },
     );

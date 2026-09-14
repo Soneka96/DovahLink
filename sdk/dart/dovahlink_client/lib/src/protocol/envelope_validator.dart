@@ -10,6 +10,7 @@ class EnvelopeValidator {
     required String? sessionId,
     required String? correlationId,
     required String? stateAuthorityId,
+    required bool stateAuthorityIdPresent,
     required String? playContextId,
     required String? clientId,
   }) {
@@ -90,9 +91,11 @@ class EnvelopeValidator {
           'stateAuthorityId must be present for $messageType.',
         );
       }
-    } else if (stateAuthorityId != null) {
+    } else if (stateAuthorityIdPresent) {
+      // The key itself must be entirely absent, not merely null: an explicit `"stateAuthorityId":
+      // null` is still a presence the Host's own wire contract forbids for this message type.
       throw ProtocolFormatException(
-        'stateAuthorityId must be null for $messageType.',
+        'stateAuthorityId must be absent (not merely null) for $messageType.',
       );
     }
     if (playContextId?.isEmpty ?? false) {
