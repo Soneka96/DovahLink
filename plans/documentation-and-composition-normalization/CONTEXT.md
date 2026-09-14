@@ -10,13 +10,50 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `02-host-composition-and-di-lifetimes.md`
-- Status: In progress on branch `feature/02-host-composition-and-di-lifetimes`. Prerequisite
-  (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit `3768c1e0`, PR #66),
-  not inferred from the branch's own prior `Complete` label.
-- Next action: audit every current Host service's lifetime from `Program.cs`, split
-  `ComposeAndRunAsync` into cohesive `Composition/*ServiceExtensions.cs` modules, introduce an
-  explicit `DovahLinkHostRuntime` lifecycle orchestrator, and add the composition/lifetime tests
-  R2.9 requires -- see this session's step-build plan.
+- Status: Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet opened as a
+  PR. Prerequisite (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit
+  `3768c1e0`, PR #66), not inferred from a prior label. Implemented across six reviewable
+  step-build steps: (1) `Composition/CoreServiceExtensions.cs` -- adapter-availability tracker,
+  clock, resolved settings, security gate, state-authority lifecycle; (2)
+  `Composition/TrustServiceExtensions.cs` -- the trust-and-session graph shared by the adapter and
+  public-client boundaries; (3) `Composition/AdapterIpcServiceExtensions.cs` -- the private
+  adapter-IPC listener/verifier/notifier, with wiring proofs the pre-existing
+  `AdapterIpcChannelIntegrationTests` never covered (it uses a fake trust-admin handler) --
+  a real trust-admin request routed through the real composed handler, an `ownerLifetimeId`
+  mismatch rejecting handshake, the composed notifier reaching the connection accepted through
+  the same listener; (4) `Composition/PublicClientServiceExtensions.cs` -- the public
+  WebSocket listener and its connection-scoped admission/subscription cluster, with wiring proofs
+  for the supplied adapter notifier and the listener's cap coming from the same resolved settings
+  `SessionRegistry` uses; (5) `Process/DovahLinkHostRuntime.cs` -- the explicit lifecycle
+  orchestrator R2.7 requires, replacing `Program.cs`'s implicit publish/start/run/teardown
+  sequence (including the trivial `Program.RunAsync` exit-code mapping, whose one direct test was
+  retired in favor of equivalent coverage on the new type -- a genuine seam-construction change,
+  not mechanics-only), with dedicated tests proving startup ordering, ordered/idempotent shutdown,
+  and strict rendezvous line ordering; (6) final wiring confirmation (no further production change
+  needed -- `ComposeAndRunAsync` already read as pure composition after step 5) plus the
+  phase-closing acceptance gate.
+- `ProgramCompositionTests.cs` -- the file most directly proving composition equivalence -- is
+  confirmed byte-for-byte unmodified across the whole build (`git diff --stat` against it is
+  empty), and its full suite passed unmodified after every single step.
+- Final acceptance gate: `dotnet build ... -p:GenerateDocumentationFile=true
+  -p:TreatWarningsAsErrors=true` clean; `dotnet test host/DovahLink.Host.Tests` 1763/1763 passed
+  (1746 baseline + 17 new); `python -m unittest discover -s tooling -p "test_*.py"` 170/170
+  passed, unaffected. Whole-branch changed-file count vs. `main` (`git merge-base HEAD main` =
+  `3768c1e0`, then `git diff --name-only base...HEAD`): **22 files** -- comfortably under both the
+  80 re-plan threshold and the 100 hard stop.
+- One known, deliberate gap: R2.9's public-side connection/reconnect-isolation bullet
+  (`PublicStateSubscription`/`DataLaneOutboundQueue` freshness per accepted connection) is
+  structurally guaranteed -- each is constructed fresh by the connection-factory lambda, the same
+  proof-shape already accepted for the pre-existing adapter-side reconnect test -- but is not
+  independently wire-observable today, since no state area is registered yet
+  (`RegisteredStateAreaPolicy` rejects every subscribe attempt before reaching that state), the
+  same documented, not-yet-reachable constraint `01.3c`'s own `IStatePublicationFeed` note already
+  recorded for whoever implements the real domain-feed producer in a later concept. Not a defect
+  in this concept's own scope.
+- Next action: maintainer review, then open the PR. Once merged, Concept 04 (Host documentation
+  sweep) becomes eligible to start, per `PLAN.md` section 6's merge-not-just-complete rule; Concept
+  03 (Adapter composition) remains independently eligible regardless, per its own dependency on
+  `01.1`/`01.3c` only.
 
 ## Completed concepts
 
