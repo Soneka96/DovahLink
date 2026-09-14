@@ -149,10 +149,12 @@ Section C, which adds a sixth identifier on its own, fifth lifetime:
   resynchronization rule, `ai/context/host/architecture.md`), not later when the
   recovery that follows (a resync, or a new `adapterInstanceId` rebind) succeeds --
   one break produces exactly one rotation, and a subsequent same-`adapterInstanceId`
-  resync or new-`adapterInstanceId` rebind does not rotate it again. A new
-  `adapterInstanceId` is therefore always accompanied by a `stateAuthorityId` rotation
-  that already happened at the preceding loss, not one it independently causes; the
-  reverse direction also doesn't hold, since a same-Adapter IPC drop+resync rotates
+  resync or new-`adapterInstanceId` rebind does not rotate it again. When a new
+  `adapterInstanceId` binding follows an established Adapter/IPC continuity loss, it
+  does not independently rotate `stateAuthorityId`; that rotation already happened at
+  the preceding loss. The initial Adapter binding after Host startup is different:
+  `stateAuthorityId` was already minted at Host startup, and that first binding has no
+  preceding connection-loss event to follow. The reverse direction also doesn't hold, since a same-Adapter IPC drop+resync rotates
   `stateAuthorityId` with no `adapterInstanceId` change at all. It must never be read
   as an alias of `adapterInstanceId`, the Host's OS process identity, or any
   transport/session identifier above.

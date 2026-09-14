@@ -258,8 +258,8 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 01.1 -- Adapter enum/constants physical normalization | Complete | #61 |
 | 01.2a -- Active docs/instructions terminology | Complete | #62 |
 | 01.2b -- Internal code/test/tooling terminology | Complete | #63 |
-| 01.3a -- Public vocabulary + identity/version design | Complete | -- |
-| 01.3b -- Compatibility/version vocabulary cutover | Planned | -- |
+| 01.3a -- Public vocabulary + identity/version design | Complete | #64 |
+| 01.3b -- Compatibility/version vocabulary cutover | Blocked by 01.3a | -- |
 | 01.3c -- Public state-authority continuity identity cutover | Blocked by 01.3b | -- |
 | 02 -- Host composition and DI lifetimes | Blocked by 01.3c | -- |
 | 03 -- Adapter runtime composition | Blocked by 01.1, 01.3c | -- |

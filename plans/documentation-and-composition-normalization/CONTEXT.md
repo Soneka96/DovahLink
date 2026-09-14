@@ -39,12 +39,14 @@ Status: active (package frozen 2026-09-13)
   fixture, Host, SDK, or app source file changed -- decision documentation only, per
   this concept's own scope.
 - Prerequisites: Concept 01.2b merged (`main` @ `d4734dba`, PR #63) -- satisfied.
-- Next action: open the PR for completed Concept `01.3a` and proceed to maintainer
-  review. The branch already records `Complete` in `PLAN.md`'s status table, per the
-  pre-PR-Complete workflow `PLAN.md` section 8 now documents; merging the PR is what
-  makes that state authoritative on `main`, which is what actually satisfies `01.3b`'s
-  own stated dependency ("Concept 01.3a merged to `main`") -- not the branch-level
-  `Complete` label by itself. Per D4, Concept 02 still waits behind the entire
+- PR: #64, open against `main`, under maintainer review.
+- Next action: address maintainer/review findings on PR #64, then merge it. The branch
+  already records `Complete` in `PLAN.md`'s status table, per the pre-PR-Complete
+  workflow `PLAN.md` section 8 documents; merging PR #64 is what makes that state
+  authoritative on `main`, which is what actually satisfies `01.3b`'s own stated
+  dependency ("Concept 01.3a merged to `main`") -- not the branch-level `Complete`
+  label by itself, and `01.3b` stays `Blocked by 01.3a` in `PLAN.md`'s status table
+  until that merge happens. Per D4, Concept 02 still waits behind the entire
   01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 -- do not
   unblock 02 or 03 until 01.3c actually merges. Do not begin `01.3b` on this branch.
 
