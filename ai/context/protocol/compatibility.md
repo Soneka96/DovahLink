@@ -8,7 +8,7 @@ The canonical schema is `protocol/schema/README.md`. This file defines how that 
 
 - The current wire contract has no independent runtime protocol-generation number. Compatibility is identified by the DovahLink Bridge/mod release version against the supported Bridge-version range a client or SDK explicitly declares.
 - A supported range is deliberate, not inferred. Sharing a version prefix (for example `0.8.x`) does not by itself mean compatible; a contract-breaking change forces a compatibility review regardless of how the release number changed.
-- Skyrim runtime, SKSE, and CommonLib compatibility belong to the bridge alone. A Skyrim/SKSE update that leaves the bridge/client wire contract unchanged requires no client compatibility change.
+- Skyrim runtime, SKSE, and CommonLib compatibility belong to the Adapter alone (`ai/context/adapter/architecture.md`'s "Ownership"), not to the Host's public compatibility boundary. A Skyrim/SKSE update that leaves the Host/client wire contract unchanged requires no client compatibility change.
 - SDK version, official app version, Bridge version, and roadmap phase are independent numbers. None is derived from another.
 - Once the Dart SDK exists, every SDK release declares an explicit supported Bridge-version range (for example a minimum and a maximum). Until then, the app-side Dart client documented in `ai/context/flutter/` follows this same policy.
 - If an SDK version declares support for a Bridge-version range, every public API that SDK version exposes must work across that entire declared range; a range must not silently exclude a public feature (for example "supports Bridge 0.5-0.8, but Inventory requires 0.7+"). A new public SDK feature that requires a newer Bridge contract raises that SDK version's declared minimum instead of narrowing which features work within the existing declared range. Encountering the declared-supported Bridge range without full support for the declared public surface is a contract/programming defect to fix, not a condition for the SDK to hide behind runtime feature negotiation.
@@ -101,13 +101,18 @@ Section C, not left to a later protocol revision stage. `ARCHITECTURE.md`'s "Run
 model" fixes the four private identity lifetimes; this decision adds a fifth, public-only concept
 without changing any of them.
 
-**Decision:** yes. The wire field is `stateAuthorityId`, owned and minted by the Host whenever it
-(re)initializes its in-memory authoritative state store for the current binding -- at Host startup,
-and again on every Adapter reconnect/restart (which always forces a fresh authoritative capture). It
-is deliberately not `adapterInstanceId` itself: a Host restart can invalidate the Host's own store
-even when the underlying Adapter/Skyrim process never restarted, and `adapterInstanceId` would not
-change in that case. `01.3a`'s Section C records the full lifecycle (creation point, stability across
-reconnects, null-after-startup answer, envelope scope, comparison semantics); `01.3c` implements it.
+**Decision:** yes. The wire field is `stateAuthorityId`, identifying a Host
+authoritative-state *continuity epoch*: it changes whenever cached revisions from
+before an event are no longer safely comparable to revisions after it, and only then.
+It is deliberately not `adapterInstanceId` itself, and not 1:1 with it -- a Host
+restart, a new Adapter connection, and the same Adapter's IPC connection dropping and
+being re-established with neither process restarting are all continuity breaks that
+rotate `stateAuthorityId`, but only the second changes `adapterInstanceId` too; the
+third is a continuity break with `adapterInstanceId` unchanged, per
+`ai/context/host/architecture.md`'s "Current-state resynchronization" behavior.
+`01.3a`'s Section C records the full lifecycle (creation point, stability across
+reconnects, null-after-startup answer, exact wire presence, comparison semantics);
+`01.3c` implements it.
 
 This remains a hard gate, not a soft preference: `state_snapshot` and `state_event` publication must
 not go live until `01.3c` actually implements this field with real values. A state revision's
