@@ -27,8 +27,8 @@ Normalize DovahLink's documentation and changelog conventions, then use the corr
 conventions to make Host and Adapter composition/lifetime explicit and to sweep both
 subsystems' documentation -- without changing runtime, protocol, or security behavior
 anywhere in the package, except the one narrow, explicitly decided exception
-`DIVERGENCES.md` D4 approves (public compatibility/version and instance-identity
-vocabulary, implemented only by Concepts `01.3b`/`01.3c` to exactly the extent
+`DIVERGENCES.md` D4 approves (public compatibility/version and state-authority
+continuity vocabulary, implemented only by Concepts `01.3b`/`01.3c` to exactly the extent
 Concept `01.3a` decides).
 
 **In scope:** `ai/context/common.md`, `ai/context/dotnet/csharp-style.md`,
@@ -183,7 +183,7 @@ remaining non-normative/historical cleanup, stays with Concept 05 above.)
 01.3b Compatibility/version vocabulary cutover
         │
         ▼
-01.3c Public authoritative-instance identity cutover
+01.3c Public state-authority continuity identity cutover
         │
         ├──────────────────────────┐
         ▼                          ▼
@@ -202,7 +202,7 @@ inserted because active instructions, internal names, and transitional public
 protocol terms still contain retired Bridge vocabulary that would otherwise leak into
 newly composed Host/Adapter code: 01.2a normalizes active docs/instructions, 01.2b
 renames stale internal naming, 01.3a is a design-only gate deciding the public
-compatibility/version and instance-identity vocabulary, and 01.3b/01.3c implement
+compatibility/version and state-authority continuity vocabulary, and 01.3b/01.3c implement
 exactly that decision -- the package's only concepts permitted to touch public wire
 behavior. This chain is deliberately linear, not parallelized, to avoid cross-PR
 conflicts and double-touching files under rename. 02 and 03 both now depend on 01.3c
@@ -257,21 +257,23 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 01 -- Conventions and changelog | Complete | #60 |
 | 01.1 -- Adapter enum/constants physical normalization | Complete | #61 |
 | 01.2a -- Active docs/instructions terminology | Complete | #62 |
-| 01.2b -- Internal code/test/tooling terminology | In progress | #63 |
-| 01.3a -- Public vocabulary + identity/version design | Blocked by 01.2b | -- |
+| 01.2b -- Internal code/test/tooling terminology | Complete | #63 |
+| 01.3a -- Public vocabulary + identity/version design | Complete | #64 |
 | 01.3b -- Compatibility/version vocabulary cutover | Blocked by 01.3a | -- |
-| 01.3c -- Public authoritative-instance identity cutover | Blocked by 01.3b | -- |
+| 01.3c -- Public state-authority continuity identity cutover | Blocked by 01.3b | -- |
 | 02 -- Host composition and DI lifetimes | Blocked by 01.3c | -- |
 | 03 -- Adapter runtime composition | Blocked by 01.1, 01.3c | -- |
 | 04 -- Host documentation sweep | Blocked by 02 | -- |
 | 05 -- Adapter documentation sweep | Blocked by 03 | -- |
 
 Status values: `Planned` -> `In progress` -> `Complete` (or `Blocked by <n>` while its
-dependency is unmerged). `Complete` is authoritative only once that concept's PR is
-actually merged to `main` -- GitHub's own merge-commit record is the permanent
+dependency is unmerged). A concept's own branch may record `Complete` before its PR
+exists or merges, once that concept's own work is finished -- no PR number or merge is
+required to write `Complete` here. Merging to `main` is what makes a `Complete` concept
+authoritative *on `main`*: GitHub's own merge-commit record is the permanent
 traceability for which SHA a PR merged as; this table does not duplicate it. Update
-this table after every PR merges; never rewrite `SOURCE.md` to reflect execution
-progress.
+this table after every PR merges (and, for a concept completed pre-PR, when its own
+work finishes); never rewrite `SOURCE.md` to reflect execution progress.
 
 ## 9. Phase completion gate
 
@@ -286,8 +288,8 @@ The phase is complete only when:
 - `tooling/test_repository_consistency.py` and the Host/Adapter test suites are green
   at the final merge.
 - No concept introduced a runtime, protocol, or security behavior change, except the
-  exact public compatibility/version and instance-identity vocabulary change `01.3a`
-  decided and `01.3b`/`01.3c` implemented, per `DIVERGENCES.md` D4 -- the package's
+  exact public compatibility/version and state-authority continuity vocabulary change
+  `01.3a` decided and `01.3b`/`01.3c` implemented, per `DIVERGENCES.md` D4 -- the package's
   one deliberate, narrow exception to this invariant.
 - No PR in the final merge history exceeded 100 changed files.
 
@@ -303,6 +305,6 @@ status table in section 8 tracks `Status | PR` only, not the merge SHA `SOURCE.m
 Block C item 7 originally asked for, since a PR cannot record its own merge SHA
 before merging and GitHub already owns that record permanently; and D4 -- five new
 concepts (`01.2a`, `01.2b`, `01.3a`, `01.3b`, `01.3c`) normalize legacy Bridge
-terminology and the public compatibility/version and instance-identity vocabulary
-before Concept 02/03 composition begins, the package's one deliberate, narrow
+terminology and the public compatibility/version and state-authority continuity
+vocabulary before Concept 02/03 composition begins, the package's one deliberate, narrow
 exception to the "no protocol/public behavior change" invariant.

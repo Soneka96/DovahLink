@@ -9,20 +9,46 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.2b-internal-code-test-and-tooling-terminology.md`
-- Status: in progress on PR #63 (branch `refactor/01.2b-internal-code-test-and-tooling-terminology`).
-  The `BridgeEntity`->`HostEntity` cluster, Adapter internal terminology, and tooling
-  fixture renames are implemented. An earlier scope-boundary correction (see Decisions
-  log) reverted the runtime/user-visible and public SDK diagnostic string-literal
-  changes the PR had also made; the maintainer reversed that correction (see the
-  "scope-boundary reversal" entry below) -- those strings are restored, the concept's
-  own file documents the wider boundary, and the re-run category-B inventory is
-  recorded with zero-unresolved evidence.
-- Prerequisites: Concept 01.2a merged (`main` @ `bc86f4cc`, PR #62) -- satisfied.
-- Next action: maintainer review of PR #63, then merge to `main`.
-  Per D4, Concept 02 still waits behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a ->
-  01.3b -> 01.3c chain, same as Concept 03 -- do not unblock 02 or 03 until 01.3c
-  actually merges.
+- File: `01.3a-public-vocabulary-and-identity-semantics.md`
+- Status: Complete on branch `docs/01.3a-public-vocabulary-and-identity-semantics`,
+  not yet opened as a PR. Design-only gate, all six decisions final:
+  - Compatibility authority is the Host release version: `bridgeVersion` -> `hostVersion`.
+  - `bridgeInstanceId` -> `stateAuthorityId`: a Host authoritative-state continuity
+    epoch, not a process/instance identity and not a public counterpart of
+    `adapterInstanceId`.
+  - Rotation happens at continuity-loss detection (Host restart, or Adapter/IPC
+    connection loss observed) -- not when the resync/rebind that follows later
+    succeeds.
+  - One unresolved continuity break is exactly one epoch through every failed
+    reconnect/resync attempt; a later loss starts a new epoch only once a fresh
+    authoritative baseline has been successfully established internally under the
+    current value -- client snapshot publication is never the epoch boundary.
+  - A runtime mint failure after a continuity break is detected is a fatal Host
+    invariant failure: no retained/`null` value, no degraded serving, normal
+    deterministic shutdown (a startup mint failure uses the existing fail-closed
+    startup path instead).
+  - Cache/revision scope is `(stateAuthorityId, playContextId, stateArea)`.
+  - Exact wire presence: only `hello_ack`, `state_snapshot`, and `state_event` carry
+    `stateAuthorityId`, required and non-null; no other message does.
+  - `01.3b` and `01.3c` are two separate implementation PRs but one atomic
+    public-contract release boundary -- no supported/versioned release may be cut
+    between them merging.
+  - Migration policy is intentionally breaking; no aliases, no compatibility shims.
+  `ai/context/protocol/compatibility.md`'s two deferred-decision sections are updated
+  to record the decision as "decided, pending implementation." No protocol schema,
+  fixture, Host, SDK, or app source file changed -- decision documentation only, per
+  this concept's own scope.
+- Prerequisites: Concept 01.2b merged (`main` @ `d4734dba`, PR #63) -- satisfied.
+- PR: #64, open against `main`, under maintainer review.
+- Next action: address maintainer/review findings on PR #64, then merge it. The branch
+  already records `Complete` in `PLAN.md`'s status table, per the pre-PR-Complete
+  workflow `PLAN.md` section 8 documents; merging PR #64 is what makes that state
+  authoritative on `main`, which is what actually satisfies `01.3b`'s own stated
+  dependency ("Concept 01.3a merged to `main`") -- not the branch-level `Complete`
+  label by itself, and `01.3b` stays `Blocked by 01.3a` in `PLAN.md`'s status table
+  until that merge happens. Per D4, Concept 02 still waits behind the entire
+  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 -- do not
+  unblock 02 or 03 until 01.3c actually merges. Do not begin `01.3b` on this branch.
 
 ## Completed concepts
 
@@ -32,6 +58,8 @@ Status: active (package frozen 2026-09-13)
   PR #61 (merge commit `77f31fa0`, 2026-09-13).
 - `01.2a-active-documentation-and-instruction-terminology.md` -- merged to `main` via
   PR #62 (merge commit `bc86f4cc`, 2026-09-13).
+- `01.2b-internal-code-test-and-tooling-terminology.md` -- merged to `main` via PR #63
+  (merge commit `d4734dba`, 2026-09-13).
 
 ## Decisions and approved deviations
 
@@ -82,7 +110,7 @@ Status: active (package frozen 2026-09-13)
   instructions terminology), `01.2b` (internal code/test/tooling terminology),
   `01.3a` (design-only public vocabulary + instance-identity decision, no wire
   implementation), `01.3b` (compatibility/version vocabulary cutover, implements
-  01.3a exactly), `01.3c` (public authoritative-instance identity cutover, implements
+  01.3a exactly), `01.3c` (public state-authority continuity identity cutover, implements
   01.3a exactly) -- between Concept 01.1 and Concept 03/02. Why now: a full-repository
   inventory found 236 files / 1,342 case-insensitive `bridge` hits that are not one
   kind of debt (stale active terminology, stale internal naming, public wire fields
@@ -429,16 +457,60 @@ design, not debt.)
   legitimate historical Bridge reference. Verification: `dart analyze`/`dart test`
   (`sdk/dart/dovahlink_client`) clean, 623/623; `python -m unittest
   tooling.test_repository_consistency -v`: 40/40 passed.
+- 2026-09-13 third post-merge bookkeeping (this session, planning-only, committed
+  directly to `main` -- no branch, per the same "in-progress -> complete is bookkeeping,
+  not a feature branch" rule the first two post-merge passes established): `PLAN.md`'s
+  status table row for Concept 01.2b updated `In progress | #63` -> `Complete | #63`
+  (PR #63 merged to `main` as `d4734dba`); Concept 01.3a's row updated
+  `Blocked by 01.2b` -> `Planned`. `CONTEXT.md`'s Active concept, Completed concepts,
+  and Handoff sections updated to match -- Concept 01.2b moved to Completed, Concept
+  01.3a is now Active/next.
+- 2026-09-13 Concept 01.3a implementation (this session, branch
+  `docs/01.3a-public-vocabulary-and-identity-semantics`, decision-only -- no
+  protocol schema, fixture, Host, SDK, or app source file touched):
+  `01.3a-public-vocabulary-and-identity-semantics.md` gets a `**Decision:**` block
+  under each of Sections A-F. Grounded against `ai/context/common.md`'s Versioning
+  section (single repo `VERSION` file, no independent Host-only version literal
+  exists today), `host/DovahLink.Host/Client/Protocol/HelloAckPayload.cs` and
+  `Constants.cs` (current `BridgeVersion`/`PublicProtocolTransitionalBridgeVersion`
+  naming), `host/DovahLink.Host/Identity/AdapterInstanceId.cs` and
+  `ARCHITECTURE.md`'s "Runtime and identity model" (the four fixed private identity
+  lifetimes, and the Host OS process's explicit lack of public identity), and
+  `ARCHITECTURE.md`'s "Authoritative state and revisions" (the Host owns one
+  authoritative state store per play context). Key reasoning: Section C's new
+  `stateAuthorityId` is deliberately not a rename of `adapterInstanceId`, because a
+  Host-process restart can invalidate the Host's own in-memory state store even when
+  the underlying Adapter/Skyrim process never restarted -- an `adapterInstanceId`-only
+  comparison would miss that case, which is exactly what
+  `ai/context/protocol/compatibility.md`'s pre-existing "do not substitute
+  `adapterInstanceId` ... for it" line already ruled out without stating why.
+  `ai/context/protocol/compatibility.md`'s "Decided, not yet activated" and "Deferred:
+  public instance identifier" sections are rewritten to record the decision as
+  "decided, pending implementation in 01.3b/01.3c," cross-referencing this concept
+  file's Sections A and C. Real changed-file counts for the two implementation
+  concepts were re-measured (`git grep -il` across `protocol/fixtures/**`,
+  `sdk/dart/**`, `host/**`, `app/**`, `integration/**`): `bridgeVersion` -> 39 files
+  (`01.3b`), `bridgeInstanceId` -> 74 files (`01.3c`) -- both comfortably under the
+  80-file re-plan threshold, no split proposal needed (supersedes this concept's own
+  pre-decision ~10-15/~75-90 estimate). A fresh-eyes decision-gap review (Explore
+  subagent, read-only) found zero remaining "TBD" rows, no contradiction between this
+  file and `compatibility.md`, and no unflagged contradiction with `ARCHITECTURE.md`
+  or `protocol/schema/README.md`.
 
 ## Handoff
 
-Concept 01.2b implementation is on PR #63 (branch
-`refactor/01.2b-internal-code-test-and-tooling-terminology`), not yet merged. Both
+Concept 01.2b merged to `main` via PR #63 (merge commit `d4734dba`, 2026-09-13). Both
 scope-boundary reversals, the restored Host wording, and two full category-B/C
 inventory re-runs are recorded above with zero-unresolved evidence -- the
-`websocket_transport_test.dart` findings are now fixed rather than flagged; the only
+`websocket_transport_test.dart` findings were fixed rather than left flagged; the only
 remaining out-of-scope item is the `ai/context/protocol/security.md`-quoting host/
-comments' own source doc, which stays outside this concept's file scope by design --
-awaiting final maintainer review and merge. Handoff to Concept 01.3a follows once
-PR #63 actually merges to `main`, per `PLAN.md` section 6 (one branch/PR per
-concept, dependent concept waits for merge, not just open/approved).
+comments' own source doc, which stays outside this concept's file scope by design.
+Handoff to Concept 01.3a is now active, per `PLAN.md` section 6 (one branch/PR per
+concept, dependent concept waits for merge, not just open/approved) -- 01.3a's own
+prerequisite (01.2b merged) is satisfied.
+
+Concept 01.3a's six mandatory decisions (A-F) are now resolved on branch
+`docs/01.3a-public-vocabulary-and-identity-semantics`, not yet opened as a PR --
+see the Verification entry above for the full rationale and the concept file itself
+for the decision text. Handoff to Concept 01.3b follows once this PR merges to
+`main`, per the same one-branch/PR-per-concept rule.

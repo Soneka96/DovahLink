@@ -35,11 +35,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "one authoritative state store for the active play context",
             "captured once and shared with subscribed clients",
             "adding a client must not repeat equivalent Skyrim reads",
-            "within one state area and `playContextId`",
-            "It advances only when that authoritative state changes",
+            "within one state area, `playContextId`, and the authoritative-lineage identity "
+            "for that state",
+            "A revision advances only when that authoritative state changes",
             "Sending or requesting another snapshot does not advance the revision",
             "reconnecting does not create a new authoritative revision",
-            "use `playContextId` and the state-area revision together to reject stale state",
+            "use that authoritative-lineage identity, `playContextId`, and the state-area "
+            "revision together to reject stale state",
             "invalidates the previous context's state and establishes fresh authoritative state",
             "must not be implemented by silently reinterpreting messages from the previously "
             "published experimental release",
@@ -1325,7 +1327,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         normalized_identity_model = self._normalize_whitespace(identity_model)
         self.assertIn(
             "Persistent device trust is a separate concept layered on top of these four "
-            "lifetimes, not a fifth lifetime that replaces or reinterprets them",
+            "*private* lifetimes, not a fifth private one that replaces or reinterprets them",
             normalized_identity_model,
         )
         self.assertIn(

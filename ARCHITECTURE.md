@@ -119,8 +119,9 @@ For historical compatibility, the old bridge behavior is recorded here.
 A bridge restart creates a new identity in the old bridge implementation; in
 the replacement this means a Skyrim process restart creates a new
 `adapterInstanceId`.
-The target architecture distinguishes five
-identifiers across four lifetimes:
+The target architecture fixes five private
+identifiers across four lifetimes (a sixth, public-only identifier on a fifth lifetime
+is added further below):
 the transport `ConnectionId` and authenticated `sessionId` share the per-socket
 lifetime.
 
@@ -136,13 +137,37 @@ lifetime.
 - `sessionId` identifies one authenticated socket session. It is valid only for that socket and is
   invalidated when the connection ends in the historical contract as well as in the replacement.
 
+These four private lifetimes are unchanged by the public vocabulary decided in
+`plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+Section C, which adds a sixth identifier on its own, fifth lifetime:
+
+- `stateAuthorityId` identifies the Host's current authoritative-state *continuity
+  epoch* -- it changes exactly when cached state revisions from before an event are no
+  longer safely comparable to revisions after it, and does not change otherwise. It
+  rotates the instant the Host *detects* such a break (Host restart, or the
+  Adapter/IPC connection dropping -- per the existing "Host-to-adapter IPC contract"
+  resynchronization rule, `ai/context/host/architecture.md`), not later when the
+  recovery that follows (a resync, or a new `adapterInstanceId` rebind) succeeds --
+  one break produces exactly one rotation, and a subsequent same-`adapterInstanceId`
+  resync or new-`adapterInstanceId` rebind does not rotate it again. When a new
+  `adapterInstanceId` binding follows an established Adapter/IPC continuity loss, it
+  does not independently rotate `stateAuthorityId`; that rotation already happened at
+  the preceding loss. The initial Adapter binding after Host startup is different:
+  `stateAuthorityId` was already minted at Host startup, and that first binding has no
+  preceding connection-loss event to follow. The reverse direction also doesn't hold, since a same-Adapter IPC drop+resync rotates
+  `stateAuthorityId` with no `adapterInstanceId` change at all. It must never be read
+  as an alias of `adapterInstanceId`, the Host's OS process identity, or any
+  transport/session identifier above.
+
 Each identifier must be created, validated, and invalidated at its own lifecycle boundary.
 A client reconnect creates a new `sessionId` without silently changing its `clientId`; it also creates a new
 `ConnectionId`; loading another save
 creates a new `playContextId` without pretending that the adapter or host process restarted.
 
-Persistent device trust is a separate concept layered on top of these four lifetimes, not a fifth
-lifetime that replaces or reinterprets them. A paired client's local trust — the credential a client
+Persistent device trust is a separate concept layered on top of these four *private* lifetimes, not
+a fifth private one that replaces or reinterprets them -- `stateAuthorityId` above is the one actual
+fifth lifetime this document fixes, and it is public-only, unrelated to persistent trust. A paired
+client's local trust — the credential a client
 presents to reconnect without repeating pairing — belongs to the Windows user profile running the
 client and the host, and survives host, adapter, Skyrim, and Windows restarts. It does not change
 `adapterInstanceId`'s per-restart identity, `playContextId`'s per-load identity, or `sessionId`'s
@@ -181,15 +206,22 @@ Skyrim is the authoritative producer of live playthrough state. For each state a
 one authoritative state store for the active play context. Skyrim state is captured once and shared
 with subscribed clients; adding a client must not repeat equivalent Skyrim reads for that client.
 
-A state revision identifies a version of authoritative state within one state area and
-`playContextId`. It advances only when that authoritative state changes. Sending or requesting
-another snapshot does not advance the revision when the state is unchanged, and reconnecting does
-not create a new authoritative revision merely because the socket session changed.
+A state revision identifies a version of authoritative state within one state area,
+`playContextId`, and the authoritative-lineage identity for that state -- today's wire field
+`bridgeInstanceId` (`protocol/schema/README.md`'s "Registered state areas"), decided to become
+`stateAuthorityId` per
+`plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+Section D once `01.3c` implements that cutover: `(stateAuthorityId, playContextId, stateArea)`.
+This section describes the scope shape, not which of those two field names is currently active on
+the wire -- see `01.3a` Section D for the full decision. A revision advances only when that
+authoritative state changes. Sending or requesting another snapshot does not advance the revision
+when the state is unchanged, and reconnecting does not create a new authoritative revision merely
+because the socket session changed.
 
-Clients use `playContextId` and the state-area revision together to reject stale state. `sessionId`
-and `ConnectionId` prevent a client from accepting messages from an old or foreign socket. When the play context
-changes, the host invalidates the previous context's state and establishes fresh authoritative
-state before publication resumes.
+Clients use that authoritative-lineage identity, `playContextId`, and the state-area revision
+together to reject stale state. `sessionId` and `ConnectionId` prevent a client from accepting
+messages from an old or foreign socket. When the play context changes, the host invalidates the
+previous context's state and establishes fresh authoritative state before publication resumes.
 
 `protocol/schema/README.md` carries this ownership as the current canonical wire contract; see
 `roadmap/02-bridge-identity-and-authoritative-state.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across

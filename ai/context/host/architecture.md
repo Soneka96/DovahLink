@@ -163,12 +163,18 @@ reused as the internal IPC message model, and this section does not touch `proto
 - **Adapter loss:** the host observes channel loss, marks adapter-sourced state unavailable rather
   than presenting stale values as current (matching `ARCHITECTURE.md`'s "Reliability expectations"),
   and requires a resynchronization handshake before publishing adapter-sourced state as current
-  again.
+  again. This is the moment the public `stateAuthorityId` identifier must rotate, per
+  `ARCHITECTURE.md`'s "Runtime and identity model" and
+  `plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
+  Section C -- the loss is the continuity break, not the resync that follows it.
 - **Current-state resynchronization:** after either side reconnects, the adapter answers a host
   resynchronization request through an approved game-thread path and the host treats the result as
   a fresh authoritative baseline, not an incremental update layered on stale state -- the same
   Snapshot-establishes-a-new-baseline rule the public transport already uses
-  (`ai/context/protocol/security.md`'s "Input limits" queue policy).
+  (`ai/context/protocol/security.md`'s "Input limits" queue policy). This establishes the fresh
+  baseline *under* the `stateAuthorityId` value already rotated at the preceding loss -- it does not
+  rotate the value a second time, whether this resync resolves via the same `adapterInstanceId`
+  reconnecting or a new one binding.
 
 Concrete wire shapes, message types, and the exact version/limit numbers are Stage 3 implementation
 work; this section fixes the decisions those numbers must satisfy.
