@@ -27,8 +27,8 @@ Normalize DovahLink's documentation and changelog conventions, then use the corr
 conventions to make Host and Adapter composition/lifetime explicit and to sweep both
 subsystems' documentation -- without changing runtime, protocol, or security behavior
 anywhere in the package, except the one narrow, explicitly decided exception
-`DIVERGENCES.md` D4 approves (public compatibility/version and instance-identity
-vocabulary, implemented only by Concepts `01.3b`/`01.3c` to exactly the extent
+`DIVERGENCES.md` D4 approves (public compatibility/version and state-authority
+continuity vocabulary, implemented only by Concepts `01.3b`/`01.3c` to exactly the extent
 Concept `01.3a` decides).
 
 **In scope:** `ai/context/common.md`, `ai/context/dotnet/csharp-style.md`,
@@ -202,7 +202,7 @@ inserted because active instructions, internal names, and transitional public
 protocol terms still contain retired Bridge vocabulary that would otherwise leak into
 newly composed Host/Adapter code: 01.2a normalizes active docs/instructions, 01.2b
 renames stale internal naming, 01.3a is a design-only gate deciding the public
-compatibility/version and instance-identity vocabulary, and 01.3b/01.3c implement
+compatibility/version and state-authority continuity vocabulary, and 01.3b/01.3c implement
 exactly that decision -- the package's only concepts permitted to touch public wire
 behavior. This chain is deliberately linear, not parallelized, to avoid cross-PR
 conflicts and double-touching files under rename. 02 and 03 both now depend on 01.3c
@@ -286,8 +286,8 @@ The phase is complete only when:
 - `tooling/test_repository_consistency.py` and the Host/Adapter test suites are green
   at the final merge.
 - No concept introduced a runtime, protocol, or security behavior change, except the
-  exact public compatibility/version and instance-identity vocabulary change `01.3a`
-  decided and `01.3b`/`01.3c` implemented, per `DIVERGENCES.md` D4 -- the package's
+  exact public compatibility/version and state-authority continuity vocabulary change
+  `01.3a` decided and `01.3b`/`01.3c` implemented, per `DIVERGENCES.md` D4 -- the package's
   one deliberate, narrow exception to this invariant.
 - No PR in the final merge history exceeded 100 changed files.
 
@@ -303,6 +303,6 @@ status table in section 8 tracks `Status | PR` only, not the merge SHA `SOURCE.m
 Block C item 7 originally asked for, since a PR cannot record its own merge SHA
 before merging and GitHub already owns that record permanently; and D4 -- five new
 concepts (`01.2a`, `01.2b`, `01.3a`, `01.3b`, `01.3c`) normalize legacy Bridge
-terminology and the public compatibility/version and instance-identity vocabulary
-before Concept 02/03 composition begins, the package's one deliberate, narrow
+terminology and the public compatibility/version and state-authority continuity
+vocabulary before Concept 02/03 composition begins, the package's one deliberate, narrow
 exception to the "no protocol/public behavior change" invariant.
