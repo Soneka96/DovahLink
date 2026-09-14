@@ -120,36 +120,23 @@ internal static class Program
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
 
-        // Trust-services composition: shared by adapter-originated trust-admin requests and by the
-        // public client boundary composed below, over this same instance graph.
-        ITrustStore trustStore = await TrustStore.CreateAsync(
-            trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), core.Clock, core.SecurityGate);
-        var sessionRegistry = new SessionRegistry(core.SecurityGate, core.Settings.MaxActiveSessions);
-        var pairingCoordinator = new PairingCoordinator(trustStore, core.Clock);
-        onComposed?.Invoke(sessionRegistry, pairingCoordinator);
-        var playContextTracker = new PlayContextTracker();
-        var envelopeCodec = new PublicEnvelopeCodec(core.StateAuthorityLifecycle);
-        var connectionRegistry = new PublicSessionConnectionRegistry();
+        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, trustStorePersistence);
+        onComposed?.Invoke(trust.SessionRegistry, trust.PairingCoordinator);
 
         // No state area is registered yet and no real domain feed exists -- a later concept
         // registers each real Skyrim domain here and supplies a feed that adapts its captured
         // values, per ai/context/protocol/security.md's "no state area is currently registered".
         IRegisteredStateAreaPolicy registeredStateAreaPolicy = new RegisteredStateAreaPolicy();
         IStatePublicationFeed statePublicationFeed = NullStatePublicationFeed.Instance;
-        ISessionTerminationNotifier terminationNotifier = new PublicSessionTerminationNotifier(connectionRegistry, envelopeCodec, playContextTracker);
-        IClientSessionInvalidator sessionInvalidator = new ClientSessionInvalidator(sessionRegistry, terminationNotifier);
-        ITrustAdminService trustAdminService = new TrustAdminService(trustStore, sessionInvalidator, pairingCoordinator);
-        ITrustResetService trustResetService = new TrustResetService(trustStore, sessionInvalidator, pairingCoordinator, core.Clock);
-        IAdapterTrustAdminRequestHandler trustAdminRequestHandler = new AdapterTrustAdminRequestHandler(trustAdminService, trustResetService, core.Clock);
 
         using IAdapterIpcListener adapterListener = new AdapterIpcListener(
             listenerPort,
-            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, ownerLifetimeId), core.Clock));
+            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trust.TrustAdminRequestHandler, ownerLifetimeId), core.Clock));
         IPairingAdapterNotifier adapterNotifier = new AdapterPairingNotifier(adapterListener);
         ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(core.Clock);
         ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(core.Clock);
         IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
-            envelopeCodec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, core.Clock, sessionRegistry);
+            trust.EnvelopeCodec, trust.TrustAdminService, trust.PairingCoordinator, adapterNotifier, trust.PlayContextTracker, core.Clock, trust.SessionRegistry);
 
         using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
             ? new PublicWebSocketListener(
@@ -157,9 +144,9 @@ internal static class Program
                 stream => new PublicWebSocketConnection(
                     stream,
                     new PublicHelloAdmissionHandler(
-                        envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
-                        playContextTracker, core.Clock, dispatcher, pairingCoordinator, connectionRegistry,
-                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, envelopeCodec, playContextTracker, core.StateAuthorityLifecycle)),
+                        trust.EnvelopeCodec, trust.SessionRegistry, trust.TrustStore, tokenAuthenticator, credentialThrottle,
+                        trust.PlayContextTracker, core.Clock, dispatcher, trust.PairingCoordinator, trust.ConnectionRegistry,
+                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, trust.EnvelopeCodec, trust.PlayContextTracker, core.StateAuthorityLifecycle)),
                     core.Clock,
                     new PublicWebSocketTransportOptions(),
                     NullPublicWebSocketTransportDiagnostics.Instance,
