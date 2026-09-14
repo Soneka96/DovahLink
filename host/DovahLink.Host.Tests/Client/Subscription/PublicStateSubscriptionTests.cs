@@ -16,12 +16,14 @@ public class PublicStateSubscriptionTests
     /// <summary>The envelope codec the subscription under test encodes through, and this test decodes every sent message with for content assertions.</summary>
     private readonly PublicEnvelopeCodec codec = new(Fixtures.BuildStateAuthorityLifecycle());
 
-    /// <summary>Builds a subscription over a fresh policy, feed, and play-context tracker, with the given areas pre-registered.</summary>
+    /// <summary>Builds a subscription over a fresh policy, feed, play-context tracker, and state-authority lifecycle, with the given areas pre-registered.</summary>
     /// <param name="registeredAreas">The state areas to register before the test runs.</param>
     /// <param name="feed">The feed the subscription reads from; a fresh <see cref="FakeStatePublicationFeed"/> when omitted.</param>
     /// <param name="playContextTracker">The tracker the subscription reads and listens to; a fresh <see cref="FakePlayContextTracker"/> when omitted.</param>
+    /// <param name="stateAuthorityLifecycle">The lifecycle the subscription listens to for rotation; a fresh <see cref="Fixtures.BuildStateAuthorityLifecycle"/> when omitted.</param>
     private (PublicStateSubscription Subscription, RegisteredStateAreaPolicy Policy, FakeStatePublicationFeed Feed) BuildSubscription(
-        IEnumerable<string>? registeredAreas = null, FakeStatePublicationFeed? feed = null, IPlayContextTracker? playContextTracker = null)
+        IEnumerable<string>? registeredAreas = null, FakeStatePublicationFeed? feed = null, IPlayContextTracker? playContextTracker = null,
+        IStateAuthorityLifecycle? stateAuthorityLifecycle = null)
     {
         var policy = new RegisteredStateAreaPolicy();
         foreach (string area in registeredAreas ?? [])
@@ -30,7 +32,8 @@ public class PublicStateSubscriptionTests
         }
 
         FakeStatePublicationFeed resolvedFeed = feed ?? new FakeStatePublicationFeed();
-        var subscription = new PublicStateSubscription(policy, resolvedFeed, codec, playContextTracker ?? new FakePlayContextTracker());
+        var subscription = new PublicStateSubscription(
+            policy, resolvedFeed, codec, playContextTracker ?? new FakePlayContextTracker(), stateAuthorityLifecycle ?? Fixtures.BuildStateAuthorityLifecycle());
         return (subscription, policy, resolvedFeed);
     }
 
@@ -922,6 +925,55 @@ public class PublicStateSubscriptionTests
         Assert.Empty(rejected);
     }
 
+    /// <summary>
+    /// Verifies that a state-authority rotation invalidates a live area's baseline the same way a
+    /// play-context transition does: an Event that would otherwise have forwarded stops forwarding
+    /// once <see cref="IStateAuthorityLifecycle.Rotated"/> fires, until the area is re-armed. This is
+    /// `01.3a`'s post-rotation baseline rule: incremental continuity from the previous
+    /// <see cref="StateAuthorityId"/> is invalid until a fresh baseline is established under the new
+    /// one.
+    /// </summary>
+    [Fact]
+    public void OnEventOccurred_StateAuthorityRotated_StopsForwardingUntilReArmed()
+    {
+        var lifecycle = new FakeStateAuthorityLifecycle();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], stateAuthorityLifecycle: lifecycle);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        int sentBeforeRotation = connectionContext.SentPayloads.Count;
+
+        lifecycle.NotifyRotated();
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Equal(sentBeforeRotation, connectionContext.SentPayloads.Count);
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 2));
+        subscription.HandleSnapshotRequest("area_a", "req-1"); // re-arms under the new authority
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 2, revision: 3));
+
+        Assert.Equal(sentBeforeRotation + 2, connectionContext.SentPayloads.Count); // the re-arm baseline, then the event
+    }
+
+    /// <summary>Verifies that a state-authority rotation invalidates a live baseline without un-accepting the area: a repeat subscribe still reports it accepted.</summary>
+    [Fact]
+    public void HandleSubscribe_AfterStateAuthorityRotated_StillReportsAreaAccepted()
+    {
+        var lifecycle = new FakeStateAuthorityLifecycle();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], stateAuthorityLifecycle: lifecycle);
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        lifecycle.NotifyRotated();
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = Subscribe(subscription, "sub-2", ["area_a"]);
+
+        Assert.Equal(["area_a"], accepted);
+        Assert.Empty(rejected);
+    }
+
     /// <summary>Verifies that calling <see cref="PublicStateSubscription.Unsubscribe"/> more than once does not throw.</summary>
     [Fact]
     public void Unsubscribe_CalledTwice_DoesNotThrow()
@@ -988,18 +1040,20 @@ public class PublicStateSubscriptionTests
         Assert.Equal(sentBeforeEvent + 1, connectionContext.SentPayloads.Count);
     }
 
-    /// <summary>Verifies that <see cref="PublicStateSubscription.Unsubscribe"/> removes this subscription's registration from the feed and the play-context tracker.</summary>
+    /// <summary>Verifies that <see cref="PublicStateSubscription.Unsubscribe"/> removes this subscription's registration from the feed, the play-context tracker, and the state-authority lifecycle.</summary>
     [Fact]
     public void Unsubscribe_AfterBind_RemovesSubscriptions()
     {
         var tracker = new FakePlayContextTracker();
-        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(playContextTracker: tracker);
+        var lifecycle = new FakeStateAuthorityLifecycle();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(playContextTracker: tracker, stateAuthorityLifecycle: lifecycle);
         subscription.Bind(new FakePublicConnectionContext(), SessionId.NewId());
 
         subscription.Unsubscribe();
 
         Assert.False(feed.HasSubscribers);
         Assert.False(tracker.HasSubscribers);
+        Assert.False(lifecycle.HasSubscribers);
     }
 
     /// <summary>Verifies that a <see cref="PublicStateSubscription.Bind"/> call after <see cref="PublicStateSubscription.Unsubscribe"/> re-arms the registration and events forward again.</summary>

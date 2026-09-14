@@ -171,7 +171,7 @@ internal static class Program
                     new PublicHelloAdmissionHandler(
                         envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
                         playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry,
-                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, envelopeCodec, playContextTracker)),
+                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, envelopeCodec, playContextTracker, stateAuthorityLifecycle)),
                     clock,
                     new PublicWebSocketTransportOptions(),
                     NullPublicWebSocketTransportDiagnostics.Instance,

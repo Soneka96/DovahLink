@@ -17,8 +17,11 @@ namespace DovahLink.Host.Client.Subscription;
 /// revision rather than discarding or forwarding it ahead of the baseline, and releases the held
 /// Events, in arrival order, only once the connection actually admits the baseline -- per
 /// <c>protocol/schema/README.md</c>'s "the bridge sends a snapshot before events for each accepted
-/// state area." A play-context transition invalidates every area's live baseline and any Events held
-/// for it, so a later Event stops forwarding until this connection obtains a fresh baseline.
+/// state area." A play-context transition, or a <see cref="IStateAuthorityLifecycle.Rotated"/>
+/// state-authority rotation, invalidates every area's live baseline and any Events held for it, so a
+/// later Event stops forwarding until this connection obtains a fresh baseline -- the latter is
+/// `01.3a`'s post-rotation baseline rule: incremental continuity from the previous
+/// <see cref="StateAuthorityId"/> is invalid until a fresh baseline is established under the new one.
 /// </summary>
 public interface IPublicStateSubscription
 {
@@ -96,6 +99,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <summary>Supplies the <c>playContextId</c> stamped onto every message this subscription sends.</summary>
     private readonly IPlayContextTracker playContextTracker;
 
+    /// <summary>Signals a state-authority rotation, which invalidates every area's live baseline the same way a play-context transition does.</summary>
+    private readonly IStateAuthorityLifecycle stateAuthorityLifecycle;
+
     /// <summary>Guards every mutable field below against concurrent access from <see cref="OnEventOccurred"/> and the read loop's own thread.</summary>
     private readonly object gate = new();
 
@@ -116,8 +122,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     private SessionId? sessionId;
 
     /// <summary>
-    /// Whether this subscription currently owns a live registration on <see cref="feed"/>'s and
-    /// <see cref="playContextTracker"/>'s events. Guards <see cref="Bind"/> and <see cref="Unsubscribe"/>
+    /// Whether this subscription currently owns a live registration on <see cref="feed"/>'s,
+    /// <see cref="playContextTracker"/>'s, and <see cref="stateAuthorityLifecycle"/>'s events. Guards
+    /// <see cref="Bind"/> and <see cref="Unsubscribe"/>
     /// against a duplicate call each: a connection whose admission never completes (for example a
     /// failed WebSocket handshake) must never register these handlers at all, since nothing would
     /// ever call <see cref="Unsubscribe"/> to remove them, and a second <see cref="Bind"/> call must
@@ -131,16 +138,19 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <param name="feed">The host-wide, domain-agnostic push source snapshots and events are read from.</param>
     /// <param name="codec">Encodes every message this subscription sends.</param>
     /// <param name="playContextTracker">Supplies the <c>playContextId</c> stamped onto every message this subscription sends.</param>
+    /// <param name="stateAuthorityLifecycle">Signals a state-authority rotation, which invalidates every area's live baseline the same way a play-context transition does.</param>
     public PublicStateSubscription(
         IRegisteredStateAreaPolicy registeredStateAreaPolicy,
         IStatePublicationFeed feed,
         IPublicEnvelopeCodec codec,
-        IPlayContextTracker playContextTracker)
+        IPlayContextTracker playContextTracker,
+        IStateAuthorityLifecycle stateAuthorityLifecycle)
     {
         this.registeredStateAreaPolicy = registeredStateAreaPolicy;
         this.feed = feed;
         this.codec = codec;
         this.playContextTracker = playContextTracker;
+        this.stateAuthorityLifecycle = stateAuthorityLifecycle;
     }
 
     /// <inheritdoc/>
@@ -163,6 +173,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 feed.EventOccurred += OnEventOccurred;
                 feed.SnapshotChanged += OnSnapshotChanged;
                 playContextTracker.Transitioned += OnPlayContextTransitioned;
+                stateAuthorityLifecycle.Rotated += OnStateAuthorityRotated;
                 subscribedToExternalEvents = true;
             }
         }
@@ -263,6 +274,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             feed.EventOccurred -= OnEventOccurred;
             feed.SnapshotChanged -= OnSnapshotChanged;
             playContextTracker.Transitioned -= OnPlayContextTransitioned;
+            stateAuthorityLifecycle.Rotated -= OnStateAuthorityRotated;
             subscribedToExternalEvents = false;
         }
     }
@@ -283,14 +295,44 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     {
         lock (gate)
         {
-            foreach (AreaState state in areaStates.Values)
-            {
-                state.Phase = AreaDeliveryPhase.AwaitingBaseline;
-                state.BarrierRevision = null;
-                state.HeldEvents.Clear();
-                state.PendingSnapshot = null;
-                state.RecoveryEpoch++;
-            }
+            InvalidateAllAreasUnderGate();
+        }
+    }
+
+    /// <summary>
+    /// Invalidates every area's live baseline and abandons every in-progress recovery, the same way
+    /// <see cref="OnPlayContextTransitioned"/> does for a play-context transition: per `01.3a`'s
+    /// post-rotation baseline rule, incremental continuity from the previous
+    /// <see cref="StateAuthorityId"/> is invalid outright once it rotates, so this connection must
+    /// obtain a fresh baseline before it forwards another Event for any area. Bumping each area's
+    /// recovery epoch here ensures a <see cref="TryEstablishBaseline"/> call already in flight under
+    /// the old value is ignored when it completes, rather than incorrectly committing a stale
+    /// baseline live.
+    /// </summary>
+    /// <param name="rotatedTo">The newly minted <see cref="StateAuthorityId"/>.</param>
+    private void OnStateAuthorityRotated(StateAuthorityId rotatedTo)
+    {
+        lock (gate)
+        {
+            InvalidateAllAreasUnderGate();
+        }
+    }
+
+    /// <summary>
+    /// Resets every area's recovery-barrier bookkeeping to <see cref="AreaDeliveryPhase.AwaitingBaseline"/>,
+    /// discarding any held Events or buffered pending Snapshot and bumping the recovery epoch so an
+    /// in-flight <see cref="TryEstablishBaseline"/> attempt from before this call is ignored when it
+    /// completes. Must be called with <see cref="gate"/> already held by the calling thread.
+    /// </summary>
+    private void InvalidateAllAreasUnderGate()
+    {
+        foreach (AreaState state in areaStates.Values)
+        {
+            state.Phase = AreaDeliveryPhase.AwaitingBaseline;
+            state.BarrierRevision = null;
+            state.HeldEvents.Clear();
+            state.PendingSnapshot = null;
+            state.RecoveryEpoch++;
         }
     }
 
