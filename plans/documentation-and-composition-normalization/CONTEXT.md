@@ -516,6 +516,39 @@ design, not debt.)
   in `tooling/test_repository_consistency.py`'s comments -- zero live identifier or
   requirement-bearing prose reference remains. `bridgeInstanceId` is untouched
   everywhere, confirmed still present and unchanged, reserved for `01.3c`.
+- 2026-09-14 Concept 01.3b correction pass (this session, same branch): an independent
+  review correctly flagged that this concept's earlier evidence entry above missed 5
+  more files carrying the same active "Bridge-version compatibility" wording --
+  `sdk/README.md` (2 occurrences), `roadmap/05-dart-client-sdk-foundation.md` (10
+  occurrences), `app/README.md`, and `protocol/README.md` -- the last of which was a
+  live factual error (present-tense), not just terminology, the same bug class as the
+  `ARCHITECTURE.md` sentence the prior pass already caught. The same review also
+  correctly rejected its own initial claim that 01.3b was "blocked" on missing SDK-side
+  Host-version range enforcement: `sdk/README.md` already documents that enforcement as
+  Stage 5's own undone scope (`git grep -n "incompatib" -- sdk/dart/dovahlink_client/lib/
+  app/lib/` returns zero hits, on `main` too, confirming no such mechanism was ever
+  built, not something this rename regressed), and `01.3a` never decided a concrete
+  range/exception-type/enforcement-point design for 01.3b to implement -- building one
+  here would be new protocol implementation outside this concept's scope, which
+  `AGENTS.md`'s non-negotiable rules and this concept's own Non-goals both forbid. Fixed
+  the 5 files plus their two dependent test guards in
+  `tooling/test_repository_consistency.py`
+  (`test_sdk_readme_documents_the_phase_5_pull_forward_and_the_real_package`,
+  `test_app_and_protocol_docs_reconcile_the_sdk_boundary`); closed out
+  `01.3b-compatibility-version-vocabulary-cutover.md` itself in place (`Status: pending`
+  -> `Complete`, filled the "Required proof before editing" template, rewrote the two
+  proof-obligation bullets that had claimed SDK range validation and too-old/too-new
+  behavior were "tested" -- factually false today -- to instead state plainly that this
+  concept preserves current pass-through behavior and defers enforcement to Stage 5,
+  and updated "Files this concept may change" to the real final list). Final re-run
+  acceptance gate: `dotnet test` 1717/1717, `dart analyze`/`test` clean/623/623,
+  `flutter analyze`/`test` clean/349/349, `python -m unittest discover -s tooling -p
+  "test_*.py"` 166/166, all re-passed after the fix; whole-branch changed-file count vs.
+  `main` (`805d1641`): **52 files**, still comfortably under both gates. Fresh
+  branch-wide sweep (`git grep` for "Bridge version"/"Bridge compatibility"/etc. across
+  `.md`/`.dart`/`.cs`/`.py`) confirms every remaining hit is genuinely historical, an
+  intentional `assertNotIn` regression guard, or this concept's own before/after
+  documentation of the rename -- zero live stale reference remains.
 
 ## Handoff
 
@@ -535,8 +568,11 @@ merged) is confirmed satisfied by the merge commit above, not inferred from the 
 branch-level `Complete` label.
 
 Concept 01.3b's implementation is complete on branch
-`feature/01.3b-compatibility-version-vocabulary-cutover` -- see the Verification entry
-above for the full acceptance-gate evidence (all four suites green, 48 changed files,
-zero stray `bridgeVersion` references). Not yet opened as a PR. Handoff to Concept
-01.3c follows once this PR merges to `main`, per the same one-branch/PR-per-concept
-rule -- `01.3c` stays `Blocked by 01.3b` in `PLAN.md`'s status table until then.
+`feature/01.3b-compatibility-version-vocabulary-cutover`, including the correction pass
+that closed the 5-file documentation gap an independent review found -- see the
+Verification entries above for the full acceptance-gate evidence (all four suites
+green, 52 changed files, zero stray `bridgeVersion`/"Bridge-version compatibility"
+references, and its own concept file closed out in place). Not yet opened as a PR.
+Handoff to Concept 01.3c follows once this PR merges to `main`, per the same
+one-branch/PR-per-concept rule -- `01.3c` stays `Blocked by 01.3b` in `PLAN.md`'s
+status table until then.
