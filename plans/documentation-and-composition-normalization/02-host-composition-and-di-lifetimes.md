@@ -1,6 +1,9 @@
 # Concept 02 -- Host composition, DI scopes, and service lifetimes
 
-**Status:** pending
+**Status:** in progress (see `CONTEXT.md` D8: maintainer-approved scope expansion to a
+real `Microsoft.Extensions.DependencyInjection` composition mechanism and production
+connection factories, overriding this file's original "manual composition, factory
+only if the audit needs one" design)
 
 **Covers:** R2.1-R2.10 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`
 Block A Issue 2).

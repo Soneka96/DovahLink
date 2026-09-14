@@ -216,6 +216,33 @@ Status: active (package frozen 2026-09-13)
   maintainer explicitly approved 102 as a one-time exception for this PR rather than
   splitting the fix, removing tests, or reopening `01.3a`'s design. The package-wide
   `>100` rule itself is unchanged for every other concept.
+- D8 (2026-09-14, this session, Concept 02, maintainer-directed scope expansion): the
+  maintainer, after being shown the conflict, explicitly chose to introduce
+  `Microsoft.Extensions.DependencyInjection` as the Host's real composition mechanism
+  and to promote the public/adapter connection-construction lambdas into production
+  `IPublicConnectionFactory`/`IAdapterConnectionFactory` classes -- overriding
+  `02-host-composition-and-di-lifetimes.md`'s own Design-section text ("do not
+  introduce a factory/aggregate abstraction solely to satisfy this example when the
+  audit finds nothing that needs it") and its narrow "Files this concept may change"
+  list. This is recorded as an approved divergence, not a silent scope change. Two
+  things ground the decision beyond the maintainer's direct instruction: (1)
+  `ai/context/dotnet/csharp-style.md`'s pre-existing, concept-independent rule --
+  "every collaborator is supplied through constructor injection; do not construct or
+  resolve a behavior-bearing collaborator inside another class" -- which the current
+  inline `stream => new PublicWebSocketConnection(..., new PublicHelloAdmissionHandler(...))`
+  lambdas already violate, regardless of this concept's DI question; (2) both
+  `PublicWebSocketListener` and `AdapterIpcListener` already take a
+  `Func<Stream, TConnection>` factory delegate, so wrapping that in a named factory
+  class is a small, low-risk seam rather than a structural redesign. The concept's own
+  non-negotiable invariants (fail-closed async trust/security bootstrap strictly before
+  either listener is exposed, no sync-over-async, no service locator, one root
+  provider, `DovahLinkHostRuntime` remains the explicit lifecycle owner rather than
+  `IHostedService`) are preserved exactly; only the composition *mechanism* changes,
+  from manual `Compose*` static methods to `IServiceCollection` registration modules.
+  `02-host-composition-and-di-lifetimes.md`'s `Status` line is set to `In progress` for
+  the duration of this work (see that file), not flipped straight to `Complete`, per
+  this plan's own rule that `Complete` requires every R2.x bullet traced to a specific
+  file/test first.
 
 ## Deferred debt
 
