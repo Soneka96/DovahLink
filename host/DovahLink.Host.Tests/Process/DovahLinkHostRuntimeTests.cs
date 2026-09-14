@@ -54,7 +54,12 @@ public class DovahLinkHostRuntimeTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Verifies that omitting the public listener -- the production entry point's own default -- never writes a PUBLICPORT line.</summary>
+    /// <summary>
+    /// Verifies that omitting the public listener -- something only test code constructing
+    /// <see cref="DovahLinkHostRuntime"/> directly can do, since the production <c>Main</c> entry
+    /// point's own <see cref="global::Program.ResolvePublicListenerPort"/> always resolves a real
+    /// port -- never writes a PUBLICPORT line.
+    /// </summary>
     [Fact]
     public async Task RunAsync_NoPublicListener_NeverWritesPublicPortLine()
     {

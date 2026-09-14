@@ -69,7 +69,7 @@ public class PublicClientConnectionLifetimeTests
     /// Verifies that a reconnect under the same persistent <c>clientId</c> gets a fresh connection and
     /// a fresh session -- not one that inherited the ended connection's replay/admission state -- by
     /// sending the identical <c>messageId</c> ("hello-1") on both connections. If the first
-    /// connection's <see cref="Client.Authentication.PublicHelloAdmissionHandler"/> or its replay-id
+    /// connection's <see cref="DovahLink.Host.Client.Authentication.PublicHelloAdmissionHandler"/> or its replay-id
     /// set had leaked into the second connection, the second <c>hello</c> would be incorrectly
     /// rejected as replayed instead of admitted with a fresh <c>sessionId</c>. This single test
     /// therefore proves several R2.9 bullets at once: reconnect has fresh connection state, fresh

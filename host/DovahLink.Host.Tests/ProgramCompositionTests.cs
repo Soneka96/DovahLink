@@ -317,7 +317,12 @@ public class ProgramCompositionTests
             publicListenerPort: occupiedPort));
     }
 
-    /// <summary>Verifies that omitting the public listener port -- the production <c>Main</c> entry point's own default -- never activates the public listener.</summary>
+    /// <summary>
+    /// Verifies that omitting the public listener port -- something only test code calling
+    /// <see cref="global::Program.ComposeAndRunAsync"/> directly can do, since the production
+    /// <c>Main</c> entry point's own <see cref="global::Program.ResolvePublicListenerPort"/> always
+    /// resolves a real port -- never activates the public listener.
+    /// </summary>
     [Fact]
     public async Task ComposeAndRunAsync_NoPublicListenerPort_NeverReportsPublicPort()
     {
