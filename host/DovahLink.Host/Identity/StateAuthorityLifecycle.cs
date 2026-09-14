@@ -32,6 +32,17 @@ public interface IStateAuthorityLifecycle
     /// admitting under any <see cref="StateAuthorityId"/> and drive the Host toward shutdown.
     /// </summary>
     event Action? FatalFailureOccurred;
+
+    /// <summary>
+    /// Raised the moment a runtime rotation succeeds, carrying the newly minted value. Per Section
+    /// C's post-rotation baseline rule, a subscriber holding a live baseline established under the
+    /// previous value must invalidate it -- incremental continuity from the previous value is invalid
+    /// until a fresh baseline is established under this new one. Never raised for the startup mint,
+    /// a harmless resynchronization with no continuity break in progress, or a further loss already
+    /// covered by an unresolved break (see <see cref="StateAuthorityLifecycle"/>'s repeated-loss
+    /// lock-down); never raised at all once <see cref="IsFaulted"/> becomes <see langword="true"/>.
+    /// </summary>
+    event Action<StateAuthorityId>? Rotated;
 }
 
 /// <inheritdoc cref="IStateAuthorityLifecycle"/>
@@ -104,6 +115,9 @@ public sealed class StateAuthorityLifecycle : IStateAuthorityLifecycle
     /// <inheritdoc/>
     public event Action? FatalFailureOccurred;
 
+    /// <inheritdoc/>
+    public event Action<StateAuthorityId>? Rotated;
+
     /// <summary>
     /// Rotates on a newly detected continuity loss, per Section C's core invariant. Ignores a
     /// recovery transition and a further loss already covered by an unresolved break.
@@ -116,6 +130,7 @@ public sealed class StateAuthorityLifecycle : IStateAuthorityLifecycle
             return;
         }
 
+        StateAuthorityId? rotatedTo = null;
         bool shouldRaiseFatalFailure = false;
         lock (gate)
         {
@@ -128,12 +143,18 @@ public sealed class StateAuthorityLifecycle : IStateAuthorityLifecycle
             {
                 current = new StateAuthorityId(idFactory());
                 insideUnresolvedBreak = true;
+                rotatedTo = current;
             }
             catch
             {
                 isFaulted = true;
                 shouldRaiseFatalFailure = true;
             }
+        }
+
+        if (rotatedTo is StateAuthorityId newValue)
+        {
+            RaiseRotated(newValue);
         }
 
         if (shouldRaiseFatalFailure)
@@ -166,6 +187,35 @@ public sealed class StateAuthorityLifecycle : IStateAuthorityLifecycle
             {
                 // A subscriber's own failure must never prevent another subscriber from learning
                 // that the Host must shut down.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Invokes every <see cref="Rotated"/> subscriber with <paramref name="newValue"/>, containing
+    /// each one's own exception individually -- the same isolation <see cref="RaiseFatalFailure"/>
+    /// already applies, so one failing subscriber can never suppress this signal from reaching the
+    /// rest.
+    /// </summary>
+    /// <param name="newValue">The newly minted value this rotation produced.</param>
+    private void RaiseRotated(StateAuthorityId newValue)
+    {
+        Delegate[]? subscribers = Rotated?.GetInvocationList();
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        foreach (Delegate subscriber in subscribers)
+        {
+            try
+            {
+                ((Action<StateAuthorityId>)subscriber).Invoke(newValue);
+            }
+            catch (Exception)
+            {
+                // A subscriber's own failure must never prevent another subscriber from learning
+                // that the value rotated.
             }
         }
     }
