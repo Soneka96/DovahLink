@@ -302,3 +302,58 @@ divergence.
 
 **Decision source:** User confirmation (this session, 2026-09-14), choosing to reword
 the bullet and record this divergence rather than leave the stale reference untouched.
+
+## D7 -- 01.3c exceeds its own 100-file PR-size hard stop, approved as a one-time exception
+
+**Original requirement:** None in `SOURCE.md` -- part of D4's vocabulary-normalization
+programme. D4's own "Proposed change" text sets "a hard 100-changed-file-per-PR limit
+[...] package-wide," and `01.3c`'s own PR-size gate section restates it as a closed
+rule: "`>100` predicted files: do not implement. Return to `01.3a` and design a
+genuinely coherent staged migration [...] or stop for maintainer direction."
+
+**Observed conflict:** An independent maintainer review of `01.3c`'s implementation (on
+branch `feature/01.3c-public-authoritative-instance-identity-cutover`, after the
+concept had already recorded itself `Complete` at a claimed "99 files") found two real
+defects in the mandatory invariants `01.3c` itself lists as required to prove: (1)
+`PublicStateSubscription` never invalidated a connection's live per-area baseline when
+`stateAuthorityId` rotated -- only a play-context transition reset it -- so the
+concept's own "a rotation invalidates incremental continuity from the previous value
+until a fresh `state_snapshot` establishes the new baseline" invariant was unproven and
+unenforced in code; (2) the Dart SDK's `Envelope.fromJson`/`EnvelopeValidator` could not
+distinguish a `stateAuthorityId` key that was genuinely absent from one present with an
+explicit JSON `null`, so it silently accepted a shape the Host's own
+`PublicEnvelopeCodec.TryGetStateAuthorityId` already rejected -- a live Host/SDK wire-
+contract disagreement. Fixing both required two files this branch had not touched
+before: `host/DovahLink.Host/Client/Subscription/PublicStateSubscription.cs` itself
+(the concept's original implementation never modified this file, only wired a new
+dependency into it now) and a new test double,
+`host/DovahLink.Host.Tests/TestDoubles/FakeStateAuthorityLifecycle.cs`. That is a real
+count of 100 (the branch's actual pre-review total; the concept's own "99" claim was
+already stale before this review) plus these 2, landing at 102 -- over the concept's own
+`>100` "do not implement... or stop for maintainer direction" threshold.
+
+**Proposed change:** Do not remove tests, split `PublicStateSubscription`'s fix into a
+separate follow-up PR, or reopen `01.3a`'s design to dodge the number -- each of those
+would either destroy real coverage, merge `01.3c` while it still fails its own mandatory
+post-rotation baseline invariant, or treat a two-file correctness fix as if it were a
+scope decision requiring a redesign. The maintainer reviewed the two-file gap directly
+and explicitly approved proceeding at 102 files as a one-time exception for this PR,
+per the gate's own escape hatch ("stop for maintainer direction") and the same
+atomic-cutover rationale D4 and the 86-to-99-file gap in `01.3c`'s own PR-size gate
+section already rely on: splitting one wire-contract-correctness fix across PRs would
+create an intermediate state where the Host either ships the post-rotation baseline
+defect or merges a partial fix, neither of which is a valid intermediate state. The
+package-wide `>100` hard stop itself is unchanged for every other/future concept; this
+is recorded as an exception for `01.3c` specifically, not a change to the general rule.
+
+**Impact:** No requirement ID changes, no concept added or removed, no change to the
+package-wide PR-size gate rule text itself. `01.3c`'s own file-count evidence (its
+PR-size gate section and "Completion criteria and evidence" bullet) is corrected from
+the stale "99" to the true 102, both citing this divergence.
+
+**Status:** approved.
+
+**Decision source:** User confirmation (this session, 2026-09-14), reviewing the
+two-file gap the correctness fixes required and explicitly authorizing 102 files as a
+one-time exception for this PR rather than splitting the fix, removing tests, or
+reopening `01.3a`.
