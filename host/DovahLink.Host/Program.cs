@@ -120,34 +120,11 @@ internal static class Program
         TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, trustStorePersistence);
         onComposed?.Invoke(trust.SessionRegistry, trust.PairingCoordinator);
 
-        // No state area is registered yet and no real domain feed exists -- a later concept
-        // registers each real Skyrim domain here and supplies a feed that adapts its captured
-        // values, per ai/context/protocol/security.md's "no state area is currently registered".
-        IRegisteredStateAreaPolicy registeredStateAreaPolicy = new RegisteredStateAreaPolicy();
-        IStatePublicationFeed statePublicationFeed = NullStatePublicationFeed.Instance;
-
         AdapterIpcServices ipc = AdapterIpcServiceExtensions.ComposeAdapterIpcServices(core, trust, listenerPort, ownerLifetimeId);
         using IAdapterIpcListener adapterListener = ipc.Listener;
-        ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(core.Clock);
-        ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(core.Clock);
-        IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
-            trust.EnvelopeCodec, trust.TrustAdminService, trust.PairingCoordinator, ipc.Notifier, trust.PlayContextTracker, core.Clock, trust.SessionRegistry);
 
-        using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
-            ? new PublicWebSocketListener(
-                boundPublicPort,
-                stream => new PublicWebSocketConnection(
-                    stream,
-                    new PublicHelloAdmissionHandler(
-                        trust.EnvelopeCodec, trust.SessionRegistry, trust.TrustStore, tokenAuthenticator, credentialThrottle,
-                        trust.PlayContextTracker, core.Clock, dispatcher, trust.PairingCoordinator, trust.ConnectionRegistry,
-                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, trust.EnvelopeCodec, trust.PlayContextTracker, core.StateAuthorityLifecycle)),
-                    core.Clock,
-                    new PublicWebSocketTransportOptions(),
-                    NullPublicWebSocketTransportDiagnostics.Instance,
-                    new DataLaneOutboundQueue()),
-                core.Settings.MaxActiveSessions)
-            : null;
+        PublicClientServices publicClient = PublicClientServiceExtensions.ComposePublicClientServices(core, trust, ipc.Notifier, publicListenerPort);
+        using IPublicWebSocketListener? publicListener = publicClient.Listener;
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
@@ -253,66 +230,5 @@ internal static class Program
     {
         await signal.WaitAsync(shutdown.Token);
         shutdown.Cancel();
-    }
-
-    /// <summary>
-    /// A minimal composition-time placeholder for <see cref="IPublicWebSocketTransportDiagnostics"/>:
-    /// reports to the process's own standard error stream. <see cref="IPublicWebSocketTransportDiagnostics"/>'s
-    /// own documentation defers the real logging/telemetry sink to a later concept; this exists only
-    /// so today's composition root has some observable signal rather than silently discarding every
-    /// report.
-    /// </summary>
-    private sealed class NullPublicWebSocketTransportDiagnostics : IPublicWebSocketTransportDiagnostics
-    {
-        /// <summary>The shared, stateless instance every connection reports through.</summary>
-        public static readonly NullPublicWebSocketTransportDiagnostics Instance = new();
-
-        /// <inheritdoc/>
-        public void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
-        {
-            try
-            {
-                Console.Error.WriteLine($"[public-websocket] abnormal end: {reason}");
-            }
-            catch
-            {
-                // Must never throw or block; see the interface's own documented contract.
-            }
-        }
-    }
-
-    /// <summary>
-    /// A minimal composition-time placeholder for <see cref="IStatePublicationFeed"/>: never has a
-    /// current value and never raises <see cref="IStatePublicationFeed.EventOccurred"/>. Correct
-    /// today's composition root's production behavior, since no state area is registered yet --
-    /// <see cref="IRegisteredStateAreaPolicy.IsRegistered"/> already rejects every area before any
-    /// caller would ever reach this feed, so its own responses are never actually exercised in
-    /// production. A later concept, once a real domain is registered, supplies a real feed instead.
-    /// </summary>
-    private sealed class NullStatePublicationFeed : IStatePublicationFeed
-    {
-        /// <summary>The shared, stateless instance every connection reads through.</summary>
-        public static readonly NullStatePublicationFeed Instance = new();
-
-        /// <inheritdoc/>
-        public event Action<StateEventPublication>? EventOccurred
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public event Action<StateSnapshotPublication>? SnapshotChanged
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot)
-        {
-            snapshot = null;
-            return false;
-        }
     }
 }
