@@ -21,7 +21,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: null,
             renotifyAvailableAt: null,
@@ -56,7 +56,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: expiresIn125Seconds,
               renotifyAvailableAt: null,
@@ -91,7 +91,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: expiredInPast,
             renotifyAvailableAt: null,
@@ -126,7 +126,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: expiresIn10Seconds,
             renotifyAvailableAt: null,
@@ -162,7 +162,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: expiresIn90Seconds,
             renotifyAvailableAt: null,
@@ -207,7 +207,7 @@ void main() {
               connection: ConnectionState.initial(),
               pairing: PairingState(
                 phase: PairingPhase.awaitingCode,
-                bridgeVersion: null,
+                hostVersion: null,
                 error: null,
                 codeExpiresAt: action.newExpiry,
                 renotifyAvailableAt: null,
@@ -220,7 +220,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: expiresIn60Seconds,
             renotifyAvailableAt: null,
@@ -260,7 +260,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: expiresIn60Seconds,
             renotifyAvailableAt: null,

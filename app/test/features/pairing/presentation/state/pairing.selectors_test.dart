@@ -14,7 +14,7 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: const PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: null,
+          hostVersion: null,
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -25,19 +25,19 @@ void main() {
       expect(PairingSelectors.statusLabelSelector(state), 'Awaiting code');
     });
 
-    test('selects bridge version and error values from AppState', () {
+    test('selects host version and error values from AppState', () {
       final AppState state = AppState(
         connection: ConnectionState.initial(),
         pairing: const PairingState(
           phase: PairingPhase.failed,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: 'Host unavailable',
           codeExpiresAt: null,
           renotifyAvailableAt: null,
         ),
       );
 
-      expect(PairingSelectors.bridgeVersionSelector(state), '1.2.3');
+      expect(PairingSelectors.hostVersionSelector(state), '1.2.3');
       expect(PairingSelectors.errorSelector(state), 'Host unavailable');
     });
   });
@@ -48,7 +48,7 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: const PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: null,
+          hostVersion: null,
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -65,7 +65,7 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: null,
+          hostVersion: null,
           error: null,
           codeExpiresAt: expiresIn10Seconds,
           renotifyAvailableAt: null,
@@ -85,7 +85,7 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: null,
+          hostVersion: null,
           error: null,
           codeExpiresAt: expiredInPast,
           renotifyAvailableAt: null,
@@ -102,7 +102,7 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: const PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: null,
+          hostVersion: null,
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -119,7 +119,7 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: null,
+          hostVersion: null,
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: availableIn5Seconds,
@@ -139,7 +139,7 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: null,
+          hostVersion: null,
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: elapsedInPast,

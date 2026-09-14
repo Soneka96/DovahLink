@@ -23,7 +23,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -61,7 +61,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: availableIn5Seconds,
@@ -96,7 +96,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: availableIn3Seconds,
@@ -129,7 +129,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: alreadyElapsed,
@@ -167,7 +167,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: availableIn5Seconds,
@@ -204,7 +204,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -242,7 +242,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: availableIn5Seconds,
@@ -283,7 +283,7 @@ void main() {
                 connection: ConnectionState.initial(),
                 pairing: const PairingState(
                   phase: PairingPhase.awaitingCode,
-                  bridgeVersion: null,
+                  hostVersion: null,
                   error: null,
                   codeExpiresAt: null,
                   renotifyAvailableAt: null,
@@ -296,7 +296,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: availableIn5Seconds,
@@ -345,7 +345,7 @@ void main() {
             // overhead can't eat into this margin the way capturing `now` beforehand would.
             pairing: const PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,

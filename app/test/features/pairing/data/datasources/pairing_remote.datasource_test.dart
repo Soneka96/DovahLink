@@ -36,7 +36,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.trusted,
           ),
         );
@@ -60,7 +60,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),
         );
@@ -86,7 +86,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),
         );
@@ -111,7 +111,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
             recoveredFromRejectedCredential: CredentialRejectionReason.revoked,
           ),
@@ -141,7 +141,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
             recoveredFromRejectedCredential: CredentialRejectionReason.blocked,
           ),
@@ -172,7 +172,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
             recoveredFromRejectedCredential:
                 CredentialRejectionReason.unrecognized,
@@ -253,7 +253,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),
         );
@@ -325,7 +325,7 @@ void main() {
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),
         );

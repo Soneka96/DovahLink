@@ -8,12 +8,12 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 void main() {
   group('PairingState — initial', () {
     test(
-      'creates a state with no phase, bridge version, error, or timing values',
+      'creates a state with no phase, host version, error, or timing values',
       () {
         final PairingState state = PairingState.initial();
 
         expect(state.phase, PairingPhase.none);
-        expect(state.bridgeVersion, isNull);
+        expect(state.hostVersion, isNull);
         expect(state.error, isNull);
         expect(state.codeExpiresAt, isNull);
         expect(state.renotifyAvailableAt, isNull);
@@ -30,14 +30,14 @@ void main() {
 
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: null,
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: availableAt,
       );
 
       expect(state.phase, PairingPhase.awaitingCode);
-      expect(state.bridgeVersion, '1.2.3');
+      expect(state.hostVersion, '1.2.3');
       expect(state.error, isNull);
       expect(state.codeExpiresAt, expiresAt);
       expect(state.renotifyAvailableAt, availableAt);
@@ -53,25 +53,25 @@ void main() {
       );
 
       expect(result.phase, PairingPhase.connecting);
-      expect(result.bridgeVersion, isNull);
+      expect(result.hostVersion, isNull);
       expect(result.error, isNull);
     });
 
     test('replaces and clears nullable values explicitly', () {
       const PairingState state = PairingState(
         phase: PairingPhase.trusted,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: 'old error',
         codeExpiresAt: null,
         renotifyAvailableAt: null,
       );
 
       final PairingState result = state.copyWith(
-        bridgeVersion: const None(),
+        hostVersion: const None(),
         error: const None(),
       );
 
-      expect(result.bridgeVersion, isNull);
+      expect(result.hostVersion, isNull);
       expect(result.error, isNull);
     });
 
@@ -95,7 +95,7 @@ void main() {
       );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: null,
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: null,
@@ -126,7 +126,7 @@ void main() {
       );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: null,
         codeExpiresAt: null,
         renotifyAvailableAt: availableAt,
@@ -166,18 +166,18 @@ void main() {
       );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: null,
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: availableAt,
       );
 
       final PairingState result = state.copyWith(
-        bridgeVersion: const Some('2.0.0'),
+        hostVersion: const Some('2.0.0'),
         error: const Some('connection lost'),
       );
 
-      expect(result.bridgeVersion, '2.0.0');
+      expect(result.hostVersion, '2.0.0');
       expect(result.error, 'connection lost');
       expect(result.codeExpiresAt, expiresAt);
       expect(result.renotifyAvailableAt, availableAt);
@@ -189,7 +189,7 @@ void main() {
       );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: 'old error',
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: null,

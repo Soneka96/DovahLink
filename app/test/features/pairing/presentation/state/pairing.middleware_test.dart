@@ -63,7 +63,7 @@ AppState _stateWithPhase(PairingPhase phase) => AppState(
   connection: ConnectionState.initial(),
   pairing: PairingState(
     phase: phase,
-    bridgeVersion: null,
+    hostVersion: null,
     error: null,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
@@ -157,8 +157,8 @@ void main() {
         expect(actionLog[0], isA<PairingStartedAction>());
         expect(actionLog[1], isA<PairingAuthenticatedAction>());
         expect(
-          (actionLog[1] as PairingAuthenticatedAction).bridgeVersion,
-          handshake.bridgeVersion,
+          (actionLog[1] as PairingAuthenticatedAction).hostVersion,
+          handshake.hostVersion,
         );
         expect(
           (actionLog[1] as PairingAuthenticatedAction).trusted,

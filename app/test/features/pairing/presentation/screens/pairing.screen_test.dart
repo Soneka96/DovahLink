@@ -46,7 +46,7 @@ void main() {
     mockViewModel = MockPairingScreenViewModel();
     when(() => mockViewModel.phase).thenReturn(PairingPhase.none);
     when(() => mockViewModel.statusLabel).thenReturn('Unknown');
-    when(() => mockViewModel.bridgeVersion).thenReturn(null);
+    when(() => mockViewModel.hostVersion).thenReturn(null);
     when(() => mockViewModel.error).thenReturn(null);
     when(() => mockViewModel.onStart).thenReturn(() {});
     when(() => mockViewModel.onRequestCode).thenReturn(() {});
@@ -393,7 +393,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.trusted,
-              bridgeVersion: '1.2.3',
+              hostVersion: '1.2.3',
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,

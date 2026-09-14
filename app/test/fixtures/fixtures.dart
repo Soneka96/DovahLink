@@ -19,8 +19,8 @@ abstract final class Fixtures {
 
   /// Builds a pairing handshake with representative trusted-session defaults.
   static PairingHandshakeEntity buildPairingHandshakeEntity({
-    /// The Bridge/mod release version reported by the handshake.
-    String bridgeVersion = '1.2.3',
+    /// The Host's own release version reported by the handshake.
+    String hostVersion = '1.2.3',
 
     /// Whether the session already holds a trusted credential.
     bool trusted = true,
@@ -28,7 +28,7 @@ abstract final class Fixtures {
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
   }) => PairingHandshakeEntity(
-    bridgeVersion: bridgeVersion,
+    hostVersion: hostVersion,
     trusted: trusted,
     credentialRejectedMessage: credentialRejectedMessage,
   );

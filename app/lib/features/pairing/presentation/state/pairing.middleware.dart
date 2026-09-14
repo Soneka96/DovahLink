@@ -84,7 +84,7 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       (PairingHandshakeEntity handshake) {
         store.dispatch(
           PairingAuthenticatedAction(
-            bridgeVersion: handshake.bridgeVersion,
+            hostVersion: handshake.hostVersion,
             trusted: handshake.trusted,
             credentialRejectedMessage: handshake.credentialRejectedMessage,
           ),

@@ -20,17 +20,14 @@ void main() {
 
       expect(viewModel.phase, PairingPhase.none);
       expect(viewModel.statusLabel, 'Unknown');
-      expect(viewModel.bridgeVersion, isNull);
+      expect(viewModel.hostVersion, isNull);
       expect(viewModel.error, isNull);
     });
 
     test('fromStore constructs an authenticated ViewModel correctly', () {
       final Store<AppState> store = const CreateStore()();
       store.dispatch(
-        const PairingAuthenticatedAction(
-          bridgeVersion: '1.2.3',
-          trusted: false,
-        ),
+        const PairingAuthenticatedAction(hostVersion: '1.2.3', trusted: false),
       );
 
       final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
@@ -39,7 +36,7 @@ void main() {
 
       expect(viewModel.phase, PairingPhase.unpaired);
       expect(viewModel.statusLabel, 'Not paired');
-      expect(viewModel.bridgeVersion, '1.2.3');
+      expect(viewModel.hostVersion, '1.2.3');
       expect(viewModel.error, isNull);
     });
 
@@ -74,7 +71,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: PairingState(
               phase: entry.key,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
