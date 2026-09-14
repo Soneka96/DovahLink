@@ -14,7 +14,7 @@ Before `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 ("Dart Client SDK Fo
 client adapters directly — the identity, pairing, and live-synchronization foundations already in
 progress are implemented here, following `ai/context/flutter/`. After that phase, this app consumes
 [`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for normal DovahLink communication
-instead: transport, Bridge-version compatibility, authentication, pairing, reconnect, and revision
+instead: transport, Host-version compatibility, authentication, pairing, reconnect, and revision
 logic move to the SDK boundary. Flutter conventions point to
 [`ai/context/sdk/`](../ai/context/sdk/) for that SDK-owned behavior rather than duplicating it here.
 

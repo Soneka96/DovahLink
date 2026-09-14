@@ -5,8 +5,8 @@ This directory owns the contract between the DovahLink Host and DovahLink client
 ## Contents
 
 - `schema/` is the sole source of truth for the current wire contract, registered messages, and
-  session and recovery behavior. Compatibility with that contract is identified by the DovahLink
-  Bridge/mod release version, not an independent protocol-generation number — see
+  session and recovery behavior. Compatibility with that contract is identified by the Host's own
+  release version, not an independent protocol-generation number — see
   [`ai/context/protocol/compatibility.md`](../ai/context/protocol/compatibility.md).
 - `fixtures/` contains language-neutral examples used by both sides, organized by protocol feature.
 - The repository-root [`app/`](../app/), [`sdk/`](../sdk/), [`host/`](../host/), and [`adapter/`](../adapter/)

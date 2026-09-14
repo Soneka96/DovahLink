@@ -8,7 +8,7 @@ boundaries live in [ARCHITECTURE.md](../ARCHITECTURE.md); SDK-specific conventio
 ## Purpose
 
 The SDK implements what it means to be a correct DovahLink client for one language, so that
-consumers do not need to implement transport, Bridge-version compatibility detection,
+consumers do not need to implement transport, Host-version compatibility detection,
 authentication, pairing recovery, reconnect, session and authoritative-state identity, revisions,
 subscriptions, snapshots, recovery, or reusable client persistence themselves.
 
@@ -48,7 +48,7 @@ Host harness, plus SDK-owned `clientId`, credential, and `CONFIRMING` pairing-re
 behind the `IClientStorage` interface (a real Windows DPAPI-backed implementation ships today) --
 see `ai/context/sdk/persistence.md`. The official Flutter app depends on it
 (`dovahlink_client_sdk` in `app/pubspec.yaml`), but nothing in the app consumes it yet; the
-production pairing UI is a later, separate build. Phase 5's remaining scope -- Bridge-version
+production pairing UI is a later, separate build. Phase 5's remaining scope -- Host-version
 compatibility detection, reconnect, revisions, subscriptions, snapshots, and retiring the app's
 separate `features/connection/` Redux protocol code -- is undone, so this pull-forward does not
 close Phase 5.

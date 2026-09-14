@@ -1661,7 +1661,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for required_phrase in (
             "This directory owns the reusable, supported client SDK implementations for the "
             "DovahLink protocol.",
-            "consumers do not need to implement transport, Bridge-version compatibility "
+            "consumers do not need to implement transport, Host-version compatibility "
             "detection,\nauthentication, pairing recovery, reconnect, session and "
             "authoritative-state identity, revisions,\nsubscriptions, snapshots, recovery, or "
             "reusable client persistence themselves.",
@@ -1679,7 +1679,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "It currently provides the connect/hello/pairing/disconnect protocol client, proven "
             "against the real\nHost harness, plus SDK-owned `clientId`, credential, and "
             "`CONFIRMING` pairing-recovery persistence",
-            "Phase 5's remaining scope -- Bridge-version\ncompatibility detection, reconnect, "
+            "Phase 5's remaining scope -- Host-version\ncompatibility detection, reconnect, "
             "revisions, subscriptions, snapshots, and retiring the app's\nseparate "
             "`features/connection/` Redux protocol code -- is undone, so this pull-forward does "
             "not\nclose Phase 5.",
@@ -2005,7 +2005,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             app_readme,
         )
         self.assertIn(
-            "instead: transport, Bridge-version compatibility, authentication, pairing, "
+            "instead: transport, Host-version compatibility, authentication, pairing, "
             "reconnect, and revision\nlogic move to the SDK boundary.",
             app_readme,
         )
