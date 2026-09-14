@@ -71,6 +71,14 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
     {
     }
 
+    /// <summary>Creates a listener from its own runtime configuration and the Host-lifetime connection factory.</summary>
+    /// <param name="options">The private adapter-IPC listener's own runtime configuration.</param>
+    /// <param name="connectionFactory">Builds a fresh connection-owned graph for each accepted transport.</param>
+    public AdapterIpcListener(AdapterIpcOptions options, IAdapterConnectionFactory connectionFactory)
+        : this(options.ListenerPort, connectionFactory.Create)
+    {
+    }
+
     /// <inheritdoc/>
     public int BoundPort => ((IPEndPoint)listenerSocket.LocalEndPoint!).Port;
 

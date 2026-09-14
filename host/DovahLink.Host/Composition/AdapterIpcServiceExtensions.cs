@@ -25,14 +25,15 @@ public static class AdapterIpcServiceExtensions
     /// <returns><paramref name="services"/>, for chaining.</returns>
     public static IServiceCollection AddAdapterIpcServices(this IServiceCollection services, int listenerPort, OwnerLifetimeId ownerLifetimeId)
     {
-        services.AddSingleton<IAdapterConnectionLifecycle>(sp => new AdapterConnectionLifecycle(sp.GetRequiredService<IAdapterAvailabilityTracker>()));
+        services.AddSingleton(new HostInstanceOptions(ownerLifetimeId));
+        services.AddSingleton(new AdapterIpcOptions(listenerPort));
+
+        services.AddSingleton<IAdapterConnectionLifecycle, AdapterConnectionLifecycle>();
         services.AddSingleton<IAdapterPeerProofVerifier, AdapterPeerProofVerifier>();
         services.AddSingleton<IIpcFrameCodec, IpcFrameCodec>();
-        services.AddSingleton<IAdapterConnectionFactory>(sp => new AdapterConnectionFactory(
-            sp.GetRequiredService<IIpcFrameCodec>(), sp.GetRequiredService<IAdapterConnectionLifecycle>(), sp.GetRequiredService<IAdapterPeerProofVerifier>(),
-            sp.GetRequiredService<IAdapterTrustAdminRequestHandler>(), ownerLifetimeId, sp.GetRequiredService<IClock>()));
-        services.AddSingleton<IAdapterIpcListener>(sp => new AdapterIpcListener(listenerPort, sp.GetRequiredService<IAdapterConnectionFactory>().Create));
-        services.AddSingleton<IPairingAdapterNotifier>(sp => new AdapterPairingNotifier(sp.GetRequiredService<IAdapterIpcListener>()));
+        services.AddSingleton<IAdapterConnectionFactory, AdapterConnectionFactory>();
+        services.AddSingleton<IAdapterIpcListener, AdapterIpcListener>();
+        services.AddSingleton<IPairingAdapterNotifier, AdapterPairingNotifier>();
 
         return services;
     }

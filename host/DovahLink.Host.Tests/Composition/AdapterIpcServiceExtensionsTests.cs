@@ -25,6 +25,23 @@ namespace DovahLink.Host.Tests.Composition;
 [Collection(RealSocketAndProcessTestCollection.Name)]
 public class AdapterIpcServiceExtensionsTests
 {
+    /// <summary>Verifies that every adapter-IPC service resolves to a non-null instance, not left unregistered.</summary>
+    [Fact]
+    public async Task AddAdapterIpcServices_ResolvesNonNullInstanceForEveryService()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), listenerPort: 0, new OwnerLifetimeId(1, 2));
+
+        Assert.NotNull(provider.GetRequiredService<HostInstanceOptions>());
+        Assert.NotNull(provider.GetRequiredService<AdapterIpcOptions>());
+        Assert.NotNull(provider.GetRequiredService<IAdapterConnectionLifecycle>());
+        Assert.NotNull(provider.GetRequiredService<IAdapterPeerProofVerifier>());
+        Assert.NotNull(provider.GetRequiredService<IIpcFrameCodec>());
+        Assert.NotNull(provider.GetRequiredService<IAdapterConnectionFactory>());
+        Assert.NotNull(provider.GetRequiredService<IAdapterIpcListener>());
+        Assert.NotNull(provider.GetRequiredService<IPairingAdapterNotifier>());
+    }
+
     /// <summary>
     /// Verifies that a trust-admin request sent over the composed listener is answered by the real,
     /// <see cref="TrustServiceExtensions"/>-built <see cref="AdapterTrustAdminRequestHandler"/> --

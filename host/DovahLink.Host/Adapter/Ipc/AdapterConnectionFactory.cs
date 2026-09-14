@@ -24,7 +24,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     private readonly IAdapterConnectionLifecycle lifecycle;
     private readonly IAdapterPeerProofVerifier peerProofVerifier;
     private readonly IAdapterTrustAdminRequestHandler trustAdminRequestHandler;
-    private readonly OwnerLifetimeId ownerLifetimeId;
+    private readonly HostInstanceOptions hostInstance;
     private readonly IClock clock;
 
     /// <summary>Creates a factory over the Host-lifetime singletons every accepted adapter connection shares.</summary>
@@ -32,26 +32,26 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     /// <param name="lifecycle">Publishes this adapter connection's availability transitions.</param>
     /// <param name="peerProofVerifier">Verifies a connecting adapter's peer-ownership proof.</param>
     /// <param name="trustAdminRequestHandler">Answers adapter-originated trust-admin IPC requests.</param>
-    /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity, verified against every accepted connection.</param>
+    /// <param name="hostInstance">This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</param>
     /// <param name="clock">The time source every connection reports through.</param>
     public AdapterConnectionFactory(
         IIpcFrameCodec codec,
         IAdapterConnectionLifecycle lifecycle,
         IAdapterPeerProofVerifier peerProofVerifier,
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
-        OwnerLifetimeId ownerLifetimeId,
+        HostInstanceOptions hostInstance,
         IClock clock)
     {
         this.codec = codec;
         this.lifecycle = lifecycle;
         this.peerProofVerifier = peerProofVerifier;
         this.trustAdminRequestHandler = trustAdminRequestHandler;
-        this.ownerLifetimeId = ownerLifetimeId;
+        this.hostInstance = hostInstance;
         this.clock = clock;
     }
 
     /// <inheritdoc/>
     public IAdapterIpcConnection Create(Stream stream) =>
         new AdapterIpcConnection(
-            stream, codec, new AdapterIpcSession(lifecycle, peerProofVerifier, trustAdminRequestHandler, ownerLifetimeId), clock);
+            stream, codec, new AdapterIpcSession(lifecycle, peerProofVerifier, trustAdminRequestHandler, hostInstance.OwnerLifetimeId), clock);
 }

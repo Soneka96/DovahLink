@@ -1,5 +1,6 @@
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Process;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 
@@ -20,7 +21,7 @@ public class AdapterConnectionFactoryTests
     {
         var factory = new AdapterConnectionFactory(
             new IpcFrameCodec(), new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker()),
-            new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), ownerLifetimeId: default, new SystemClock());
+            new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new HostInstanceOptions(default), new SystemClock());
 
         IAdapterIpcConnection first = factory.Create(new MemoryStream());
         IAdapterIpcConnection second = factory.Create(new MemoryStream());
