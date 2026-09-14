@@ -602,6 +602,44 @@ public class PublicWebSocketListenerTests
         Assert.Throws<SocketException>(() => new PublicWebSocketListener(first.BoundPort, stream => new FakePublicWebSocketConnection(stream)));
     }
 
+    /// <summary>Verifies that the options-based constructor binds the configured port, resolved admission cap, and supplied connection factory.</summary>
+    [Fact]
+    public async Task Constructor_OptionsHostSettingsAndConnectionFactory_BindsConfiguredPortCapAndFactory()
+    {
+        var connectionFactory = new StubPublicConnectionFactory(stream => new FakePublicWebSocketConnection(stream));
+        using var listener = new PublicWebSocketListener(new PublicListenerOptions(0), new HostSettings(1), connectionFactory);
+
+        Assert.NotEqual(0, listener.BoundPort);
+
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => connectionFactory.CreateCallCount == 1);
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+        await WaitUntilAsync(() => IsDisconnected(secondClient));
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that the options-based constructor also fails fast on a port already bound by another, matching the low-level constructor it delegates to.</summary>
+    [Fact]
+    public void Constructor_OptionsHostSettingsAndConnectionFactory_PortAlreadyInUse_Throws()
+    {
+        using var first = new PublicWebSocketListener(0, stream => new FakePublicWebSocketConnection(stream));
+
+        Assert.Throws<SocketException>(() => new PublicWebSocketListener(
+            new PublicListenerOptions(first.BoundPort), new HostSettings(1), new StubPublicConnectionFactory(stream => new FakePublicWebSocketConnection(stream))));
+    }
+
+    /// <summary>Verifies that the options-based constructor also rejects a non-positive resolved cap, matching the low-level constructor it delegates to.</summary>
+    [Fact]
+    public void Constructor_OptionsHostSettingsAndConnectionFactory_NonPositiveMaxActiveSessions_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PublicWebSocketListener(
+            new PublicListenerOptions(0), new HostSettings(0), new StubPublicConnectionFactory(stream => new FakePublicWebSocketConnection(stream))));
+    }
+
     /// <summary>Verifies that IPv4 and IPv6 loopback addresses are recognized as loopback.</summary>
     [Theory]
     [InlineData("127.0.0.1")]
@@ -663,5 +701,32 @@ public class PublicWebSocketListenerTests
         var client = new Socket(addressFamily, SocketType.Stream, ProtocolType.Tcp);
         await client.ConnectAsync(address, port);
         return client;
+    }
+
+    /// <summary>A minimal <see cref="IPublicConnectionFactory"/> stand-in delegating to a supplied function and counting calls.</summary>
+    private sealed class StubPublicConnectionFactory : IPublicConnectionFactory
+    {
+        /// <summary>The function this stub delegates <see cref="Create"/> to.</summary>
+        private readonly Func<Stream, IPublicWebSocketConnection> create;
+
+        /// <summary>The number of times <see cref="Create"/> has been called, safe to read from another thread.</summary>
+        private int createCallCount;
+
+        /// <summary>Creates a stub delegating to an explicit function.</summary>
+        /// <param name="create">The function this stub delegates <see cref="Create"/> to.</param>
+        public StubPublicConnectionFactory(Func<Stream, IPublicWebSocketConnection> create)
+        {
+            this.create = create;
+        }
+
+        /// <summary>The number of times <see cref="Create"/> has been called.</summary>
+        public int CreateCallCount => Volatile.Read(ref createCallCount);
+
+        /// <inheritdoc/>
+        public IPublicWebSocketConnection Create(Stream stream)
+        {
+            Interlocked.Increment(ref createCallCount);
+            return create(stream);
+        }
     }
 }

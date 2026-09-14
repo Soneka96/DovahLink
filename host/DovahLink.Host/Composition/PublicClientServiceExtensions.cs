@@ -45,25 +45,15 @@ public static class PublicClientServiceExtensions
         services.AddSingleton<IStatePublicationFeed>(NullStatePublicationFeed.Instance);
         services.AddSingleton<IPublicWebSocketTransportDiagnostics>(NullPublicWebSocketTransportDiagnostics.Instance);
 
-        services.AddSingleton<ILocalConnectionTokenAuthenticator>(sp => new LocalConnectionTokenAuthenticator(sp.GetRequiredService<IClock>()));
-        services.AddSingleton<ITrustedCredentialFailureThrottle>(sp => new TrustedCredentialFailureThrottle(sp.GetRequiredService<IClock>()));
-        services.AddSingleton<IClientMessageDispatcher>(sp => new ClientMessageDispatcher(
-            sp.GetRequiredService<IPublicEnvelopeCodec>(), sp.GetRequiredService<ITrustAdminService>(), sp.GetRequiredService<IPairingCoordinator>(),
-            sp.GetRequiredService<IPairingAdapterNotifier>(), sp.GetRequiredService<IPlayContextTracker>(), sp.GetRequiredService<IClock>(),
-            sp.GetRequiredService<ISessionRegistry>()));
-
-        services.AddSingleton<IPublicConnectionFactory>(sp => new PublicConnectionFactory(
-            sp.GetRequiredService<IPublicEnvelopeCodec>(), sp.GetRequiredService<ISessionRegistry>(), sp.GetRequiredService<ITrustStore>(),
-            sp.GetRequiredService<ILocalConnectionTokenAuthenticator>(), sp.GetRequiredService<ITrustedCredentialFailureThrottle>(),
-            sp.GetRequiredService<IPlayContextTracker>(), sp.GetRequiredService<IClock>(), sp.GetRequiredService<IClientMessageDispatcher>(),
-            sp.GetRequiredService<IPairingCoordinator>(), sp.GetRequiredService<IPublicSessionConnectionRegistry>(),
-            sp.GetRequiredService<IRegisteredStateAreaPolicy>(), sp.GetRequiredService<IStatePublicationFeed>(),
-            sp.GetRequiredService<IStateAuthorityLifecycle>(), sp.GetRequiredService<IPublicWebSocketTransportDiagnostics>()));
+        services.AddSingleton<ILocalConnectionTokenAuthenticator, LocalConnectionTokenAuthenticator>();
+        services.AddSingleton<ITrustedCredentialFailureThrottle, TrustedCredentialFailureThrottle>();
+        services.AddSingleton<IClientMessageDispatcher, ClientMessageDispatcher>();
+        services.AddSingleton<IPublicConnectionFactory, PublicConnectionFactory>();
 
         if (publicListenerPort is int boundPublicPort)
         {
-            services.AddSingleton<IPublicWebSocketListener>(sp => new PublicWebSocketListener(
-                boundPublicPort, sp.GetRequiredService<IPublicConnectionFactory>().Create, sp.GetRequiredService<HostSettings>().MaxActiveSessions));
+            services.AddSingleton(new PublicListenerOptions(boundPublicPort));
+            services.AddSingleton<IPublicWebSocketListener, PublicWebSocketListener>();
         }
 
         return services;

@@ -124,6 +124,15 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         }
     }
 
+    /// <summary>Creates a listener from its own runtime configuration, the Host-lifetime connection factory, and the resolved device cap.</summary>
+    /// <param name="options">The public client listener's own runtime configuration.</param>
+    /// <param name="hostSettings">The resolved host configuration this listener's admission bound comes from.</param>
+    /// <param name="connectionFactory">Builds a fresh connection-owned graph for each accepted transport.</param>
+    public PublicWebSocketListener(PublicListenerOptions options, HostSettings hostSettings, IPublicConnectionFactory connectionFactory)
+        : this(options.Port, connectionFactory.Create, hostSettings.MaxActiveSessions)
+    {
+    }
+
     /// <inheritdoc/>
     public int BoundPort => ((IPEndPoint)ipv4Socket.LocalEndPoint!).Port;
 

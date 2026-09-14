@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using DovahLink.Host.Adapter.Ipc;
+using DovahLink.Host.Authentication;
+using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
@@ -9,6 +11,7 @@ using DovahLink.Host.Composition;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Process;
 using DovahLink.Host.Security;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
@@ -26,6 +29,24 @@ namespace DovahLink.Host.Tests.Composition;
 [Collection(RealSocketAndProcessTestCollection.Name)]
 public class PublicClientServiceExtensionsTests
 {
+    /// <summary>Verifies that every public-client service resolves to a non-null instance, not left unregistered.</summary>
+    [Fact]
+    public async Task AddPublicClientServices_ResolvesNonNullInstanceForEveryService()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+
+        Assert.NotNull(provider.GetRequiredService<IRegisteredStateAreaPolicy>());
+        Assert.NotNull(provider.GetRequiredService<IStatePublicationFeed>());
+        Assert.NotNull(provider.GetRequiredService<IPublicWebSocketTransportDiagnostics>());
+        Assert.NotNull(provider.GetRequiredService<ILocalConnectionTokenAuthenticator>());
+        Assert.NotNull(provider.GetRequiredService<ITrustedCredentialFailureThrottle>());
+        Assert.NotNull(provider.GetRequiredService<IClientMessageDispatcher>());
+        Assert.NotNull(provider.GetRequiredService<IPublicConnectionFactory>());
+        Assert.NotNull(provider.GetRequiredService<PublicListenerOptions>());
+        Assert.NotNull(provider.GetRequiredService<IPublicWebSocketListener>());
+    }
+
     /// <summary>Verifies that omitting the public listener port leaves the listener unregistered rather than defaulting to some bound port.</summary>
     [Fact]
     public async Task AddPublicClientServices_NoPublicListenerPort_ListenerIsNull()
