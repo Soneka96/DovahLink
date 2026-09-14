@@ -26,6 +26,9 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
 
     /// <inheritdoc/>
+    public event Action<AdapterInstanceId, long>? Resynchronized;
+
+    /// <inheritdoc/>
     public AdapterAvailabilityTransition? CommitConnected(AdapterInstanceId instanceId, long generation)
     {
         AdapterAvailability previous = Current;
@@ -89,6 +92,7 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
             NeedsResynchronization = false;
             currentResynchronizationToken = null;
             resynchronizationTokenClaimed = false;
+            Resynchronized?.Invoke(instanceId, connectionGeneration);
         }
     }
 
