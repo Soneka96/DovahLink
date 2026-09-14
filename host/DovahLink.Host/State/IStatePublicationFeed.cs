@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.State;
 
@@ -25,6 +26,19 @@ namespace DovahLink.Host.State;
 /// than the most recent <see cref="StateEventPublication.Revision"/> already raised through
 /// <see cref="EventOccurred"/> for that same area -- a read is never allowed to appear staler than
 /// an event this feed has already announced.</item>
+/// <item>
+/// The implementation must check the adapter's current availability/authority and raise
+/// <see cref="EventOccurred"/>/<see cref="SnapshotChanged"/> for the resulting value as one
+/// atomic step under a single lock -- the same check-then-store discipline
+/// <see cref="IStatePublisher{TState}"/>'s own implementation already uses for
+/// <see cref="IStatePublisher{TState}.Apply"/> -- never as two separable steps
+/// (validate, then announce later) with a gap a concurrent
+/// <see cref="IStateAuthorityLifecycle.Rotated"/> rotation could land in. Per
+/// `01.3a`'s post-rotation baseline rule, an event produced under a
+/// <see cref="StateAuthorityId"/> that has already rotated away by the time it is announced
+/// must never reach a subscriber still treating an older baseline as live; splitting the
+/// check from the announcement reopens exactly the race that rule exists to close.
+/// </item>
 /// </list>
 /// </summary>
 public interface IStatePublicationFeed
