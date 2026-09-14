@@ -50,7 +50,7 @@ public class PublicEnvelopeCodecTests
     [Fact]
     public void EncodeThenDecode_HelloAckPayload_RoundTrips()
     {
-        var payload = new HelloAckPayload { BridgeVersion = "0.3.3", ClientIdentityKind = ClientIdentityKind.Paired };
+        var payload = new HelloAckPayload { HostVersion = "0.3.3", ClientIdentityKind = ClientIdentityKind.Paired };
         byte[] encoded = Codec.Encode(PublicMessageType.HelloAck, "msg-2", "session-1", "msg-1", null, "client-1", payload);
 
         Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
@@ -162,7 +162,7 @@ public class PublicEnvelopeCodecTests
     [Fact]
     public void EncodeThenDecode_HelloAckPayloadUnpairedKind_RoundTrips()
     {
-        var payload = new HelloAckPayload { BridgeVersion = "0.3.3", ClientIdentityKind = ClientIdentityKind.Unpaired };
+        var payload = new HelloAckPayload { HostVersion = "0.3.3", ClientIdentityKind = ClientIdentityKind.Unpaired };
         byte[] encoded = Codec.Encode(PublicMessageType.HelloAck, "msg-1", "session-1", "msg-0", null, null, payload);
 
         Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
