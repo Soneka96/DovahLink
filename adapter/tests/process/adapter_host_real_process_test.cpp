@@ -1365,7 +1365,7 @@ TEST_CASE("a real native adapter observes a real Host's pairing-display "
         R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
         R"("correlationId":null,"payload":{"endpoint":"client",)"
         R"("clientId":"e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6","auth":{"method":)"
-        R"("unpaired"}},"bridgeInstanceId":null,"playContextId":null,)"
+        R"("unpaired"}},"playContextId":null,)"
         R"("clientId":null})");
     std::string helloAck = client.ReceiveText();
     REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
@@ -1386,7 +1386,7 @@ TEST_CASE("a real native adapter observes a real Host's pairing-display "
     client.SendText(
         R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
         sessionId +
-        R"(","correlationId":null,"payload":{},"bridgeInstanceId":null,)"
+        R"(","correlationId":null,"payload":{},)"
         R"("playContextId":null,"clientId":"e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6"})");
 
     REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
@@ -1438,7 +1438,7 @@ TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
         R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
         R"("correlationId":null,"payload":{"endpoint":"client",)"
         R"("clientId":"e7e7e7e7-e7e7-e7e7-e7e7-e7e7e7e7e7e7","auth":{"method":)"
-        R"("unpaired"}},"bridgeInstanceId":null,"playContextId":null,)"
+        R"("unpaired"}},"playContextId":null,)"
         R"("clientId":null})");
     std::string helloAck = client.ReceiveText();
     REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
@@ -1459,7 +1459,7 @@ TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
     client.SendText(
         R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
         sessionId +
-        R"(","correlationId":null,"payload":{},"bridgeInstanceId":null,)"
+        R"(","correlationId":null,"payload":{},)"
         R"("playContextId":null,"clientId":"e7e7e7e7-e7e7-e7e7-e7e7-e7e7e7e7e7e7"})");
 
     REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
@@ -1508,7 +1508,7 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
             R"("correlationId":null,"payload":{"endpoint":"client",)"
             R"("clientId":")" +
             clientId +
-            R"(","auth":{"method":"unpaired"}},"bridgeInstanceId":null,)"
+            R"(","auth":{"method":"unpaired"}},)"
             R"("playContextId":null,"clientId":null})");
         std::string helloAck = client.ReceiveText();
         REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
@@ -1521,7 +1521,7 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
         client.SendText(
             R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
             sessionId + R"(","correlationId":null,"payload":{},)" +
-            R"("bridgeInstanceId":null,"playContextId":null,"clientId":")" +
+            R"("playContextId":null,"clientId":")" +
             clientId + R"("})");
 
         REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
@@ -1540,7 +1540,7 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
         client.SendText(
             R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
             sessionId + R"(","correlationId":null,"payload":{"code":")" + code +
-            R"(","displayName":"Native E2E PC"},"bridgeInstanceId":null,)" +
+            R"(","displayName":"Native E2E PC"},)" +
             R"("playContextId":null,"clientId":")" + clientId + R"("})");
         std::string confirmOutcome = client.ReceiveText();
         REQUIRE(confirmOutcome.find(R"("messageType":"pairing_outcome")") !=
@@ -1553,7 +1553,7 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
         client.SendText(
             R"({"messageType":"pairing_ack","messageId":"m4","sessionId":")" +
             sessionId + R"(","correlationId":null,"payload":{"credential":")" +
-            credential + R"("},"bridgeInstanceId":null,"playContextId":null,)" +
+            credential + R"("},"playContextId":null,)" +
             R"("clientId":")" + clientId + R"("})");
         std::string ackOutcome = client.ReceiveText();
         REQUIRE(ackOutcome.find(R"("messageType":"pairing_outcome")") !=
@@ -1599,7 +1599,7 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
         R"("client","clientId":")" +
         clientId + R"(","auth":{"method":"trusted_device_credential","token":")" +
         credential +
-        R"("}},"bridgeInstanceId":null,"playContextId":null,"clientId":)"
+        R"("}},"playContextId":null,"clientId":)"
         R"(null})");
     std::string reconnectHelloAck = reconnectedClient.ReceiveText();
     REQUIRE(reconnectHelloAck.find(R"("messageType":"hello_ack")") !=
