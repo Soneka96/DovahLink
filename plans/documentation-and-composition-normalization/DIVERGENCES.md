@@ -238,16 +238,21 @@ text with no recorded resolution -- both violate this package's "changes from he
 tracked as new divergences, not silent edits to this package's design" rule (section 1).
 
 **Proposed change:** Record the correction as a divergence rather than editing
-`01.3a`'s own merged, frozen file: `01.3a`'s Section A sentence describes the intended
-compatibility *authority* (which release identifies compatibility -- decided, and what
-`01.3b` implements), not an already-built enforcement *mechanism*. `01.3b` implements
-exactly the authority/vocabulary rename (`bridgeVersion` -> `hostVersion`) and
-preserves current pass-through, unvalidated decode behavior exactly -- it invents no
-compatibility-range comparison, no too-old/too-new rejection, and no new failure mode.
-SDK-side supported-range enforcement remains `roadmap/05-dart-client-sdk-foundation.md`
-Stage 5's own documented-undone scope, to be designed and built there, not pulled
-forward into `01.3b`. `01.3b`'s own proof-obligation section cites this divergence by
-number rather than asserting the correction on its own authority.
+`01.3a`'s own merged, frozen file, drawing one distinction cleanly: `01.3a` Section A
+did decide the target compatibility *policy* -- an explicit minimum/maximum supported
+range, a too-old/too-new distinction, and a fail-closed bootstrap check -- and that
+policy decision is correct and stands unchanged. What `01.3a` got wrong was the premise
+wrapped around it: it asserted this policy's enforcement *mechanism* already exists
+("unchanged from today"), when no such mechanism exists anywhere in this codebase.
+`01.3b` implements exactly the compatibility-authority/vocabulary rename
+(`bridgeVersion` -> `hostVersion`) and preserves current pass-through, unvalidated
+decode behavior exactly -- it invents no compatibility-range comparison, no
+too-old/too-new rejection, and no new failure mode. This is not a gap `01.3b` returns
+to `01.3a` to decide (the policy is already decided); it is a mechanism `01.3b`
+declines to build, because `roadmap/05-dart-client-sdk-foundation.md` Stage 5 already
+owns designing and building it, documented as undone in `sdk/README.md`. `01.3b`'s own
+proof-obligation section cites this divergence by number rather than asserting the
+correction on its own authority.
 
 **Impact:** No requirement ID changes, no concept is added or removed, and no file
 `01.3a` itself owns is edited. `01.3b`'s scope is unchanged from what it always was
