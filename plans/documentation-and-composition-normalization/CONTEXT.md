@@ -600,6 +600,15 @@ Concept 01.3b's implementation is complete on branch
 passes -- the 5-file documentation gap an independent review found, and the
 D5/VERSION-invariant/bookkeeping pass recorded in the Verification entry below -- see
 the Verification entries above and below for the full acceptance-gate evidence. PR
-#65 is open (draft). Handoff to Concept 01.3c follows once this PR merges to `main`,
-per the same one-branch/PR-per-concept rule -- `01.3c` stays `Blocked by 01.3b` in
-`PLAN.md`'s status table until then.
+#65 merged to `main` (merge commit `5f8ca28d`, 2026-09-14). Handoff to Concept 01.3c
+is now active on branch `feature/01.3c-public-authoritative-instance-identity-cutover`,
+per the same one-branch/PR-per-concept rule -- `01.3c`'s own prerequisite (01.3b
+merged) is confirmed satisfied by the merge commit above. Its re-run file-count
+inventory came in at 86 files (73 in the core implementation dirs, plus 7
+mechanically-required doc/tooling files, plus 6 live-prose-consistency files --
+`roadmap/02` and `roadmap/03` among them, since `tooling/test_repository_consistency.py`
+pins exact wording from both against the old field name), landing in `01.3c`'s own
+81-100 "stop for maintainer review" band rather than "comfortably under 80." The
+maintainer explicitly approved proceeding as one atomic PR rather than any split, per
+the gate's own escape hatch and `01.3a` Section E's ban on splitting one wire-contract
+change across PRs.
