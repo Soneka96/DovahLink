@@ -982,10 +982,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             json.loads(self._read("adapter/vcpkg.json"))["version-string"], version
         )
 
+        self.assertIn(
+            f'public const string PublicProtocolHostVersion = "{version}";',
+            self._read("host/DovahLink.Host/Constants.cs"),
+        )
+
         for current_example in (
             "protocol/schema/README.md",
             "protocol/fixtures/connection/hello-ack.json",
             "protocol/fixtures/connection/hello-ack-active-context.json",
+            "protocol/fixtures/connection/hello-ack-paired.json",
         ):
             self.assertIn(
                 f'"hostVersion": "{version}"',
