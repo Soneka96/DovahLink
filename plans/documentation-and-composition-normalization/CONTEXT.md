@@ -10,26 +10,43 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `01.3a-public-vocabulary-and-identity-semantics.md`
-- Status: in progress on branch `docs/01.3a-public-vocabulary-and-identity-semantics`,
-  not yet opened as a PR. Design-only gate: mandatory decisions A-F are all resolved
-  (see the concept file itself) -- compatibility authority is the Host release version
-  (`bridgeVersion` -> `hostVersion`); the public state-authority continuity identifier
-  is decided as `stateAuthorityId` (`bridgeInstanceId` -> `stateAuthorityId`, a
-  continuity epoch -- not a process/instance identifier and not a counterpart of
-  `adapterInstanceId` -- rotated the instant the Host detects a continuity break, on
-  Host restart or Adapter/IPC connection loss, not when the resync/rebind that follows
-  later succeeds; one break produces exactly one rotation); the
-  cache-invalidation tuple becomes `(stateAuthorityId, playContextId, stateArea)`;
-  migration policy is intentionally breaking, no aliases. `ai/context/protocol/compatibility.md`'s
-  two deferred-decision sections are updated to record the decision as "decided,
-  pending implementation." No protocol schema, fixture, Host, SDK, or app source file
-  changed -- decision documentation only, per this concept's own scope.
+- Status: Complete on branch `docs/01.3a-public-vocabulary-and-identity-semantics`,
+  not yet opened as a PR. Design-only gate, all six decisions final:
+  - Compatibility authority is the Host release version: `bridgeVersion` -> `hostVersion`.
+  - `bridgeInstanceId` -> `stateAuthorityId`: a Host authoritative-state continuity
+    epoch, not a process/instance identity and not a public counterpart of
+    `adapterInstanceId`.
+  - Rotation happens at continuity-loss detection (Host restart, or Adapter/IPC
+    connection loss observed) -- not when the resync/rebind that follows later
+    succeeds.
+  - One unresolved continuity break is exactly one epoch through every failed
+    reconnect/resync attempt; a later loss starts a new epoch only once a fresh
+    authoritative baseline has been successfully established internally under the
+    current value -- client snapshot publication is never the epoch boundary.
+  - A runtime mint failure after a continuity break is detected is a fatal Host
+    invariant failure: no retained/`null` value, no degraded serving, normal
+    deterministic shutdown (a startup mint failure uses the existing fail-closed
+    startup path instead).
+  - Cache/revision scope is `(stateAuthorityId, playContextId, stateArea)`.
+  - Exact wire presence: only `hello_ack`, `state_snapshot`, and `state_event` carry
+    `stateAuthorityId`, required and non-null; no other message does.
+  - `01.3b` and `01.3c` are two separate implementation PRs but one atomic
+    public-contract release boundary -- no supported/versioned release may be cut
+    between them merging.
+  - Migration policy is intentionally breaking; no aliases, no compatibility shims.
+  `ai/context/protocol/compatibility.md`'s two deferred-decision sections are updated
+  to record the decision as "decided, pending implementation." No protocol schema,
+  fixture, Host, SDK, or app source file changed -- decision documentation only, per
+  this concept's own scope.
 - Prerequisites: Concept 01.2b merged (`main` @ `d4734dba`, PR #63) -- satisfied.
-- Next action: open the PR for maintainer review of the six decisions above; per this
-  concept's own completion criteria, `PLAN.md`'s status table moves to `Complete` only
-  once that PR actually merges, unblocking `01.3b`. Per D4, Concept 02 still waits
-  behind the entire 01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as
-  Concept 03 -- do not unblock 02 or 03 until 01.3c actually merges.
+- Next action: open the PR for completed Concept `01.3a` and proceed to maintainer
+  review. The branch already records `Complete` in `PLAN.md`'s status table, per the
+  pre-PR-Complete workflow `PLAN.md` section 8 now documents; merging the PR is what
+  makes that state authoritative on `main`, which is what actually satisfies `01.3b`'s
+  own stated dependency ("Concept 01.3a merged to `main`") -- not the branch-level
+  `Complete` label by itself. Per D4, Concept 02 still waits behind the entire
+  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 -- do not
+  unblock 02 or 03 until 01.3c actually merges. Do not begin `01.3b` on this branch.
 
 ## Completed concepts
 
