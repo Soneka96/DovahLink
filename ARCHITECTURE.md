@@ -143,14 +143,18 @@ Section C, which adds a sixth identifier on its own, fifth lifetime:
 
 - `stateAuthorityId` identifies the Host's current authoritative-state *continuity
   epoch* -- it changes exactly when cached state revisions from before an event are no
-  longer safely comparable to revisions after it, and does not change otherwise. A new
-  `adapterInstanceId` always forces a new `stateAuthorityId` (a new Adapter run is
-  always a continuity break), but the reverse does not hold: the same Adapter's IPC
-  connection dropping and being re-established, with neither the Host nor the Adapter
-  process restarting, is also a continuity break under the existing "Host-to-adapter
-  IPC contract" resynchronization rule (`ai/context/host/architecture.md`), so it
-  rotates `stateAuthorityId` without changing `adapterInstanceId`. It must never be
-  read as an alias of `adapterInstanceId`, the Host's OS process identity, or any
+  longer safely comparable to revisions after it, and does not change otherwise. It
+  rotates the instant the Host *detects* such a break (Host restart, or the
+  Adapter/IPC connection dropping -- per the existing "Host-to-adapter IPC contract"
+  resynchronization rule, `ai/context/host/architecture.md`), not later when the
+  recovery that follows (a resync, or a new `adapterInstanceId` rebind) succeeds --
+  one break produces exactly one rotation, and a subsequent same-`adapterInstanceId`
+  resync or new-`adapterInstanceId` rebind does not rotate it again. A new
+  `adapterInstanceId` is therefore always accompanied by a `stateAuthorityId` rotation
+  that already happened at the preceding loss, not one it independently causes; the
+  reverse direction also doesn't hold, since a same-Adapter IPC drop+resync rotates
+  `stateAuthorityId` with no `adapterInstanceId` change at all. It must never be read
+  as an alias of `adapterInstanceId`, the Host's OS process identity, or any
   transport/session identifier above.
 
 Each identifier must be created, validated, and invalidated at its own lifecycle boundary.

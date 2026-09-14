@@ -103,14 +103,16 @@ without changing any of them.
 
 **Decision:** yes. The wire field is `stateAuthorityId`, identifying a Host
 authoritative-state *continuity epoch*: it changes whenever cached revisions from
-before an event are no longer safely comparable to revisions after it, and only then.
-It is deliberately not `adapterInstanceId` itself, and not 1:1 with it -- a Host
-restart, a new Adapter connection, and the same Adapter's IPC connection dropping and
-being re-established with neither process restarting are all continuity breaks that
-rotate `stateAuthorityId`, but only the second changes `adapterInstanceId` too; the
-third is a continuity break with `adapterInstanceId` unchanged, per
-`ai/context/host/architecture.md`'s "Current-state resynchronization" behavior.
-`01.3a`'s Section C records the full lifecycle (creation point, stability across
+before an event are no longer safely comparable to revisions after it, and only then --
+rotated the instant the Host detects the break, not later when the recovery from it
+succeeds. It is deliberately not `adapterInstanceId` itself, and not 1:1 with it -- a
+Host restart rotates it at startup; an Adapter/IPC connection loss rotates it the
+moment loss is detected, per `ai/context/host/architecture.md`'s "Adapter loss"
+behavior, regardless of whether that loss later resolves via the same
+`adapterInstanceId` reconnecting or a new one binding. One continuity break produces
+exactly one rotation, at detection -- a new `adapterInstanceId`, when it follows, is a
+consequence of a rotation that already happened, not an independent trigger of its
+own. `01.3a`'s Section C records the full lifecycle (creation point, stability across
 reconnects, null-after-startup answer, exact wire presence, comparison semantics);
 `01.3c` implements it.
 
