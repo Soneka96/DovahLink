@@ -116,9 +116,6 @@ internal static class Program
         IHostSettingsProvider? hostSettingsProvider = null)
     {
         CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown, hostSettingsProvider);
-        var lifecycle = new AdapterConnectionLifecycle(core.AdapterAvailability);
-        var verifier = new AdapterPeerProofVerifier();
-        var codec = new IpcFrameCodec();
 
         TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, trustStorePersistence);
         onComposed?.Invoke(trust.SessionRegistry, trust.PairingCoordinator);
@@ -129,14 +126,12 @@ internal static class Program
         IRegisteredStateAreaPolicy registeredStateAreaPolicy = new RegisteredStateAreaPolicy();
         IStatePublicationFeed statePublicationFeed = NullStatePublicationFeed.Instance;
 
-        using IAdapterIpcListener adapterListener = new AdapterIpcListener(
-            listenerPort,
-            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trust.TrustAdminRequestHandler, ownerLifetimeId), core.Clock));
-        IPairingAdapterNotifier adapterNotifier = new AdapterPairingNotifier(adapterListener);
+        AdapterIpcServices ipc = AdapterIpcServiceExtensions.ComposeAdapterIpcServices(core, trust, listenerPort, ownerLifetimeId);
+        using IAdapterIpcListener adapterListener = ipc.Listener;
         ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(core.Clock);
         ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(core.Clock);
         IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
-            trust.EnvelopeCodec, trust.TrustAdminService, trust.PairingCoordinator, adapterNotifier, trust.PlayContextTracker, core.Clock, trust.SessionRegistry);
+            trust.EnvelopeCodec, trust.TrustAdminService, trust.PairingCoordinator, ipc.Notifier, trust.PlayContextTracker, core.Clock, trust.SessionRegistry);
 
         using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
             ? new PublicWebSocketListener(
@@ -158,7 +153,7 @@ internal static class Program
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
 
         var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
-        rendezvousPublisher.Publish(adapterListener.BoundPort, verifier.ExpectedToken, verifier.HostProofKey);
+        rendezvousPublisher.Publish(adapterListener.BoundPort, ipc.Verifier.ExpectedToken, ipc.Verifier.HostProofKey);
 
         // PORT, PROOF, and HOSTPROOF are always exactly the first three lines, in this exact
         // order: a real launched process's own native launcher (Win32AdapterHostProcessLauncher)
@@ -167,8 +162,8 @@ internal static class Program
         // strictly after them and only when the public listener is composed, so its presence can
         // never shift PROOF or HOSTPROOF into the position that reader expects the other to occupy.
         await rendezvousOutput.WriteLineAsync($"PORT {adapterListener.BoundPort}");
-        await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(verifier.ExpectedToken)}");
-        await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(verifier.HostProofKey)}");
+        await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(ipc.Verifier.ExpectedToken)}");
+        await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(ipc.Verifier.HostProofKey)}");
         if (publicListener is not null)
         {
             await rendezvousOutput.WriteLineAsync($"PUBLICPORT {publicListener.BoundPort}");
