@@ -1,8 +1,10 @@
 using System.IO;
+using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Composition;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
@@ -15,6 +17,34 @@ namespace DovahLink.Host.Tests.Composition;
 /// <summary>Tests for <see cref="TrustServiceExtensions.CreateTrustStoreAsync"/> and <see cref="TrustServiceExtensions.AddTrustServices"/>.</summary>
 public class TrustServiceExtensionsTests
 {
+    /// <summary>Verifies that every trust-graph service resolves to a non-null instance, not left unregistered.</summary>
+    [Fact]
+    public async Task AddTrustServices_ResolvesNonNullInstanceForEveryService()
+    {
+        using var shutdown = new CancellationTokenSource();
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddTrustServices(trustStore);
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<ITrustStore>());
+        Assert.NotNull(provider.GetRequiredService<SessionRegistry>());
+        Assert.NotNull(provider.GetRequiredService<ISessionRegistry>());
+        Assert.NotNull(provider.GetRequiredService<PairingCoordinator>());
+        Assert.NotNull(provider.GetRequiredService<IPairingCoordinator>());
+        Assert.NotNull(provider.GetRequiredService<IPlayContextTracker>());
+        Assert.NotNull(provider.GetRequiredService<IPublicEnvelopeCodec>());
+        Assert.NotNull(provider.GetRequiredService<IPublicSessionConnectionRegistry>());
+        Assert.NotNull(provider.GetRequiredService<ISessionTerminationNotifier>());
+        Assert.NotNull(provider.GetRequiredService<IClientSessionInvalidator>());
+        Assert.NotNull(provider.GetRequiredService<ITrustAdminService>());
+        Assert.NotNull(provider.GetRequiredService<ITrustResetService>());
+        Assert.NotNull(provider.GetRequiredService<IAdapterTrustAdminRequestHandler>());
+    }
+
     /// <summary>
     /// Verifies that malformed or undecryptable trust persistence fails the bootstrap closed --
     /// propagating before any service in the graph is registered -- rather than silently starting

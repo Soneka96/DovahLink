@@ -45,21 +45,16 @@ public static class TrustServiceExtensions
         services.AddSingleton(trustStore);
         services.AddSingleton<SessionRegistry>();
         services.AddSingleton<ISessionRegistry>(sp => sp.GetRequiredService<SessionRegistry>());
-        services.AddSingleton(sp => new PairingCoordinator(sp.GetRequiredService<ITrustStore>(), sp.GetRequiredService<IClock>()));
+        services.AddSingleton<PairingCoordinator>();
         services.AddSingleton<IPairingCoordinator>(sp => sp.GetRequiredService<PairingCoordinator>());
         services.AddSingleton<IPlayContextTracker, PlayContextTracker>();
-        services.AddSingleton<IPublicEnvelopeCodec>(sp => new PublicEnvelopeCodec(sp.GetRequiredService<IStateAuthorityLifecycle>()));
+        services.AddSingleton<IPublicEnvelopeCodec, PublicEnvelopeCodec>();
         services.AddSingleton<IPublicSessionConnectionRegistry, PublicSessionConnectionRegistry>();
-        services.AddSingleton<ISessionTerminationNotifier>(sp => new PublicSessionTerminationNotifier(
-            sp.GetRequiredService<IPublicSessionConnectionRegistry>(), sp.GetRequiredService<IPublicEnvelopeCodec>(), sp.GetRequiredService<IPlayContextTracker>()));
-        services.AddSingleton<IClientSessionInvalidator>(sp => new ClientSessionInvalidator(
-            sp.GetRequiredService<ISessionRegistry>(), sp.GetRequiredService<ISessionTerminationNotifier>()));
-        services.AddSingleton<ITrustAdminService>(sp => new TrustAdminService(
-            sp.GetRequiredService<ITrustStore>(), sp.GetRequiredService<IClientSessionInvalidator>(), sp.GetRequiredService<IPairingCoordinator>()));
-        services.AddSingleton<ITrustResetService>(sp => new TrustResetService(
-            sp.GetRequiredService<ITrustStore>(), sp.GetRequiredService<IClientSessionInvalidator>(), sp.GetRequiredService<IPairingCoordinator>(), sp.GetRequiredService<IClock>()));
-        services.AddSingleton<IAdapterTrustAdminRequestHandler>(sp => new AdapterTrustAdminRequestHandler(
-            sp.GetRequiredService<ITrustAdminService>(), sp.GetRequiredService<ITrustResetService>(), sp.GetRequiredService<IClock>()));
+        services.AddSingleton<ISessionTerminationNotifier, PublicSessionTerminationNotifier>();
+        services.AddSingleton<IClientSessionInvalidator, ClientSessionInvalidator>();
+        services.AddSingleton<ITrustAdminService, TrustAdminService>();
+        services.AddSingleton<ITrustResetService, TrustResetService>();
+        services.AddSingleton<IAdapterTrustAdminRequestHandler, AdapterTrustAdminRequestHandler>();
 
         return services;
     }
