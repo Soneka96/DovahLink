@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Client.Protocol;
 
@@ -11,8 +12,10 @@ namespace DovahLink.Host.Client.Protocol;
 /// <c>protocol/schema/README.md</c>'s "Common envelope" and <c>ai/context/protocol/security.md</c>'s
 /// "Input limits". Enforces the approved bounded JSON limits -- maximum decoded nesting depth,
 /// string length, array length, and object member count -- before any typed DTO is materialized, and
-/// validates every required envelope field's presence and type. Stateless and safe to share across
-/// every connection.
+/// validates every required envelope field's presence and type, including <c>stateAuthorityId</c>'s
+/// closed per-message-type presence table. Holds no mutable state of its own -- it only reads the
+/// live value from its injected <see cref="IStateAuthorityLifecycle"/> at encode time -- so one
+/// instance remains safe to share across every connection.
 /// </summary>
 public interface IPublicEnvelopeCodec
 {
@@ -45,11 +48,10 @@ public interface IPublicEnvelopeCodec
     bool TryDecodePayload<TPayload>(PublicEnvelope envelope, [NotNullWhen(true)] out TPayload? payload) where TPayload : class;
 
     /// <summary>
-    /// Encodes a host-originated message into its complete wire envelope.
-    /// <see cref="PublicEnvelope.BridgeInstanceId"/> is always encoded as <see langword="null"/> until
-    /// the deferred public instance identifier is resolved, per
-    /// <c>ai/context/protocol/compatibility.md</c>'s "Deferred: public instance identifier" -- callers
-    /// cannot override it.
+    /// Encodes a host-originated message into its complete wire envelope. <c>stateAuthorityId</c> is
+    /// stamped automatically from the injected <see cref="IStateAuthorityLifecycle"/> on
+    /// <c>hello_ack</c>, <c>state_snapshot</c>, and <c>state_event</c> only, and omitted from every
+    /// other message -- callers never supply it directly.
     /// </summary>
     /// <typeparam name="TPayload">The message-specific payload type being encoded.</typeparam>
     /// <param name="messageType">The canonical message type.</param>
@@ -63,6 +65,10 @@ public interface IPublicEnvelopeCodec
     /// <exception cref="ArgumentException">
     /// <paramref name="payload"/> did not serialize to a JSON object, violating the canonical
     /// schema's <c>payload: object</c> requirement that <see cref="TryDecode"/> enforces on decode.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="messageType"/> requires <c>stateAuthorityId</c> but this codec was constructed
+    /// with no <see cref="IStateAuthorityLifecycle"/>, or that lifecycle is faulted.
     /// </exception>
     byte[] Encode<TPayload>(
         PublicMessageType messageType,
@@ -110,6 +116,16 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
+    /// <summary>Supplies <c>stateAuthorityId</c>'s live value for the message types that require it; <see langword="null"/> for a codec never wired to one.</summary>
+    private readonly IStateAuthorityLifecycle? stateAuthorityLifecycle;
+
+    /// <summary>Creates a codec that stamps <c>stateAuthorityId</c> from <paramref name="stateAuthorityLifecycle"/> on the message types that require it.</summary>
+    /// <param name="stateAuthorityLifecycle">The live source of <c>stateAuthorityId</c>. Defaults to <see langword="null"/>, safe for any codec that will never encode <c>hello_ack</c>/<c>state_snapshot</c>/<c>state_event</c>.</param>
+    public PublicEnvelopeCodec(IStateAuthorityLifecycle? stateAuthorityLifecycle = null)
+    {
+        this.stateAuthorityLifecycle = stateAuthorityLifecycle;
+    }
+
     /// <inheritdoc/>
     public bool TryDecode(ReadOnlyMemory<byte> payload, [NotNullWhen(true)] out PublicEnvelope? envelope)
     {
@@ -143,9 +159,9 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
             if (!TryGetRequiredString(root, "messageId", out string? messageId) ||
                 !TryGetOptionalString(root, "sessionId", out string? sessionId) ||
                 !TryGetOptionalString(root, "correlationId", out string? correlationId) ||
-                !TryGetOptionalString(root, "bridgeInstanceId", out string? bridgeInstanceId) ||
                 !TryGetOptionalString(root, "playContextId", out string? playContextId) ||
-                !TryGetOptionalString(root, "clientId", out string? clientId))
+                !TryGetOptionalString(root, "clientId", out string? clientId) ||
+                !TryGetStateAuthorityId(root, messageType, out string? stateAuthorityId))
             {
                 return false;
             }
@@ -156,7 +172,7 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
             }
 
             envelope = new PublicEnvelope(
-                messageType, messageId!, sessionId, correlationId, payloadElement.Clone(), bridgeInstanceId, playContextId, clientId);
+                messageType, messageId!, sessionId, correlationId, payloadElement.Clone(), stateAuthorityId, playContextId, clientId);
             return true;
         }
     }
@@ -204,10 +220,20 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
             ["sessionId"] = sessionId,
             ["correlationId"] = correlationId,
             ["payload"] = payloadObject,
-            ["bridgeInstanceId"] = null,
-            ["playContextId"] = playContextId,
-            ["clientId"] = clientId,
         };
+
+        if (RequiresStateAuthorityId(messageType))
+        {
+            if (stateAuthorityLifecycle is null)
+            {
+                throw new InvalidOperationException($"{messageType} requires stateAuthorityId, but this codec has no {nameof(IStateAuthorityLifecycle)} configured.");
+            }
+
+            envelope["stateAuthorityId"] = stateAuthorityLifecycle.Current.ToString();
+        }
+
+        envelope["playContextId"] = playContextId;
+        envelope["clientId"] = clientId;
 
         return JsonSerializer.SerializeToUtf8Bytes(envelope);
     }
@@ -304,6 +330,38 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
 
         value = element.GetString();
         return true;
+    }
+
+    /// <summary>
+    /// Reports whether <paramref name="messageType"/> is one of the three message types
+    /// <c>stateAuthorityId</c> is required and non-null on -- the closed wire-presence table
+    /// <c>ai/context/protocol/compatibility.md</c> documents; every other message type must omit it
+    /// entirely.
+    /// </summary>
+    private static bool RequiresStateAuthorityId(PublicMessageType messageType) =>
+        messageType is PublicMessageType.HelloAck or PublicMessageType.StateSnapshot or PublicMessageType.StateEvent;
+
+    /// <summary>
+    /// Reads <c>stateAuthorityId</c> per its closed wire-presence table: required and a non-null
+    /// string when <paramref name="messageType"/> is <see cref="RequiresStateAuthorityId"/>; otherwise
+    /// the key must be entirely absent, including as an explicit JSON <see langword="null"/>.
+    /// </summary>
+    private static bool TryGetStateAuthorityId(JsonElement root, PublicMessageType messageType, out string? value)
+    {
+        value = null;
+        bool isPresent = root.TryGetProperty("stateAuthorityId", out JsonElement element);
+        if (!RequiresStateAuthorityId(messageType))
+        {
+            return !isPresent;
+        }
+
+        if (!isPresent || element.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = element.GetString();
+        return value is not null;
     }
 
     /// <summary>Maps a wire <c>messageType</c> string to its canonical enum value.</summary>

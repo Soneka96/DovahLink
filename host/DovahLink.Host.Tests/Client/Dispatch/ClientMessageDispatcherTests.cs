@@ -2274,7 +2274,7 @@ public class ClientMessageDispatcherTests
     private static PublicEnvelope BuildRawEnvelope(string wireMessageType, string messageId, string sessionId, string payloadJson)
     {
         string json = $$"""
-            {"messageType":"{{wireMessageType}}","messageId":"{{messageId}}","sessionId":"{{sessionId}}","correlationId":null,"payload":{{payloadJson}},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"{{wireMessageType}}","messageId":"{{messageId}}","sessionId":"{{sessionId}}","correlationId":null,"payload":{{payloadJson}},"playContextId":null,"clientId":null}
             """;
         Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
         return envelope!;

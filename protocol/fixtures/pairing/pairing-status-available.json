@@ -7,7 +7,6 @@
     "state": "available",
     "expiresInSeconds": 300
   },
-  "bridgeInstanceId": "bridge-1",
   "playContextId": null,
   "clientId": null
 }

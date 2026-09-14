@@ -4,10 +4,9 @@ using DovahLink.Host.Identity;
 namespace DovahLink.Host.Adapter;
 
 /// <summary>
-/// The host's view of the native adapter's connection identity and availability -- the host-owned
-/// successor to the old single-process <c>bridgeInstanceId</c>. A restarted host starts
-/// unavailable with no known adapter instance, and every connection or reconnection requires an
-/// explicit resynchronization before adapter-sourced state can be published as current.
+/// The host's view of the native adapter's connection identity and availability. A restarted host
+/// starts unavailable with no known adapter instance, and every connection or reconnection requires
+/// an explicit resynchronization before adapter-sourced state can be published as current.
 /// </summary>
 public interface IAdapterAvailabilityTracker
 {

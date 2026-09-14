@@ -7,7 +7,7 @@ namespace DovahLink.Host.Tests.Client.Protocol;
 /// <summary>Tests for <see cref="PublicEnvelopeCodec"/>.</summary>
 public class PublicEnvelopeCodecTests
 {
-    private static readonly PublicEnvelopeCodec Codec = new();
+    private static readonly IPublicEnvelopeCodec Codec = Fixtures.BuildPublicEnvelopeCodec();
 
     // ---- Round trips ----
 
@@ -57,7 +57,7 @@ public class PublicEnvelopeCodecTests
         Assert.Equal("session-1", envelope!.SessionId);
         Assert.Equal("msg-1", envelope.CorrelationId);
         Assert.Equal("client-1", envelope.ClientId);
-        Assert.Null(envelope.BridgeInstanceId);
+        Assert.NotNull(envelope.StateAuthorityId);
         Assert.True(Codec.TryDecodePayload(envelope, out HelloAckPayload? decoded));
         Assert.Equal(payload, decoded);
     }
@@ -188,14 +188,72 @@ public class PublicEnvelopeCodecTests
     public static IEnumerable<object[]> AllMessageTypes() =>
         Enum.GetValues<PublicMessageType>().Select(value => new object[] { value });
 
-    /// <summary>Verifies that Encode always writes a null bridgeInstanceId, per the deferred public instance identifier in <c>ai/context/protocol/compatibility.md</c>, regardless of caller intent.</summary>
+    /// <summary>Verifies that Encode omits stateAuthorityId entirely for a message type outside the closed wire-presence table, per <c>ai/context/protocol/compatibility.md</c>.</summary>
     [Fact]
-    public void Encode_AlwaysWritesNullBridgeInstanceId()
+    public void Encode_NonGatedMessageType_OmitsStateAuthorityId()
     {
         byte[] encoded = Codec.Encode(PublicMessageType.Ping, "msg-1", "session-1", null, null, null, new object());
 
         using JsonDocument document = JsonDocument.Parse(encoded);
-        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("bridgeInstanceId").ValueKind);
+        Assert.False(document.RootElement.TryGetProperty("stateAuthorityId", out _));
+    }
+
+    /// <summary>Verifies that Encode stamps a non-null stateAuthorityId, sourced from the configured lifecycle, on each message type the closed wire-presence table requires it on.</summary>
+    [Theory]
+    [InlineData(PublicMessageType.HelloAck)]
+    [InlineData(PublicMessageType.StateSnapshot)]
+    [InlineData(PublicMessageType.StateEvent)]
+    public void Encode_GatedMessageType_WritesNonNullStateAuthorityId(PublicMessageType messageType)
+    {
+        byte[] encoded = Codec.Encode(messageType, "msg-1", "session-1", null, null, null, new object());
+
+        using JsonDocument document = JsonDocument.Parse(encoded);
+        JsonElement stateAuthorityId = document.RootElement.GetProperty("stateAuthorityId");
+        Assert.Equal(JsonValueKind.String, stateAuthorityId.ValueKind);
+        Assert.False(string.IsNullOrEmpty(stateAuthorityId.GetString()));
+    }
+
+    /// <summary>Verifies that Encode fails closed, rather than silently omitting the field, when asked for a gated message type but no state-authority lifecycle was ever configured.</summary>
+    [Fact]
+    public void Encode_GatedMessageTypeWithNoLifecycleConfigured_Throws()
+    {
+        var codecWithNoLifecycle = new PublicEnvelopeCodec();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            codecWithNoLifecycle.Encode(PublicMessageType.HelloAck, "msg-1", "session-1", null, null, null, new object()));
+    }
+
+    /// <summary>Verifies that TryDecode rejects stateAuthorityId present at all on a message type the closed wire-presence table never allows it on -- including a real client-originated type, not only the pre-authentication/post-admission cases covered elsewhere.</summary>
+    [Fact]
+    public void TryDecode_StateAuthorityIdPresentOnNonGatedType_ReturnsFalse()
+    {
+        string json = """{"messageType":"ping","messageId":"m1","sessionId":"session-1","correlationId":null,"payload":{},"stateAuthorityId":"state-authority-1","playContextId":null,"clientId":null}""";
+
+        Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
+    /// <summary>Verifies that TryDecode rejects a gated message type missing stateAuthorityId entirely, for every message type the closed wire-presence table requires it on -- not only the one exercised by the round-trip tests above.</summary>
+    [Theory]
+    [InlineData("hello_ack")]
+    [InlineData("state_snapshot")]
+    [InlineData("state_event")]
+    public void TryDecode_StateAuthorityIdMissingOnGatedType_ReturnsFalse(string wireMessageType)
+    {
+        string json = $$"""{"messageType":"{{wireMessageType}}","messageId":"m1","sessionId":"session-1","correlationId":null,"payload":{},"playContextId":null,"clientId":null}""";
+
+        Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
+    /// <summary>Verifies that TryDecode rejects an explicit JSON null for stateAuthorityId on a gated message type -- required and non-null are both part of the contract, not just presence.</summary>
+    [Theory]
+    [InlineData("hello_ack")]
+    [InlineData("state_snapshot")]
+    [InlineData("state_event")]
+    public void TryDecode_StateAuthorityIdNullOnGatedType_ReturnsFalse(string wireMessageType)
+    {
+        string json = $$"""{"messageType":"{{wireMessageType}}","messageId":"m1","sessionId":"session-1","correlationId":null,"payload":{},"stateAuthorityId":null,"playContextId":null,"clientId":null}""";
+
+        Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
     }
 
     /// <summary>Verifies that Encode rejects a null payload rather than emitting a wire message its own decoder would reject.</summary>
@@ -523,7 +581,7 @@ public class PublicEnvelopeCodecTests
     public void TryDecode_SessionIdWrongType_ReturnsFalse()
     {
         string json = """
-            {"messageType":"ping","messageId":"m1","sessionId":42,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"ping","messageId":"m1","sessionId":42,"correlationId":null,"payload":{},"playContextId":null,"clientId":null}
             """;
 
         Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
@@ -553,7 +611,7 @@ public class PublicEnvelopeCodecTests
     public void TryDecode_MissingPayload_ReturnsFalse()
     {
         string json = """
-            {"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"playContextId":null,"clientId":null}
             """;
 
         Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
@@ -587,7 +645,7 @@ public class PublicEnvelopeCodecTests
     public void TryDecode_UnknownTopLevelField_IsIgnored()
     {
         string json = """
-            {"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null,"futureField":"future-value"}
+            {"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"playContextId":null,"clientId":null,"futureField":"future-value"}
             """;
 
         Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
@@ -599,7 +657,7 @@ public class PublicEnvelopeCodecTests
     public void TryDecode_MessageTypeWrongType_ReturnsFalse()
     {
         string json = """
-            {"messageType":42,"messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":42,"messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"playContextId":null,"clientId":null}
             """;
 
         Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
@@ -737,7 +795,7 @@ public class PublicEnvelopeCodecTests
     public void TryDecode_EnvelopeWithUnknownTopLevelField_StillDecodes()
     {
         string json = """
-            {"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null,"unexpectedTopLevelField":true}
+            {"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"playContextId":null,"clientId":null,"unexpectedTopLevelField":true}
             """;
 
         Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
@@ -955,17 +1013,17 @@ public class PublicEnvelopeCodecTests
     /// </summary>
     [Theory]
     [InlineData(
-        """{"messageType":"ping","messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+        """{"messageType":"ping","messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"playContextId":null,"clientId":null}""")]
     [InlineData(
-        """{"messageType":"ping","messageId":"m1","messageId":"m2","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+        """{"messageType":"ping","messageId":"m1","messageId":"m2","sessionId":null,"correlationId":null,"payload":{},"playContextId":null,"clientId":null}""")]
     [InlineData(
-        """{"messageType":"ping","messageId":"m1","sessionId":null,"sessionId":"s2","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+        """{"messageType":"ping","messageId":"m1","sessionId":null,"sessionId":"s2","correlationId":null,"payload":{},"playContextId":null,"clientId":null}""")]
     [InlineData(
-        """{"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null,"clientId":"c2"}""")]
+        """{"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"playContextId":null,"clientId":null,"clientId":"c2"}""")]
     [InlineData(
-        """{"messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"c1","auth":{"method":"unpaired","method":"trusted_device_credential"}},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+        """{"messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"c1","auth":{"method":"unpaired","method":"trusted_device_credential"}},"playContextId":null,"clientId":null}""")]
     [InlineData(
-        """{"messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"c1","auth":{"method":"trusted_device_credential","token":"a","token":"b"}},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""")]
+        """{"messageType":"hello","messageId":"m1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"c1","auth":{"method":"trusted_device_credential","token":"a","token":"b"}},"playContextId":null,"clientId":null}""")]
     public void TryDecode_DuplicateProperty_ReturnsFalse(string json)
     {
         Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
@@ -975,7 +1033,7 @@ public class PublicEnvelopeCodecTests
     [Fact]
     public void TryDecode_NoDuplicateProperties_StillDecodes()
     {
-        string json = """{"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""";
+        string json = """{"messageType":"ping","messageId":"m1","sessionId":null,"correlationId":null,"payload":{},"playContextId":null,"clientId":null}""";
 
         Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
     }
@@ -1006,7 +1064,7 @@ public class PublicEnvelopeCodecTests
     {
         string messageIdField = includeMessageId ? ""","messageId":"m1" """ : string.Empty;
         return $$"""
-            {"messageType":"{{messageType}}"{{messageIdField}},"sessionId":{{sessionId}},"correlationId":null,"payload":{{payloadJson}},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"{{messageType}}"{{messageIdField}},"sessionId":{{sessionId}},"correlationId":null,"payload":{{payloadJson}},"playContextId":null,"clientId":null}
             """;
     }
 

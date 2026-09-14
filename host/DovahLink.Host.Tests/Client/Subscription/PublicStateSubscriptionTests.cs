@@ -13,8 +13,8 @@ namespace DovahLink.Host.Tests.Client.Subscription;
 /// <summary>Tests for <see cref="PublicStateSubscription"/>.</summary>
 public class PublicStateSubscriptionTests
 {
-    /// <summary>The envelope codec used to decode every sent message for content assertions.</summary>
-    private readonly PublicEnvelopeCodec codec = new();
+    /// <summary>The envelope codec the subscription under test encodes through, and this test decodes every sent message with for content assertions.</summary>
+    private readonly PublicEnvelopeCodec codec = new(Fixtures.BuildStateAuthorityLifecycle());
 
     /// <summary>Builds a subscription over a fresh policy, feed, and play-context tracker, with the given areas pre-registered.</summary>
     /// <param name="registeredAreas">The state areas to register before the test runs.</param>

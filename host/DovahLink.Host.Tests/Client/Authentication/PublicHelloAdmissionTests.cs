@@ -43,7 +43,7 @@ public class PublicHelloAdmissionTests
         Assert.Equal("hello-1", ackEnvelope.CorrelationId);
         Assert.Equal(clientId, ackEnvelope.ClientId);
         Assert.NotNull(ackEnvelope.SessionId);
-        Assert.Null(ackEnvelope.BridgeInstanceId);
+        Assert.NotNull(ackEnvelope.StateAuthorityId);
         Assert.Equal(ClientIdentityKind.Unpaired, ack.ClientIdentityKind);
         Assert.False(string.IsNullOrEmpty(ack.HostVersion));
 
@@ -283,7 +283,7 @@ public class PublicHelloAdmissionTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -327,7 +327,7 @@ public class PublicHelloAdmissionTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -369,7 +369,7 @@ public class PublicHelloAdmissionTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -400,7 +400,7 @@ public class PublicHelloAdmissionTests
         TrustStore trustStore = await TrustStore.CreateAsync(persistence, new FakeClock(), new SecurityStateGate());
         await trustStore.UpsertAsync(new TrustRecord(clientId, "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         var sessionRegistry = new FakeSessionRegistry();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -567,7 +567,7 @@ public class PublicHelloAdmissionTests
         innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(
             innerTrustStore, new TrustRecord(new ClientId(Guid.Parse(clientId)), "AB12", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -589,7 +589,7 @@ public class PublicHelloAdmissionTests
     {
         var context = new TestContext();
         string json = $$"""
-            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{Guid.NewGuid()}}"},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{Guid.NewGuid()}}"},"playContextId":null,"clientId":null}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -610,7 +610,7 @@ public class PublicHelloAdmissionTests
     {
         var context = new TestContext();
         string json = $$"""
-            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{Guid.NewGuid()}}","auth":null},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{Guid.NewGuid()}}","auth":null},"playContextId":null,"clientId":null}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -696,18 +696,18 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
-    /// Verifies that a pre-authentication hello carrying a non-null envelope bridgeInstanceId is
-    /// rejected as malformed_message. Built from raw JSON since <see cref="PublicEnvelopeCodec.Encode"/>
-    /// always encodes bridgeInstanceId as null (the deferred public instance identifier, per
-    /// <c>ai/context/protocol/compatibility.md</c>) and so cannot itself produce this
-    /// otherwise-well-formed wire shape.
+    /// Verifies that a pre-authentication hello carrying a non-null envelope stateAuthorityId is
+    /// rejected as malformed_message. Built from raw JSON since <see cref="PublicEnvelopeCodec.TryDecode"/>
+    /// itself rejects any client-originated message carrying <c>stateAuthorityId</c> at all -- its
+    /// closed wire-presence table never allows it there -- so a well-formed <see cref="PublicEnvelopeCodec.Encode"/>
+    /// call cannot itself produce this otherwise-well-formed wire shape.
     /// </summary>
     [Fact]
-    public void HandleMessageAsync_HelloWithNonNullEnvelopeBridgeInstanceId_RejectsAsMalformed()
+    public void HandleMessageAsync_HelloWithNonNullEnvelopeStateAuthorityId_RejectsAsMalformed()
     {
         var context = new TestContext();
         string json = $$$"""
-            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{{Guid.NewGuid()}}}","auth":{"method":"unpaired"}},"bridgeInstanceId":"a-bridge-instance-id","playContextId":null,"clientId":null}
+            {"messageType":"hello","messageId":"hello-1","sessionId":null,"correlationId":null,"payload":{"endpoint":"client","clientId":"{{{Guid.NewGuid()}}}","auth":{"method":"unpaired"}},"stateAuthorityId":"a-state-authority-id","playContextId":null,"clientId":null}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -778,7 +778,7 @@ public class PublicHelloAdmissionTests
         var trustStore = new FakeTrustStore();
         var credentialThrottle = new TrustedCredentialFailureThrottle(new FakeClock());
         var playContextTracker = new FakePlayContextTracker();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
 
         var fakeConnections = new FakePublicWebSocketConnection[concurrentAttempts];
@@ -826,7 +826,7 @@ public class PublicHelloAdmissionTests
         trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var credentialThrottle = new TrustedCredentialFailureThrottle(new FakeClock());
         var playContextTracker = new FakePlayContextTracker();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
 
         var tasks = new Task[concurrentAttempts];
@@ -864,7 +864,7 @@ public class PublicHelloAdmissionTests
         innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(
             innerTrustStore, new TrustRecord(new ClientId(Guid.Parse(clientId)), "AB12", null, KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -897,7 +897,7 @@ public class PublicHelloAdmissionTests
         var trustStore = new FakeTrustStore();
         string clientId = Guid.NewGuid().ToString();
         trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -930,7 +930,7 @@ public class PublicHelloAdmissionTests
         var trustStore = new FakeTrustStore();
         string clientId = Guid.NewGuid().ToString();
         trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -956,7 +956,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(innerSessionRegistry);
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = tokenAuthenticator.IssueToken();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
@@ -983,7 +983,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(innerSessionRegistry);
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string firstToken = tokenAuthenticator.IssueToken();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
@@ -1018,7 +1018,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(innerSessionRegistry);
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = tokenAuthenticator.IssueToken();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var firstHandler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
@@ -1058,7 +1058,7 @@ public class PublicHelloAdmissionTests
         var trustStore = new FakeTrustStore();
         string clientId = Guid.NewGuid().ToString();
         trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -1083,7 +1083,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(new FakeSessionRegistry(), connectionRegistry);
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = tokenAuthenticator.IssueToken();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
@@ -1111,7 +1111,7 @@ public class PublicHelloAdmissionTests
         var trustStore = new FakeTrustStore();
         string clientId = Guid.NewGuid().ToString();
         trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -1141,7 +1141,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new SessionRegistryThatInvalidatesAllOnFirstFinalizeCall(new FakeSessionRegistry(), connectionRegistry);
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = tokenAuthenticator.IssueToken();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
@@ -1174,7 +1174,7 @@ public class PublicHelloAdmissionTests
         string clientId = Guid.NewGuid().ToString();
         innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(innerTrustStore, recordAfterFirstLookup: null);
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -1205,7 +1205,7 @@ public class PublicHelloAdmissionTests
         innerTrustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var raceTrustStore = new TrustStoreThatChangesOnSecondLookup(
             innerTrustStore, BuildTrustedRecord(clientId, WrongButValidCredential));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -1238,7 +1238,7 @@ public class PublicHelloAdmissionTests
         string clientId = Guid.NewGuid().ToString();
         trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
         var raceTrustStore = new TrustStoreThatTriggersFactoryResetOnFirstLookup(trustStore, sessionRegistry);
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -1279,7 +1279,7 @@ public class PublicHelloAdmissionTests
         };
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = tokenAuthenticator.IssueToken();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
@@ -1318,7 +1318,7 @@ public class PublicHelloAdmissionTests
         var trustStore = new FakeTrustStore();
         string clientId = Guid.NewGuid().ToString();
         trustStore.Seed(BuildTrustedRecord(clientId, ValidCredential));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -1362,7 +1362,7 @@ public class PublicHelloAdmissionTests
         var trustStore = new FakeTrustStore();
         string clientIdText = Guid.NewGuid().ToString();
         trustStore.Seed(BuildTrustedRecord(clientIdText, ValidCredential));
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
@@ -1397,7 +1397,7 @@ public class PublicHelloAdmissionTests
             sessionCreated.Set();
             releaseAfterInvalidate.Wait();
         };
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), new LocalConnectionTokenAuthenticator(clock),
@@ -1437,7 +1437,7 @@ public class PublicHelloAdmissionTests
         var sessionRegistry = new FakeSessionRegistry();
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(new FakeClock());
         string token = tokenAuthenticator.IssueToken();
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
@@ -1647,14 +1647,14 @@ public class PublicHelloAdmissionTests
         Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
     }
 
-    /// <summary>Verifies that a post-admission message carrying a non-null envelope bridgeInstanceId is rejected as malformed_message. Built from raw JSON for the same reason as the pre-authentication equivalent.</summary>
+    /// <summary>Verifies that a post-admission message carrying a non-null envelope stateAuthorityId is rejected as malformed_message. Built from raw JSON for the same reason as the pre-authentication equivalent.</summary>
     [Fact]
-    public void HandleMessageAsync_PostAdmissionNonNullBridgeInstanceId_RejectsAsMalformed()
+    public void HandleMessageAsync_PostAdmissionNonNullStateAuthorityId_RejectsAsMalformed()
     {
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string admittedSessionId, out _);
         string json = $$"""
-            {"messageType":"ping","messageId":"msg-2","sessionId":"{{admittedSessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":"a-bridge-instance-id","playContextId":null,"clientId":null}
+            {"messageType":"ping","messageId":"msg-2","sessionId":"{{admittedSessionId}}","correlationId":null,"payload":{},"stateAuthorityId":"a-state-authority-id","playContextId":null,"clientId":null}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -1736,7 +1736,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out _);
         string json = $$"""
-            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"playContextId":null,"clientId":null}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -1757,7 +1757,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         string json = $$"""
-            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":null},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":null},"playContextId":null,"clientId":"{{clientId}}"}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -1786,7 +1786,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         string json = $$"""
-            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":{{capabilitiesJson}}},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":{{capabilitiesJson}}},"playContextId":null,"clientId":"{{clientId}}"}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -1806,7 +1806,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out string clientId);
         string json = $$"""
-            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":[{"id":"valid_capability","version":"1"},{"id":"x"}]},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
+            {"messageType":"capabilities","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"capabilities":[{"id":"valid_capability","version":"1"},{"id":"x"}]},"playContextId":null,"clientId":"{{clientId}}"}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -1846,7 +1846,7 @@ public class PublicHelloAdmissionTests
     {
         var policy = new RegisteredStateAreaPolicy();
         policy.TryRegister(new StateAreaId("area_one"));
-        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker());
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
@@ -1872,7 +1872,7 @@ public class PublicHelloAdmissionTests
         policy.TryRegister(new StateAreaId("area_one"));
         var feed = new FakeStatePublicationFeed();
         feed.SetSnapshot(new StateAreaId("area_one"), BuildStateSnapshotPublication("area_one"));
-        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker());
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
@@ -1896,7 +1896,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
         string json = $$"""
-            {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"playContextId":null,"clientId":null}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -1917,7 +1917,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
         string json = $$"""
-            {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"stateAreas":["area_one",null]},"bridgeInstanceId":null,"playContextId":null,"clientId":"{{clientId}}"}
+            {"messageType":"subscribe","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{"stateAreas":["area_one",null]},"playContextId":null,"clientId":"{{clientId}}"}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -1953,7 +1953,7 @@ public class PublicHelloAdmissionTests
     {
         var policy = new RegisteredStateAreaPolicy();
         policy.TryRegister(new StateAreaId("area_one"));
-        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker());
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
         int sentCountBeforeRequest = context.FakeConnection.SentPayloads.Count;
@@ -1973,7 +1973,7 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
         string json = $$"""
-            {"messageType":"snapshot_request","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}
+            {"messageType":"snapshot_request","messageId":"msg-2","sessionId":"{{sessionId}}","correlationId":null,"payload":{},"playContextId":null,"clientId":null}
             """;
 
         context.Handler.HandleMessageAsync(context.Connection, Encoding.UTF8.GetBytes(json), CancellationToken.None);
@@ -2596,7 +2596,7 @@ public class PublicHelloAdmissionTests
         var policy = new RegisteredStateAreaPolicy();
         policy.TryRegister(new StateAreaId("area_a"));
         var feed = new FakeStatePublicationFeed();
-        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker());
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
         byte[] subscribeMessage = context.Codec.Encode(
@@ -2630,7 +2630,7 @@ public class PublicHelloAdmissionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a", revision: 1));
 
         // First connection subscribes and receives its own snapshot, then disconnects.
-        var firstSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var firstSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker());
         var firstContext = new TestContext(subscription: firstSubscription);
         AdmitViaTrustedDeviceCredentialHello(firstContext, out string firstSessionId, out string firstClientId);
         byte[] firstSubscribeMessage = firstContext.Codec.Encode(
@@ -2648,7 +2648,7 @@ public class PublicHelloAdmissionTests
 
         // The reconnect: a fresh connection, fresh PublicStateSubscription, over the same shared
         // policy/feed. It never subscribed, so it must not have received anything either.
-        var secondSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(), new FakePlayContextTracker());
+        var secondSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker());
         var secondContext = new TestContext(subscription: secondSubscription);
         AdmitViaTrustedDeviceCredentialHello(secondContext, out string secondSessionId, out string secondClientId);
 
@@ -2751,8 +2751,8 @@ public class PublicHelloAdmissionTests
         /// <summary>The play-context tracker the handler under test reads its outbound <c>playContextId</c> snapshot from.</summary>
         public FakePlayContextTracker PlayContextTracker { get; } = new();
 
-        /// <summary>The real, stateless codec used both by the handler under test and by this test to build inbound bytes and decode outbound ones.</summary>
-        public PublicEnvelopeCodec Codec { get; } = new();
+        /// <summary>The real codec used both by the handler under test and by this test to build inbound bytes and decode outbound ones, backed by a live state-authority lifecycle so hello_ack encodes successfully.</summary>
+        public PublicEnvelopeCodec Codec { get; } = new(Fixtures.BuildStateAuthorityLifecycle());
 
         /// <summary>The dispatcher the handler under test routes ping, pairing, and rename_request messages to.</summary>
         public FakeClientMessageDispatcher Dispatcher { get; } = new();

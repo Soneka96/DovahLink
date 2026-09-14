@@ -23,9 +23,14 @@ REQUIRED_FIELDS = (
     "sessionId",
     "correlationId",
     "payload",
-    "bridgeInstanceId",
     "playContextId",
     "clientId",
+)
+
+# stateAuthorityId's closed wire-presence table (ai/context/protocol/compatibility.md):
+# required and non-null on exactly these message types; absent on every other message.
+STATE_AUTHORITY_ID_REQUIRED_MESSAGE_TYPES = frozenset(
+    {"hello_ack", "state_snapshot", "state_event"}
 )
 
 
@@ -88,9 +93,18 @@ def validate_envelope(name: str, message: object) -> None:
     if not isinstance(payload, dict):
         raise FixtureError(f"{name}: payload must be an object")
 
-    bridge_instance_id = message["bridgeInstanceId"]
-    if bridge_instance_id is not None and not isinstance(bridge_instance_id, str):
-        raise FixtureError(f"{name}: bridgeInstanceId must be a string or null")
+    if message_type in STATE_AUTHORITY_ID_REQUIRED_MESSAGE_TYPES:
+        if "stateAuthorityId" not in message:
+            raise FixtureError(f"{name}: missing required field(s): stateAuthorityId")
+        state_authority_id = message["stateAuthorityId"]
+        if not isinstance(state_authority_id, str) or not state_authority_id:
+            raise FixtureError(
+                f"{name}: stateAuthorityId must be a non-empty string for '{message_type}'"
+            )
+    elif "stateAuthorityId" in message:
+        raise FixtureError(
+            f"{name}: stateAuthorityId must be absent for '{message_type}'"
+        )
 
     play_context_id = message["playContextId"]
     if play_context_id is not None and not isinstance(play_context_id, str):

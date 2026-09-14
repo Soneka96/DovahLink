@@ -294,7 +294,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 return;
             }
 
-            if (envelope.BridgeInstanceId is not null || envelope.PlayContextId is not null ||
+            if (envelope.StateAuthorityId is not null || envelope.PlayContextId is not null ||
                 !Guid.TryParse(envelope.ClientId, out Guid presentedClientId) || presentedClientId != currentClientId.Value)
             {
                 // A post-admission client message must carry the socket-bound sessionId and its declared
@@ -387,17 +387,19 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>
     /// Reports whether a pre-authentication <c>hello</c> envelope carries only the identity/context
     /// fields <c>protocol/schema/README.md</c>'s common envelope allows before a session exists:
-    /// <c>sessionId</c>, <c>bridgeInstanceId</c>, the envelope-level <c>clientId</c>, and
-    /// <c>correlationId</c> must all be <see langword="null"/> (none of them are established yet), and
-    /// <c>playContextId</c> is host-authoritative, never a value a client asserts. This is separate
-    /// from <see cref="HandleHello"/>'s own payload-level validation (<c>hello.clientId</c>,
-    /// <c>endpoint</c>, <c>auth</c>): a structurally valid payload can still carry a semantically
-    /// invalid envelope, per the contract to reject malformed envelope identity fields before calling
-    /// authentication services.
+    /// <c>sessionId</c>, the envelope-level <c>clientId</c>, and <c>correlationId</c> must all be
+    /// <see langword="null"/> (none of them are established yet), <c>stateAuthorityId</c> must be
+    /// absent (its closed wire-presence table never allows it on a client-originated message --
+    /// already enforced by <see cref="IPublicEnvelopeCodec.TryDecode"/>, checked again here for
+    /// defense in depth), and <c>playContextId</c> is host-authoritative, never a value a client
+    /// asserts. This is separate from <see cref="HandleHello"/>'s own payload-level validation
+    /// (<c>hello.clientId</c>, <c>endpoint</c>, <c>auth</c>): a structurally valid payload can still
+    /// carry a semantically invalid envelope, per the contract to reject malformed envelope identity
+    /// fields before calling authentication services.
     /// </summary>
     private static bool IsValidPreAuthEnvelopeIdentity(PublicEnvelope envelope) =>
         envelope.SessionId is null &&
-        envelope.BridgeInstanceId is null &&
+        envelope.StateAuthorityId is null &&
         envelope.ClientId is null &&
         envelope.CorrelationId is null &&
         envelope.PlayContextId is null;

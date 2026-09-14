@@ -7,7 +7,7 @@
     "hostVersion": "0.3.3",
     "clientIdentityKind": "unpaired"
   },
-  "bridgeInstanceId": "bridge-1",
+  "stateAuthorityId": "state-authority-1",
 
   "playContextId": null,
   "clientId": "client-1"

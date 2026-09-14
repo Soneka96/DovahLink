@@ -8,6 +8,7 @@ using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
@@ -119,6 +120,12 @@ internal static class Program
         var codec = new IpcFrameCodec();
         var clock = new SystemClock();
 
+        // Minted eagerly here so a startup mint failure fails Host composition itself closed, per
+        // 01.3a Section C's "at startup: the Host fails closed" case; FatalFailureOccurred covers the
+        // later runtime-mint-failure case, once the public listener below is composed.
+        var stateAuthorityLifecycle = new StateAuthorityLifecycle(tracker);
+        stateAuthorityLifecycle.FatalFailureOccurred += () => shutdown.Cancel();
+
         // Resolved once and reused for both the session registry and the public listener below, so
         // one user-configured device cap governs exactly how many authenticated sessions and how
         // many raw connections the host admits -- the two bounds never drift apart.
@@ -133,7 +140,7 @@ internal static class Program
         var pairingCoordinator = new PairingCoordinator(trustStore, clock);
         onComposed?.Invoke(sessionRegistry, pairingCoordinator);
         var playContextTracker = new PlayContextTracker();
-        var envelopeCodec = new PublicEnvelopeCodec();
+        var envelopeCodec = new PublicEnvelopeCodec(stateAuthorityLifecycle);
         var connectionRegistry = new PublicSessionConnectionRegistry();
 
         // No state area is registered yet and no real domain feed exists -- a later concept

@@ -6,7 +6,6 @@
   "payload": {
     "state": "other_device_pairing"
   },
-  "bridgeInstanceId": "bridge-1",
   "playContextId": null,
   "clientId": null
 }

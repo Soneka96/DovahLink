@@ -2782,7 +2782,7 @@ public class PublicWebSocketConnectionTests
     [Fact]
     public async Task HandleMessageAsync_SubscribeAsBoundaryMessage_RespondsBeforeOrderlyCloseBeginsAndNeverDispatchesNext()
     {
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(clock);
         string token = tokenAuthenticator.IssueToken();
@@ -2872,7 +2872,7 @@ public class PublicWebSocketConnectionTests
     [Fact]
     public async Task HandleMessageAsync_RejectedMessageAsBoundaryMessage_RespondsBeforeOrderlyCloseBegins()
     {
-        var codec = new PublicEnvelopeCodec();
+        var codec = new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle());
         var clock = new FakeClock();
         var tokenAuthenticator = new LocalConnectionTokenAuthenticator(clock);
         string token = tokenAuthenticator.IssueToken();

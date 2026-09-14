@@ -14,6 +14,20 @@ namespace DovahLink.Host.Tests;
 /// <summary>Builders for representative test values, grouped by area.</summary>
 public static class Fixtures
 {
+    // ---- Identity ----
+
+    /// <summary>Builds a ready-to-use, never-faulted state-authority lifecycle backed by a fresh fake adapter-availability tracker.</summary>
+    public static IStateAuthorityLifecycle BuildStateAuthorityLifecycle() => new StateAuthorityLifecycle(new FakeAdapterAvailabilityTracker());
+
+    // ---- Protocol ----
+
+    /// <summary>
+    /// Builds a codec that can encode every message type, including <c>hello_ack</c>/<c>state_snapshot</c>/<c>state_event</c>,
+    /// backed by <see cref="BuildStateAuthorityLifecycle"/>. A test that only decodes, or only encodes
+    /// message types that never carry <c>stateAuthorityId</c>, can use a plain <c>new PublicEnvelopeCodec()</c> instead.
+    /// </summary>
+    public static IPublicEnvelopeCodec BuildPublicEnvelopeCodec() => new PublicEnvelopeCodec(BuildStateAuthorityLifecycle());
+
     // ---- Client transport ----
 
     /// <summary>
