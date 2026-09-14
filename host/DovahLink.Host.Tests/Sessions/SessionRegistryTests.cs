@@ -80,7 +80,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClient_InvalidatesOnlyThatClientsSessions()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 3);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(3));
         ClientId targetClient = ClientId.NewId();
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
@@ -128,7 +128,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClient_DeveloperTokenSession_IsExempt()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 2);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(2));
         ClientId clientId = ClientId.NewId();
         ConnectionId developerConnection = ConnectionId.NewId();
         ConnectionId trustedConnection = ConnectionId.NewId();
@@ -152,7 +152,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClients_InvalidatesEveryListedClientsSessions()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 3);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(3));
         ClientId first = ClientId.NewId();
         ClientId second = ClientId.NewId();
         ClientId unrelated = ClientId.NewId();
@@ -183,7 +183,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAllForClients_DeveloperTokenSession_IsExempt()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 2);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(2));
         ClientId clientId = ClientId.NewId();
         ConnectionId developerConnection = ConnectionId.NewId();
         ConnectionId trustedConnection = ConnectionId.NewId();
@@ -240,7 +240,7 @@ public class SessionRegistryTests
     public void TryCreate_RecordsTheSuppliedAuthenticationSourceAndTrustTier(
         SessionAuthenticationSource authenticationSource, SessionTrustTier trustTier)
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 2);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(2));
         ClientId clientId = ClientId.NewId();
         ConnectionId connectionId = ConnectionId.NewId();
         ConnectionId otherConnection = ConnectionId.NewId();
@@ -283,7 +283,7 @@ public class SessionRegistryTests
     [Fact]
     public void TryCreate_AtCapacity_RejectsAdditionalSession()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 1);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(1));
         Assert.True(registry.TryCreate(
             ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
 
@@ -296,7 +296,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task TryCreate_ConcurrentCalls_RespectCapacity()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 1);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(1));
 
         (bool Accepted, SessionId SessionId)[] results = await Task.WhenAll(
             Enumerable.Range(0, 32).Select(_ => Task.Run(() =>
@@ -315,7 +315,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task ConcurrentOwnerAndAdministrativeInvalidation_CleansAllSessions()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 32);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(32));
         ClientId clientId = ClientId.NewId();
         (SessionId SessionId, ConnectionId ConnectionId)[] sessions = Enumerable.Range(0, 16)
             .Select(_ =>
@@ -342,7 +342,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task ConcurrentCreateAndInvalidation_RespectOwnershipAndCapacity()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 1);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(1));
         ClientId clientId = ClientId.NewId();
 
         Task[] operations = Enumerable.Range(0, 32)
@@ -373,7 +373,7 @@ public class SessionRegistryTests
     [Fact]
     public void InvalidateAll_RemovesEverySession()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 2);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(2));
         ConnectionId firstConnection = ConnectionId.NewId();
         ConnectionId secondConnection = ConnectionId.NewId();
         Assert.True(registry.TryCreate(
@@ -392,7 +392,37 @@ public class SessionRegistryTests
     [Fact]
     public void Constructor_NonPositiveCapacity_Throws()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SessionRegistry(new SecurityStateGate(), 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SessionRegistry(new SecurityStateGate(), new HostSettings(0)));
+    }
+
+    /// <summary>Verifies that the admission bound comes from the supplied <see cref="HostSettings"/> rather than the shipped default.</summary>
+    [Fact]
+    public void Constructor_HostSettingsSupplied_UsesConfiguredCapForAdmission()
+    {
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(1));
+        Assert.Equal(1, registry.MaxActiveSessions);
+        Assert.True(registry.TryCreate(
+            ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
+
+        Assert.False(registry.TryCreate(
+            ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
+    }
+
+    /// <summary>Verifies that omitting <see cref="HostSettings"/> falls back to <see cref="Constants.MaxActiveSessions"/>, matching the prior raw-int default's behavior.</summary>
+    [Fact]
+    public void Constructor_NoHostSettingsSupplied_FallsBackToDefaultCap()
+    {
+        var registry = new SessionRegistry(new SecurityStateGate());
+        Assert.Equal(Constants.MaxActiveSessions, registry.MaxActiveSessions);
+
+        for (int i = 0; i < Constants.MaxActiveSessions; i++)
+        {
+            Assert.True(registry.TryCreate(
+                ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
+        }
+
+        Assert.False(registry.TryCreate(
+            ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
     }
 
     /// <summary>Verifies that a freshly created session finalizes for its owner.</summary>
@@ -485,7 +515,7 @@ public class SessionRegistryTests
     [Fact]
     public async Task ConcurrentFinalizeAdmissionAndInvalidateAll_LeavesRegistryConsistent()
     {
-        var registry = new SessionRegistry(new SecurityStateGate(), 32);
+        var registry = new SessionRegistry(new SecurityStateGate(), new HostSettings(32));
         (SessionId SessionId, ConnectionId ConnectionId)[] sessions = Enumerable.Range(0, 16)
             .Select(_ =>
             {

@@ -10,8 +10,9 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `02-host-composition-and-di-lifetimes.md`
-- Status: Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet opened as a
-  PR. Prerequisite (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit
+- Status: In Progress on branch `feature/02-host-composition-and-di-lifetimes` (see D9) --
+  previously recorded `Complete`, reopened per the maintainer's clarified DI requirement.
+  Prerequisite (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit
   `3768c1e0`, PR #66), not inferred from a prior label.
 - First implementation pass (manual composition, six reviewable step-build steps) introduced
   `Composition/CoreServiceExtensions.cs`, `TrustServiceExtensions.cs`,
@@ -267,6 +268,28 @@ Status: active (package frozen 2026-09-13)
   the duration of this work (see that file), not flipped straight to `Complete`, per
   this plan's own rule that `Complete` requires every R2.x bullet traced to a specific
   file/test first.
+- D9 (2026-09-14, this session, Concept 02, maintainer-directed follow-up): the maintainer
+  reviewed D8's completed DI migration and found it stopped halfway -- the composition
+  modules used `Microsoft.Extensions.DependencyInjection`'s container, but most
+  registrations were still `sp => new Foo(sp.GetRequiredService<IBar>(), ...)` lambdas
+  that manually thread constructor dependencies through the composition root, exactly
+  the pattern DI is meant to eliminate. The maintainer's clarified requirement: for an
+  ordinary Host service, `services.AddSingleton<IFoo, Foo>()` plus automatic constructor
+  resolution is the default; a registration factory is justified only when it does real
+  composition work beyond forwarding already-registered dependencies (an interface-to-
+  concrete alias, event/callback wiring at composition time, an optional-service
+  adapter, or a genuine runtime/configuration value that cannot cleanly be injected).
+  This reopens `02-host-composition-and-di-lifetimes.md` (`Status` back to `In progress`)
+  for a follow-up pass removing the remaining forwarding lambdas across all five
+  composition modules, introducing narrow configuration records
+  (`HostInstanceOptions`/`AdapterIpcOptions`/`PublicListenerOptions`) where a runtime
+  value (`OwnerLifetimeId`, a listener port) was the only reason a lambda existed, and
+  changing `SessionRegistry` to take the whole `HostSettings` object instead of
+  composition manually extracting `MaxActiveSessions`. No wire/runtime/security behavior
+  changes; only the composition *mechanism* for already-registered dependencies. D8's
+  own non-negotiable invariants (fail-closed async trust bootstrap, no sync-over-async,
+  no service locator, one root provider, `DovahLinkHostRuntime` as explicit lifecycle
+  owner) are preserved exactly.
 
 ## Deferred debt
 

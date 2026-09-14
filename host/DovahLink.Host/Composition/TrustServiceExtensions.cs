@@ -43,7 +43,7 @@ public static class TrustServiceExtensions
     public static IServiceCollection AddTrustServices(this IServiceCollection services, ITrustStore trustStore)
     {
         services.AddSingleton(trustStore);
-        services.AddSingleton(sp => new SessionRegistry(sp.GetRequiredService<ISecurityStateGate>(), sp.GetRequiredService<HostSettings>().MaxActiveSessions));
+        services.AddSingleton<SessionRegistry>();
         services.AddSingleton<ISessionRegistry>(sp => sp.GetRequiredService<SessionRegistry>());
         services.AddSingleton(sp => new PairingCoordinator(sp.GetRequiredService<ITrustStore>(), sp.GetRequiredService<IClock>()));
         services.AddSingleton<IPairingCoordinator>(sp => sp.GetRequiredService<PairingCoordinator>());

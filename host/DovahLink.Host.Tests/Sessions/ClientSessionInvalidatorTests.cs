@@ -55,7 +55,7 @@ public class ClientSessionInvalidatorTests
     [Fact]
     public async Task InvalidateClients_ThenNotifyAndCloseAllAsync_NotifiesEveryAffectedSessionAcrossEveryClientAndExcludesDeveloperToken()
     {
-        var sessionRegistry = new SessionRegistry(new SecurityStateGate(), 3);
+        var sessionRegistry = new SessionRegistry(new SecurityStateGate(), new HostSettings(3));
         var notifier = new FakeSessionTerminationNotifier();
         var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
         ClientId first = ClientId.NewId();
@@ -150,7 +150,7 @@ public class ClientSessionInvalidatorTests
     [Fact]
     public async Task NotifyAndCloseAllAsync_NotifierFailure_DoesNotPropagateAndStillNotifiesOtherTargets()
     {
-        var sessionRegistry = new SessionRegistry(new SecurityStateGate(), 2);
+        var sessionRegistry = new SessionRegistry(new SecurityStateGate(), new HostSettings(2));
         var notifier = new FakeSessionTerminationNotifier { ThrowOnNotify = new InvalidOperationException("transport unavailable") };
         var invalidator = new ClientSessionInvalidator(sessionRegistry, notifier);
         Assert.True(sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _));
@@ -264,7 +264,7 @@ public class ClientSessionInvalidatorTests
     [Fact]
     public async Task NotifyAndCloseAllAsync_FirstTargetCancelled_StillAttemptsRemainingTargets()
     {
-        var sessionRegistry = new SessionRegistry(new SecurityStateGate(), 2);
+        var sessionRegistry = new SessionRegistry(new SecurityStateGate(), new HostSettings(2));
         sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _);
         sessionRegistry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out _);
         var notifier = new FakeSessionTerminationNotifier { ThrowOnNotify = new OperationCanceledException("cancelled") };

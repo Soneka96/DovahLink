@@ -172,12 +172,19 @@ public sealed class SessionRegistry : ISessionRegistry
 
     /// <summary>Creates a registry with an explicit active-session admission bound.</summary>
     /// <param name="securityStateGate">The linearization point shared with <see cref="Trust.TrustStore"/>.</param>
-    /// <param name="maxActiveSessions">The maximum number of simultaneous active sessions.</param>
-    public SessionRegistry(ISecurityStateGate securityStateGate, int maxActiveSessions = Constants.MaxActiveSessions)
+    /// <param name="settings">
+    /// The resolved host configuration this registry's admission bound comes from. Defaults to
+    /// <see langword="null"/>, which is treated as <see cref="Constants.MaxActiveSessions"/> -- the
+    /// same default the composition root's own <see cref="HostSettings"/> falls back to when no
+    /// settings file overrides it.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="settings"/>'s <see cref="HostSettings.MaxActiveSessions"/> is not positive.</exception>
+    public SessionRegistry(ISecurityStateGate securityStateGate, HostSettings? settings = null)
     {
+        int maxActiveSessions = (settings ?? new HostSettings(Constants.MaxActiveSessions)).MaxActiveSessions;
         if (maxActiveSessions <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(maxActiveSessions));
+            throw new ArgumentOutOfRangeException(nameof(settings));
         }
 
         this.securityStateGate = securityStateGate;

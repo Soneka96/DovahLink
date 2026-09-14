@@ -1,10 +1,14 @@
 # Concept 02 -- Host composition, DI scopes, and service lifetimes
 
-**Status:** Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet
-opened as a PR (see `CONTEXT.md`'s Active concept entry and D8 for the full step-build
-history and the maintainer-approved scope expansion to a real
-`Microsoft.Extensions.DependencyInjection` composition mechanism, overriding this
-file's original "manual composition, factory only if the audit needs one" design).
+**Status:** In Progress on branch `feature/02-host-composition-and-di-lifetimes` (see
+`CONTEXT.md`'s Active concept entry, D8, and D9). D8 introduced a real
+`Microsoft.Extensions.DependencyInjection` composition mechanism, but that pass's
+registrations still manually forwarded constructor dependencies through
+`sp => new Foo(sp.GetRequiredService<...>(), ...)` lambdas in most services -- using the
+container without gaining its actual benefit (a constructor change no longer requiring a
+composition edit). D9 (this pass) reopens the concept to remove that remaining
+constructor-forwarding, per the maintainer's clarified requirement that ordinary Host
+services use automatic constructor-injection resolution, not hand-threaded lambdas.
 
 **Covers:** R2.1-R2.10 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`
 Block A Issue 2).
