@@ -115,7 +115,7 @@ Security rules apply before the Host accepts any client connection. A local-netw
   survive a Host restart."
 - Persist completed trust outside the Skyrim/modpack files, scoped to the Windows user profile
   running the client and the Host — not to the modpack, the Skyrim installation, a particular
-  Host process, `bridgeInstanceId`, `playContextId`, or `sessionId` — through an approved per-user
+  Host process, `stateAuthorityId`, `playContextId`, or `sessionId` — through an approved per-user
   secure-storage mechanism for the platform. Do not invent cryptography. Loopback TCP itself does not
   establish this scoping; see "Local-OS-user threat boundary" below.
 - The Host's approved per-user secure-storage mechanism for the current (Windows) platform is

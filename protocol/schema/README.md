@@ -12,7 +12,7 @@ object per message; framing is not part of the JSON payload.
   "sessionId": "opaque-connection-id",
   "correlationId": null,
   "payload": {},
-  "bridgeInstanceId": "opaque-bridge-instance-id",
+  "stateAuthorityId": "opaque-state-authority-id",
   "playContextId": null,
   "clientId": null
 }
@@ -25,7 +25,7 @@ object per message; framing is not part of the JSON payload.
 | `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
-| `bridgeInstanceId` | string or `null` | yes | Legacy wire-field name identifying the running authoritative Host process; changes on every restart of that process. `null` on the client's own `hello` (the client does not know it yet) and when the Host could not generate its own identity at startup; present on every Host-originated message otherwise, including error responses. See `ai/context/protocol/compatibility.md`'s "Deferred: public instance identifier" for this field's current transitional (always-null) state. |
+| `stateAuthorityId` | string | conditional | Identifies the Host's current authoritative-state continuity epoch: it changes only when an event breaks revision continuity (a Host restart, or an Adapter/IPC connection loss detected — never a mere reconnect, new session, or play-context change). Required and non-null on `hello_ack`, `state_snapshot`, and `state_event`; absent on every other message, including every client-originated one. See `ai/context/protocol/compatibility.md` for the full continuity-epoch definition. |
 | `playContextId` | string or `null` | yes | Identifies the currently loaded play context. `null` outside an active play context (main menu, before any load, or after a return to the main menu) — genuine semantic absence, not a placeholder. |
 | `clientId` | string or `null` | yes | Identifies the logical client, established at `hello`. `null` on the client's own `hello` (not yet established) and on every message the Host sends after `hello_ack`: once a session exists, the Host derives the authenticated client from that session rather than repeating it on the wire. `hello_ack` itself still carries the value it accepted, confirming the identity the session now owns. |
 
@@ -54,13 +54,13 @@ independent protocol-generation number carried on every message — see
 - `stateArea` is a canonical identifier assigned when a state area is registered. No state area is
   currently registered; see "Registered state areas" below.
 - `revision` is a non-negative integer, monotonically increasing within one
-  `(bridgeInstanceId, playContextId, stateArea)`.
-- A revision belongs to that authoritative bridge instance, play context, and state area rather
+  `(stateAuthorityId, playContextId, stateArea)`.
+- A revision belongs to that authority continuity epoch, play context, and state area rather
   than to a socket session: it advances only when that authoritative state changes, is not reset by
   a reconnect, and is invalidated when the play context changes. Clients detect stale cached state
-  by comparing `(bridgeInstanceId, playContextId)` against what they have cached; a mismatch means
-  the cached state came from a different bridge lifetime or play context and must be discarded
-  before the next snapshot is trusted.
+  by comparing `(stateAuthorityId, playContextId)` against what they have cached; a mismatch means
+  the cached state came from a different authority continuity epoch or play context and must be
+  discarded before the next snapshot is trusted.
 - `occurredAt` is UTC RFC 3339 wall-clock time for display and diagnostics; it is not an ordering source.
 - `data` contains the state-area contract.
 - An unavailable value is represented explicitly as `null` or by the state-area's documented availability field; it must not be replaced with a plausible default.

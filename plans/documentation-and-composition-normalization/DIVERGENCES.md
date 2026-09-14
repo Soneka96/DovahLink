@@ -265,3 +265,40 @@ correct despite `01.3a`'s loosely worded sentence, not a scope change to `01.3b`
 2026-09-14), confirming the vocabulary-only rename is the correct direction and
 explicitly declining to pull Stage 5's compatibility-enforcement work forward into
 `01.3b`.
+
+## D6 -- roadmap/10's discovery-record identity bullet not resolved by 01.3c
+
+**Original requirement:** None in `SOURCE.md` -- part of D4's vocabulary-normalization
+programme. `roadmap/10-multi-bridge-and-local-discovery-foundation.md` ("Status:
+Planned") has a scope bullet: "Validate records against authenticated
+`bridgeInstanceId` and tolerate stale records."
+
+**Observed conflict:** `01.3c`'s own documentation-cutover step renames every live
+`bridgeInstanceId` reference to `stateAuthorityId`. This one bullet cannot receive that
+same mechanical rename: `01.3a` Section C is explicit that `stateAuthorityId`
+identifies a Host authoritative-state *continuity epoch*, not an Adapter/Host process
+instance, and is deliberately not a public instance identifier -- the exact opposite of
+what this bullet needs for validating a same-machine discovery record against forgery
+by a different running instance. Silently renaming the field here would bake a wrong,
+undecided design choice into a phase nobody has designed yet, which `01.3c`'s own
+Non-goals forbid ("Any decision not already made in `01.3a` -- if a gap is found, stop
+and return to `01.3a`").
+
+**Proposed change:** Reword the bullet to state the requirement (validate against *an*
+authenticated per-instance identity) without naming a specific field, and note
+explicitly that `stateAuthorityId` is not that identity and why, citing `01.3a` Section
+C. The actual identity mechanism Stage 10 uses (most plausibly a public counterpart of
+`adapterInstanceId`, if one is ever decided, or a fresh discovery-scoped identifier) is
+left as that phase's own open design question -- not decided here, and not blocking
+`01.3c`'s completion, since Stage 10 has not started implementation.
+
+**Impact:** No requirement ID changes, no concept added or removed. Documentation-only:
+one roadmap bullet's wording changes from a stale, now-misleading field reference to an
+explicit statement of what remains undecided. Stage 10 itself is unaffected -- it was
+already unimplemented and un-designed for this specific mechanism before this
+divergence.
+
+**Status:** approved.
+
+**Decision source:** User confirmation (this session, 2026-09-14), choosing to reword
+the bullet and record this divergence rather than leave the stale reference untouched.

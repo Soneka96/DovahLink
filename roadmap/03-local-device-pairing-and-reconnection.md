@@ -55,15 +55,15 @@ seeing another pairing code unless trust was actually removed.
   and issue it to the pairing client; that credential is the only credential used for that client's
   later reconnects, and each reconnect still creates a fresh authenticated `sessionId`.
 - Persist completed trust so it survives Skyrim, Bridge, and Windows restarts, save changes,
-  `playContextId` changes, and `bridgeInstanceId` changes. Persistent trust belongs to the current
+  `playContextId` changes, and `stateAuthorityId` changes. Persistent trust belongs to the current
   Windows user profile running the client and the Bridge, not to the modpack, the Skyrim
-  installation, a particular Bridge process, `bridgeInstanceId`, `playContextId`, or `sessionId`, so
+  installation, a particular Bridge process, `stateAuthorityId`, `playContextId`, or `sessionId`, so
   two Windows users sharing one PC and modpack have independent trusted clients and exporting or
   copying a modpack never copies another user's paired-device trust. Store both the Bridge's trusted-
   client records and the client's own credential through an approved per-user secure-storage
-  mechanism for the platform; do not invent cryptography. `bridgeInstanceId` remains ephemeral exactly
+  mechanism for the platform; do not invent cryptography. `stateAuthorityId` remains ephemeral exactly
   as defined by `ARCHITECTURE.md`; persistent trust does not change that a bridge restart still
-  creates a new `bridgeInstanceId`, and the client authenticates again after a restart to receive a
+  creates a new `stateAuthorityId`, and the client authenticates again after a restart to receive a
   new `sessionId`.
 - Scope `clientId` to the client installation and the Windows user profile running it, so the
   official client does not share one `clientId` and credential between different Windows user
@@ -114,7 +114,7 @@ seeing another pairing code unless trust was actually removed.
   still apply before WebSocket ownership begins.
 - Reconnect with a valid persisted credential always creates a fresh `sessionId` without requiring
   another six-digit code, without resetting the authoritative revision, without reinterpreting
-  `bridgeInstanceId`, and without reviving pending messages from a dead session. If a client crashes
+  `stateAuthorityId`, and without reviving pending messages from a dead session. If a client crashes
   and restarts quickly enough that its previous connection is still tearing down, treat the retry as
   bounded short retry/backoff against a temporarily busy slot rather than introducing same-client
   connection takeover or generation-replacement semantics; runtime tests must prove that normal
@@ -166,10 +166,10 @@ rather than discovering or selecting among instances.
   successful outcome, not an error. Incomplete pending pairing may safely disappear on Bridge restart
   without creating trust.
 - Successful pairing binds one strong device credential to one `clientId`; persistent trust survives
-  Skyrim, Bridge, and Windows restarts, save changes, and `playContextId`/`bridgeInstanceId` changes,
+  Skyrim, Bridge, and Windows restarts, save changes, and `playContextId`/`stateAuthorityId` changes,
   and is scoped to the Windows user profile rather than the modpack, Skyrim installation, or
-  `bridgeInstanceId`, so copying or exporting a modpack cannot copy trusted-device secrets.
-  `bridgeInstanceId` still changes on every Bridge runtime, and every authenticated socket still
+  `stateAuthorityId`, so copying or exporting a modpack cannot copy trusted-device secrets.
+  `stateAuthorityId` still changes on every Bridge runtime, and every authenticated socket still
   receives a fresh `sessionId` that is invalid after disconnect/reconnect.
 - The official client's user profile does not accidentally share `clientId`/credential state between
   different Windows users. Trusted clients carry a real `clientId` plus a separate five-digit

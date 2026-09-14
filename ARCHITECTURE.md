@@ -207,16 +207,12 @@ one authoritative state store for the active play context. Skyrim state is captu
 with subscribed clients; adding a client must not repeat equivalent Skyrim reads for that client.
 
 A state revision identifies a version of authoritative state within one state area,
-`playContextId`, and the authoritative-lineage identity for that state -- today's wire field
-`bridgeInstanceId` (`protocol/schema/README.md`'s "Registered state areas"), decided to become
-`stateAuthorityId` per
+`playContextId`, and `stateAuthorityId` (`protocol/schema/README.md`'s "Registered state
+areas"): `(stateAuthorityId, playContextId, stateArea)`, per
 `plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
-Section D once `01.3c` implements that cutover: `(stateAuthorityId, playContextId, stateArea)`.
-This section describes the scope shape, not which of those two field names is currently active on
-the wire -- see `01.3a` Section D for the full decision. A revision advances only when that
-authoritative state changes. Sending or requesting another snapshot does not advance the revision
-when the state is unchanged, and reconnecting does not create a new authoritative revision merely
-because the socket session changed.
+Section D. A revision advances only when that authoritative state changes. Sending or requesting
+another snapshot does not advance the revision when the state is unchanged, and reconnecting does
+not create a new authoritative revision merely because the socket session changed.
 
 Clients use that authoritative-lineage identity, `playContextId`, and the state-area revision
 together to reject stale state. `sessionId` and `ConnectionId` prevent a client from accepting
