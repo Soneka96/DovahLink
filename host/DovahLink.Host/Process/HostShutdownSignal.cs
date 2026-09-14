@@ -29,6 +29,13 @@ public sealed class NamedEventHostShutdownSignal : IHostShutdownSignal
         handle = new EventWaitHandle(initialState: false, EventResetMode.ManualReset, eventName);
     }
 
+    /// <summary>Creates a signal waiting on the named event derived from this Host process's own identity.</summary>
+    /// <param name="hostInstance">This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> derives the named event.</param>
+    public NamedEventHostShutdownSignal(HostInstanceOptions hostInstance)
+        : this(Constants.ShutdownEventName(hostInstance.OwnerLifetimeId))
+    {
+    }
+
     /// <inheritdoc/>
     public Task WaitAsync(CancellationToken cancellationToken = default) =>
         //  Deliberately does not pass cancellationToken to Task.Run itself: that would let Task.Run

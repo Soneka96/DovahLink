@@ -105,6 +105,35 @@ public class HostShutdownSignalTests
         Assert.NotEqual(waitTaskB, completedFirst);
     }
 
+    /// <summary>Verifies that the <see cref="HostInstanceOptions"/>-based constructor waits on the exact named event <see cref="Constants.ShutdownEventName"/> derives for that owner lifetime.</summary>
+    [Fact]
+    public async Task WaitAsync_ConstructedFromHostInstanceOptions_WaitsOnDerivedEventName()
+    {
+        var ownerLifetimeId = new OwnerLifetimeId((uint)Random.Shared.Next(), (ulong)Guid.NewGuid().GetHashCode());
+        using var signal = new NamedEventHostShutdownSignal(new HostInstanceOptions(ownerLifetimeId));
+        Task waitTask = signal.WaitAsync();
+
+        using var adapterSideHandle = new EventWaitHandle(false, EventResetMode.ManualReset, Constants.ShutdownEventName(ownerLifetimeId));
+        adapterSideHandle.Set();
+
+        await waitTask.WaitAsync(CompletionTimeout);
+    }
+
+    /// <summary>Verifies that the <see cref="HostInstanceOptions"/>-based and explicit-event-name constructors wait on the same underlying named event for the same owner lifetime.</summary>
+    [Fact]
+    public async Task WaitAsync_ConstructedFromHostInstanceOptionsOrExplicitEventName_ObserveTheSameSignal()
+    {
+        var ownerLifetimeId = new OwnerLifetimeId((uint)Random.Shared.Next(), (ulong)Guid.NewGuid().GetHashCode());
+        using var fromOptions = new NamedEventHostShutdownSignal(new HostInstanceOptions(ownerLifetimeId));
+        using var fromExplicitName = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
+
+        using var adapterSideHandle = new EventWaitHandle(false, EventResetMode.ManualReset, Constants.ShutdownEventName(ownerLifetimeId));
+        adapterSideHandle.Set();
+
+        await fromOptions.WaitAsync().WaitAsync(CompletionTimeout);
+        await fromExplicitName.WaitAsync().WaitAsync(CompletionTimeout);
+    }
+
     /// <summary>Builds a unique per-test event name, so parallel test runs and repeated runs never collide.</summary>
     private static string UniqueEventName() => $@"Local\DovahLinkTest.Shutdown.{Guid.NewGuid():N}";
 }

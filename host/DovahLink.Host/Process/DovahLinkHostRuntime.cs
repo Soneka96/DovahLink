@@ -32,30 +32,29 @@ public sealed class DovahLinkHostRuntime
     /// <summary>Reports the rendezvous endpoint to a launching adapter reading this process's standard output.</summary>
     private readonly TextWriter rendezvousOutput;
 
-    /// <summary>This host process's own peer-ownership proof token.</summary>
-    private readonly byte[] peerProofToken;
-
-    /// <summary>This host process's own HostProof HMAC key.</summary>
-    private readonly byte[] hostProofKey;
+    /// <summary>Supplies this host process's own peer-ownership proof token and HostProof HMAC key.</summary>
+    private readonly IAdapterPeerProofVerifier peerProofVerifier;
 
     /// <summary>Creates a runtime over an already-composed listener/lifecycle graph.</summary>
     /// <param name="adapterListener">Accepts the private adapter-IPC connection.</param>
-    /// <param name="publicListener">Accepts public client connections, or <see langword="null"/> to run without one.</param>
     /// <param name="shutdownSignal">Watched for the adapter's own named shutdown-request signal.</param>
     /// <param name="lifetime">Run until the process is asked to exit.</param>
     /// <param name="rendezvousPublisher">Publishes the adapter-IPC rendezvous endpoint to its discovery file.</param>
     /// <param name="rendezvousOutput">Reports the rendezvous endpoint to a launching adapter reading this process's standard output.</param>
-    /// <param name="peerProofToken">This host process's own peer-ownership proof token.</param>
-    /// <param name="hostProofKey">This host process's own HostProof HMAC key.</param>
+    /// <param name="peerProofVerifier">Supplies this host process's own peer-ownership proof token and HostProof HMAC key.</param>
+    /// <param name="publicListener">
+    /// Accepts public client connections, or <see langword="null"/> to run without one. Defaults to
+    /// <see langword="null"/> so automatic constructor resolution supplies it without throwing when
+    /// <see cref="DovahLink.Host.Composition.PublicClientServiceExtensions.AddPublicClientServices"/> left it unregistered.
+    /// </param>
     public DovahLinkHostRuntime(
         IAdapterIpcListener adapterListener,
-        IPublicWebSocketListener? publicListener,
         IHostShutdownSignal shutdownSignal,
         IHostProcessLifetime lifetime,
         IHostRendezvousPublisher rendezvousPublisher,
         TextWriter rendezvousOutput,
-        byte[] peerProofToken,
-        byte[] hostProofKey)
+        IAdapterPeerProofVerifier peerProofVerifier,
+        IPublicWebSocketListener? publicListener = null)
     {
         this.adapterListener = adapterListener;
         this.publicListener = publicListener;
@@ -63,8 +62,7 @@ public sealed class DovahLinkHostRuntime
         this.lifetime = lifetime;
         this.rendezvousPublisher = rendezvousPublisher;
         this.rendezvousOutput = rendezvousOutput;
-        this.peerProofToken = peerProofToken;
-        this.hostProofKey = hostProofKey;
+        this.peerProofVerifier = peerProofVerifier;
     }
 
     /// <summary>
@@ -82,6 +80,8 @@ public sealed class DovahLinkHostRuntime
     {
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
 
+        byte[] peerProofToken = peerProofVerifier.ExpectedToken;
+        byte[] hostProofKey = peerProofVerifier.HostProofKey;
         rendezvousPublisher.Publish(adapterListener.BoundPort, peerProofToken, hostProofKey);
 
         // PORT, PROOF, and HOSTPROOF are always exactly the first three lines, in this exact

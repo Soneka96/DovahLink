@@ -126,6 +126,57 @@ public class HostRendezvousTests : IDisposable
         Assert.False(File.Exists(tempFilePath));
     }
 
+    /// <summary>Verifies that the <see cref="HostInstanceOptions"/>-based constructor writes to the exact file path <see cref="Constants.RendezvousFilePath"/> derives for that owner lifetime.</summary>
+    [Fact]
+    public void Publish_ConstructedFromHostInstanceOptions_WritesToDerivedFilePath()
+    {
+        var ownerLifetimeId = new OwnerLifetimeId((uint)Random.Shared.Next(), (ulong)Guid.NewGuid().GetHashCode());
+        string derivedPath = Constants.RendezvousFilePath(ownerLifetimeId);
+        var publisher = new FileHostRendezvousPublisher(new HostInstanceOptions(ownerLifetimeId));
+
+        try
+        {
+            publisher.Publish(12345, [0xA0], [0xD3]);
+
+            Assert.True(File.Exists(derivedPath));
+        }
+        finally
+        {
+            if (File.Exists(derivedPath))
+            {
+                File.Delete(derivedPath);
+            }
+        }
+    }
+
+    /// <summary>Verifies that the <see cref="HostInstanceOptions"/>-based and explicit-file-path constructors write to the same rendezvous file for the same owner lifetime.</summary>
+    [Fact]
+    public void Publish_ConstructedFromHostInstanceOptionsOrExplicitFilePath_WriteToTheSameFile()
+    {
+        var ownerLifetimeId = new OwnerLifetimeId((uint)Random.Shared.Next(), (ulong)Guid.NewGuid().GetHashCode());
+        string derivedPath = Constants.RendezvousFilePath(ownerLifetimeId);
+        var fromOptions = new FileHostRendezvousPublisher(new HostInstanceOptions(ownerLifetimeId));
+        var fromExplicitPath = new FileHostRendezvousPublisher(derivedPath);
+
+        try
+        {
+            fromOptions.Publish(1, [0x01], [0x02]);
+            string afterFromOptions = File.ReadAllText(derivedPath);
+
+            fromExplicitPath.Publish(1, [0x01], [0x02]);
+            string afterFromExplicitPath = File.ReadAllText(derivedPath);
+
+            Assert.Equal(afterFromExplicitPath, afterFromOptions);
+        }
+        finally
+        {
+            if (File.Exists(derivedPath))
+            {
+                File.Delete(derivedPath);
+            }
+        }
+    }
+
     /// <summary>Verifies that two different owner-lifetime-ids resolve to two different rendezvous file paths.</summary>
     [Fact]
     public void RendezvousFilePath_DifferentOwnerLifetimeIds_NeverCollide()

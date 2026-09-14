@@ -120,7 +120,7 @@ internal static class Program
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
         services.AddPublicClientServices(publicListenerPort);
-        services.AddHostRuntime(ownerLifetimeId, lifetime, rendezvousOutput);
+        services.AddHostRuntime(lifetime, rendezvousOutput);
 
         // ValidateOnBuild is deliberately not set: it eagerly resolves every registered service right here and
         // wraps any resulting exception in an AggregateException -- which would turn a bad-port SocketException

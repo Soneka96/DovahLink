@@ -22,8 +22,8 @@ public class DovahLinkHostRuntimeTests
         var rendezvousPublisher = new FakeHostRendezvousPublisher();
         var output = new SynchronizedTextCapture();
         var runtime = new DovahLinkHostRuntime(
-            adapterListener, publicListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
-            peerProofToken: [1, 2, 3], hostProofKey: [4, 5, 6]);
+            adapterListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1, 2, 3], HostProofKey = [4, 5, 6] }, publicListener);
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
@@ -65,8 +65,8 @@ public class DovahLinkHostRuntimeTests
     {
         var output = new SynchronizedTextCapture();
         var runtime = new DovahLinkHostRuntime(
-            new FakeAdapterIpcListener { BoundPort = 111 }, publicListener: null, new FakeHostShutdownSignal(), new HostProcessLifetime(),
-            new FakeHostRendezvousPublisher(), output, peerProofToken: [1], hostProofKey: [2]);
+            new FakeAdapterIpcListener { BoundPort = 111 }, new FakeHostShutdownSignal(), new HostProcessLifetime(),
+            new FakeHostRendezvousPublisher(), output, new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] });
         using var shutdown = new CancellationTokenSource();
         shutdown.Cancel();
 
@@ -90,8 +90,8 @@ public class DovahLinkHostRuntimeTests
         var rendezvousPublisher = new FakeHostRendezvousPublisher();
         var output = new SynchronizedTextCapture();
         var runtime = new DovahLinkHostRuntime(
-            adapterListener, publicListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
-            peerProofToken: [1], hostProofKey: [2]);
+            adapterListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, publicListener);
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
@@ -112,8 +112,9 @@ public class DovahLinkHostRuntimeTests
     public async Task RunAsync_LifetimeCompletes_ReturnsSuccessExitCode()
     {
         var runtime = new DovahLinkHostRuntime(
-            new FakeAdapterIpcListener(), new FakePublicWebSocketListener(), new FakeHostShutdownSignal(), new HostProcessLifetime(),
-            new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(), peerProofToken: [1], hostProofKey: [2]);
+            new FakeAdapterIpcListener(), new FakeHostShutdownSignal(), new HostProcessLifetime(),
+            new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, new FakePublicWebSocketListener());
         using var shutdown = new CancellationTokenSource();
         shutdown.Cancel();
 
@@ -128,8 +129,9 @@ public class DovahLinkHostRuntimeTests
     {
         var shutdownSignal = new FakeHostShutdownSignal();
         var runtime = new DovahLinkHostRuntime(
-            new FakeAdapterIpcListener(), new FakePublicWebSocketListener(), shutdownSignal, new HostProcessLifetime(),
-            new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(), peerProofToken: [1], hostProofKey: [2]);
+            new FakeAdapterIpcListener(), shutdownSignal, new HostProcessLifetime(),
+            new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, new FakePublicWebSocketListener());
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
