@@ -183,7 +183,7 @@ remaining non-normative/historical cleanup, stays with Concept 05 above.)
 01.3b Compatibility/version vocabulary cutover
         │
         ▼
-01.3c Public authoritative-instance identity cutover
+01.3c Public state-authority continuity identity cutover
         │
         ├──────────────────────────┐
         ▼                          ▼
@@ -260,7 +260,7 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 01.2b -- Internal code/test/tooling terminology | Complete | #63 |
 | 01.3a -- Public vocabulary + identity/version design | In progress | -- |
 | 01.3b -- Compatibility/version vocabulary cutover | Blocked by 01.3a | -- |
-| 01.3c -- Public authoritative-instance identity cutover | Blocked by 01.3b | -- |
+| 01.3c -- Public state-authority continuity identity cutover | Blocked by 01.3b | -- |
 | 02 -- Host composition and DI lifetimes | Blocked by 01.3c | -- |
 | 03 -- Adapter runtime composition | Blocked by 01.1, 01.3c | -- |
 | 04 -- Host documentation sweep | Blocked by 02 | -- |

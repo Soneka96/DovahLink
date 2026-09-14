@@ -92,14 +92,14 @@ The current recovery sequence and error codes belong to `protocol/schema/README.
 
 Simultaneous support for more than one historical contract generation is deferred, not prohibited. Revisit it only when a concrete requirement exists — established third-party clients, independently distributed components that cannot update together, a public backwards-compatibility guarantee, or a comparable constraint — and design that system from the requirements in force at that time.
 
-## Decided, pending implementation: public instance identifier
+## Decided, pending implementation: public state-authority continuity identifier
 
-Whether the public protocol exposes an authoritative-process instance identifier (the public
-counterpart to the host-observed `adapterInstanceId`) is now decided in
+Whether the public protocol exposes a state-authority continuity identifier is now decided in
 `plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md`
-Section C, not left to a later protocol revision stage. `ARCHITECTURE.md`'s "Runtime and identity
-model" fixes the four private identity lifetimes; this decision adds a fifth, public-only concept
-without changing any of them.
+Section C, not left to a later protocol revision stage. It is deliberately not a public counterpart
+of the host-observed `adapterInstanceId` -- see the Decision below for why the two are independent
+axes, not aliases. `ARCHITECTURE.md`'s "Runtime and identity model" fixes the four private identity
+lifetimes; this decision adds a fifth, public-only concept without changing any of them.
 
 **Decision:** yes. The wire field is `stateAuthorityId`, identifying a Host
 authoritative-state *continuity epoch*: it changes whenever cached revisions from

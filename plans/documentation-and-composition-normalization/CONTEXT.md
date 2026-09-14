@@ -13,10 +13,12 @@ Status: active (package frozen 2026-09-13)
 - Status: in progress on branch `docs/01.3a-public-vocabulary-and-identity-semantics`,
   not yet opened as a PR. Design-only gate: mandatory decisions A-F are all resolved
   (see the concept file itself) -- compatibility authority is the Host release version
-  (`bridgeVersion` -> `hostVersion`); the public authoritative-process instance
-  identifier is decided as `stateAuthorityId` (`bridgeInstanceId` -> `stateAuthorityId`,
-  Host-minted at startup and on every Adapter reconnect, deliberately distinct from
-  `adapterInstanceId` so a Host-only restart still invalidates cached state); the
+  (`bridgeVersion` -> `hostVersion`); the public state-authority continuity identifier
+  is decided as `stateAuthorityId` (`bridgeInstanceId` -> `stateAuthorityId`, a
+  continuity epoch -- not a process/instance identifier and not a counterpart of
+  `adapterInstanceId` -- rotated the instant the Host detects a continuity break, on
+  Host restart or Adapter/IPC connection loss, not when the resync/rebind that follows
+  later succeeds; one break produces exactly one rotation); the
   cache-invalidation tuple becomes `(stateAuthorityId, playContextId, stateArea)`;
   migration policy is intentionally breaking, no aliases. `ai/context/protocol/compatibility.md`'s
   two deferred-decision sections are updated to record the decision as "decided,
@@ -89,7 +91,7 @@ Status: active (package frozen 2026-09-13)
   instructions terminology), `01.2b` (internal code/test/tooling terminology),
   `01.3a` (design-only public vocabulary + instance-identity decision, no wire
   implementation), `01.3b` (compatibility/version vocabulary cutover, implements
-  01.3a exactly), `01.3c` (public authoritative-instance identity cutover, implements
+  01.3a exactly), `01.3c` (public state-authority continuity identity cutover, implements
   01.3a exactly) -- between Concept 01.1 and Concept 03/02. Why now: a full-repository
   inventory found 236 files / 1,342 case-insensitive `bridge` hits that are not one
   kind of debt (stale active terminology, stale internal naming, public wire fields

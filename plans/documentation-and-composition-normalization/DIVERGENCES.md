@@ -167,13 +167,13 @@ rather than names scheduled for immediate replacement:
   refactor riding along (behavior-neutral).
 - `01.3a` -- a design-only gate with no wire implementation: decide the compatibility
   authority and canonical version vocabulary (replacing `bridgeVersion`), decide
-  whether and how the public protocol exposes an authoritative-process instance
+  whether and how the public protocol exposes a state-authority continuity
   identifier (replacing `bridgeInstanceId`'s deferred semantics), and produce an
   explicit old-to-new vocabulary table. No implementation concept below starts while
   any row of that table is undecided.
 - `01.3b` -- implement exactly 01.3a's compatibility/version decision (small: ~3
   fixtures plus the Host/SDK code and docs that produce/consume that one field).
-- `01.3c` -- implement exactly 01.3a's public authoritative-instance identity decision
+- `01.3c` -- implement exactly 01.3a's public state-authority continuity identity decision
   (large: ~57 fixtures plus Host/SDK envelope code, since this field is in the
   standard envelope header) -- proving reconnect/new-session/multi-client/restart
   identity invariants, not just a renamed string.
