@@ -227,10 +227,9 @@ previous context's state and establishes fresh authoritative state before public
 `roadmap/02-bridge-identity-and-authoritative-state.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
 the bridge and its clients. This ownership must not be implemented by silently reinterpreting
 messages from the previously published experimental release, which is archived rather than a
-supported compatibility target. The current pre-cutover contract has no independent runtime
-protocol-generation number; compatibility with the frozen reference is identified by the DovahLink
-Bridge/mod release version. The target host contract will use the host release version when its
-public compatibility boundary is activated, per `ai/context/protocol/compatibility.md`.
+supported compatibility target. The current contract has no independent runtime
+protocol-generation number; compatibility is identified by the Host's own release version,
+per `ai/context/protocol/compatibility.md`.
 
 ## Live delivery and performance model
 

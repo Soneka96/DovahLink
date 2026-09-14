@@ -209,3 +209,59 @@ where that invariant is deliberately relaxed, and only there.
 identifier ("D3") collided with this package's actual D3 (the merge-SHA divergence
 above, added in a review pass the brief predated) and is renumbered D4; and Concept 02
 and Concept 03's dependency lines are updated explicitly rather than left implicit.
+
+## D5 -- 01.3a Section A compatibility-mechanism correction
+
+**Original requirement:** None in `SOURCE.md` -- part of D4's vocabulary-normalization
+programme. `01.3a-public-vocabulary-and-identity-semantics.md` Section A states, as
+part of deciding the compatibility authority: "The SDK continues to declare an
+explicit minimum/maximum supported range against this same value (mechanism unchanged
+from today, only the label changes)."
+
+**Observed conflict:** That sentence is factually imprecise. No SDK-side
+supported-range comparison, too-old/too-new rejection, or any other compatibility
+*enforcement* mechanism exists anywhere in this codebase today -- confirmed
+repo-wide (`git grep -n "incompatib" -- sdk/dart/dovahlink_client/lib/ app/lib/`
+returns zero hits, on `main` included, not only on `01.3b`'s branch) -- so there is no
+existing mechanism for "unchanged from today" to describe. `sdk/README.md` already
+documents this precisely: "Phase 5's remaining scope -- Host-version compatibility
+detection [...] -- is undone," matching `roadmap/05-dart-client-sdk-foundation.md`'s
+own "Status: Planned" and its explicit list of undone scope, including the actual
+`hello_ack` version check and incompatible-Host disconnect behavior. `01.3b`'s own
+Non-goals already say "any decision not already made in `01.3a` -- stop and return to
+`01.3a` rather than deciding it here," and `AGENTS.md`'s non-negotiable rules forbid
+adding protocol implementation the maintainer has not explicitly requested. Without
+this divergence, `01.3b` would either have to silently invent the missing enforcement
+mechanism (new protocol implementation, outside a vocabulary-cutover concept's scope
+and Stage 5's own already-claimed territory) or silently contradict `01.3a`'s merged
+text with no recorded resolution -- both violate this package's "changes from here are
+tracked as new divergences, not silent edits to this package's design" rule (section 1).
+
+**Proposed change:** Record the correction as a divergence rather than editing
+`01.3a`'s own merged, frozen file, drawing one distinction cleanly: `01.3a` Section A
+did decide the target compatibility *policy* -- an explicit minimum/maximum supported
+range, a too-old/too-new distinction, and a fail-closed bootstrap check -- and that
+policy decision is correct and stands unchanged. What `01.3a` got wrong was the premise
+wrapped around it: it asserted this policy's enforcement *mechanism* already exists
+("unchanged from today"), when no such mechanism exists anywhere in this codebase.
+`01.3b` implements exactly the compatibility-authority/vocabulary rename
+(`bridgeVersion` -> `hostVersion`) and preserves current pass-through, unvalidated
+decode behavior exactly -- it invents no compatibility-range comparison, no
+too-old/too-new rejection, and no new failure mode. This is not a gap `01.3b` returns
+to `01.3a` to decide (the policy is already decided); it is a mechanism `01.3b`
+declines to build, because `roadmap/05-dart-client-sdk-foundation.md` Stage 5 already
+owns designing and building it, documented as undone in `sdk/README.md`. `01.3b`'s own
+proof-obligation section cites this divergence by number rather than asserting the
+correction on its own authority.
+
+**Impact:** No requirement ID changes, no concept is added or removed, and no file
+`01.3a` itself owns is edited. `01.3b`'s scope is unchanged from what it always was
+(the authority/vocabulary rename only) -- this divergence documents why that scope is
+correct despite `01.3a`'s loosely worded sentence, not a scope change to `01.3b`.
+
+**Status:** approved.
+
+**Decision source:** Maintainer review of `01.3b`'s implementation (this session,
+2026-09-14), confirming the vocabulary-only rename is the correct direction and
+explicitly declining to pull Stage 5's compatibility-enforcement work forward into
+`01.3b`.

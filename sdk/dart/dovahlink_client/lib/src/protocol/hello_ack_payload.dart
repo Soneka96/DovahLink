@@ -12,7 +12,7 @@ part 'hello_ack_payload.g.dart';
 class HelloAckPayload {
   /// Creates a hello-ack payload.
   const HelloAckPayload({
-    required this.bridgeVersion,
+    required this.hostVersion,
     required this.clientIdentityKind,
   });
 
@@ -20,8 +20,8 @@ class HelloAckPayload {
   factory HelloAckPayload.fromJson(JsonMap json) {
     try {
       final HelloAckPayload payload = _$HelloAckPayloadFromJson(json);
-      if (payload.bridgeVersion.isEmpty) {
-        throw const ProtocolFormatException('bridgeVersion must not be empty.');
+      if (payload.hostVersion.isEmpty) {
+        throw const ProtocolFormatException('hostVersion must not be empty.');
       }
       return payload;
     } on Object catch (error) {
@@ -29,9 +29,9 @@ class HelloAckPayload {
     }
   }
 
-  /// The DovahLink Bridge/mod release version.
+  /// The Host's own release version, the compatibility authority.
   @JsonKey(required: true)
-  final String bridgeVersion;
+  final String hostVersion;
 
   /// The wire vocabulary of `hello_ack.clientIdentityKind`. Mapped to [DovahLinkTrustState] by
   /// `AuthenticationService`, not here.

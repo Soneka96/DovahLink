@@ -13,7 +13,7 @@ class PairingScreenViewModel extends Equatable {
   const PairingScreenViewModel({
     required this.phase,
     required this.statusLabel,
-    required this.bridgeVersion,
+    required this.hostVersion,
     required this.error,
     required this.onStart,
     required this.onRequestCode,
@@ -27,8 +27,8 @@ class PairingScreenViewModel extends Equatable {
   /// User-visible label for [phase].
   final String statusLabel;
 
-  /// Reported bridge version, or `null` when unknown.
-  final String? bridgeVersion;
+  /// Reported host version, or `null` when unknown.
+  final String? hostVersion;
 
   /// User-safe pairing error, or `null`.
   final String? error;
@@ -51,7 +51,7 @@ class PairingScreenViewModel extends Equatable {
     return PairingScreenViewModel(
       phase: PairingSelectors.phaseSelector(state),
       statusLabel: PairingSelectors.statusLabelSelector(state),
-      bridgeVersion: PairingSelectors.bridgeVersionSelector(state),
+      hostVersion: PairingSelectors.hostVersionSelector(state),
       error: PairingSelectors.errorSelector(state),
       onStart: () => store.dispatch(const PairingStartedAction()),
       onRequestCode: () => store.dispatch(const PairingCodeRequestedAction()),
@@ -64,5 +64,5 @@ class PairingScreenViewModel extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [phase, statusLabel, bridgeVersion, error];
+  List<Object?> get props => [phase, statusLabel, hostVersion, error];
 }

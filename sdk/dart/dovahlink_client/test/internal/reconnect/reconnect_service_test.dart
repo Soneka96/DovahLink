@@ -80,7 +80,7 @@ void main() {
       () async {
         when(() => authenticationService.hello()).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
         );
@@ -113,7 +113,7 @@ void main() {
         });
         when(() => authenticationService.hello()).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
         );
@@ -345,7 +345,7 @@ void main() {
             );
           }
           return const HelloResult(
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           );
         });
@@ -374,7 +374,7 @@ void main() {
         ).thenThrow(const DovahLinkConnectionException('unreachable'));
         when(() => authenticationService.hello()).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
         );
@@ -407,7 +407,7 @@ void main() {
       ).thenThrow(const DovahLinkConnectionException('unreachable'));
       when(() => authenticationService.hello()).thenAnswer(
         (_) async => const HelloResult(
-          bridgeVersion: '1.0',
+          hostVersion: '1.0',
           trustState: DovahLinkTrustState.trusted,
         ),
       );
@@ -455,7 +455,7 @@ void main() {
           throw const DovahLinkConnectionException('unreachable');
         }
         return const HelloResult(
-          bridgeVersion: '1.0',
+          hostVersion: '1.0',
           trustState: DovahLinkTrustState.trusted,
         );
       });
@@ -504,7 +504,7 @@ void main() {
         ).thenReturn(DovahLinkConnectionState.disconnected);
         when(() => authenticationService.hello()).thenAnswer(
           (_) async => const HelloResult(
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
         );

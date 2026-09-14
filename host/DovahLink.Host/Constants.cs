@@ -449,13 +449,12 @@ public static class Constants
     public const int PublicProtocolMaxJsonObjectMembers = 64;
 
     /// <summary>
-    /// The non-empty <c>hello_ack.bridgeVersion</c> value this boundary reports.
-    /// <c>bridgeVersion</c> is a legacy wire-field name retained for protocol compatibility; it
-    /// carries the DovahLink product release version, matching <c>adapter/vcpkg.json</c>'s
-    /// <c>version-string</c>. See <c>ai/context/host/architecture.md</c>'s "Public contract
-    /// ownership".
+    /// The non-empty <c>hello_ack.hostVersion</c> value this boundary reports: the Host's own
+    /// release version, the compatibility authority per
+    /// <c>ai/context/protocol/compatibility.md</c>. See <c>ai/context/host/architecture.md</c>'s
+    /// "Public contract ownership".
     /// </summary>
-    public const string PublicProtocolTransitionalBridgeVersion = "0.3.3";
+    public const string PublicProtocolHostVersion = "0.3.3";
 
     /// <summary>
     /// How long a connection may remain unadmitted after completing its WebSocket upgrade before it

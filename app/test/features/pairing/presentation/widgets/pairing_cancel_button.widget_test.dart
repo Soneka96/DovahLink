@@ -22,7 +22,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -58,7 +58,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.disconnected,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -91,7 +91,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.failed,
-              bridgeVersion: null,
+              hostVersion: null,
               error: 'Challenge cancelled',
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -124,7 +124,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.trusted,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -161,7 +161,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -197,7 +197,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.disconnected,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: null,
             renotifyAvailableAt: null,
@@ -231,7 +231,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: null,
             renotifyAvailableAt: null,
@@ -264,7 +264,7 @@ void main() {
               connection: ConnectionState.initial(),
               pairing: const PairingState(
                 phase: PairingPhase.disconnected,
-                bridgeVersion: null,
+                hostVersion: null,
                 error: null,
                 codeExpiresAt: null,
                 renotifyAvailableAt: null,
@@ -277,7 +277,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: null,
             renotifyAvailableAt: null,
@@ -315,7 +315,7 @@ void main() {
                   connection: ConnectionState.initial(),
                   pairing: const PairingState(
                     phase: PairingPhase.awaitingCode,
-                    bridgeVersion: null,
+                    hostVersion: null,
                     error: null,
                     codeExpiresAt: null,
                     renotifyAvailableAt: null,
@@ -326,7 +326,7 @@ void main() {
                   connection: ConnectionState.initial(),
                   pairing: PairingState(
                     phase: action.toPhase,
-                    bridgeVersion: null,
+                    hostVersion: null,
                     error: null,
                     codeExpiresAt: null,
                     renotifyAvailableAt: null,
@@ -340,7 +340,7 @@ void main() {
             connection: ConnectionState.initial(),
             pairing: const PairingState(
               phase: PairingPhase.awaitingCode,
-              bridgeVersion: null,
+              hostVersion: null,
               error: null,
               codeExpiresAt: null,
               renotifyAvailableAt: null,
@@ -386,7 +386,7 @@ void main() {
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
+            hostVersion: null,
             error: null,
             codeExpiresAt: null,
             renotifyAvailableAt: null,

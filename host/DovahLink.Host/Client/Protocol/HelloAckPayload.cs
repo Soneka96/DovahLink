@@ -7,12 +7,11 @@ namespace DovahLink.Host.Client.Protocol;
 public sealed record HelloAckPayload
 {
     /// <summary>
-    /// <c>bridgeVersion</c> is a legacy wire-field name retained for protocol compatibility; it
-    /// carries the DovahLink product release version, matching <c>adapter/vcpkg.json</c>'s
-    /// <c>version-string</c>. The host does not evaluate a client-declared compatibility range
-    /// itself.
+    /// <c>hostVersion</c> carries the Host's own release version, the compatibility authority per
+    /// <c>ai/context/protocol/compatibility.md</c>. The host does not evaluate a client-declared
+    /// compatibility range itself.
     /// </summary>
-    public required string BridgeVersion { get; init; }
+    public required string HostVersion { get; init; }
 
     /// <summary>The trust kind the newly admitted session was assigned.</summary>
     public required ClientIdentityKind ClientIdentityKind { get; init; }

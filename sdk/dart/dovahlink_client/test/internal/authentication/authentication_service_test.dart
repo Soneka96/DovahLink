@@ -46,7 +46,7 @@ class MockClientIdCache extends Mock implements ClientIdCache {}
 /// Builds a decoded `hello_ack` reply envelope from the shared envelope fixture.
 Envelope buildHelloAckEnvelope({
   String? sessionId = 'session-1',
-  String bridgeVersion = '1.0',
+  String hostVersion = '1.0',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
   String? clientId = 'client-1',
 }) => Fixtures.buildEnvelope(
@@ -54,7 +54,7 @@ Envelope buildHelloAckEnvelope({
   sessionId: sessionId,
   clientId: clientId,
   payload: <String, dynamic>{
-    'bridgeVersion': bridgeVersion,
+    'hostVersion': hostVersion,
     'clientIdentityKind': kind == ClientIdentityKind.paired
         ? 'paired'
         : 'unpaired',
@@ -143,7 +143,7 @@ void main() {
         requestService,
         buildHelloAckEnvelope(
           sessionId: 'session-1',
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           kind: ClientIdentityKind.paired,
         ),
       );
@@ -167,7 +167,7 @@ void main() {
           orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
       );
-      expect(result.bridgeVersion, '1.2.3');
+      expect(result.hostVersion, '1.2.3');
       expect(result.trustState, DovahLinkTrustState.trusted);
     });
 
@@ -178,7 +178,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -213,7 +213,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -238,7 +238,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -277,7 +277,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -319,7 +319,7 @@ void main() {
             messageType: ProtocolMessageType.helloAck,
             sessionId: null,
             payload: <String, dynamic>{
-              'bridgeVersion': '1.0',
+              'hostVersion': '1.0',
               'clientIdentityKind': 'unpaired',
             },
             clientId: 'client-1',
@@ -382,14 +382,14 @@ void main() {
     );
 
     test(
-      'Method hello throws malformed_message and disconnects when bridgeVersion is empty',
+      'Method hello throws malformed_message and disconnects when hostVersion is empty',
       () async {
         stubSendAndAwait(
           requestService,
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
-              'bridgeVersion': '',
+              'hostVersion': '',
               'clientIdentityKind': 'unpaired',
             },
           ),
@@ -425,7 +425,7 @@ void main() {
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
-              'bridgeVersion': '1.0',
+              'hostVersion': '1.0',
               'clientIdentityKind': 'not-a-real-kind',
             },
           ),
@@ -490,7 +490,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            bridgeVersion: '1.0',
+            hostVersion: '1.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -507,7 +507,7 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        expect(result.bridgeVersion, '1.0');
+        expect(result.hostVersion, '1.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
         verifyNever(() => sessionService.connect(any()));
         verify(
@@ -533,7 +533,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            bridgeVersion: '2.0',
+            hostVersion: '2.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -554,13 +554,13 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.bridgeVersion, '2.0');
+        expect(result.hostVersion, '2.0');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
 
     test(
-      'Method authenticate sends hello when trusted but no bridge version is cached',
+      'Method authenticate sends hello when trusted but no host version is cached',
       () async {
         when(
           () => sessionService.connectionState,
@@ -571,7 +571,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            bridgeVersion: '2.1',
+            hostVersion: '2.1',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -592,7 +592,7 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.bridgeVersion, '2.1');
+        expect(result.hostVersion, '2.1');
         expect(result.trustState, DovahLinkTrustState.trusted);
       },
     );
@@ -604,7 +604,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            bridgeVersion: '2.0',
+            hostVersion: '2.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -619,7 +619,7 @@ void main() {
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
-        expect(result.bridgeVersion, '2.0');
+        expect(result.hostVersion, '2.0');
       },
     );
 
@@ -830,7 +830,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            bridgeVersion: '3.0',
+            hostVersion: '3.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -893,7 +893,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            bridgeVersion: '3.0',
+            hostVersion: '3.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -944,7 +944,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            bridgeVersion: '3.0',
+            hostVersion: '3.0',
             kind: ClientIdentityKind.unpaired,
           );
         });

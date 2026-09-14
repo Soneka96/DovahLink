@@ -13,6 +13,6 @@ public sealed record CapabilityDescriptor
     /// <summary>The canonical capability identifier.</summary>
     public required string Id { get; init; }
 
-    /// <summary>The capability's version, independent of the Bridge/Host release version.</summary>
+    /// <summary>The capability's version, independent of the Host release version.</summary>
     public required string Version { get; init; }
 }

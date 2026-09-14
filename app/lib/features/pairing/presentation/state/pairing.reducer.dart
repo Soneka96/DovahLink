@@ -72,7 +72,7 @@ PairingState pairingStartedReducer(
 ) => state.copyWith(phase: PairingPhase.connecting, error: const None());
 
 /// Handles [PairingAuthenticatedAction].
-/// Updates [PairingState.phase], [PairingState.bridgeVersion], [PairingState.error]. Carries
+/// Updates [PairingState.phase], [PairingState.hostVersion], [PairingState.error]. Carries
 /// [PairingAuthenticatedAction.credentialRejectedMessage] through as the error text when set, so
 /// a session recovered from a rejected credential can still explain why to the user.
 PairingState pairingAuthenticatedReducer(
@@ -80,7 +80,7 @@ PairingState pairingAuthenticatedReducer(
   PairingAuthenticatedAction action,
 ) => state.copyWith(
   phase: action.trusted ? PairingPhase.trusted : PairingPhase.unpaired,
-  bridgeVersion: Some(action.bridgeVersion),
+  hostVersion: Some(action.hostVersion),
   error: action.credentialRejectedMessage == null
       ? const None()
       : Some(action.credentialRejectedMessage!),

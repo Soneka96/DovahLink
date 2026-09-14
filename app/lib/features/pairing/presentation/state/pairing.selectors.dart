@@ -10,9 +10,9 @@ abstract final class PairingSelectors {
   static String statusLabelSelector(AppState state) =>
       phaseSelector(state).label;
 
-  /// Returns the reported bridge version, or `null` when unknown.
-  static String? bridgeVersionSelector(AppState state) =>
-      state.pairing.bridgeVersion;
+  /// Returns the reported host version, or `null` when unknown.
+  static String? hostVersionSelector(AppState state) =>
+      state.pairing.hostVersion;
 
   /// Returns the user-safe pairing error, or `null` when absent.
   static String? errorSelector(AppState state) => state.pairing.error;

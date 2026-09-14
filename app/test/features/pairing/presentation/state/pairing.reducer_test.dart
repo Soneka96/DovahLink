@@ -22,7 +22,7 @@ void main() {
     test('PairingStartedAction clears a previous error', () {
       const PairingState state = PairingState(
         phase: PairingPhase.failed,
-        bridgeVersion: null,
+        hostVersion: null,
         error: 'old error',
         codeExpiresAt: null,
         renotifyAvailableAt: null,
@@ -39,35 +39,32 @@ void main() {
 
   group('Action PairingAuthenticatedAction behaves correctly', () {
     test(
-      'PairingAuthenticatedAction stores the bridge version and moves to trusted when already trusted',
+      'PairingAuthenticatedAction stores the host version and moves to trusted when already trusted',
       () {
         final PairingState result = pairingReducer(
           PairingState.initial(),
-          const PairingAuthenticatedAction(
-            bridgeVersion: '1.2.3',
-            trusted: true,
-          ),
+          const PairingAuthenticatedAction(hostVersion: '1.2.3', trusted: true),
         );
 
         expect(result.phase, PairingPhase.trusted);
-        expect(result.bridgeVersion, '1.2.3');
+        expect(result.hostVersion, '1.2.3');
         expect(result.error, isNull);
       },
     );
 
     test(
-      'PairingAuthenticatedAction stores the bridge version and moves to unpaired when not trusted',
+      'PairingAuthenticatedAction stores the host version and moves to unpaired when not trusted',
       () {
         final PairingState result = pairingReducer(
           PairingState.initial(),
           const PairingAuthenticatedAction(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trusted: false,
           ),
         );
 
         expect(result.phase, PairingPhase.unpaired);
-        expect(result.bridgeVersion, '1.2.3');
+        expect(result.hostVersion, '1.2.3');
         expect(result.error, isNull);
       },
     );
@@ -78,7 +75,7 @@ void main() {
         final PairingState result = pairingReducer(
           PairingState.initial(),
           const PairingAuthenticatedAction(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trusted: false,
             credentialRejectedMessage: "This device's trust was revoked.",
           ),
@@ -94,7 +91,7 @@ void main() {
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.connecting,
-          bridgeVersion: null,
+          hostVersion: null,
           error: 'old error',
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -102,10 +99,7 @@ void main() {
 
         final PairingState result = pairingReducer(
           state,
-          const PairingAuthenticatedAction(
-            bridgeVersion: '1.2.3',
-            trusted: true,
-          ),
+          const PairingAuthenticatedAction(hostVersion: '1.2.3', trusted: true),
         );
 
         expect(result.error, isNull);
@@ -169,7 +163,7 @@ void main() {
         final DateTime staleExpiresAt = DateTime.now();
         final PairingState state = PairingState(
           phase: PairingPhase.requestingCode,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: null,
           codeExpiresAt: staleExpiresAt,
           renotifyAvailableAt: null,
@@ -192,7 +186,7 @@ void main() {
         );
         final PairingState state = PairingState(
           phase: PairingPhase.requestingCode,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: staleRenotifyAvailableAt,
@@ -234,10 +228,10 @@ void main() {
 
   group('Action PairingDisconnectedAction behaves correctly', () {
     test('PairingDisconnectedAction changes the phase to disconnected, clears '
-        'error, and preserves bridgeVersion', () {
+        'error, and preserves hostVersion', () {
       const PairingState state = PairingState(
         phase: PairingPhase.connecting,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: 'old error',
         codeExpiresAt: null,
         renotifyAvailableAt: null,
@@ -250,7 +244,7 @@ void main() {
 
       expect(result.phase, PairingPhase.disconnected);
       expect(result.error, isNull);
-      expect(result.bridgeVersion, '1.2.3');
+      expect(result.hostVersion, '1.2.3');
     });
   });
 
@@ -290,7 +284,7 @@ void main() {
       () {
         final PairingState state = PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: null,
           codeExpiresAt: DateTime.now(),
           renotifyAvailableAt: DateTime.now().add(const Duration(seconds: 5)),
@@ -309,10 +303,10 @@ void main() {
   });
 
   group('Action PairingDisposedAction behaves correctly', () {
-    test('PairingDisposedAction resets phase, bridge version, and error', () {
+    test('PairingDisposedAction resets phase, host version, and error', () {
       const PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: 'old error',
         codeExpiresAt: null,
         renotifyAvailableAt: null,
@@ -324,16 +318,16 @@ void main() {
       );
 
       expect(result.phase, PairingPhase.none);
-      expect(result.bridgeVersion, isNull);
+      expect(result.hostVersion, isNull);
       expect(result.error, isNull);
     });
 
     test(
-      'PairingDisposedAction resets phase, bridge version, and error regardless of wasTrusted',
+      'PairingDisposedAction resets phase, host version, and error regardless of wasTrusted',
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.trusted,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -345,7 +339,7 @@ void main() {
         );
 
         expect(result.phase, PairingPhase.none);
-        expect(result.bridgeVersion, isNull);
+        expect(result.hostVersion, isNull);
         expect(result.error, isNull);
       },
     );
@@ -357,7 +351,7 @@ void main() {
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: 'old error',
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -370,7 +364,7 @@ void main() {
 
         expect(result.phase, PairingPhase.awaitingCode);
         expect(result.error, isNull);
-        expect(result.bridgeVersion, '1.2.3');
+        expect(result.hostVersion, '1.2.3');
         expect(result.codeExpiresAt, isNull);
         expect(result.renotifyAvailableAt, isNull);
       },
@@ -383,7 +377,7 @@ void main() {
       );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: 'old error',
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: availableAt,
@@ -405,7 +399,7 @@ void main() {
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: 'old error',
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -418,7 +412,7 @@ void main() {
 
         expect(result.phase, PairingPhase.awaitingCode);
         expect(result.error, isNull);
-        expect(result.bridgeVersion, '1.2.3');
+        expect(result.hostVersion, '1.2.3');
       },
     );
 
@@ -426,7 +420,7 @@ void main() {
       final DateTime expiresAt = DateTime.now();
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: 'old error',
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: null,
@@ -445,7 +439,7 @@ void main() {
     test('PairingRenotifyCooldownAction sets renotifyAvailableAt', () {
       const PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: null,
         codeExpiresAt: null,
         renotifyAvailableAt: null,
@@ -465,7 +459,7 @@ void main() {
       final DateTime expiresAt = DateTime.now();
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         error: 'wrong code',
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: null,
@@ -488,7 +482,7 @@ void main() {
         final DateTime expiresAt = DateTime.now();
         final PairingState state = PairingState(
           phase: PairingPhase.awaitingCode,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: null,
           codeExpiresAt: expiresAt,
           renotifyAvailableAt: null,
@@ -503,7 +497,7 @@ void main() {
         expect(result.error, 'Pairing cancelled.');
         expect(result.codeExpiresAt, isNull);
         expect(result.renotifyAvailableAt, isNull);
-        expect(result.bridgeVersion, '1.2.3');
+        expect(result.hostVersion, '1.2.3');
       },
     );
   });
@@ -516,7 +510,7 @@ void main() {
         () {
           const PairingState state = PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             error: null,
             codeExpiresAt: null,
             renotifyAvailableAt: null,
@@ -531,7 +525,7 @@ void main() {
 
           expect(result.phase, PairingPhase.awaitingCode);
           expect(result.error, "That code isn't correct.");
-          expect(result.bridgeVersion, '1.2.3');
+          expect(result.hostVersion, '1.2.3');
         },
       );
 
@@ -544,7 +538,7 @@ void main() {
           );
           final PairingState state = PairingState(
             phase: PairingPhase.awaitingCode,
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             error: null,
             codeExpiresAt: expiresAt,
             renotifyAvailableAt: availableAt,
@@ -568,7 +562,7 @@ void main() {
         () {
           const PairingState state = PairingState(
             phase: PairingPhase.confirming,
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             error: null,
             codeExpiresAt: null,
             renotifyAvailableAt: null,
@@ -591,11 +585,11 @@ void main() {
   group('Action PairingConnectionRestoredAction behaves correctly', () {
     test(
       'PairingConnectionRestoredAction changes the phase to trusted, clears error, and '
-      'preserves bridgeVersion',
+      'preserves hostVersion',
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.disconnected,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -608,7 +602,7 @@ void main() {
 
         expect(result.phase, PairingPhase.trusted);
         expect(result.error, isNull);
-        expect(result.bridgeVersion, '1.2.3');
+        expect(result.hostVersion, '1.2.3');
       },
     );
 
@@ -617,7 +611,7 @@ void main() {
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.disconnected,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: 'old error',
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -638,7 +632,7 @@ void main() {
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.trusted,
-          bridgeVersion: '1.2.3',
+          hostVersion: '1.2.3',
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: null,
@@ -651,7 +645,7 @@ void main() {
 
         expect(result.phase, PairingPhase.trusted);
         expect(result.error, isNull);
-        expect(result.bridgeVersion, '1.2.3');
+        expect(result.hostVersion, '1.2.3');
       },
     );
   });

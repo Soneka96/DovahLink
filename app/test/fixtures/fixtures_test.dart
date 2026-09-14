@@ -46,8 +46,8 @@ void main() {
         final PairingHandshakeEntity handshake =
             Fixtures.buildPairingHandshakeEntity();
 
-        expect(handshake.bridgeVersion, isA<String>());
-        expect(handshake.bridgeVersion, '1.2.3');
+        expect(handshake.hostVersion, isA<String>());
+        expect(handshake.hostVersion, '1.2.3');
         expect(handshake.trusted, isA<bool>());
         expect(handshake.trusted, isTrue);
         expect(handshake.credentialRejectedMessage, isNull);
@@ -57,13 +57,13 @@ void main() {
     test('Method buildPairingHandshakeEntity preserves named overrides', () {
       final PairingHandshakeEntity handshake =
           Fixtures.buildPairingHandshakeEntity(
-            bridgeVersion: '2.0.0',
+            hostVersion: '2.0.0',
             trusted: false,
             credentialRejectedMessage: 'Pairing is required again.',
           );
 
-      expect(handshake.bridgeVersion, isA<String>());
-      expect(handshake.bridgeVersion, '2.0.0');
+      expect(handshake.hostVersion, isA<String>());
+      expect(handshake.hostVersion, '2.0.0');
       expect(handshake.trusted, isA<bool>());
       expect(handshake.trusted, isFalse);
       expect(handshake.credentialRejectedMessage, isA<String>());

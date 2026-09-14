@@ -45,7 +45,7 @@ public class PublicHelloAdmissionTests
         Assert.NotNull(ackEnvelope.SessionId);
         Assert.Null(ackEnvelope.BridgeInstanceId);
         Assert.Equal(ClientIdentityKind.Unpaired, ack.ClientIdentityKind);
-        Assert.False(string.IsNullOrEmpty(ack.BridgeVersion));
+        Assert.False(string.IsNullOrEmpty(ack.HostVersion));
 
         (PublicEnvelope capsEnvelope, CapabilitiesPayload caps) = DecodeSent<CapabilitiesPayload>(context.Codec, context.FakeConnection.SentPayloads[1]);
         Assert.Equal(PublicMessageType.Capabilities, capsEnvelope.MessageType);

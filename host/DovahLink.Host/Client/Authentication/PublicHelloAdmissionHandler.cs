@@ -934,7 +934,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         var ackPayload = new HelloAckPayload
         {
-            BridgeVersion = Constants.PublicProtocolTransitionalBridgeVersion,
+            HostVersion = Constants.PublicProtocolHostVersion,
             ClientIdentityKind = identityKind,
         };
         byte[] ackBytes = codec.Encode(

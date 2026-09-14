@@ -4,13 +4,13 @@ import 'package:equatable/equatable.dart';
 class PairingHandshakeEntity extends Equatable {
   /// Creates a pairing handshake result.
   const PairingHandshakeEntity({
-    required this.bridgeVersion,
+    required this.hostVersion,
     required this.trusted,
     this.credentialRejectedMessage,
   });
 
-  /// The DovahLink Bridge/mod release version reported by `hello_ack`.
-  final String bridgeVersion;
+  /// The Host's own release version reported by `hello_ack`.
+  final String hostVersion;
 
   /// Whether this session already holds a trusted credential -- either from
   /// `hello`'s own trust tier or from recovering an interrupted pairing
@@ -25,9 +25,5 @@ class PairingHandshakeEntity extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [
-    bridgeVersion,
-    trusted,
-    credentialRejectedMessage,
-  ];
+  List<Object?> get props => [hostVersion, trusted, credentialRejectedMessage];
 }

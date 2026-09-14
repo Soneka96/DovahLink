@@ -21,7 +21,7 @@ void main() {
 
       expect(state.pairing, isA<PairingState>());
       expect(state.pairing.phase, PairingPhase.none);
-      expect(state.pairing.bridgeVersion, isNull);
+      expect(state.pairing.hostVersion, isNull);
       expect(state.pairing.error, isNull);
     });
   });

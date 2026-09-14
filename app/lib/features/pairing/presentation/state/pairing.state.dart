@@ -10,7 +10,7 @@ class PairingState extends Equatable {
   /// Creates pairing state with explicit lifecycle values.
   const PairingState({
     required this.phase,
-    required this.bridgeVersion,
+    required this.hostVersion,
     required this.error,
     required this.codeExpiresAt,
     required this.renotifyAvailableAt,
@@ -19,7 +19,7 @@ class PairingState extends Equatable {
   /// Returns the state before any pairing attempt starts.
   factory PairingState.initial() => const PairingState(
     phase: PairingPhase.none,
-    bridgeVersion: null,
+    hostVersion: null,
     error: null,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
@@ -28,9 +28,9 @@ class PairingState extends Equatable {
   /// The current user-visible pairing phase.
   final PairingPhase phase;
 
-  /// The DovahLink Bridge/mod release version reported at authentication, or
+  /// The Host's own release version reported at authentication, or
   /// `null` before it is known.
-  final String? bridgeVersion;
+  final String? hostVersion;
 
   /// The most recent user-safe pairing error, or `null`.
   final String? error;
@@ -46,15 +46,15 @@ class PairingState extends Equatable {
   /// Returns a copy with selected values replaced.
   PairingState copyWith({
     PairingPhase? phase,
-    Option<String>? bridgeVersion,
+    Option<String>? hostVersion,
     Option<String>? error,
     Option<DateTime>? codeExpiresAt,
     Option<DateTime>? renotifyAvailableAt,
   }) => PairingState(
     phase: phase ?? this.phase,
-    bridgeVersion: bridgeVersion == null
-        ? this.bridgeVersion
-        : bridgeVersion.toNullable(),
+    hostVersion: hostVersion == null
+        ? this.hostVersion
+        : hostVersion.toNullable(),
     error: error == null ? this.error : error.toNullable(),
     codeExpiresAt: codeExpiresAt == null
         ? this.codeExpiresAt
@@ -68,7 +68,7 @@ class PairingState extends Equatable {
   @override
   List<Object?> get props => [
     phase,
-    bridgeVersion,
+    hostVersion,
     error,
     codeExpiresAt,
     renotifyAvailableAt,

@@ -101,7 +101,7 @@ void main() {
           messageId: 'message-1',
           sessionId: null,
           correlationId: null,
-          payload: <String, dynamic>{'bridgeVersion': '1.2.3'},
+          payload: <String, dynamic>{'hostVersion': '1.2.3'},
           bridgeInstanceId: null,
           playContextId: 'context-1',
           clientId: 'client-1',
@@ -111,7 +111,7 @@ void main() {
         expect(envelope.messageId, 'message-1');
         expect(envelope.sessionId, isNull);
         expect(envelope.correlationId, isNull);
-        expect(envelope.payload, <String, dynamic>{'bridgeVersion': '1.2.3'});
+        expect(envelope.payload, <String, dynamic>{'hostVersion': '1.2.3'});
         expect(envelope.bridgeInstanceId, isNull);
         expect(envelope.playContextId, 'context-1');
         expect(envelope.clientId, 'client-1');

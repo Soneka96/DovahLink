@@ -74,7 +74,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
       }
       return Right(
         PairingHandshakeEntity(
-          bridgeVersion: hello.bridgeVersion,
+          hostVersion: hello.hostVersion,
           trusted: trusted,
           credentialRejectedMessage: _credentialRejectedMessage(
             hello.recoveredFromRejectedCredential,

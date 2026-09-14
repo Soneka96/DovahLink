@@ -7,25 +7,25 @@ import '../../../../fixtures/fixtures.dart';
 /// Exercises pairing-handshake entity value preservation.
 void main() {
   group('PairingHandshakeEntity', () {
-    test('stores the reported bridge version and trust standing', () {
+    test('stores the reported host version and trust standing', () {
       final PairingHandshakeEntity handshake =
           Fixtures.buildPairingHandshakeEntity(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trusted: true,
           );
 
-      expect(handshake.bridgeVersion, '1.2.3');
+      expect(handshake.hostVersion, '1.2.3');
       expect(handshake.trusted, isTrue);
     });
 
     test('treats handshakes with different trust standing as unequal', () {
       final PairingHandshakeEntity first = Fixtures.buildPairingHandshakeEntity(
-        bridgeVersion: '1.2.3',
+        hostVersion: '1.2.3',
         trusted: false,
       );
       final PairingHandshakeEntity second =
           Fixtures.buildPairingHandshakeEntity(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trusted: true,
           );
 
@@ -35,7 +35,7 @@ void main() {
     test('stores a credential-rejected message when set', () {
       final PairingHandshakeEntity handshake =
           Fixtures.buildPairingHandshakeEntity(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trusted: false,
             credentialRejectedMessage: "This device's trust was revoked.",
           );
@@ -50,7 +50,7 @@ void main() {
     test('defaults the credential-rejected message to null', () {
       final PairingHandshakeEntity handshake =
           Fixtures.buildPairingHandshakeEntity(
-            bridgeVersion: '1.2.3',
+            hostVersion: '1.2.3',
             trusted: false,
           );
 
@@ -62,12 +62,12 @@ void main() {
       () {
         final PairingHandshakeEntity first =
             Fixtures.buildPairingHandshakeEntity(
-              bridgeVersion: '1.2.3',
+              hostVersion: '1.2.3',
               trusted: false,
             );
         final PairingHandshakeEntity second =
             Fixtures.buildPairingHandshakeEntity(
-              bridgeVersion: '1.2.3',
+              hostVersion: '1.2.3',
               trusted: false,
               credentialRejectedMessage: "This device's trust was revoked.",
             );
@@ -81,13 +81,13 @@ void main() {
       () {
         final PairingHandshakeEntity first =
             Fixtures.buildPairingHandshakeEntity(
-              bridgeVersion: '1.2.3',
+              hostVersion: '1.2.3',
               trusted: false,
               credentialRejectedMessage: "This device's trust was revoked.",
             );
         final PairingHandshakeEntity second =
             Fixtures.buildPairingHandshakeEntity(
-              bridgeVersion: '1.2.3',
+              hostVersion: '1.2.3',
               trusted: false,
               credentialRejectedMessage: "This device's trust was revoked.",
             );

@@ -33,8 +33,8 @@ Unknown top-level fields are ignored only when forward-compatible reading is per
 current schema. Required fields with the wrong type invalidate the message. Every message type below
 lists its required payload fields; fields not listed are not sent.
 
-Compatibility with this schema is identified by the DovahLink product release version, carried in
-the legacy `bridgeVersion` wire field, not an
+Compatibility with this schema is identified by the Host's own release version, carried in
+the `hostVersion` wire field, not an
 independent protocol-generation number carried on every message — see
 [`ai/context/protocol/compatibility.md`](../../ai/context/protocol/compatibility.md).
 
@@ -146,15 +146,15 @@ compatibility information a client needs before trusting the rest of the exchang
 
 ```json
 {
-  "bridgeVersion": "0.3.3",
+  "hostVersion": "0.3.3",
   "clientIdentityKind": "paired"
 }
 ```
 
-`bridgeVersion` is a legacy wire-field name; it is a required, non-empty string containing the
-DovahLink product release version (matching `adapter/vcpkg.json`'s `version-string`). The host
+`hostVersion` is a required, non-empty string containing the Host's own release version, the
+compatibility authority per `ai/context/protocol/compatibility.md`. The host
 always answers a validated `hello` with `hello_ack`; it does not
-receive or evaluate a client-declared compatibility range itself. Checking `bridgeVersion` against
+receive or evaluate a client-declared compatibility range itself. Checking `hostVersion` against
 its own declared supported range, and failing explicitly on a mismatch, is the client/SDK's
 responsibility — see `ai/context/protocol/compatibility.md`'s compatibility bootstrap.
 
@@ -164,7 +164,7 @@ or `unpaired` (trust-restricted until pairing succeeds), or `"paired"` for a ses
 `pairing_ack` — the upgrade happens on the same connection with no reconnect and no `sessionId`
 change, so a client only learns of it from that `pairing_outcome`, not from a fresh `hello_ack`.
 
-Required payload fields: `bridgeVersion`, `clientIdentityKind`.
+Required payload fields: `hostVersion`, `clientIdentityKind`.
 
 `hello_ack.correlationId` is the `messageId` of the `hello` it answers.
 
@@ -497,8 +497,8 @@ paired or wrong credential" per `ai/context/protocol/security.md`'s "Persistent 
 authentication and re-pairing, while a revoked device may still re-pair) and never issued for
 `one_time_local_token` (developer-token) authentication, which stays a separate provider unaffected
 by Known Device blocking. Error codes are for branching; diagnostic messages are not. There is no
-Bridge-version-incompatibility wire error code: a client detects incompatibility itself from
-`hello_ack.bridgeVersion` and fails without completing the rest of the exchange, per
+Host-version-incompatibility wire error code: a client detects incompatibility itself from
+`hello_ack.hostVersion` and fails without completing the rest of the exchange, per
 `ai/context/protocol/compatibility.md`.
 
 If no session has been established on a socket, an `error`'s `sessionId` is `null`; this includes
@@ -534,7 +534,7 @@ Carry no application state. They prove liveness for the current `sessionId`.
 
 1. The connecting client sends `hello`.
 2. The host authenticates the client and replies with `hello_ack`, which exposes the host's
-   release version (the legacy `bridgeVersion` wire field) for the client to evaluate against its
+   release version (the `hostVersion` wire field) for the client to evaluate against its
    own declared supported range. The host
    does not reject a connection on compatibility grounds; it does not receive or evaluate a
    client-declared version range itself. A client that finds the exposed version outside its

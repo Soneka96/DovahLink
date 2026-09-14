@@ -10,7 +10,7 @@
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
-Bridge-version compatibility detection, revisions, subscriptions, snapshots, recovery, and retiring
+Host-version compatibility detection, revisions, subscriptions, snapshots, recovery, and retiring
 the app's separate `features/connection/` Redux protocol code remain undone, so this phase is not
 complete. The single inbound SDK receiver/router and initial per-operation retry-safety/session-
 requirement/timeout-class policy were similarly pulled forward by Phase 3.3 (`roadmap/03`), per
@@ -18,7 +18,7 @@ requirement/timeout-class policy were similarly pulled forward by Phase 3.3 (`ro
 
 ### Outcome
 
-Dart applications can participate correctly in DovahLink — transport, Bridge-version compatibility
+Dart applications can participate correctly in DovahLink — transport, Host-version compatibility
 detection, authentication, pairing recovery, reconnect, session and authoritative-state identity,
 revisions, subscriptions, snapshots, recovery, and reusable client persistence — without
 implementing that behavior themselves, and the official Flutter application becomes the first
@@ -33,7 +33,7 @@ production consumer proving the supported SDK API is sufficient to build a compl
   session, revision, subscription, and recovery behavior in the SDK boundary rather than rebuilding
   it in Flutter. The current pairing/reconnect work remains pulled forward; Stage 5 adds the
   protocol and live-state behavior established by Stage 4.
-- Establish the SDK's explicit supported Bridge-version range and its own persistence boundary
+- Establish the SDK's explicit supported Host-version range and its own persistence boundary
   (stable local `clientId`, client credential, pairing recovery state, reusable cache metadata),
   versioned and migration-owned by the SDK per `ai/context/sdk/persistence.md`.
 - Expose one underlying client engine through a small simple API plus focused expert capability
@@ -48,15 +48,15 @@ production consumer proving the supported SDK API is sufficient to build a compl
 
 ### Phase breakdown
 
-#### 5.1 SDK Typed Protocol and Bridge Compatibility Boundary
+#### 5.1 SDK Typed Protocol and Host Compatibility Boundary
 
 Complete the Dart DTOs for the redesigned message families using generated structural
 `fromJson`/`toJson` code plus handwritten semantic validation. Keep a small shared message header and
 prevent raw JSON, transport types, and internal codecs from crossing the public export boundary.
 
-The SDK reads `hello_ack.bridgeVersion`, applies the repository's pre-1.0 same-major/same-minor and
-post-1.0 accepted-minor rules, and closes before capabilities or state traffic when the Bridge is
-incompatible. The SDK owns the explanation; the Bridge only advertises its version and does not
+The SDK reads `hello_ack.hostVersion`, applies the repository's pre-1.0 same-major/same-minor and
+post-1.0 accepted-minor rules, and closes before capabilities or state traffic when the Host is
+incompatible. The SDK owns the explanation; the Host only advertises its version and does not
 reject SDK versions.
 
 #### 5.2 SDK State Synchronization API
@@ -107,7 +107,7 @@ revision.
 Reuse the manually invoked version-audit skill established by Phase 4.5 and extend its ownership map
 for the SDK and Flutter application. The skill reads the Stage 5 or bugfix diff, affected public
 exports, protocol/schema changes, persistence formats, security/runtime behavior, tests, and current
-version ownership. It may update the relevant Bridge, SDK, or Flutter version/changelog/compatibility
+version ownership. It may update the relevant Host, SDK, or Flutter version/changelog/compatibility
 files and prepare a commit message, but it never commits.
 
 At Stage 5 completion it audits the complete stage rather than each ordinary PR. A later bugfix may
@@ -129,7 +129,7 @@ from the Dart SDK.
 
 - The `sdk/dart/dovahlink_client/` package exists with a curated public API; internal transport,
   codec, persistence, compatibility, and state-machine types are not accidentally exported.
-- The SDK declares an explicit supported Bridge-version range rather than inferring compatibility
+- The SDK declares an explicit supported Host-version range rather than inferring compatibility
   from generic SemVer rules, applies the repository's pre-1.0 and post-1.0 comparison policy, and
   assesses canonical contract changes against that declared range per
   `ai/context/protocol/compatibility.md`.
@@ -146,7 +146,7 @@ from the Dart SDK.
   actions; widgets and screens do not consume SDK streams directly.
 - The minimal live-state proof demonstrates the character Snapshot domains and `character_level`
   Event state, revision-gap recovery,
-  ordinary reconnect restoration, administrative-invalidation dormancy, and incompatible-Bridge
+  ordinary reconnect restoration, administrative-invalidation dormancy, and incompatible-Host
   handling.
 - The manually invoked version-audit skill completes the phase's version/changelog/compatibility
   review without committing changes.

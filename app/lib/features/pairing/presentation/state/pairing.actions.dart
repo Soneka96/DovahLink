@@ -17,13 +17,13 @@ class PairingStartedAction extends Equatable {
 class PairingAuthenticatedAction extends Equatable {
   /// Creates an authenticated-state action.
   const PairingAuthenticatedAction({
-    required this.bridgeVersion,
+    required this.hostVersion,
     required this.trusted,
     this.credentialRejectedMessage,
   });
 
-  /// The DovahLink Bridge/mod release version reported by `hello_ack`.
-  final String bridgeVersion;
+  /// The Host's own release version reported by `hello_ack`.
+  final String hostVersion;
 
   /// Whether this session already holds a trusted credential.
   final bool trusted;
@@ -35,11 +35,7 @@ class PairingAuthenticatedAction extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [
-    bridgeVersion,
-    trusted,
-    credentialRejectedMessage,
-  ];
+  List<Object?> get props => [hostVersion, trusted, credentialRejectedMessage];
 }
 
 /// Requests a pairing challenge.

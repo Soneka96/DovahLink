@@ -9,46 +9,38 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `01.3a-public-vocabulary-and-identity-semantics.md`
-- Status: Complete on branch `docs/01.3a-public-vocabulary-and-identity-semantics`,
-  not yet opened as a PR. Design-only gate, all six decisions final:
-  - Compatibility authority is the Host release version: `bridgeVersion` -> `hostVersion`.
-  - `bridgeInstanceId` -> `stateAuthorityId`: a Host authoritative-state continuity
-    epoch, not a process/instance identity and not a public counterpart of
-    `adapterInstanceId`.
-  - Rotation happens at continuity-loss detection (Host restart, or Adapter/IPC
-    connection loss observed) -- not when the resync/rebind that follows later
-    succeeds.
-  - One unresolved continuity break is exactly one epoch through every failed
-    reconnect/resync attempt; a later loss starts a new epoch only once a fresh
-    authoritative baseline has been successfully established internally under the
-    current value -- client snapshot publication is never the epoch boundary.
-  - A runtime mint failure after a continuity break is detected is a fatal Host
-    invariant failure: no retained/`null` value, no degraded serving, normal
-    deterministic shutdown (a startup mint failure uses the existing fail-closed
-    startup path instead).
-  - Cache/revision scope is `(stateAuthorityId, playContextId, stateArea)`.
-  - Exact wire presence: only `hello_ack`, `state_snapshot`, and `state_event` carry
-    `stateAuthorityId`, required and non-null; no other message does.
-  - `01.3b` and `01.3c` are two separate implementation PRs but one atomic
-    public-contract release boundary -- no supported/versioned release may be cut
-    between them merging.
-  - Migration policy is intentionally breaking; no aliases, no compatibility shims.
-  `ai/context/protocol/compatibility.md`'s two deferred-decision sections are updated
-  to record the decision as "decided, pending implementation." No protocol schema,
-  fixture, Host, SDK, or app source file changed -- decision documentation only, per
-  this concept's own scope.
-- Prerequisites: Concept 01.2b merged (`main` @ `d4734dba`, PR #63) -- satisfied.
-- PR: #64, open against `main`, under maintainer review.
-- Next action: address maintainer/review findings on PR #64, then merge it. The branch
-  already records `Complete` in `PLAN.md`'s status table, per the pre-PR-Complete
-  workflow `PLAN.md` section 8 documents; merging PR #64 is what makes that state
-  authoritative on `main`, which is what actually satisfies `01.3b`'s own stated
-  dependency ("Concept 01.3a merged to `main`") -- not the branch-level `Complete`
-  label by itself, and `01.3b` stays `Blocked by 01.3a` in `PLAN.md`'s status table
-  until that merge happens. Per D4, Concept 02 still waits behind the entire
-  01.1 -> 01.2a -> 01.2b -> 01.3a -> 01.3b -> 01.3c chain, same as Concept 03 -- do not
-  unblock 02 or 03 until 01.3c actually merges. Do not begin `01.3b` on this branch.
+- File: `01.3b-compatibility-version-vocabulary-cutover.md`
+- Status: Complete on branch `feature/01.3b-compatibility-version-vocabulary-cutover`,
+  PR #65 open (draft). Implements exactly `01.3a`'s Sections A/B decision across six
+  reviewable commits: (1) Host model -- `HelloAckPayload.BridgeVersion` ->
+  `HostVersion`, `Constants.PublicProtocolTransitionalBridgeVersion` ->
+  `PublicProtocolHostVersion`, `PublicHelloAdmissionHandler`'s assignment,
+  `CapabilityDescriptor`'s doc comment; (2) canonical schema
+  (`protocol/schema/README.md`, including dropping the stale `adapter/vcpkg.json`
+  cross-reference per `01.3a`'s explicit finding) and the 3 `hello_ack`-family fixtures,
+  plus the version-sync tooling guard; (3) Dart SDK model
+  (`HelloAckPayload`/`HelloResult`/`AuthenticationService`'s cache field) and its
+  generated codec (gitignored, regenerated via `build_runner`, not committed); (4) the
+  Flutter app's pairing feature (entity, actions, reducer, middleware, selectors,
+  state, viewmodel, datasource); (5) documentation cutover
+  (`ARCHITECTURE.md`, `ai/context/protocol/compatibility.md`,
+  `ai/context/sdk/api-design.md`/`architecture.md`) and flipping the
+  repository-consistency guard that used to *require* the old Bridge wording in
+  `api-design.md` to require the new Host wording instead; (6) this close-out. Does not
+  touch `bridgeInstanceId`/`stateAuthorityId` -- that is `01.3c`'s field, deliberately
+  left alone here. One item not in the original step plan was found and fixed during
+  step 5: `ARCHITECTURE.md`'s "pre-cutover... Bridge/mod release version... target host
+  contract will use..." sentence -- `01.3a`'s own PR-size gate had explicitly flagged
+  `ARCHITECTURE.md` as part of this concept's documentation tail, and the sentence went
+  factually stale the moment this concept activated the cutover it was describing as
+  still pending.
+- Prerequisites: Concept 01.3a merged (`main` @ `805d1641`, PR #64) -- confirmed via
+  `git log`/`git branch --contains`, satisfied.
+- PR: #65, open (draft).
+- Next action: address review on PR #65, then merge it. `01.3c` stays
+  `Blocked by 01.3b` in `PLAN.md`'s status table until this concept's PR actually
+  merges to `main` -- not merely reaches branch-level `Complete`, per the same rule
+  this concept's own dependency on `01.3a` was held to.
 
 ## Completed concepts
 
@@ -60,6 +52,11 @@ Status: active (package frozen 2026-09-13)
   PR #62 (merge commit `bc86f4cc`, 2026-09-13).
 - `01.2b-internal-code-test-and-tooling-terminology.md` -- merged to `main` via PR #63
   (merge commit `d4734dba`, 2026-09-13).
+- `01.3a-public-vocabulary-and-identity-semantics.md` -- merged to `main` via PR #64
+  (merge commit `805d1641`, 2026-09-14). Design-only gate; all six decisions (compatibility
+  authority, canonical version vocabulary, `stateAuthorityId` semantics, cache/revision
+  scope, migration policy, old->new vocabulary table) final -- see this file's prior
+  Verification entries for the full rationale.
 
 ## Decisions and approved deviations
 
@@ -496,6 +493,90 @@ design, not debt.)
   subagent, read-only) found zero remaining "TBD" rows, no contradiction between this
   file and `compatibility.md`, and no unflagged contradiction with `ARCHITECTURE.md`
   or `protocol/schema/README.md`.
+- 2026-09-14 Concept 01.3b implementation (this session, branch
+  `feature/01.3b-compatibility-version-vocabulary-cutover`): implements `01.3a`'s
+  Sections A/B exactly, across six reviewable commits (Host model; canonical
+  schema/fixtures/tooling guard; Dart SDK model/codegen; Flutter app pairing
+  consumers; documentation/tooling-guard cutover; this close-out) -- see the Active
+  concept entry above for the full file-by-file breakdown. Acceptance-gate re-run of
+  all four suites plus the tooling guard: `dotnet test
+  host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj` 1717/1717 passed; `dart
+  analyze`/`dart test` (`sdk/dart/dovahlink_client`) clean, 623/623 passed; `flutter
+  analyze`/`flutter test` (`app/`) clean, 349/349 passed; `python -m unittest discover
+  -s tooling -p "test_*.py"` 166/166 passed (includes the fixture validator confirming
+  57 fixtures still satisfy the envelope contract). Whole-branch changed-file count vs.
+  `main` (`git merge-base HEAD main` = `805d1641`, then `git diff --name-only
+  base...HEAD`): **48 files** -- comfortably under both the 80 re-plan threshold and
+  the 100 hard stop, and below `01.3a`'s own 39-plus-doc-tail prediction only because
+  that prediction excluded the doc/tooling tail it flagged separately, all of which
+  landed within these 48. Repo-wide sweep (`git grep -lI "bridgeVersion\|BridgeVersion"`)
+  confirms every remaining hit is genuine history (`CHANGELOG.md`, this package's own
+  `plans/*.md` decision records, `roadmap/*.md` -- out of this concept's file scope
+  per `PLAN.md`'s package boundary) or this concept's own prose explaining the rename
+  in `tooling/test_repository_consistency.py`'s comments -- zero live identifier or
+  requirement-bearing prose reference remains. `bridgeInstanceId` is untouched
+  everywhere, confirmed still present and unchanged, reserved for `01.3c`.
+- 2026-09-14 Concept 01.3b correction pass (this session, same branch): an independent
+  review correctly flagged that this concept's earlier evidence entry above missed 5
+  more files carrying the same active "Bridge-version compatibility" wording --
+  `sdk/README.md` (2 occurrences), `roadmap/05-dart-client-sdk-foundation.md` (10
+  occurrences), `app/README.md`, and `protocol/README.md` -- the last of which was a
+  live factual error (present-tense), not just terminology, the same bug class as the
+  `ARCHITECTURE.md` sentence the prior pass already caught. The same review also
+  correctly rejected its own initial claim that 01.3b was "blocked" on missing SDK-side
+  Host-version range enforcement: `sdk/README.md` already documents that enforcement as
+  Stage 5's own undone scope (`git grep -n "incompatib" -- sdk/dart/dovahlink_client/lib/
+  app/lib/` returns zero hits, on `main` too, confirming no such mechanism was ever
+  built, not something this rename regressed), and `01.3a` never decided a concrete
+  range/exception-type/enforcement-point design for 01.3b to implement -- building one
+  here would be new protocol implementation outside this concept's scope, which
+  `AGENTS.md`'s non-negotiable rules and this concept's own Non-goals both forbid. Fixed
+  the 5 files plus their two dependent test guards in
+  `tooling/test_repository_consistency.py`
+  (`test_sdk_readme_documents_the_phase_5_pull_forward_and_the_real_package`,
+  `test_app_and_protocol_docs_reconcile_the_sdk_boundary`); closed out
+  `01.3b-compatibility-version-vocabulary-cutover.md` itself in place (`Status: pending`
+  -> `Complete`, filled the "Required proof before editing" template, rewrote the two
+  proof-obligation bullets that had claimed SDK range validation and too-old/too-new
+  behavior were "tested" -- factually false today -- to instead state plainly that this
+  concept preserves current pass-through behavior and defers enforcement to Stage 5,
+  and updated "Files this concept may change" to the real final list). Final re-run
+  acceptance gate: `dotnet test` 1717/1717, `dart analyze`/`test` clean/623/623,
+  `flutter analyze`/`test` clean/349/349, `python -m unittest discover -s tooling -p
+  "test_*.py"` 166/166, all re-passed after the fix; whole-branch changed-file count vs.
+  `main` (`805d1641`): **52 files**, still comfortably under both gates. Fresh
+  branch-wide sweep (`git grep` for "Bridge version"/"Bridge compatibility"/etc. across
+  `.md`/`.dart`/`.cs`/`.py`) confirms every remaining hit is genuinely historical, an
+  intentional `assertNotIn` regression guard, or this concept's own before/after
+  documentation of the rename -- zero live stale reference remains.
+- 2026-09-14 Concept 01.3b governance/bookkeeping correction pass (this session, same
+  branch, three steps): a second independent review raised two further points and
+  confirmed PR #65 is genuinely open (draft). (1) Recorded `DIVERGENCES.md` D5: `01.3a`
+  Section A's "mechanism unchanged from today" claim is factually imprecise (no such
+  SDK-side enforcement mechanism exists anywhere in this codebase, `main` included);
+  D5 documents the correction and states `01.3b` implements the authority/vocabulary
+  rename only, deferring enforcement to Stage 5, rather than `01.3b`'s own file
+  asserting that correction on its own authority as the prior pass had done. `PLAN.md`
+  section 10 updated to name D5; `01.3b`'s proof-obligation bullet now cites D5. (2)
+  Hardened `test_version_literals_match_the_published_release` to assert the exact
+  `public const string PublicProtocolHostVersion = "{version}";` declaration in
+  `Constants.cs` (previously unchecked -- the test only verified `adapter/vcpkg.json`
+  and 2 of 3 hello-ack fixtures) and added the third fixture,
+  `hello-ack-paired.json`, to the fixture loop. (3) Bookkeeping: `PLAN.md`'s 01.3b row
+  PR column `--` -> `#65`; `01.3b`'s own Status line and `CONTEXT.md`'s Active-concept
+  section updated from "not yet opened as a PR" to "PR #65, open (draft)"; the
+  concept file's own "final count vs. `main`" completion-criteria line corrected from
+  the prior pass's 52 to the true current **54 files** (D5 itself added
+  `DIVERGENCES.md` as a new file to the diff, which the prior pass's count predated --
+  the dated Verification entry above recording 52 is left untouched, since it
+  correctly describes that earlier pass's own state, not this one's). Final
+  acceptance gate, this pass touching only `DIVERGENCES.md`, `PLAN.md`, the `01.3b`
+  concept file, `CONTEXT.md`, and `tooling/test_repository_consistency.py` (confirmed
+  via `git status` before commit -- zero runtime Host/SDK/App source file changed):
+  `dotnet test` 1717/1717, `dart analyze`/`test` clean/623/623, `flutter
+  analyze`/`test` clean/349/349, `python -m unittest discover -s tooling -p
+  "test_*.py"` 166/166, all green. Fresh sweep for "52 files"/"not yet opened as a
+  PR" confirms only the intentionally-preserved historical entry remains.
 
 ## Handoff
 
@@ -505,12 +586,20 @@ inventory re-runs are recorded above with zero-unresolved evidence -- the
 `websocket_transport_test.dart` findings were fixed rather than left flagged; the only
 remaining out-of-scope item is the `ai/context/protocol/security.md`-quoting host/
 comments' own source doc, which stays outside this concept's file scope by design.
-Handoff to Concept 01.3a is now active, per `PLAN.md` section 6 (one branch/PR per
-concept, dependent concept waits for merge, not just open/approved) -- 01.3a's own
-prerequisite (01.2b merged) is satisfied.
 
-Concept 01.3a's six mandatory decisions (A-F) are now resolved on branch
-`docs/01.3a-public-vocabulary-and-identity-semantics`, not yet opened as a PR --
-see the Verification entry above for the full rationale and the concept file itself
-for the decision text. Handoff to Concept 01.3b follows once this PR merges to
-`main`, per the same one-branch/PR-per-concept rule.
+Concept 01.3a merged to `main` via PR #64 (merge commit `805d1641`, 2026-09-14). Its
+six mandatory decisions (A-F) are final -- see the Verification entry above for the
+full rationale and the concept file itself for the decision text. Handoff to Concept
+01.3b is now active, per `PLAN.md` section 6 (one branch/PR per concept, dependent
+concept waits for merge, not just open/approved) -- 01.3b's own prerequisite (01.3a
+merged) is confirmed satisfied by the merge commit above, not inferred from the prior
+branch-level `Complete` label.
+
+Concept 01.3b's implementation is complete on branch
+`feature/01.3b-compatibility-version-vocabulary-cutover`, including two correction
+passes -- the 5-file documentation gap an independent review found, and the
+D5/VERSION-invariant/bookkeeping pass recorded in the Verification entry below -- see
+the Verification entries above and below for the full acceptance-gate evidence. PR
+#65 is open (draft). Handoff to Concept 01.3c follows once this PR merges to `main`,
+per the same one-branch/PR-per-concept rule -- `01.3c` stays `Blocked by 01.3b` in
+`PLAN.md`'s status table until then.
