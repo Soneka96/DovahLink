@@ -10,6 +10,12 @@ namespace DovahLink.Host.Sessions;
 /// </summary>
 public interface ISessionRegistry
 {
+    /// <summary>The current number of active sessions.</summary>
+    int ActiveCount { get; }
+
+    /// <summary>The maximum number of simultaneous active sessions.</summary>
+    int MaxActiveSessions { get; }
+
     /// <summary>Attempts to create a new session for a client and owning connection.</summary>
     /// <param name="clientId">The client the session belongs to.</param>
     /// <param name="connectionId">The transport connection that owns the session.</param>
@@ -191,7 +197,7 @@ public sealed class SessionRegistry : ISessionRegistry
         this.maxActiveSessions = maxActiveSessions;
     }
 
-    /// <summary>The current number of active sessions.</summary>
+    /// <inheritdoc/>
     public int ActiveCount
     {
         get
@@ -208,7 +214,7 @@ public sealed class SessionRegistry : ISessionRegistry
         }
     }
 
-    /// <summary>The maximum number of simultaneous active sessions.</summary>
+    /// <inheritdoc/>
     public int MaxActiveSessions => maxActiveSessions;
 
     /// <summary>Returns the current trust tier of an active session, for diagnostics and tests.</summary>

@@ -290,6 +290,25 @@ Status: active (package frozen 2026-09-13)
   own non-negotiable invariants (fail-closed async trust bootstrap, no sync-over-async,
   no service locator, one root provider, `DovahLinkHostRuntime` as explicit lifecycle
   owner) are preserved exactly.
+- D9 refinement (2026-09-14, same session, during step-build Step 2 review): the
+  maintainer further clarified that a production consumer must never resolve a service
+  by its concrete type from the container at all -- not even the narrow
+  concrete-registration-plus-interface-alias pattern D9's own examples showed for
+  `SessionRegistry`/`PairingCoordinator`. That pattern existed only because
+  `Program.ComposeAndRunAsync`'s `onComposed` test-observability parameter and one
+  composition test needed `SessionRegistry.MaxActiveSessions`/`ActiveCount`, members not
+  on `ISessionRegistry`. Fixed by adding both to `ISessionRegistry` (already implemented
+  by `SessionRegistry`; `<inheritdoc/>` replaces their standalone doc comments) --
+  `IPairingCoordinator` already exposed everything `onComposed`'s pairing-coordinator
+  caller needed, so it required no interface change. Both services now register with
+  plain `AddSingleton<ISessionRegistry, SessionRegistry>()`/
+  `AddSingleton<IPairingCoordinator, PairingCoordinator>()`, no alias lambda; `onComposed`'s
+  signature changed from `Action<SessionRegistry, PairingCoordinator>?` to
+  `Action<ISessionRegistry, IPairingCoordinator>?`. No other Host service was ever
+  resolved by concrete type, so this closes the concrete-resolution question for the
+  whole concept, not just these two services -- the concrete-plus-alias pattern item 4/31
+  of the maintainer's original follow-up brief described as "legitimate" no longer has a
+  live use case anywhere in this composition graph.
 
 ## Deferred debt
 

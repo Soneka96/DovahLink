@@ -458,8 +458,8 @@ public class ProgramCompositionTests
         {
             using var shutdown = new CancellationTokenSource();
             var output = new SynchronizedTextCapture();
-            SessionRegistry? sessionRegistry = null;
-            PairingCoordinator? pairingCoordinator = null;
+            ISessionRegistry? sessionRegistry = null;
+            IPairingCoordinator? pairingCoordinator = null;
             var clientId = new ClientId(Guid.NewGuid());
 
             Task<int> runTask = global::Program.ComposeAndRunAsync(
@@ -577,7 +577,7 @@ public class ProgramCompositionTests
     {
         using var shutdown = new CancellationTokenSource();
         var hostSettingsProvider = new FakeHostSettingsProvider { Settings = new HostSettings(2) };
-        SessionRegistry? sessionRegistry = null;
+        ISessionRegistry? sessionRegistry = null;
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
             UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,

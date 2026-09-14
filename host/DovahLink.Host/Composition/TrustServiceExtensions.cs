@@ -43,10 +43,8 @@ public static class TrustServiceExtensions
     public static IServiceCollection AddTrustServices(this IServiceCollection services, ITrustStore trustStore)
     {
         services.AddSingleton(trustStore);
-        services.AddSingleton<SessionRegistry>();
-        services.AddSingleton<ISessionRegistry>(sp => sp.GetRequiredService<SessionRegistry>());
-        services.AddSingleton<PairingCoordinator>();
-        services.AddSingleton<IPairingCoordinator>(sp => sp.GetRequiredService<PairingCoordinator>());
+        services.AddSingleton<ISessionRegistry, SessionRegistry>();
+        services.AddSingleton<IPairingCoordinator, PairingCoordinator>();
         services.AddSingleton<IPlayContextTracker, PlayContextTracker>();
         services.AddSingleton<IPublicEnvelopeCodec, PublicEnvelopeCodec>();
         services.AddSingleton<IPublicSessionConnectionRegistry, PublicSessionConnectionRegistry>();

@@ -2910,6 +2910,12 @@ public class PublicHelloAdmissionTests
         /// </summary>
         public bool? ConnectionWasRegisteredAtFinalizeTime { get; private set; }
 
+        /// <inheritdoc/>
+        public int ActiveCount => inner.ActiveCount;
+
+        /// <inheritdoc/>
+        public int MaxActiveSessions => inner.MaxActiveSessions;
+
         /// <summary>The session and connection identity captured from the first <see cref="TryFinalizeAdmission"/> call, if any.</summary>
         private (SessionId SessionId, ConnectionId ConnectionId)? capturedFinalizeIdentity;
 

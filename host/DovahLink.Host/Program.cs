@@ -102,7 +102,7 @@ internal static class Program
         CancellationTokenSource shutdown,
         int? publicListenerPort = null,
         ITrustStorePersistence? trustStorePersistence = null,
-        Action<SessionRegistry, PairingCoordinator>? onComposed = null,
+        Action<ISessionRegistry, IPairingCoordinator>? onComposed = null,
         IHostSettingsProvider? hostSettingsProvider = null)
     {
         // The only two services constructed outside the container: TrustServiceExtensions.CreateTrustStoreAsync
@@ -130,7 +130,7 @@ internal static class Program
         // directly.
         await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 
-        onComposed?.Invoke(provider.GetRequiredService<SessionRegistry>(), provider.GetRequiredService<PairingCoordinator>());
+        onComposed?.Invoke(provider.GetRequiredService<ISessionRegistry>(), provider.GetRequiredService<IPairingCoordinator>());
 
         // Resolving the runtime is what triggers construction (and, for the listeners, socket bind) of the
         // whole remaining graph, in the same adapter-then-public order the manual composition it replaces used.

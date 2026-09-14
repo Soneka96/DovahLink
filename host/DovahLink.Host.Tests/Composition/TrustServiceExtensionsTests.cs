@@ -31,9 +31,7 @@ public class TrustServiceExtensionsTests
         using ServiceProvider provider = services.BuildServiceProvider();
 
         Assert.NotNull(provider.GetRequiredService<ITrustStore>());
-        Assert.NotNull(provider.GetRequiredService<SessionRegistry>());
         Assert.NotNull(provider.GetRequiredService<ISessionRegistry>());
-        Assert.NotNull(provider.GetRequiredService<PairingCoordinator>());
         Assert.NotNull(provider.GetRequiredService<IPairingCoordinator>());
         Assert.NotNull(provider.GetRequiredService<IPlayContextTracker>());
         Assert.NotNull(provider.GetRequiredService<IPublicEnvelopeCodec>());
@@ -73,7 +71,7 @@ public class TrustServiceExtensionsTests
         services.AddTrustServices(trustStore);
         using ServiceProvider provider = services.BuildServiceProvider();
 
-        Assert.Equal(2, provider.GetRequiredService<SessionRegistry>().MaxActiveSessions);
+        Assert.Equal(2, provider.GetRequiredService<ISessionRegistry>().MaxActiveSessions);
     }
 
     /// <summary>
@@ -148,17 +146,9 @@ public class TrustServiceExtensionsTests
         Assert.Same(provider.GetRequiredService<ITrustStore>(), provider.GetRequiredService<ITrustStore>());
     }
 
-    /// <summary>
-    /// Verifies that <see cref="SessionRegistry"/>/<see cref="ISessionRegistry"/> and
-    /// <see cref="PairingCoordinator"/>/<see cref="IPairingCoordinator"/> each resolve to the same
-    /// singleton whether requested by concrete type or by interface -- not two independently
-    /// constructed instances that happen to share a registration name. A misregistration here (for
-    /// example registering the interface as its own separate singleton instead of forwarding to the
-    /// concrete one) would silently split session/pairing state across two instances with no other
-    /// test catching it.
-    /// </summary>
+    /// <summary>Verifies that resolving <see cref="ISessionRegistry"/> twice from the same provider returns the same instance.</summary>
     [Fact]
-    public async Task AddTrustServices_ConcreteAndInterfaceRegistrations_ResolveToSameInstance()
+    public async Task AddTrustServices_SessionRegistryResolvedTwice_ReturnsSameInstance()
     {
         using var shutdown = new CancellationTokenSource();
         IClock clock = new SystemClock();
@@ -169,7 +159,7 @@ public class TrustServiceExtensionsTests
         services.AddTrustServices(trustStore);
         using ServiceProvider provider = services.BuildServiceProvider();
 
-        Assert.Same(provider.GetRequiredService<SessionRegistry>(), provider.GetRequiredService<ISessionRegistry>());
-        Assert.Same(provider.GetRequiredService<PairingCoordinator>(), provider.GetRequiredService<IPairingCoordinator>());
+        Assert.Same(provider.GetRequiredService<ISessionRegistry>(), provider.GetRequiredService<ISessionRegistry>());
+        Assert.Same(provider.GetRequiredService<IPairingCoordinator>(), provider.GetRequiredService<IPairingCoordinator>());
     }
 }
