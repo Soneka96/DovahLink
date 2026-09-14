@@ -16,8 +16,8 @@ public static class PublicClientServiceExtensions
     /// supplied) and its collaborators. Every accepted client connection gets its own
     /// <see cref="PublicWebSocketConnection"/>/<see cref="PublicHelloAdmissionHandler"/>/
     /// <see cref="PublicStateSubscription"/>/<see cref="DataLaneOutboundQueue"/> set, built fresh by
-    /// the connection factory below -- connection-scoped, never shared across two accepted
-    /// connections.
+    /// the composed <see cref="IPublicConnectionFactory"/> -- connection-scoped, never shared across
+    /// two accepted connections.
     /// </summary>
     /// <param name="core">The already-composed core services this graph is built on.</param>
     /// <param name="trust">The already-composed trust-and-session services this graph is built on.</param>
@@ -39,20 +39,13 @@ public static class PublicClientServiceExtensions
         IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
             trust.EnvelopeCodec, trust.TrustAdminService, trust.PairingCoordinator, adapterNotifier, trust.PlayContextTracker, core.Clock, trust.SessionRegistry);
 
+        IPublicConnectionFactory connectionFactory = new PublicConnectionFactory(
+            trust.EnvelopeCodec, trust.SessionRegistry, trust.TrustStore, tokenAuthenticator, credentialThrottle,
+            trust.PlayContextTracker, core.Clock, dispatcher, trust.PairingCoordinator, trust.ConnectionRegistry,
+            registeredStateAreaPolicy, statePublicationFeed, core.StateAuthorityLifecycle, NullPublicWebSocketTransportDiagnostics.Instance);
+
         IPublicWebSocketListener? listener = publicListenerPort is int boundPublicPort
-            ? new PublicWebSocketListener(
-                boundPublicPort,
-                stream => new PublicWebSocketConnection(
-                    stream,
-                    new PublicHelloAdmissionHandler(
-                        trust.EnvelopeCodec, trust.SessionRegistry, trust.TrustStore, tokenAuthenticator, credentialThrottle,
-                        trust.PlayContextTracker, core.Clock, dispatcher, trust.PairingCoordinator, trust.ConnectionRegistry,
-                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, trust.EnvelopeCodec, trust.PlayContextTracker, core.StateAuthorityLifecycle)),
-                    core.Clock,
-                    new PublicWebSocketTransportOptions(),
-                    NullPublicWebSocketTransportDiagnostics.Instance,
-                    new DataLaneOutboundQueue()),
-                core.Settings.MaxActiveSessions)
+            ? new PublicWebSocketListener(boundPublicPort, connectionFactory.Create, core.Settings.MaxActiveSessions)
             : null;
 
         return new PublicClientServices(listener);
