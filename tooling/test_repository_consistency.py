@@ -988,7 +988,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "protocol/fixtures/connection/hello-ack-active-context.json",
         ):
             self.assertIn(
-                f'"bridgeVersion": "{version}"',
+                f'"hostVersion": "{version}"',
                 self._read(current_example),
                 current_example,
             )
