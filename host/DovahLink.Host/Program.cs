@@ -127,47 +127,12 @@ internal static class Program
         using IPublicWebSocketListener? publicListener = publicClient.Listener;
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
-        Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
-
         var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
-        rendezvousPublisher.Publish(adapterListener.BoundPort, ipc.Verifier.ExpectedToken, ipc.Verifier.HostProofKey);
+        var runtime = new DovahLinkHostRuntime(
+            adapterListener, publicListener, shutdownSignal, lifetime, rendezvousPublisher, rendezvousOutput,
+            ipc.Verifier.ExpectedToken, ipc.Verifier.HostProofKey);
 
-        // PORT, PROOF, and HOSTPROOF are always exactly the first three lines, in this exact
-        // order: a real launched process's own native launcher (Win32AdapterHostProcessLauncher)
-        // reads exactly three lines from this stream and treats them positionally as those three
-        // values, with no public-listener awareness of its own. PUBLICPORT is written last,
-        // strictly after them and only when the public listener is composed, so its presence can
-        // never shift PROOF or HOSTPROOF into the position that reader expects the other to occupy.
-        await rendezvousOutput.WriteLineAsync($"PORT {adapterListener.BoundPort}");
-        await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(ipc.Verifier.ExpectedToken)}");
-        await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(ipc.Verifier.HostProofKey)}");
-        if (publicListener is not null)
-        {
-            await rendezvousOutput.WriteLineAsync($"PUBLICPORT {publicListener.BoundPort}");
-        }
-
-        await rendezvousOutput.FlushAsync();
-
-        Task adapterListenerTask = adapterListener.RunAsync(shutdown.Token);
-        Task publicListenerTask = publicListener?.RunAsync(shutdown.Token) ?? Task.CompletedTask;
-
-        int exitCode = await RunAsync(lifetime, shutdown.Token);
-
-        shutdown.Cancel();
-        await adapterListenerTask;
-        await publicListenerTask;
-        await shutdownWatchTask;
-        return exitCode;
-    }
-
-    /// <summary>Runs an injected host lifetime and maps clean shutdown to a successful exit code.</summary>
-    /// <param name="lifetime">The host lifetime to run.</param>
-    /// <param name="cancellationToken">The token used to request shutdown.</param>
-    /// <returns>A successful process exit code after the lifetime ends.</returns>
-    internal static async Task<int> RunAsync(IHostProcessLifetime lifetime, CancellationToken cancellationToken)
-    {
-        await lifetime.RunAsync(cancellationToken);
-        return 0;
+        return await runtime.RunAsync(shutdown);
     }
 
     /// <summary>
@@ -222,13 +187,4 @@ internal static class Program
     /// </param>
     internal static ITrustStorePersistence? ResolveTestTrustStorePersistence(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : new WindowsDpapiTrustStorePersistence(value);
-
-    /// <summary>Cancels <paramref name="shutdown"/> once the adapter's named shutdown-request signal is set.</summary>
-    /// <param name="signal">The shutdown signal to wait on.</param>
-    /// <param name="shutdown">The shared shutdown source to cancel once the signal fires.</param>
-    private static async Task WatchShutdownSignalAsync(IHostShutdownSignal signal, CancellationTokenSource shutdown)
-    {
-        await signal.WaitAsync(shutdown.Token);
-        shutdown.Cancel();
-    }
 }
