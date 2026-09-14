@@ -1,10 +1,10 @@
-using DovahLink.Host.Authentication;
-using DovahLink.Host.Client.Authentication;
-using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Composition;
-using DovahLink.Host.State;
+using DovahLink.Host.Security;
 using DovahLink.Host.Tests.TestDoubles;
+using DovahLink.Host.Time;
+using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DovahLink.Host.Tests.Client.Transport;
 
@@ -42,20 +42,25 @@ public class PublicConnectionFactoryTests
         Assert.Equal(secondCapacityBefore, second.RemainingOutboundCapacity(PublicOutboundLane.Data));
     }
 
-    /// <summary>Builds a factory over a real, freshly composed core/trust graph -- the same collaborators production composes it with.</summary>
+    /// <summary>
+    /// Resolves the real, container-registered <see cref="IPublicConnectionFactory"/> from a freshly
+    /// composed Core/Trust/AdapterIpc/PublicClient graph -- the same registrations production
+    /// composes it with, minus a bound public listener (unneeded for these tests).
+    /// </summary>
     private static async Task<IPublicConnectionFactory> BuildFactoryAsync()
     {
         using var shutdown = new CancellationTokenSource();
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown);
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, new FakeTrustStorePersistence());
-        var dispatcher = new ClientMessageDispatcher(
-            trust.EnvelopeCodec, trust.TrustAdminService, trust.PairingCoordinator, new FakePairingAdapterNotifier(), trust.PlayContextTracker, core.Clock, trust.SessionRegistry);
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
 
-        return new PublicConnectionFactory(
-            trust.EnvelopeCodec, trust.SessionRegistry, trust.TrustStore,
-            new LocalConnectionTokenAuthenticator(core.Clock), new TrustedCredentialFailureThrottle(core.Clock),
-            trust.PlayContextTracker, core.Clock, dispatcher, trust.PairingCoordinator, trust.ConnectionRegistry,
-            new RegisteredStateAreaPolicy(), new FakeStatePublicationFeed(), core.StateAuthorityLifecycle,
-            new FakePublicWebSocketTransportDiagnostics());
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddTrustServices(trustStore);
+        services.AddAdapterIpcServices(listenerPort: 0, ownerLifetimeId: default);
+        services.AddPublicClientServices(publicListenerPort: null);
+
+        ServiceProvider provider = services.BuildServiceProvider();
+        return provider.GetRequiredService<IPublicConnectionFactory>();
     }
 }

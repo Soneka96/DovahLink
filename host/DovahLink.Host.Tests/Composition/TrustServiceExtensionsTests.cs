@@ -2,54 +2,60 @@ using System.IO;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Composition;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
+using DovahLink.Host.Security;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
+using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DovahLink.Host.Tests.Composition;
 
-/// <summary>Tests for <see cref="TrustServiceExtensions.ComposeTrustServicesAsync"/>.</summary>
+/// <summary>Tests for <see cref="TrustServiceExtensions.CreateTrustStoreAsync"/> and <see cref="TrustServiceExtensions.AddTrustServices"/>.</summary>
 public class TrustServiceExtensionsTests
 {
     /// <summary>
-    /// Verifies that malformed or undecryptable trust persistence fails composition closed --
-    /// propagating before any service in the graph is returned -- rather than silently starting with
-    /// a reset or partially loaded trust store.
+    /// Verifies that malformed or undecryptable trust persistence fails the bootstrap closed --
+    /// propagating before any service in the graph is registered -- rather than silently starting
+    /// with a reset or partially loaded trust store.
     /// </summary>
     [Fact]
-    public async Task ComposeTrustServicesAsync_MalformedTrustPersistence_ThrowsInvalidDataException()
+    public async Task CreateTrustStoreAsync_MalformedTrustPersistence_ThrowsInvalidDataException()
     {
-        using var shutdown = new CancellationTokenSource();
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown);
         var persistence = new FakeTrustStorePersistence { ThrowOnLoad = new InvalidDataException("corrupt") };
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => TrustServiceExtensions.ComposeTrustServicesAsync(core, persistence));
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => TrustServiceExtensions.CreateTrustStoreAsync(new SystemClock(), new SecurityStateGate(), persistence));
     }
 
-    /// <summary>Verifies that the composed session registry's cap comes from the supplied <see cref="CoreServices.Settings"/>.</summary>
+    /// <summary>Verifies that the registered session registry's cap comes from the supplied <see cref="HostSettings"/>.</summary>
     [Fact]
-    public async Task ComposeTrustServicesAsync_UsesResolvedCapFromCoreServices()
+    public async Task AddTrustServices_UsesResolvedCapFromCoreServices()
     {
         using var shutdown = new CancellationTokenSource();
         var hostSettingsProvider = new FakeHostSettingsProvider { Settings = new HostSettings(2) };
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown, hostSettingsProvider);
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown, hostSettingsProvider);
+        services.AddTrustServices(trustStore);
+        using ServiceProvider provider = services.BuildServiceProvider();
 
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, new FakeTrustStorePersistence());
-
-        Assert.Equal(2, trust.SessionRegistry.MaxActiveSessions);
+        Assert.Equal(2, provider.GetRequiredService<SessionRegistry>().MaxActiveSessions);
     }
 
     /// <summary>
-    /// Verifies that <see cref="TrustServices.TrustAdminService"/> actually mutates the same
-    /// <see cref="TrustServices.TrustStore"/> instance returned alongside it -- not an independently
-    /// constructed, unwired copy that happens to start with identical loaded data -- by revoking a
-    /// pre-seeded trusted device through the admin service and observing the change directly through
-    /// the separately returned trust store.
+    /// Verifies that <see cref="ITrustAdminService"/> actually mutates the same <see cref="ITrustStore"/>
+    /// singleton resolved alongside it -- not an independently constructed, unwired copy that happens
+    /// to start with identical loaded data -- by revoking a pre-seeded trusted device through the
+    /// admin service and observing the change directly through the separately resolved trust store.
     /// </summary>
     [Fact]
-    public async Task ComposeTrustServicesAsync_TrustAdminServiceMutation_ObservableThroughReturnedTrustStore()
+    public async Task AddTrustServices_TrustAdminServiceMutation_ObservableThroughResolvedTrustStore()
     {
         using var shutdown = new CancellationTokenSource();
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown);
         var clientId = ClientId.NewId();
         var record = new TrustRecord(clientId, "12345", "Living Room PC", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow)
         {
@@ -57,31 +63,83 @@ public class TrustServiceExtensionsTests
         };
         var persistence = new FakeTrustStorePersistence();
         await persistence.SaveAsync([record]);
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, persistence);
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddTrustServices(trustStore);
+        using ServiceProvider provider = services.BuildServiceProvider();
 
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, persistence);
-        await trust.TrustAdminService.RevokeAsync(clientId);
+        await provider.GetRequiredService<ITrustAdminService>().RevokeAsync(clientId);
 
-        Assert.Equal(KnownDeviceState.Revoked, trust.TrustStore.TryGet(clientId)!.State);
+        Assert.Equal(KnownDeviceState.Revoked, provider.GetRequiredService<ITrustStore>().TryGet(clientId)!.State);
     }
 
     /// <summary>
-    /// Verifies that the composed <see cref="IPublicEnvelopeCodec"/> is actually wired to the same
-    /// <see cref="CoreServices.StateAuthorityLifecycle"/> instance -- not an independently constructed,
+    /// Verifies that the registered <see cref="IPublicEnvelopeCodec"/> is actually wired to the same
+    /// <see cref="IStateAuthorityLifecycle"/> singleton -- not an independently constructed,
     /// unconfigured codec -- by encoding a <c>hello_ack</c> (a message type that requires
     /// <c>stateAuthorityId</c>) and observing the stamped value match.
     /// </summary>
     [Fact]
-    public async Task ComposeTrustServicesAsync_EnvelopeCodecWiredToCoreStateAuthorityLifecycle()
+    public async Task AddTrustServices_EnvelopeCodecWiredToCoreStateAuthorityLifecycle()
     {
         using var shutdown = new CancellationTokenSource();
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown);
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddTrustServices(trustStore);
+        using ServiceProvider provider = services.BuildServiceProvider();
+        IPublicEnvelopeCodec envelopeCodec = provider.GetRequiredService<IPublicEnvelopeCodec>();
 
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, new FakeTrustStorePersistence());
-
-        byte[] encoded = trust.EnvelopeCodec.Encode(
+        byte[] encoded = envelopeCodec.Encode(
             PublicMessageType.HelloAck, "message-1", "session-1", null, null, null,
             new HelloAckPayload { HostVersion = Constants.PublicProtocolHostVersion, ClientIdentityKind = ClientIdentityKind.Unpaired });
-        Assert.True(trust.EnvelopeCodec.TryDecode(encoded, out PublicEnvelope? envelope));
-        Assert.Equal(core.StateAuthorityLifecycle.Current.ToString(), envelope!.StateAuthorityId);
+        Assert.True(envelopeCodec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.Equal(provider.GetRequiredService<IStateAuthorityLifecycle>().Current.ToString(), envelope!.StateAuthorityId);
+    }
+
+    /// <summary>Verifies that resolving the trust store twice from the same provider returns the same instance.</summary>
+    [Fact]
+    public async Task AddTrustServices_TrustStoreResolvedTwice_ReturnsSameInstance()
+    {
+        using var shutdown = new CancellationTokenSource();
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddTrustServices(trustStore);
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        Assert.Same(provider.GetRequiredService<ITrustStore>(), provider.GetRequiredService<ITrustStore>());
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="SessionRegistry"/>/<see cref="ISessionRegistry"/> and
+    /// <see cref="PairingCoordinator"/>/<see cref="IPairingCoordinator"/> each resolve to the same
+    /// singleton whether requested by concrete type or by interface -- not two independently
+    /// constructed instances that happen to share a registration name. A misregistration here (for
+    /// example registering the interface as its own separate singleton instead of forwarding to the
+    /// concrete one) would silently split session/pairing state across two instances with no other
+    /// test catching it.
+    /// </summary>
+    [Fact]
+    public async Task AddTrustServices_ConcreteAndInterfaceRegistrations_ResolveToSameInstance()
+    {
+        using var shutdown = new CancellationTokenSource();
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddTrustServices(trustStore);
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        Assert.Same(provider.GetRequiredService<SessionRegistry>(), provider.GetRequiredService<ISessionRegistry>());
+        Assert.Same(provider.GetRequiredService<PairingCoordinator>(), provider.GetRequiredService<IPairingCoordinator>());
     }
 }

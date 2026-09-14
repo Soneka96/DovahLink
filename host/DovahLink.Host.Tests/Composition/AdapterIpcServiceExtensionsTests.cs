@@ -1,18 +1,22 @@
 using System.Net;
 using System.Net.Sockets;
 using DovahLink.Host.Adapter.Ipc;
+using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Composition;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Process;
+using DovahLink.Host.Security;
 using DovahLink.Host.Tests.TestDoubles;
+using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DovahLink.Host.Tests.Composition;
 
 /// <summary>
-/// Tests for <see cref="AdapterIpcServiceExtensions.ComposeAdapterIpcServices"/>. Adapter-IPC
-/// protocol behavior (handshake acceptance/rejection, resynchronization, reconnect freshness) is
-/// already fully proven against a manually assembled real stack by
+/// Tests for <see cref="AdapterIpcServiceExtensions.AddAdapterIpcServices"/>. Adapter-IPC protocol
+/// behavior (handshake acceptance/rejection, resynchronization, reconnect freshness) is already fully
+/// proven against a manually assembled real stack by
 /// <see cref="Adapter.Ipc.AdapterIpcChannelIntegrationTests"/>; that file uses a
 /// <see cref="FakeAdapterTrustAdminRequestHandler"/>, so it never proves the composed graph's real,
 /// <see cref="TrustServiceExtensions"/>-built request handler is actually wired in. These tests cover
@@ -28,10 +32,8 @@ public class AdapterIpcServiceExtensionsTests
     /// real trust store and observing it in the wire reply text.
     /// </summary>
     [Fact]
-    public async Task ComposeAdapterIpcServices_TrustAdminListRequest_AnsweredByRealComposedTrustAdminRequestHandler()
+    public async Task AddAdapterIpcServices_TrustAdminListRequest_AnsweredByRealComposedTrustAdminRequestHandler()
     {
-        using var shutdown = new CancellationTokenSource();
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown);
         var clientId = ClientId.NewId();
         var record = new TrustRecord(clientId, "54321", "Composition Test Device", KnownDeviceState.Trusted, new string('a', 64), DateTimeOffset.UtcNow)
         {
@@ -39,17 +41,18 @@ public class AdapterIpcServiceExtensionsTests
         };
         var persistence = new FakeTrustStorePersistence();
         await persistence.SaveAsync([record]);
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, persistence);
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
 
-        AdapterIpcServices ipc = AdapterIpcServiceExtensions.ComposeAdapterIpcServices(core, trust, listenerPort: 0, ownerLifetimeId);
-        using IAdapterIpcListener ownedListener = ipc.Listener;
-        Task runTask = ownedListener.RunAsync(shutdown.Token);
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, persistence, listenerPort: 0, ownerLifetimeId);
+        IAdapterIpcListener listener = provider.GetRequiredService<IAdapterIpcListener>();
+        Task runTask = listener.RunAsync(shutdown.Token);
         var codec = new IpcFrameCodec();
 
-        using Socket adapterSocket = await ConnectClientAsync(ipc.Listener.BoundPort);
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
-        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), ipc.Verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
+        IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, codec)).Accepted);
         Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
 
@@ -64,27 +67,25 @@ public class AdapterIpcServiceExtensionsTests
     }
 
     /// <summary>
-    /// Verifies that <see cref="AdapterIpcServiceExtensions.ComposeAdapterIpcServices"/>'s own
+    /// Verifies that <see cref="AdapterIpcServiceExtensions.AddAdapterIpcServices"/>'s own
     /// <c>ownerLifetimeId</c> parameter is actually threaded into the composed session -- not
     /// silently dropped in favor of a default -- by presenting a correct peer-proof token alongside a
     /// mismatched owner-lifetime-id and observing the handshake rejected for that exact reason.
     /// </summary>
     [Fact]
-    public async Task ComposeAdapterIpcServices_MismatchedOwnerLifetimeId_RejectsHandshakeWithLifetimeMismatch()
+    public async Task AddAdapterIpcServices_MismatchedOwnerLifetimeId_RejectsHandshakeWithLifetimeMismatch()
     {
         using var shutdown = new CancellationTokenSource();
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown);
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, new FakeTrustStorePersistence());
-
-        AdapterIpcServices ipc = AdapterIpcServiceExtensions.ComposeAdapterIpcServices(core, trust, listenerPort: 0, new OwnerLifetimeId(1, 2));
-        using IAdapterIpcListener ownedListener = ipc.Listener;
-        Task runTask = ownedListener.RunAsync(shutdown.Token);
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), listenerPort: 0, new OwnerLifetimeId(1, 2));
+        IAdapterIpcListener listener = provider.GetRequiredService<IAdapterIpcListener>();
+        Task runTask = listener.RunAsync(shutdown.Token);
         var codec = new IpcFrameCodec();
 
-        using Socket adapterSocket = await ConnectClientAsync(ipc.Listener.BoundPort);
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(
-            1, AdapterInstanceId.NewId(), ipc.Verifier.ExpectedToken, ownerLifetimeId: new OwnerLifetimeId(3, 4).ToBytes())));
+            1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: new OwnerLifetimeId(3, 4).ToBytes())));
         var ack = Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, codec));
 
         Assert.False(ack.Accepted);
@@ -95,31 +96,29 @@ public class AdapterIpcServiceExtensionsTests
     }
 
     /// <summary>
-    /// Verifies that the composed <see cref="AdapterIpcServices.Notifier"/> actually reaches the same
-    /// connection accepted through the composed <see cref="AdapterIpcServices.Listener"/> -- not an
+    /// Verifies that the composed <see cref="IPairingAdapterNotifier"/> actually reaches the same
+    /// connection accepted through the composed <see cref="IAdapterIpcListener"/> -- not an
     /// independently wired, disconnected notifier -- by requesting a pairing-code display and
     /// observing the corresponding wire frame on the connected adapter's own socket.
     /// </summary>
     [Fact]
-    public async Task ComposeAdapterIpcServices_NotifierRequestsDisplay_ReachesConnectionAcceptedThroughSameListener()
+    public async Task AddAdapterIpcServices_NotifierRequestsDisplay_ReachesConnectionAcceptedThroughSameListener()
     {
-        using var shutdown = new CancellationTokenSource();
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown);
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, new FakeTrustStorePersistence());
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-
-        AdapterIpcServices ipc = AdapterIpcServiceExtensions.ComposeAdapterIpcServices(core, trust, listenerPort: 0, ownerLifetimeId);
-        using IAdapterIpcListener ownedListener = ipc.Listener;
-        Task runTask = ownedListener.RunAsync(shutdown.Token);
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), listenerPort: 0, ownerLifetimeId);
+        IAdapterIpcListener listener = provider.GetRequiredService<IAdapterIpcListener>();
+        Task runTask = listener.RunAsync(shutdown.Token);
         var codec = new IpcFrameCodec();
 
-        using Socket adapterSocket = await ConnectClientAsync(ipc.Listener.BoundPort);
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
-        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), ipc.Verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
+        IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, codec)).Accepted);
         Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
 
-        Task<bool> notifyTask = ipc.Notifier.TryNotifyCodeAvailableAsync("123456", CancellationToken.None);
+        Task<bool> notifyTask = provider.GetRequiredService<IPairingAdapterNotifier>().TryNotifyCodeAvailableAsync("123456", CancellationToken.None);
         var display = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(adapterStream, codec));
         Assert.Equal("123456", display.Code);
         await adapterStream.WriteAsync(codec.Encode(new IpcPairingDisplayAckMessage(display.CorrelationId, Accepted: true)));
@@ -128,6 +127,22 @@ public class AdapterIpcServiceExtensionsTests
 
         shutdown.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Builds a real Core/Trust/AdapterIpc container -- the same registrations production composes it with.</summary>
+    private static async Task<ServiceProvider> BuildProviderAsync(
+        CancellationTokenSource shutdown, ITrustStorePersistence persistence, int listenerPort, OwnerLifetimeId ownerLifetimeId)
+    {
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, persistence);
+
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddTrustServices(trustStore);
+        services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
+
+        return services.BuildServiceProvider();
     }
 
     /// <summary>Connects a plain client socket to the listener's bound loopback port, standing in for the adapter.</summary>

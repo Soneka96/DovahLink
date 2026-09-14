@@ -2,53 +2,71 @@ using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
+using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
+using DovahLink.Host.PlayContext;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.State;
+using DovahLink.Host.Time;
+using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DovahLink.Host.Composition;
 
-/// <summary>Composes <see cref="PublicClientServices"/>, the public client boundary.</summary>
+/// <summary>Registers the public client boundary.</summary>
 public static class PublicClientServiceExtensions
 {
     /// <summary>
-    /// Constructs the public client listener (when <paramref name="publicListenerPort"/> is
-    /// supplied) and its collaborators. Every accepted client connection gets its own
+    /// Registers the public client listener (when <paramref name="publicListenerPort"/> is supplied)
+    /// and its collaborators. Every accepted client connection gets its own
     /// <see cref="PublicWebSocketConnection"/>/<see cref="PublicHelloAdmissionHandler"/>/
     /// <see cref="PublicStateSubscription"/>/<see cref="DataLaneOutboundQueue"/> set, built fresh by
     /// the composed <see cref="IPublicConnectionFactory"/> -- connection-scoped, never shared across
-    /// two accepted connections.
+    /// two accepted connections. When <paramref name="publicListenerPort"/> is <see langword="null"/>,
+    /// no <see cref="IPublicWebSocketListener"/> is registered at all, so resolving it later returns
+    /// <see langword="null"/> rather than throwing. Requires
+    /// <see cref="CoreServiceExtensions.AddCoreServices"/>, <see cref="TrustServiceExtensions.AddTrustServices"/>,
+    /// and <see cref="AdapterIpcServiceExtensions.AddAdapterIpcServices"/> to already be registered on
+    /// <paramref name="services"/> -- the dispatcher this graph builds forwards pairing display
+    /// requests through the adapter-IPC boundary's own registered <see cref="IPairingAdapterNotifier"/>.
     /// </summary>
-    /// <param name="core">The already-composed core services this graph is built on.</param>
-    /// <param name="trust">The already-composed trust-and-session services this graph is built on.</param>
-    /// <param name="adapterNotifier">The already-composed adapter-IPC pairing notifier the dispatcher forwards pairing display requests through.</param>
+    /// <param name="services">The service collection to register into.</param>
     /// <param name="publicListenerPort">The public loopback port to bind, or <see langword="null"/> to leave the public listener uncomposed.</param>
-    /// <returns>The composed public client services.</returns>
-    /// <exception cref="System.Net.Sockets.SocketException">The listener could not bind <paramref name="publicListenerPort"/>.</exception>
-    public static PublicClientServices ComposePublicClientServices(
-        CoreServices core, TrustServices trust, IPairingAdapterNotifier adapterNotifier, int? publicListenerPort)
+    /// <returns><paramref name="services"/>, for chaining.</returns>
+    public static IServiceCollection AddPublicClientServices(this IServiceCollection services, int? publicListenerPort)
     {
         // No state area is registered yet and no real domain feed exists -- a later concept
         // registers each real Skyrim domain here and supplies a feed that adapts its captured
         // values, per ai/context/protocol/security.md's "no state area is currently registered".
-        IRegisteredStateAreaPolicy registeredStateAreaPolicy = new RegisteredStateAreaPolicy();
-        IStatePublicationFeed statePublicationFeed = NullStatePublicationFeed.Instance;
+        services.AddSingleton<IRegisteredStateAreaPolicy, RegisteredStateAreaPolicy>();
+        services.AddSingleton<IStatePublicationFeed>(NullStatePublicationFeed.Instance);
+        services.AddSingleton<IPublicWebSocketTransportDiagnostics>(NullPublicWebSocketTransportDiagnostics.Instance);
 
-        ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(core.Clock);
-        ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(core.Clock);
-        IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
-            trust.EnvelopeCodec, trust.TrustAdminService, trust.PairingCoordinator, adapterNotifier, trust.PlayContextTracker, core.Clock, trust.SessionRegistry);
+        services.AddSingleton<ILocalConnectionTokenAuthenticator>(sp => new LocalConnectionTokenAuthenticator(sp.GetRequiredService<IClock>()));
+        services.AddSingleton<ITrustedCredentialFailureThrottle>(sp => new TrustedCredentialFailureThrottle(sp.GetRequiredService<IClock>()));
+        services.AddSingleton<IClientMessageDispatcher>(sp => new ClientMessageDispatcher(
+            sp.GetRequiredService<IPublicEnvelopeCodec>(), sp.GetRequiredService<ITrustAdminService>(), sp.GetRequiredService<IPairingCoordinator>(),
+            sp.GetRequiredService<IPairingAdapterNotifier>(), sp.GetRequiredService<IPlayContextTracker>(), sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<ISessionRegistry>()));
 
-        IPublicConnectionFactory connectionFactory = new PublicConnectionFactory(
-            trust.EnvelopeCodec, trust.SessionRegistry, trust.TrustStore, tokenAuthenticator, credentialThrottle,
-            trust.PlayContextTracker, core.Clock, dispatcher, trust.PairingCoordinator, trust.ConnectionRegistry,
-            registeredStateAreaPolicy, statePublicationFeed, core.StateAuthorityLifecycle, NullPublicWebSocketTransportDiagnostics.Instance);
+        services.AddSingleton<IPublicConnectionFactory>(sp => new PublicConnectionFactory(
+            sp.GetRequiredService<IPublicEnvelopeCodec>(), sp.GetRequiredService<ISessionRegistry>(), sp.GetRequiredService<ITrustStore>(),
+            sp.GetRequiredService<ILocalConnectionTokenAuthenticator>(), sp.GetRequiredService<ITrustedCredentialFailureThrottle>(),
+            sp.GetRequiredService<IPlayContextTracker>(), sp.GetRequiredService<IClock>(), sp.GetRequiredService<IClientMessageDispatcher>(),
+            sp.GetRequiredService<IPairingCoordinator>(), sp.GetRequiredService<IPublicSessionConnectionRegistry>(),
+            sp.GetRequiredService<IRegisteredStateAreaPolicy>(), sp.GetRequiredService<IStatePublicationFeed>(),
+            sp.GetRequiredService<IStateAuthorityLifecycle>(), sp.GetRequiredService<IPublicWebSocketTransportDiagnostics>()));
 
-        IPublicWebSocketListener? listener = publicListenerPort is int boundPublicPort
-            ? new PublicWebSocketListener(boundPublicPort, connectionFactory.Create, core.Settings.MaxActiveSessions)
-            : null;
+        if (publicListenerPort is int boundPublicPort)
+        {
+            services.AddSingleton<IPublicWebSocketListener>(sp => new PublicWebSocketListener(
+                boundPublicPort, sp.GetRequiredService<IPublicConnectionFactory>().Create, sp.GetRequiredService<HostSettings>().MaxActiveSessions));
+        }
 
-        return new PublicClientServices(listener);
+        return services;
     }
 
     /// <summary>

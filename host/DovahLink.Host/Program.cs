@@ -1,23 +1,13 @@
 using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host;
-using DovahLink.Host.Adapter;
-using DovahLink.Host.Adapter.Ipc;
-using DovahLink.Host.Authentication;
-using DovahLink.Host.Client.Authentication;
-using DovahLink.Host.Client.Dispatch;
-using DovahLink.Host.Client.Protocol;
-using DovahLink.Host.Client.Subscription;
-using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Composition;
-using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
-using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
 using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
-using DovahLink.Host.State;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>Composes and runs the headless DovahLink host process.</summary>
 internal static class Program
@@ -115,23 +105,36 @@ internal static class Program
         Action<SessionRegistry, PairingCoordinator>? onComposed = null,
         IHostSettingsProvider? hostSettingsProvider = null)
     {
-        CoreServices core = CoreServiceExtensions.ComposeCoreServices(shutdown, hostSettingsProvider);
+        // The only two services constructed outside the container: TrustServiceExtensions.CreateTrustStoreAsync
+        // must complete -- and fail this whole call closed on malformed/undecryptable data -- before the
+        // container is built, since every other trust-graph service depends on an already-successfully-loaded
+        // trust store existing. Both are registered as these exact instances below, so every downstream
+        // consumer resolves them through the container like everything else, rather than carrying a bootstrap
+        // variable around outside the dependency graph.
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, trustStorePersistence);
 
-        TrustServices trust = await TrustServiceExtensions.ComposeTrustServicesAsync(core, trustStorePersistence);
-        onComposed?.Invoke(trust.SessionRegistry, trust.PairingCoordinator);
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown, hostSettingsProvider);
+        services.AddTrustServices(trustStore);
+        services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
+        services.AddPublicClientServices(publicListenerPort);
+        services.AddHostRuntime(ownerLifetimeId, lifetime, rendezvousOutput);
 
-        AdapterIpcServices ipc = AdapterIpcServiceExtensions.ComposeAdapterIpcServices(core, trust, listenerPort, ownerLifetimeId);
-        using IAdapterIpcListener adapterListener = ipc.Listener;
+        // ValidateOnBuild is deliberately not set: it eagerly resolves every registered service right here and
+        // wraps any resulting exception in an AggregateException -- which would turn a bad-port SocketException
+        // or a malformed-store InvalidDataException into a wrapped one, a behavior change callers (and
+        // ProgramCompositionTests) do not expect. Resolving DovahLinkHostRuntime below achieves the same
+        // fail-fast-at-startup goal through ordinary lazy singleton resolution, which propagates exceptions
+        // directly.
+        await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 
-        PublicClientServices publicClient = PublicClientServiceExtensions.ComposePublicClientServices(core, trust, ipc.Notifier, publicListenerPort);
-        using IPublicWebSocketListener? publicListener = publicClient.Listener;
+        onComposed?.Invoke(provider.GetRequiredService<SessionRegistry>(), provider.GetRequiredService<PairingCoordinator>());
 
-        using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
-        var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
-        var runtime = new DovahLinkHostRuntime(
-            adapterListener, publicListener, shutdownSignal, lifetime, rendezvousPublisher, rendezvousOutput,
-            ipc.Verifier.ExpectedToken, ipc.Verifier.HostProofKey);
-
+        // Resolving the runtime is what triggers construction (and, for the listeners, socket bind) of the
+        // whole remaining graph, in the same adapter-then-public order the manual composition it replaces used.
+        var runtime = provider.GetRequiredService<DovahLinkHostRuntime>();
         return await runtime.RunAsync(shutdown);
     }
 

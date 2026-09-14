@@ -1,34 +1,39 @@
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
+using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Process;
+using DovahLink.Host.Time;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DovahLink.Host.Composition;
 
-/// <summary>Composes <see cref="AdapterIpcServices"/>, the private adapter-IPC boundary.</summary>
+/// <summary>Registers the private adapter-IPC boundary.</summary>
 public static class AdapterIpcServiceExtensions
 {
     /// <summary>
-    /// Constructs the adapter-IPC listener and its collaborators. Every accepted adapter connection
+    /// Registers the adapter-IPC listener and its collaborators. Every accepted adapter connection
     /// gets its own <see cref="AdapterIpcConnection"/>/<see cref="AdapterIpcSession"/> pair, built
     /// fresh by the composed <see cref="IAdapterConnectionFactory"/> -- connection-scoped, never
-    /// shared across two accepted connections.
+    /// shared across two accepted connections. Requires
+    /// <see cref="CoreServiceExtensions.AddCoreServices"/> and
+    /// <see cref="TrustServiceExtensions.AddTrustServices"/> to already be registered on
+    /// <paramref name="services"/>.
     /// </summary>
-    /// <param name="core">The already-composed core services this graph is built on.</param>
-    /// <param name="trust">The already-composed trust-and-session services this graph is built on.</param>
+    /// <param name="services">The service collection to register into.</param>
     /// <param name="listenerPort">The private adapter-IPC loopback port to bind, or zero to let the operating system assign one.</param>
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity, verified against every accepted connection.</param>
-    /// <returns>The composed adapter-IPC services.</returns>
-    /// <exception cref="System.Net.Sockets.SocketException">The listener could not bind <paramref name="listenerPort"/>.</exception>
-    public static AdapterIpcServices ComposeAdapterIpcServices(CoreServices core, TrustServices trust, int listenerPort, OwnerLifetimeId ownerLifetimeId)
+    /// <returns><paramref name="services"/>, for chaining.</returns>
+    public static IServiceCollection AddAdapterIpcServices(this IServiceCollection services, int listenerPort, OwnerLifetimeId ownerLifetimeId)
     {
-        var lifecycle = new AdapterConnectionLifecycle(core.AdapterAvailability);
-        var verifier = new AdapterPeerProofVerifier();
-        var codec = new IpcFrameCodec();
-        IAdapterConnectionFactory connectionFactory = new AdapterConnectionFactory(
-            codec, lifecycle, verifier, trust.TrustAdminRequestHandler, ownerLifetimeId, core.Clock);
+        services.AddSingleton<IAdapterConnectionLifecycle>(sp => new AdapterConnectionLifecycle(sp.GetRequiredService<IAdapterAvailabilityTracker>()));
+        services.AddSingleton<IAdapterPeerProofVerifier, AdapterPeerProofVerifier>();
+        services.AddSingleton<IIpcFrameCodec, IpcFrameCodec>();
+        services.AddSingleton<IAdapterConnectionFactory>(sp => new AdapterConnectionFactory(
+            sp.GetRequiredService<IIpcFrameCodec>(), sp.GetRequiredService<IAdapterConnectionLifecycle>(), sp.GetRequiredService<IAdapterPeerProofVerifier>(),
+            sp.GetRequiredService<IAdapterTrustAdminRequestHandler>(), ownerLifetimeId, sp.GetRequiredService<IClock>()));
+        services.AddSingleton<IAdapterIpcListener>(sp => new AdapterIpcListener(listenerPort, sp.GetRequiredService<IAdapterConnectionFactory>().Create));
+        services.AddSingleton<IPairingAdapterNotifier>(sp => new AdapterPairingNotifier(sp.GetRequiredService<IAdapterIpcListener>()));
 
-        var listener = new AdapterIpcListener(listenerPort, connectionFactory.Create);
-        var notifier = new AdapterPairingNotifier(listener);
-
-        return new AdapterIpcServices(verifier, listener, notifier);
+        return services;
     }
 }
