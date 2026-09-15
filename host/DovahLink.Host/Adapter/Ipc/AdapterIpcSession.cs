@@ -220,37 +220,6 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         handshakeCommitted = true;
     }
 
-    /// <summary>
-    /// Computes this handshake's <c>HostProof</c>: <c>HMAC-SHA256(key = this host's own
-    /// <see cref="IAdapterPeerProofVerifier.HostProofKey"/>, message = Challenge || CorrelationId ||
-    /// AdapterInstanceId || OwnerLifetimeId)</c>, proving to the adapter that this host holds a
-    /// secret independent of the bearer token the Hello itself carried -- so observing that Hello
-    /// alone can never let an untrusted observer forge this proof. Only called once the Hello's own
-    /// proof and lifetime id have already been verified.
-    /// </summary>
-    /// <param name="hello">The verified Hello to compute the proof for.</param>
-    private byte[] ComputeHostProof(IpcHelloMessage hello)
-    {
-        byte[] message = BuildHostProofMessage(hello.Challenge, hello.CorrelationId, hello.AdapterInstanceId, hello.OwnerLifetimeId);
-        using var hmac = new HMACSHA256(peerProofVerifier.HostProofKey);
-        return hmac.ComputeHash(message);
-    }
-
-    /// <summary>
-    /// Builds the fixed message a handshake's <c>HostProof</c> is computed over: <c>challenge ||
-    /// correlationId || adapterInstanceId || ownerLifetimeId</c>, in exactly this field order,
-    /// matching the wire's little-endian integer convention and the adapter's own construction.
-    /// </summary>
-    private static byte[] BuildHostProofMessage(byte[] challenge, ulong correlationId, AdapterInstanceId adapterInstanceId, byte[] ownerLifetimeId)
-    {
-        var message = new byte[Constants.IpcHostProofMessageBytes];
-        challenge.CopyTo(message, 0);
-        BinaryPrimitives.WriteUInt64LittleEndian(message.AsSpan(Constants.IpcChallengeBytes, 8), correlationId);
-        adapterInstanceId.Value.TryWriteBytes(message.AsSpan(Constants.IpcChallengeBytes + 8, 16), bigEndian: true, out _);
-        ownerLifetimeId.CopyTo(message, Constants.IpcChallengeBytes + 8 + 16);
-        return message;
-    }
-
     /// <inheritdoc/>
     public IpcResynchronizeRequestMessage PrepareResynchronizeRequest()
     {
@@ -312,25 +281,6 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         }
     }
 
-    /// <summary>Validates and applies a resynchronization result against the pending request and current generation.</summary>
-    /// <param name="resynchronizeResult">The received resynchronization result.</param>
-    private void HandleResynchronizeResult(IpcResynchronizeResultMessage resynchronizeResult)
-    {
-        if (pendingResynchronizeCorrelationId != resynchronizeResult.CorrelationId)
-        {
-            return;
-        }
-
-        pendingResynchronizeCorrelationId = null;
-        if (resynchronizeResult.Accepted && lease is not null)
-        {
-            lifecycle.TryCompleteResynchronization(lease);
-        }
-    }
-
-    /// <summary>Issues the next monotonic outbound correlation id, starting at 1.</summary>
-    private ulong NextCorrelationId() => (ulong)Interlocked.Increment(ref nextCorrelationId);
-
     /// <inheritdoc/>
     public IpcPairingDisplayMessage? PreparePairingDisplay(string code, PairingDisplayMode mode)
     {
@@ -383,4 +333,54 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <inheritdoc/>
     public Task<string> HandleTrustAdminRequestAsync(IpcTrustAdminRequestMessage request, CancellationToken cancellationToken = default) =>
         trustAdminRequestHandler.HandleAsync(request, cancellationToken);
+
+    /// <summary>
+    /// Computes this handshake's <c>HostProof</c>: <c>HMAC-SHA256(key = this host's own
+    /// <see cref="IAdapterPeerProofVerifier.HostProofKey"/>, message = Challenge || CorrelationId ||
+    /// AdapterInstanceId || OwnerLifetimeId)</c>, proving to the adapter that this host holds a
+    /// secret independent of the bearer token the Hello itself carried -- so observing that Hello
+    /// alone can never let an untrusted observer forge this proof. Only called once the Hello's own
+    /// proof and lifetime id have already been verified.
+    /// </summary>
+    /// <param name="hello">The verified Hello to compute the proof for.</param>
+    private byte[] ComputeHostProof(IpcHelloMessage hello)
+    {
+        byte[] message = BuildHostProofMessage(hello.Challenge, hello.CorrelationId, hello.AdapterInstanceId, hello.OwnerLifetimeId);
+        using var hmac = new HMACSHA256(peerProofVerifier.HostProofKey);
+        return hmac.ComputeHash(message);
+    }
+
+    /// <summary>
+    /// Builds the fixed message a handshake's <c>HostProof</c> is computed over: <c>challenge ||
+    /// correlationId || adapterInstanceId || ownerLifetimeId</c>, in exactly this field order,
+    /// matching the wire's little-endian integer convention and the adapter's own construction.
+    /// </summary>
+    private static byte[] BuildHostProofMessage(byte[] challenge, ulong correlationId, AdapterInstanceId adapterInstanceId, byte[] ownerLifetimeId)
+    {
+        var message = new byte[Constants.IpcHostProofMessageBytes];
+        challenge.CopyTo(message, 0);
+        BinaryPrimitives.WriteUInt64LittleEndian(message.AsSpan(Constants.IpcChallengeBytes, 8), correlationId);
+        adapterInstanceId.Value.TryWriteBytes(message.AsSpan(Constants.IpcChallengeBytes + 8, 16), bigEndian: true, out _);
+        ownerLifetimeId.CopyTo(message, Constants.IpcChallengeBytes + 8 + 16);
+        return message;
+    }
+
+    /// <summary>Validates and applies a resynchronization result against the pending request and current generation.</summary>
+    /// <param name="resynchronizeResult">The received resynchronization result.</param>
+    private void HandleResynchronizeResult(IpcResynchronizeResultMessage resynchronizeResult)
+    {
+        if (pendingResynchronizeCorrelationId != resynchronizeResult.CorrelationId)
+        {
+            return;
+        }
+
+        pendingResynchronizeCorrelationId = null;
+        if (resynchronizeResult.Accepted && lease is not null)
+        {
+            lifecycle.TryCompleteResynchronization(lease);
+        }
+    }
+
+    /// <summary>Issues the next monotonic outbound correlation id, starting at 1.</summary>
+    private ulong NextCorrelationId() => (ulong)Interlocked.Increment(ref nextCorrelationId);
 }
