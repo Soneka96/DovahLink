@@ -386,8 +386,7 @@ public static class Constants
     /// ordered Event FIFO capacity -- see <see cref="Client.Transport.DataLaneOutboundQueue"/>. Not
     /// yet sub-split further into the policy's own Normal/Heavy byte-size classification: per
     /// <c>ai/context/protocol/security.md</c>'s own note, that threshold is "not yet profiled against
-    /// a real character-domain payload" -- no real Skyrim domain is registered yet, so there is
-    /// nothing to profile it against.
+    /// a real character-domain payload".
     /// </summary>
     public const int PublicWebSocketDataOutboundQueueMaxMessages = 112;
 

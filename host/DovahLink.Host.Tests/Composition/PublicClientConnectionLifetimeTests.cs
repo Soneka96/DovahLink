@@ -14,8 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace DovahLink.Host.Tests.Composition;
 
 /// <summary>
-/// R2.9 lifetime/isolation proofs for the public client boundary, against the real composed
-/// <see cref="IPublicWebSocketListener"/> -- not a synthetic factory-only seam. See
+/// Connection- and session-lifetime isolation proofs for the public client boundary, against the
+/// real composed <see cref="IPublicWebSocketListener"/> -- not a synthetic factory-only seam. See
 /// <see cref="Client.Transport.PublicConnectionFactoryTests"/> for the analogous factory-level proof.
 /// </summary>
 [Collection(RealSocketAndProcessTestCollection.Name)]
@@ -71,10 +71,7 @@ public class PublicClientConnectionLifetimeTests
     /// sending the identical <c>messageId</c> ("hello-1") on both connections. If the first
     /// connection's <see cref="DovahLink.Host.Client.Authentication.PublicHelloAdmissionHandler"/> or its replay-id
     /// set had leaked into the second connection, the second <c>hello</c> would be incorrectly
-    /// rejected as replayed instead of admitted with a fresh <c>sessionId</c>. This single test
-    /// therefore proves several R2.9 bullets at once: reconnect has fresh connection state, fresh
-    /// replay state, and a new session; and persistent <c>clientId</c> does not retain
-    /// connection-scoped state.
+    /// rejected as replayed instead of admitted with a fresh <c>sessionId</c>.
     /// </summary>
     [Fact]
     public async Task Hello_ReconnectWithSameClientIdAndMessageId_GetsFreshSessionNotRejectedAsReplay()

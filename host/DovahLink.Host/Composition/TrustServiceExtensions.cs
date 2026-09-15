@@ -17,9 +17,8 @@ public static class TrustServiceExtensions
     /// <summary>
     /// Loads trust persistence and constructs the trust store -- failing this call closed, per
     /// <see cref="TrustStore.CreateAsync"/>'s own contract, on malformed or undecryptable data. Runs
-    /// before the service collection is built: every other service in this graph depends on an
-    /// already-successfully-loaded trust store existing, so none of them can ever be backed by a
-    /// partially loaded or silently reset one.
+    /// before the service collection is built, since every other service in this graph depends on it
+    /// already being loaded.
     /// </summary>
     /// <param name="clock">The already-constructed clock this Host lifetime uses.</param>
     /// <param name="securityGate">The already-constructed security gate this Host lifetime uses.</param>
