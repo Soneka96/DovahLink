@@ -246,9 +246,8 @@ public class AdapterTrustAdminRequestHandlerTests
 
     /// <summary>
     /// Verifies that a device with no display name falls back to the placeholder text in the
-    /// success message -- matching the mirrored bridge precedent's own doubled-parenthesis
-    /// presentation for this same case, since the placeholder text itself already carries
-    /// parentheses before the surrounding "(...)" wrapper is applied.
+    /// success message: the placeholder text itself already carries parentheses, so the result
+    /// shows doubled parentheses once the surrounding "(...)" wrapper is applied.
     /// </summary>
     [Fact]
     public async Task HandleAsync_Revoke_Changed_NoDisplayName_UsesPlaceholder()

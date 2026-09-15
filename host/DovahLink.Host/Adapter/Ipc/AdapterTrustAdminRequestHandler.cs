@@ -35,6 +35,13 @@ public interface IAdapterTrustAdminRequestHandler
 /// <inheritdoc cref="IAdapterTrustAdminRequestHandler"/>
 public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestHandler
 {
+    /// <summary>
+    /// The UTF-8 byte budget reserved for a truncation suffix ("... N more Xs."). Comfortably larger
+    /// than any suffix this handler actually produces, so <see cref="FormatKnownDeviceListing"/> never
+    /// needs to compute the suffix's exact size while deciding whether one more record still fits.
+    /// </summary>
+    private const int TruncationSuffixReserveBytes = 64;
+
     /// <summary>The reusable Known Device administration authority this handler forwards to.</summary>
     private readonly ITrustAdminService trustAdminService;
 
@@ -77,11 +84,8 @@ public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestH
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Never expose a raw persistence or infrastructure exception to the Skyrim-facing
-            // console surface, per this concept's "without exposing credentials or persistence
-            // exceptions" contract. A genuine cancellation is deliberately let through instead of
-            // being formatted here: the caller distinguishes a cancelled request (drop silently,
-            // no reply) from an errored one (reply with the message above), and collapsing both
-            // into this same formatted string would make that distinction impossible to observe.
+            // console surface. A genuine cancellation is let through instead, so the caller can
+            // still distinguish a cancelled request (dropped silently) from an errored one (this message).
             return "An unexpected error occurred while processing the request.";
         }
     }
@@ -94,13 +98,6 @@ public sealed class AdapterTrustAdminRequestHandler : IAdapterTrustAdminRequestH
         TrustAdminListScope.Block => FormatKnownDeviceListing(trustAdminService.List("blocked"), "blocked device", includeState: true),
         _ => "Unrecognized list scope.",
     };
-
-    /// <summary>
-    /// The UTF-8 byte budget reserved for a truncation suffix ("... N more Xs."). Comfortably larger
-    /// than any suffix this handler actually produces, so <see cref="FormatKnownDeviceListing"/> never
-    /// needs to compute the suffix's exact size while deciding whether one more record still fits.
-    /// </summary>
-    private const int TruncationSuffixReserveBytes = 64;
 
     /// <summary>
     /// Formats an already-scoped, already-deduplicated device listing, truncating (with a trailing
