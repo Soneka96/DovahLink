@@ -297,52 +297,6 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         connectionContext = new PublicConnectionContext(this);
     }
 
-    /// <summary>
-    /// Reports <paramref name="reason"/> as this connection's authoritative root-cause abnormal-end
-    /// reason, but only the first time this is called for this connection instance -- every later
-    /// call is a silent no-op, so a race between multiple paths independently deciding the connection
-    /// must end abnormally can never produce more than one diagnostic report, and whichever call wins
-    /// is treated as the true root cause. The win itself is decided by one atomic
-    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/> on <see cref="reportedAbnormalEndReasonPlusOne"/>
-    /// using the encoded reason as the exchanged value, so there is no intermediate state in which a
-    /// reason has won but <see cref="ClassifyTerminationKind"/> cannot yet see which one.
-    /// </summary>
-    /// <param name="reason">The structured, non-sensitive reason enforcement occurred.</param>
-    private void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
-    {
-        int encodedReason = (int)reason + 1;
-        if (Interlocked.CompareExchange(ref reportedAbnormalEndReasonPlusOne, encodedReason, 0) == 0)
-        {
-            diagnostics.ReportAbnormalEnd(reason);
-        }
-    }
-
-    /// <summary>
-    /// Classifies this connection's termination for
-    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>: no abnormal end ever
-    /// reported (an ordinary peer close, cancellation, or orderly close), a send failure, or a missed
-    /// keep-alive pong -- all indicating the peer is simply gone rather than any deliberate
-    /// protocol/security enforcement -- classify as <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/>;
-    /// every other reported <see cref="PublicWebSocketConnectionEndReason"/> is a deliberate
-    /// protocol/security enforcement action and classifies as
-    /// <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/>.
-    /// </summary>
-    private PublicConnectionTerminationKind ClassifyTerminationKind()
-    {
-        int reasonPlusOne = Volatile.Read(ref reportedAbnormalEndReasonPlusOne);
-        if (reasonPlusOne == 0)
-        {
-            return PublicConnectionTerminationKind.ConnectivityLoss;
-        }
-
-        return (PublicWebSocketConnectionEndReason)(reasonPlusOne - 1) switch
-        {
-            PublicWebSocketConnectionEndReason.WriteFailure => PublicConnectionTerminationKind.ConnectivityLoss,
-            PublicWebSocketConnectionEndReason.KeepAliveTimeout => PublicConnectionTerminationKind.ConnectivityLoss,
-            _ => PublicConnectionTerminationKind.SecurityEnforcement,
-        };
-    }
-
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -449,6 +403,115 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
     }
 
+    /// <inheritdoc/>
+    public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane)
+    {
+        if (lane == PublicOutboundLane.ControlOrRecovery)
+        {
+            int outstandingAfterReserve = Interlocked.Increment(ref controlOutstandingMessages);
+            if (outstandingAfterReserve > options.ControlOutboundQueueMaxMessages)
+            {
+                Interlocked.Decrement(ref controlOutstandingMessages);
+                RequestForcedCloseForUnadmittedMessage();
+                return false;
+            }
+
+            if (!TryReserveSharedBytes(payload.Length))
+            {
+                Interlocked.Decrement(ref controlOutstandingMessages);
+                RequestForcedCloseForUnadmittedMessage();
+                return false;
+            }
+
+            byte[] controlFrame = payload.ToArray();
+            if (!controlOutbound.Writer.TryWrite(controlFrame))
+            {
+                Interlocked.Add(ref outboundQueuedBytes, -controlFrame.Length);
+                Interlocked.Decrement(ref controlOutstandingMessages);
+                RequestForcedCloseForUnadmittedMessage();
+                return false;
+            }
+
+            return true;
+        }
+
+        byte[] eventFrame = payload.ToArray();
+        if (!dataLaneQueue.TryAdmitEvent(eventFrame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes))
+        {
+            RequestForcedCloseForUnadmittedMessage();
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload)
+    {
+        byte[] frame = payload.ToArray();
+        return dataLaneQueue.TryAdmitSnapshot(areaId, frame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
+    }
+
+    /// <inheritdoc/>
+    public void RequestClose()
+    {
+        Volatile.Write(ref orderlyCloseInProgress, true);
+        controlOutbound.Writer.TryComplete();
+        dataLaneQueue.Complete();
+        _ = InterruptReadOnceOutboundDrainsAsync();
+    }
+
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => lane == PublicOutboundLane.ControlOrRecovery
+        ? Math.Max(0, options.ControlOutboundQueueMaxMessages - Volatile.Read(ref controlOutstandingMessages))
+        : Math.Max(0, options.DataOutboundQueueMaxMessages - dataLaneQueue.OutstandingMessages);
+
+    /// <summary>
+    /// Reports <paramref name="reason"/> as this connection's authoritative root-cause abnormal-end
+    /// reason, but only the first time this is called for this connection instance -- every later
+    /// call is a silent no-op, so a race between multiple paths independently deciding the connection
+    /// must end abnormally can never produce more than one diagnostic report, and whichever call wins
+    /// is treated as the true root cause. The win itself is decided by one atomic
+    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/> on <see cref="reportedAbnormalEndReasonPlusOne"/>
+    /// using the encoded reason as the exchanged value, so there is no intermediate state in which a
+    /// reason has won but <see cref="ClassifyTerminationKind"/> cannot yet see which one.
+    /// </summary>
+    /// <param name="reason">The structured, non-sensitive reason enforcement occurred.</param>
+    private void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
+    {
+        int encodedReason = (int)reason + 1;
+        if (Interlocked.CompareExchange(ref reportedAbnormalEndReasonPlusOne, encodedReason, 0) == 0)
+        {
+            diagnostics.ReportAbnormalEnd(reason);
+        }
+    }
+
+    /// <summary>
+    /// Classifies this connection's termination for
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEnded"/>: no abnormal end ever
+    /// reported (an ordinary peer close, cancellation, or orderly close), a send failure, or a missed
+    /// keep-alive pong -- all indicating the peer is simply gone rather than any deliberate
+    /// protocol/security enforcement -- classify as <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/>;
+    /// every other reported <see cref="PublicWebSocketConnectionEndReason"/> is a deliberate
+    /// protocol/security enforcement action and classifies as
+    /// <see cref="PublicConnectionTerminationKind.SecurityEnforcement"/>.
+    /// </summary>
+    private PublicConnectionTerminationKind ClassifyTerminationKind()
+    {
+        int reasonPlusOne = Volatile.Read(ref reportedAbnormalEndReasonPlusOne);
+        if (reasonPlusOne == 0)
+        {
+            return PublicConnectionTerminationKind.ConnectivityLoss;
+        }
+
+        return (PublicWebSocketConnectionEndReason)(reasonPlusOne - 1) switch
+        {
+            PublicWebSocketConnectionEndReason.WriteFailure => PublicConnectionTerminationKind.ConnectivityLoss,
+            PublicWebSocketConnectionEndReason.KeepAliveTimeout => PublicConnectionTerminationKind.ConnectivityLoss,
+            _ => PublicConnectionTerminationKind.SecurityEnforcement,
+        };
+    }
+
     /// <summary>
     /// Runs the handler's mandatory session invalidation before any best-effort disconnect cleanup or
     /// physical teardown proceeds, so an authenticated session cannot outlive the connection it
@@ -507,55 +570,6 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
     }
 
-    /// <inheritdoc/>
-    public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane)
-    {
-        if (lane == PublicOutboundLane.ControlOrRecovery)
-        {
-            int outstandingAfterReserve = Interlocked.Increment(ref controlOutstandingMessages);
-            if (outstandingAfterReserve > options.ControlOutboundQueueMaxMessages)
-            {
-                Interlocked.Decrement(ref controlOutstandingMessages);
-                RequestForcedCloseForUnadmittedMessage();
-                return false;
-            }
-
-            if (!TryReserveSharedBytes(payload.Length))
-            {
-                Interlocked.Decrement(ref controlOutstandingMessages);
-                RequestForcedCloseForUnadmittedMessage();
-                return false;
-            }
-
-            byte[] controlFrame = payload.ToArray();
-            if (!controlOutbound.Writer.TryWrite(controlFrame))
-            {
-                Interlocked.Add(ref outboundQueuedBytes, -controlFrame.Length);
-                Interlocked.Decrement(ref controlOutstandingMessages);
-                RequestForcedCloseForUnadmittedMessage();
-                return false;
-            }
-
-            return true;
-        }
-
-        byte[] eventFrame = payload.ToArray();
-        if (!dataLaneQueue.TryAdmitEvent(eventFrame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes))
-        {
-            RequestForcedCloseForUnadmittedMessage();
-            return false;
-        }
-
-        return true;
-    }
-
-    /// <inheritdoc/>
-    public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload)
-    {
-        byte[] frame = payload.ToArray();
-        return dataLaneQueue.TryAdmitSnapshot(areaId, frame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
-    }
-
     /// <summary>
     /// Reserves <paramref name="byteDelta"/> against the shared outbound byte budget, rolling back
     /// and reporting failure if it would exceed <see cref="PublicWebSocketTransportOptions.OutboundQueueMaxBytes"/>.
@@ -609,15 +623,6 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         catch (ObjectDisposedException)
         {
         }
-    }
-
-    /// <inheritdoc/>
-    public void RequestClose()
-    {
-        Volatile.Write(ref orderlyCloseInProgress, true);
-        controlOutbound.Writer.TryComplete();
-        dataLaneQueue.Complete();
-        _ = InterruptReadOnceOutboundDrainsAsync();
     }
 
     /// <summary>
@@ -1055,9 +1060,4 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             // failure here must still not prevent this connection's read loop from starting.
         }
     }
-
-    /// <inheritdoc/>
-    public int RemainingOutboundCapacity(PublicOutboundLane lane) => lane == PublicOutboundLane.ControlOrRecovery
-        ? Math.Max(0, options.ControlOutboundQueueMaxMessages - Volatile.Read(ref controlOutstandingMessages))
-        : Math.Max(0, options.DataOutboundQueueMaxMessages - dataLaneQueue.OutstandingMessages);
 }
