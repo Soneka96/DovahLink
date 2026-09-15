@@ -9,6 +9,7 @@ using DovahLink.Host.Process;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DovahLink.Host.Tests;
 
@@ -315,6 +316,22 @@ public class ProgramCompositionTests
         await Assert.ThrowsAsync<SocketException>(() => global::Program.ComposeAndRunAsync(
             UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,
             publicListenerPort: occupiedPort));
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="ServiceProviderOptions.ValidateOnBuild"/> -- enabled by
+    /// <c>ComposeAndRunAsync</c>'s own <c>BuildServiceProvider</c> call -- actually catches a missing
+    /// constructor dependency at build time, proving the mechanism the comment above that call describes
+    /// really does something, rather than merely being present in the options.
+    /// </summary>
+    [Fact]
+    public void BuildServiceProvider_ValidateOnBuildWithMissingDependency_ThrowsAtBuildTime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<DovahLinkHostRuntime>(); // its constructor dependencies are deliberately left unregistered
+
+        Assert.ThrowsAny<Exception>(() =>
+            services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }));
     }
 
     /// <summary>

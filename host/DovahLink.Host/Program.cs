@@ -122,13 +122,17 @@ internal static class Program
         services.AddPublicClientServices(publicListenerPort);
         services.AddHostRuntime(lifetime, rendezvousOutput);
 
-        // ValidateOnBuild is deliberately not set: it eagerly resolves every registered service right here and
-        // wraps any resulting exception in an AggregateException -- which would turn a bad-port SocketException
-        // or a malformed-store InvalidDataException into a wrapped one, a behavior change callers (and
-        // ProgramCompositionTests) do not expect. Resolving DovahLinkHostRuntime below achieves the same
-        // fail-fast-at-startup goal through ordinary lazy singleton resolution, which propagates exceptions
-        // directly.
-        await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        // ValidateOnBuild only validates that every registered service's constructor dependencies are
+        // themselves resolvable (via CallSiteFactory.GetCallSite) -- it never invokes a constructor, so it
+        // cannot itself throw or wrap a SocketException/InvalidDataException that only occurs once a real
+        // constructor actually runs. Resolving IHostRuntime below is what still triggers that real
+        // construction (and, for the listeners, socket bind), so a bad-port SocketException or a
+        // malformed-store InvalidDataException still propagate directly, unwrapped, exactly as
+        // ProgramCompositionTests expects. ValidateOnBuild's own value is catching a missing/miswired
+        // registration -- a composition mistake, not a runtime failure -- at startup instead of at whatever
+        // later resolution happens to hit it first.
+        await using ServiceProvider provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
 
         onComposed?.Invoke(provider.GetRequiredService<ISessionRegistry>(), provider.GetRequiredService<IPairingCoordinator>());
 
