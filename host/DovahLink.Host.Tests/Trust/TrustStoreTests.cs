@@ -753,8 +753,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Verifies the confirmed Unblock fail-open race is closed: while <see cref="TrustStore.UnblockAsync"/>'s
-    /// persistence write is in flight, a Blocked client must remain observably Blocked to every reader
+    /// Verifies that while <see cref="TrustStore.UnblockAsync"/>'s persistence write is in flight, a
+    /// Blocked client must remain observably Blocked to every reader
     /// -- <see cref="TrustStore.TryGet"/>, <see cref="TrustStore.List"/>, and
     /// <see cref="TrustStore.TryGetByShortId"/> alike -- rather than transiently reporting Unpaired
     /// before durability is established. Only once persistence actually succeeds does the client become
@@ -833,8 +833,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Verifies the confirmed Factory Reset/Clear race is closed: while <see cref="TrustStore.ClearAsync"/>'s
-    /// persistence write is in flight, every previously known record -- Blocked included -- must remain
+    /// Verifies that while <see cref="TrustStore.ClearAsync"/>'s persistence write is in flight, every
+    /// previously known record -- Blocked included -- must remain
     /// observably present to every reader, rather than transiently appearing unknown before durability
     /// is established. Only once persistence actually succeeds does the store become empty and the
     /// security fence advance.
