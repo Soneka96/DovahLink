@@ -10,12 +10,10 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <future>
 #include <memory>
 #include <string>
 
@@ -110,29 +108,20 @@ class LoopbackListener {
     ///  Blocks, bounded, until one connection is accepted -- the
     ///  deterministic barrier proving AdapterRuntime's own connection worker
     ///  thread has physically connected and moved on to waiting for the
-    ///  Hello handshake it will never receive from this listener. Runs the
-    ///  blocking `accept()` on a background thread and bounds only the wait
-    ///  for it to finish, mirroring `adapter_ipc_connection_test.cpp`'s own
-    ///  `std::async`/`wait_for` pattern, so a regression that stops the
-    ///  connection from ever reaching this listener fails this test with a
-    ///  clear timeout instead of hanging until CI's outer timeout kills it.
+    ///  Hello handshake it will never receive from this listener. Polls for
+    ///  readability first and only then calls the now-guaranteed-non-blocking
+    ///  `accept()`, entirely on this thread: Winsock's own `closesocket`
+    ///  documentation ("a Winsock client must never issue closesocket on `s`
+    ///  concurrently with another Winsock function call") rules out the
+    ///  alternative of accepting on a background thread and closing the
+    ///  listening socket from this one to interrupt a timed-out wait.
     void AcceptOne() {
-        std::future<SOCKET> accepted = std::async(std::launch::async, [this] {
-            return accept(listenSocket_, nullptr, nullptr);
-        });
-        if (accepted.wait_for(std::chrono::seconds(5)) !=
-            std::future_status::ready) {
-            //  A std::async future's destructor blocks until its task
-            //  completes, even while unwinding through a thrown exception --
-            //  closing the listening socket first unblocks the still-running
-            //  accept() (the same mechanism this file's own StopAccepting-
-            //  style shutdown relies on) so FAIL()'s unwind cannot deadlock
-            //  here instead of actually failing the test.
-            closesocket(listenSocket_);
-            listenSocket_ = INVALID_SOCKET;
-            FAIL("AcceptOne timed out waiting for a connection");
-        }
-        acceptedSocket_ = accepted.get();
+        WSAPOLLFD pollFd{.fd = listenSocket_, .events = POLLRDNORM};
+        int pollResult = WSAPoll(&pollFd, 1, 5000);
+        REQUIRE(pollResult > 0);
+        REQUIRE((pollFd.revents & POLLRDNORM) != 0);
+
+        acceptedSocket_ = accept(listenSocket_, nullptr, nullptr);
         REQUIRE(acceptedSocket_ != INVALID_SOCKET);
     }
 
