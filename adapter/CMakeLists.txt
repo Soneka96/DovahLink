@@ -175,6 +175,7 @@ add_executable(dovahlink_adapter_tests
     tests/papyrus/commonlib_adapter_trust_admin_papyrus_adapter_test.cpp
     tests/plugin/dovahlink_adapter_plugin_test.cpp
     tests/plugin/dovahlink_adapter_plugin_compatibility_test.cpp
+    tests/plugin/adapter_startup_context_test.cpp
 )
 target_include_directories(dovahlink_adapter_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(dovahlink_adapter_tests PRIVATE
