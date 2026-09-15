@@ -247,7 +247,7 @@ public class PublicHelloAdmissionTests
     /// Verifies that a blocked identity is rejected the same way for both unpaired and trusted-device
     /// hellos, and -- for the trusted-device case -- that this fast, explicit rejection never touches
     /// <see cref="ITrustedCredentialFailureThrottle"/>'s global budget: Blocked stays on its own
-    /// unthrottled path, unaffected by the clientId-rotation throttle fix.
+    /// unthrottled path, unaffected by the clientId-rotation throttle.
     /// </summary>
     [Theory]
     [InlineData(HelloAuthMethod.Unpaired)]
@@ -422,7 +422,7 @@ public class PublicHelloAdmissionTests
     /// Verifies that a revoked identity presenting a trusted_device_credential is rejected as revoked,
     /// distinct from a never-paired identity's unauthenticated rejection, and that this fast, explicit
     /// rejection never touches <see cref="ITrustedCredentialFailureThrottle"/>'s global budget: Revoked
-    /// stays on its own unthrottled path, unaffected by the clientId-rotation throttle fix.
+    /// stays on its own unthrottled path, unaffected by the clientId-rotation throttle.
     /// </summary>
     [Fact]
     public void HandleMessageAsync_RevokedIdentityTrustedDeviceCredential_RejectsAsRevoked()
@@ -807,7 +807,7 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
-    /// Verifies the credential throttle's atomic check-verify-record fix holds through the full
+    /// Verifies the credential throttle's atomic check-verify-record guarantee holds through the full
     /// admission wiring, not merely at the throttle's own unit level: of many concurrent
     /// trusted_device_credential hellos all presenting the same wrong (but wire-valid) credential
     /// against one seeded trusted identity, no more than the configured five-failure budget is ever
@@ -1042,12 +1042,10 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
-    /// Verifies the admission/invalidation registration-ordering fix directly, for a trust-backed
-    /// hello: at the exact moment <see cref="ISessionRegistry.TryFinalizeAdmission"/> runs -- the
-    /// sole linearization point a concurrent Factory Reset's own termination notifier races against
-    /// -- this connection is already registered in the connection registry. Before this fix,
-    /// registration happened only afterward, inside <c>Admit</c>, leaving a window where such a
-    /// notifier's own lookup would find nothing and silently skip the force-close.
+    /// Verifies the admission/invalidation registration-ordering guarantee directly, for a
+    /// trust-backed hello: at the exact moment <see cref="ISessionRegistry.TryFinalizeAdmission"/>
+    /// runs -- the sole linearization point a concurrent Factory Reset's own termination notifier
+    /// races against -- this connection is already registered in the connection registry.
     /// </summary>
     [Fact]
     public void HandleMessageAsync_TrustBackedHello_ConnectionAlreadyRegisteredWhenFinalizeAdmissionRuns()
@@ -1072,7 +1070,7 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
-    /// Verifies the same admission/invalidation registration-ordering fix for a
+    /// Verifies the same admission/invalidation registration-ordering guarantee for a
     /// <c>one_time_local_token</c> hello, which finalizes admission through a separate code path.
     /// </summary>
     [Fact]
@@ -1098,7 +1096,7 @@ public class PublicHelloAdmissionTests
 
     /// <summary>
     /// Verifies that a <see cref="ISessionRegistry.TryFinalizeAdmission"/> failure -- the connection
-    /// loses the Factory Reset race -- rolls back the registration this fix now performs earlier, so
+    /// loses the Factory Reset race -- rolls back the earlier registration, so
     /// no stale registration for a never-admitted session is left behind for a later, unrelated
     /// invalidation to stumble over.
     /// </summary>
@@ -1153,7 +1151,7 @@ public class PublicHelloAdmissionTests
         Assert.True(sessionRegistry.ConnectionWasRegisteredAtFinalizeTime);
         Assert.False(sessionRegistry.IsCapturedConnectionCurrentlyRegistered());
         // The rolled-back token reservation must remain usable, the same as the pre-existing Factory
-        // Reset race test for this hello type: this fix's earlier registration point must not disturb
+        // Reset race test for this hello type: the earlier registration point must not disturb
         // that already-proven rollback ordering.
         Assert.True(tokenAuthenticator.TryValidate(token, out _));
     }
@@ -1613,7 +1611,7 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
-    /// Verifies the exact aliasing gap the structural comparison fix closes: the admitted identity
+    /// Verifies the exact aliasing gap the structural comparison closes: the admitted identity
     /// presented in a different <see cref="Guid.TryParse(string?, out Guid)"/>-accepted textual form
     /// (braces, here, versus hello's own hyphenated form) on a later message is still accepted, since
     /// the parsed Guid value is compared, not the raw wire string.
@@ -1631,7 +1629,7 @@ public class PublicHelloAdmissionTests
         Assert.Equal(2, context.FakeConnection.SentPayloads.Count); // only hello_ack + capabilities; no rejection sent
     }
 
-    /// <summary>Verifies the same aliasing-gap fix for a second distinct textual form: the admitted identity's compact 32-character (no-hyphens) representation is still accepted.</summary>
+    /// <summary>Verifies the same aliasing-gap handling for a second distinct textual form: the admitted identity's compact 32-character (no-hyphens) representation is still accepted.</summary>
     [Fact]
     public void HandleMessageAsync_PostAdmissionMatchingClientIdCompactFormat_IsNotRejected()
     {
