@@ -307,9 +307,8 @@ public class AdapterIpcChannelIntegrationTests
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
 
         // The listener's own accept loop directly awaits one connection's RunAsync before accepting
-        // the next (it never fires connections off in parallel), so this second handshake succeeding
-        // at all is itself proof the first connection's full teardown -- including the throwing
-        // subscriber inside it -- already returned rather than hanging or leaving the accept loop stuck.
+        // the next, so this second handshake succeeding at all is itself proof the first connection's
+        // full teardown -- including the throwing subscriber inside it -- already returned rather than hanging.
         using Socket secondSocket = await ConnectClientAsync(listener.BoundPort);
         using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
         await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, AdapterInstanceId.NewId(), verifier.ExpectedToken)));

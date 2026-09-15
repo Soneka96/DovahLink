@@ -20,11 +20,22 @@ public interface IAdapterConnectionFactory
 /// <summary>See <see cref="IAdapterConnectionFactory"/>.</summary>
 public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
 {
+    /// <summary>Encodes and decodes IPC frames.</summary>
     private readonly IIpcFrameCodec codec;
+
+    /// <summary>Publishes this adapter connection's availability transitions.</summary>
     private readonly IAdapterConnectionLifecycle lifecycle;
+
+    /// <summary>Verifies a connecting adapter's peer-ownership proof.</summary>
     private readonly IAdapterPeerProofVerifier peerProofVerifier;
+
+    /// <summary>Answers adapter-originated trust-admin IPC requests.</summary>
     private readonly IAdapterTrustAdminRequestHandler trustAdminRequestHandler;
+
+    /// <summary>This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</summary>
     private readonly HostInstanceOptions hostInstance;
+
+    /// <summary>The time source every connection reports through.</summary>
     private readonly IClock clock;
 
     /// <summary>Creates a factory over the Host-lifetime singletons every accepted adapter connection shares.</summary>
