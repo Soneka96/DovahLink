@@ -81,10 +81,9 @@ public class TrustedCredentialFailureThrottleTests
 
         Assert.False(throttle.IsAllowed());
 
-        // Advancing 2 more seconds ages the very first failure (recorded 61 seconds ago) out of the
-        // 60-second window, while the four recorded a second later (now 59 seconds ago) remain --
-        // proving pruning drops exactly the expired entry rather than clearing the whole queue or
-        // requiring every entry to expire together.
+        // Advancing 2 more seconds ages only the first failure out of the 60-second window, while the
+        // four recorded a second later remain -- proving pruning drops exactly the expired entry
+        // rather than clearing the whole queue.
         clock.Advance(TimeSpan.FromSeconds(2));
 
         Assert.True(throttle.IsAllowed());

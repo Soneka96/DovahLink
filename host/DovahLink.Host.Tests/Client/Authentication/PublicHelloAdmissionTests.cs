@@ -720,9 +720,8 @@ public class PublicHelloAdmissionTests
     // ---- Admission ordering: full slot must not consume a retryable one-time token ----
 
     /// <summary>
-    /// Verifies the exact ordering invariant this concept requires: a valid one-time token whose
-    /// session admission fails because the slot is full is not consumed, and remains usable once
-    /// the slot frees up.
+    /// Verifies that a valid one-time token whose session admission fails because the slot is full
+    /// is not consumed, and remains usable once the slot frees up.
     /// </summary>
     [Fact]
     public void HandleMessageAsync_ValidTokenButFullSlot_DoesNotConsumeTheToken()
@@ -1122,10 +1121,9 @@ public class PublicHelloAdmissionTests
 
         handler.HandleMessageAsync(connection, hello, CancellationToken.None);
 
-        // Registered when TryFinalizeAdmission ran, per the fix under test, but must not remain
-        // registered once that call reports the session already invalidated: the rollback in the
-        // TryFinalizeAdmission failure branch must remove it, or a later, unrelated invalidation could
-        // stumble over a stale registration for a connection that was never actually admitted.
+        // Registered when TryFinalizeAdmission ran, but must not remain registered once that call
+        // reports the session already invalidated: the failure-branch rollback must remove it, or a
+        // later, unrelated invalidation could stumble over a stale registration for a never-admitted connection.
         Assert.True(sessionRegistry.ConnectionWasRegisteredAtFinalizeTime);
         Assert.False(sessionRegistry.IsCapturedConnectionCurrentlyRegistered());
     }
@@ -2269,7 +2267,7 @@ public class PublicHelloAdmissionTests
 
     /// <summary>
     /// Verifies that the session is closed once it reaches the 10,000-distinct-message bound, per
-    /// <c>ai/context/protocol/security.md</c>'s "the bridge closes the session before this bound is
+    /// <c>ai/context/protocol/security.md</c>'s "the host closes the session before this bound is
     /// exceeded" -- the message that reaches the bound is itself still accepted (no replay rejection),
     /// but the connection is asked to close.
     /// </summary>
@@ -2531,9 +2529,8 @@ public class PublicHelloAdmissionTests
     /// <summary>
     /// Verifies that a connection ended by this handler's own protocol-violation close policy --
     /// a deliberate protocol/security-driven termination -- cancels the admitted client's pairing
-    /// operation outright instead of preserving it for the ordinary reconnect grace, per
-    /// roadmap 3.1's "This grace period does not apply when the challenge ended because of ...
-    /// a protocol/security-driven termination". Deliberately passes
+    /// operation outright instead of preserving it for the ordinary reconnect grace, which does not
+    /// apply when a challenge ends because of a protocol/security-driven termination. Deliberately passes
     /// <see cref="PublicConnectionTerminationKind.ConnectivityLoss"/> to isolate that this handler's
     /// own <c>securityCloseRequested</c> tracking alone is sufficient to cancel pairing, independent of
     /// the transport's own classification.
