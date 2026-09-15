@@ -2039,9 +2039,9 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Reproduces the confirmed Unblock fail-open bad trace end-to-end against the real
-    /// <see cref="TrustStore"/>: while <see cref="TrustStore.UnblockAsync"/>'s persistence write is in
-    /// flight, <see cref="PairingCoordinator.BeginPairing"/> must still see the client as Blocked --
+    /// Verifies end-to-end against the real <see cref="TrustStore"/> that while
+    /// <see cref="TrustStore.UnblockAsync"/>'s persistence write is in flight,
+    /// <see cref="PairingCoordinator.BeginPairing"/> must still see the client as Blocked --
     /// never a transient Unpaired state that would let it start a pairing operation past a Block that
     /// was never actually lifted. Only once persistence actually succeeds does pairing become eligible.
     /// </summary>
@@ -2107,9 +2107,9 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Reproduces the confirmed Factory Reset/Clear race end-to-end against the real
-    /// <see cref="TrustStore"/>: while <see cref="TrustStore.ClearAsync"/>'s persistence write is in
-    /// flight, <see cref="PairingCoordinator.BeginPairing"/> must still see a Blocked client as
+    /// Verifies end-to-end against the real <see cref="TrustStore"/> that while
+    /// <see cref="TrustStore.ClearAsync"/>'s persistence write is in flight,
+    /// <see cref="PairingCoordinator.BeginPairing"/> must still see a Blocked client as
     /// Blocked -- never a transiently-empty store that would let it start pairing as though never
     /// known. Only once persistence actually succeeds is the identity gone and pairing eligible again.
     /// </summary>
