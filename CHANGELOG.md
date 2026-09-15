@@ -38,6 +38,8 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   Host, and Adapter.
 - `tooling/DovahLinkBuilder` now packages the Host/Adapter distribution instead of the retired
   Bridge ZIP.
+- Host composition now resolves every service through dependency injection instead of manual
+  object-graph assembly in `Program.cs`.
 
 ### Fixed
 

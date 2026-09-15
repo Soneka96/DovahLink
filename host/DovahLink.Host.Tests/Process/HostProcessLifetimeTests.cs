@@ -30,16 +30,4 @@ public class HostProcessLifetimeTests
 
         await run.WaitAsync(TimeSpan.FromSeconds(1));
     }
-
-    /// <summary>Verifies that the executable entry-point seam maps clean lifetime completion to success.</summary>
-    [Fact]
-    public async Task ProgramRunAsync_CancelledLifetime_ReturnsSuccessExitCode()
-    {
-        using var cancellation = new CancellationTokenSource();
-        cancellation.Cancel();
-
-        int exitCode = await global::Program.RunAsync(new HostProcessLifetime(), cancellation.Token);
-
-        Assert.Equal(0, exitCode);
-    }
 }

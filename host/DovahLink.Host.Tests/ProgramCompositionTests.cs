@@ -9,6 +9,7 @@ using DovahLink.Host.Process;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DovahLink.Host.Tests;
 
@@ -317,7 +318,28 @@ public class ProgramCompositionTests
             publicListenerPort: occupiedPort));
     }
 
-    /// <summary>Verifies that omitting the public listener port -- the production <c>Main</c> entry point's own default -- never activates the public listener.</summary>
+    /// <summary>
+    /// Verifies that <see cref="ServiceProviderOptions.ValidateOnBuild"/> -- enabled by
+    /// <c>ComposeAndRunAsync</c>'s own <c>BuildServiceProvider</c> call -- actually catches a missing
+    /// constructor dependency at build time, proving the mechanism the comment above that call describes
+    /// really does something, rather than merely being present in the options.
+    /// </summary>
+    [Fact]
+    public void BuildServiceProvider_ValidateOnBuildWithMissingDependency_ThrowsAtBuildTime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<DovahLinkHostRuntime>(); // its constructor dependencies are deliberately left unregistered
+
+        Assert.ThrowsAny<Exception>(() =>
+            services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }));
+    }
+
+    /// <summary>
+    /// Verifies that omitting the public listener port -- something only test code calling
+    /// <see cref="global::Program.ComposeAndRunAsync"/> directly can do, since the production
+    /// <c>Main</c> entry point's own <see cref="global::Program.ResolvePublicListenerPort"/> always
+    /// resolves a real port -- never activates the public listener.
+    /// </summary>
     [Fact]
     public async Task ComposeAndRunAsync_NoPublicListenerPort_NeverReportsPublicPort()
     {
@@ -453,8 +475,8 @@ public class ProgramCompositionTests
         {
             using var shutdown = new CancellationTokenSource();
             var output = new SynchronizedTextCapture();
-            SessionRegistry? sessionRegistry = null;
-            PairingCoordinator? pairingCoordinator = null;
+            ISessionRegistry? sessionRegistry = null;
+            IPairingCoordinator? pairingCoordinator = null;
             var clientId = new ClientId(Guid.NewGuid());
 
             Task<int> runTask = global::Program.ComposeAndRunAsync(
@@ -572,7 +594,7 @@ public class ProgramCompositionTests
     {
         using var shutdown = new CancellationTokenSource();
         var hostSettingsProvider = new FakeHostSettingsProvider { Settings = new HostSettings(2) };
-        SessionRegistry? sessionRegistry = null;
+        ISessionRegistry? sessionRegistry = null;
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
             UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,

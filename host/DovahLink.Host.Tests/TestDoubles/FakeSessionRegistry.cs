@@ -241,6 +241,9 @@ public sealed class FakeSessionRegistry : ISessionRegistry
     }
 
     /// <inheritdoc/>
+    public int MaxActiveSessions => maxActiveSessions;
+
+    /// <inheritdoc/>
     public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
     {
         lock (gate)

@@ -38,6 +38,13 @@ public sealed class FileHostRendezvousPublisher : IHostRendezvousPublisher
         this.filePath = filePath;
     }
 
+    /// <summary>Creates a publisher writing to the rendezvous file path derived from this Host process's own identity.</summary>
+    /// <param name="hostInstance">This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> derives the rendezvous file path.</param>
+    public FileHostRendezvousPublisher(HostInstanceOptions hostInstance)
+        : this(Constants.RendezvousFilePath(hostInstance.OwnerLifetimeId))
+    {
+    }
+
     /// <inheritdoc/>
     public void Publish(int port, byte[] peerProofToken, byte[] hostProofKey)
     {

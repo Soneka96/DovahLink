@@ -1,22 +1,13 @@
 using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host;
-using DovahLink.Host.Adapter;
-using DovahLink.Host.Adapter.Ipc;
-using DovahLink.Host.Authentication;
-using DovahLink.Host.Client.Authentication;
-using DovahLink.Host.Client.Dispatch;
-using DovahLink.Host.Client.Protocol;
-using DovahLink.Host.Client.Subscription;
-using DovahLink.Host.Client.Transport;
-using DovahLink.Host.Identity;
+using DovahLink.Host.Composition;
 using DovahLink.Host.Pairing;
-using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
 using DovahLink.Host.Security;
 using DovahLink.Host.Sessions;
-using DovahLink.Host.State;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
+using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>Composes and runs the headless DovahLink host process.</summary>
 internal static class Program
@@ -111,116 +102,44 @@ internal static class Program
         CancellationTokenSource shutdown,
         int? publicListenerPort = null,
         ITrustStorePersistence? trustStorePersistence = null,
-        Action<SessionRegistry, PairingCoordinator>? onComposed = null,
+        Action<ISessionRegistry, IPairingCoordinator>? onComposed = null,
         IHostSettingsProvider? hostSettingsProvider = null)
     {
-        var tracker = new AdapterAvailabilityTracker();
-        var lifecycle = new AdapterConnectionLifecycle(tracker);
-        var verifier = new AdapterPeerProofVerifier();
-        var codec = new IpcFrameCodec();
-        var clock = new SystemClock();
+        // The only two services constructed outside the container: TrustServiceExtensions.CreateTrustStoreAsync
+        // must complete -- and fail this whole call closed on malformed/undecryptable data -- before the
+        // container is built, since every other trust-graph service depends on an already-successfully-loaded
+        // trust store existing. Both are registered as these exact instances below, so every downstream
+        // consumer resolves them through the container like everything else, rather than carrying a bootstrap
+        // variable around outside the dependency graph.
+        IClock clock = new SystemClock();
+        ISecurityStateGate securityGate = new SecurityStateGate();
+        ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, trustStorePersistence);
 
-        // Minted eagerly here so a startup mint failure fails Host composition itself closed, per
-        // 01.3a Section C's "at startup: the Host fails closed" case; FatalFailureOccurred covers the
-        // later runtime-mint-failure case, once the public listener below is composed.
-        var stateAuthorityLifecycle = new StateAuthorityLifecycle(tracker);
-        stateAuthorityLifecycle.FatalFailureOccurred += () => shutdown.Cancel();
+        var services = new ServiceCollection();
+        services.AddCoreServices(clock, securityGate, shutdown, hostSettingsProvider);
+        services.AddTrustServices(trustStore);
+        services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
+        services.AddPublicClientServices(publicListenerPort);
+        services.AddHostRuntime(lifetime, rendezvousOutput);
 
-        // Resolved once and reused for both the session registry and the public listener below, so
-        // one user-configured device cap governs exactly how many authenticated sessions and how
-        // many raw connections the host admits -- the two bounds never drift apart.
-        HostSettings hostSettings = (hostSettingsProvider ?? new HostSettingsProvider()).Load();
+        // ValidateOnBuild only validates that every registered service's constructor dependencies are
+        // themselves resolvable (via CallSiteFactory.GetCallSite) -- it never invokes a constructor, so it
+        // cannot itself throw or wrap a SocketException/InvalidDataException that only occurs once a real
+        // constructor actually runs. Resolving IHostRuntime below is what still triggers that real
+        // construction (and, for the listeners, socket bind), so a bad-port SocketException or a
+        // malformed-store InvalidDataException still propagate directly, unwrapped, exactly as
+        // ProgramCompositionTests expects. ValidateOnBuild's own value is catching a missing/miswired
+        // registration -- a composition mistake, not a runtime failure -- at startup instead of at whatever
+        // later resolution happens to hit it first.
+        await using ServiceProvider provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
 
-        // Trust-services composition: shared by adapter-originated trust-admin requests and by the
-        // public client boundary composed below, over this same instance graph.
-        var securityStateGate = new SecurityStateGate();
-        ITrustStore trustStore = await TrustStore.CreateAsync(
-            trustStorePersistence ?? new WindowsDpapiTrustStorePersistence(), clock, securityStateGate);
-        var sessionRegistry = new SessionRegistry(securityStateGate, hostSettings.MaxActiveSessions);
-        var pairingCoordinator = new PairingCoordinator(trustStore, clock);
-        onComposed?.Invoke(sessionRegistry, pairingCoordinator);
-        var playContextTracker = new PlayContextTracker();
-        var envelopeCodec = new PublicEnvelopeCodec(stateAuthorityLifecycle);
-        var connectionRegistry = new PublicSessionConnectionRegistry();
+        onComposed?.Invoke(provider.GetRequiredService<ISessionRegistry>(), provider.GetRequiredService<IPairingCoordinator>());
 
-        // No state area is registered yet and no real domain feed exists -- a later concept
-        // registers each real Skyrim domain here and supplies a feed that adapts its captured
-        // values, per ai/context/protocol/security.md's "no state area is currently registered".
-        IRegisteredStateAreaPolicy registeredStateAreaPolicy = new RegisteredStateAreaPolicy();
-        IStatePublicationFeed statePublicationFeed = NullStatePublicationFeed.Instance;
-        ISessionTerminationNotifier terminationNotifier = new PublicSessionTerminationNotifier(connectionRegistry, envelopeCodec, playContextTracker);
-        IClientSessionInvalidator sessionInvalidator = new ClientSessionInvalidator(sessionRegistry, terminationNotifier);
-        ITrustAdminService trustAdminService = new TrustAdminService(trustStore, sessionInvalidator, pairingCoordinator);
-        ITrustResetService trustResetService = new TrustResetService(trustStore, sessionInvalidator, pairingCoordinator, clock);
-        IAdapterTrustAdminRequestHandler trustAdminRequestHandler = new AdapterTrustAdminRequestHandler(trustAdminService, trustResetService, clock);
-
-        using IAdapterIpcListener adapterListener = new AdapterIpcListener(
-            listenerPort,
-            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, ownerLifetimeId), clock));
-        IPairingAdapterNotifier adapterNotifier = new AdapterPairingNotifier(adapterListener);
-        ILocalConnectionTokenAuthenticator tokenAuthenticator = new LocalConnectionTokenAuthenticator(clock);
-        ITrustedCredentialFailureThrottle credentialThrottle = new TrustedCredentialFailureThrottle(clock);
-        IClientMessageDispatcher dispatcher = new ClientMessageDispatcher(
-            envelopeCodec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
-
-        using IPublicWebSocketListener? publicListener = publicListenerPort is int boundPublicPort
-            ? new PublicWebSocketListener(
-                boundPublicPort,
-                stream => new PublicWebSocketConnection(
-                    stream,
-                    new PublicHelloAdmissionHandler(
-                        envelopeCodec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
-                        playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry,
-                        subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, envelopeCodec, playContextTracker, stateAuthorityLifecycle)),
-                    clock,
-                    new PublicWebSocketTransportOptions(),
-                    NullPublicWebSocketTransportDiagnostics.Instance,
-                    new DataLaneOutboundQueue()),
-                hostSettings.MaxActiveSessions)
-            : null;
-
-        using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
-        Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
-
-        var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
-        rendezvousPublisher.Publish(adapterListener.BoundPort, verifier.ExpectedToken, verifier.HostProofKey);
-
-        // PORT, PROOF, and HOSTPROOF are always exactly the first three lines, in this exact
-        // order: a real launched process's own native launcher (Win32AdapterHostProcessLauncher)
-        // reads exactly three lines from this stream and treats them positionally as those three
-        // values, with no public-listener awareness of its own. PUBLICPORT is written last,
-        // strictly after them and only when the public listener is composed, so its presence can
-        // never shift PROOF or HOSTPROOF into the position that reader expects the other to occupy.
-        await rendezvousOutput.WriteLineAsync($"PORT {adapterListener.BoundPort}");
-        await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(verifier.ExpectedToken)}");
-        await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(verifier.HostProofKey)}");
-        if (publicListener is not null)
-        {
-            await rendezvousOutput.WriteLineAsync($"PUBLICPORT {publicListener.BoundPort}");
-        }
-
-        await rendezvousOutput.FlushAsync();
-
-        Task adapterListenerTask = adapterListener.RunAsync(shutdown.Token);
-        Task publicListenerTask = publicListener?.RunAsync(shutdown.Token) ?? Task.CompletedTask;
-
-        int exitCode = await RunAsync(lifetime, shutdown.Token);
-
-        shutdown.Cancel();
-        await adapterListenerTask;
-        await publicListenerTask;
-        await shutdownWatchTask;
-        return exitCode;
-    }
-
-    /// <summary>Runs an injected host lifetime and maps clean shutdown to a successful exit code.</summary>
-    /// <param name="lifetime">The host lifetime to run.</param>
-    /// <param name="cancellationToken">The token used to request shutdown.</param>
-    /// <returns>A successful process exit code after the lifetime ends.</returns>
-    internal static async Task<int> RunAsync(IHostProcessLifetime lifetime, CancellationToken cancellationToken)
-    {
-        await lifetime.RunAsync(cancellationToken);
-        return 0;
+        // Resolving the runtime is what triggers construction (and, for the listeners, socket bind) of the
+        // whole remaining graph, in the same adapter-then-public order the manual composition it replaces used.
+        IHostRuntime runtime = provider.GetRequiredService<IHostRuntime>();
+        return await runtime.RunAsync(shutdown);
     }
 
     /// <summary>
@@ -275,74 +194,4 @@ internal static class Program
     /// </param>
     internal static ITrustStorePersistence? ResolveTestTrustStorePersistence(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : new WindowsDpapiTrustStorePersistence(value);
-
-    /// <summary>Cancels <paramref name="shutdown"/> once the adapter's named shutdown-request signal is set.</summary>
-    /// <param name="signal">The shutdown signal to wait on.</param>
-    /// <param name="shutdown">The shared shutdown source to cancel once the signal fires.</param>
-    private static async Task WatchShutdownSignalAsync(IHostShutdownSignal signal, CancellationTokenSource shutdown)
-    {
-        await signal.WaitAsync(shutdown.Token);
-        shutdown.Cancel();
-    }
-
-    /// <summary>
-    /// A minimal composition-time placeholder for <see cref="IPublicWebSocketTransportDiagnostics"/>:
-    /// reports to the process's own standard error stream. <see cref="IPublicWebSocketTransportDiagnostics"/>'s
-    /// own documentation defers the real logging/telemetry sink to a later concept; this exists only
-    /// so today's composition root has some observable signal rather than silently discarding every
-    /// report.
-    /// </summary>
-    private sealed class NullPublicWebSocketTransportDiagnostics : IPublicWebSocketTransportDiagnostics
-    {
-        /// <summary>The shared, stateless instance every connection reports through.</summary>
-        public static readonly NullPublicWebSocketTransportDiagnostics Instance = new();
-
-        /// <inheritdoc/>
-        public void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
-        {
-            try
-            {
-                Console.Error.WriteLine($"[public-websocket] abnormal end: {reason}");
-            }
-            catch
-            {
-                // Must never throw or block; see the interface's own documented contract.
-            }
-        }
-    }
-
-    /// <summary>
-    /// A minimal composition-time placeholder for <see cref="IStatePublicationFeed"/>: never has a
-    /// current value and never raises <see cref="IStatePublicationFeed.EventOccurred"/>. Correct
-    /// today's composition root's production behavior, since no state area is registered yet --
-    /// <see cref="IRegisteredStateAreaPolicy.IsRegistered"/> already rejects every area before any
-    /// caller would ever reach this feed, so its own responses are never actually exercised in
-    /// production. A later concept, once a real domain is registered, supplies a real feed instead.
-    /// </summary>
-    private sealed class NullStatePublicationFeed : IStatePublicationFeed
-    {
-        /// <summary>The shared, stateless instance every connection reads through.</summary>
-        public static readonly NullStatePublicationFeed Instance = new();
-
-        /// <inheritdoc/>
-        public event Action<StateEventPublication>? EventOccurred
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public event Action<StateSnapshotPublication>? SnapshotChanged
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot)
-        {
-            snapshot = null;
-            return false;
-        }
-    }
 }

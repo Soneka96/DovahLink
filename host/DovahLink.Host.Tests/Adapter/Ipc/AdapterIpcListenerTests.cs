@@ -29,6 +29,24 @@ public class AdapterIpcListenerTests
         Assert.NotEqual(0, listener.BoundPort);
     }
 
+    /// <summary>Verifies that the options-based constructor binds the configured port and wires the supplied connection factory.</summary>
+    [Fact]
+    public async Task Constructor_OptionsAndConnectionFactory_BindsConfiguredPortAndUsesFactory()
+    {
+        var connectionFactory = new StubAdapterConnectionFactory(stream => new FakeAdapterIpcConnection(stream));
+        using var listener = new AdapterIpcListener(new AdapterIpcOptions(0), connectionFactory);
+
+        Assert.NotEqual(0, listener.BoundPort);
+
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        using Socket client = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => connectionFactory.CreateCallCount == 1);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Verifies that a fresh listener reports no active connection.</summary>
     [Fact]
     public void CurrentConnection_BeforeAnyAccept_IsNull()
@@ -318,6 +336,16 @@ public class AdapterIpcListenerTests
         Assert.Throws<SocketException>(() => new AdapterIpcListener(first.BoundPort, stream => new FakeAdapterIpcConnection(stream)));
     }
 
+    /// <summary>Verifies that the options-based constructor also fails fast on a port already bound by another, matching the low-level constructor it delegates to.</summary>
+    [Fact]
+    public void Constructor_OptionsAndConnectionFactory_PortAlreadyInUse_Throws()
+    {
+        using var first = new AdapterIpcListener(0, stream => new FakeAdapterIpcConnection(stream));
+
+        Assert.Throws<SocketException>(() => new AdapterIpcListener(
+            new AdapterIpcOptions(first.BoundPort), new StubAdapterConnectionFactory(stream => new FakeAdapterIpcConnection(stream))));
+    }
+
     /// <summary>Polls a condition until it becomes true, failing the test if it never does within a bounded time.</summary>
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
@@ -335,5 +363,32 @@ public class AdapterIpcListenerTests
         var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         await client.ConnectAsync(IPAddress.Loopback, port);
         return client;
+    }
+
+    /// <summary>A minimal <see cref="IAdapterConnectionFactory"/> stand-in delegating to a supplied function and counting calls.</summary>
+    private sealed class StubAdapterConnectionFactory : IAdapterConnectionFactory
+    {
+        /// <summary>The function this stub delegates <see cref="Create"/> to.</summary>
+        private readonly Func<Stream, IAdapterIpcConnection> create;
+
+        /// <summary>Creates a stub delegating to an explicit function.</summary>
+        /// <param name="create">The function this stub delegates <see cref="Create"/> to.</param>
+        public StubAdapterConnectionFactory(Func<Stream, IAdapterIpcConnection> create)
+        {
+            this.create = create;
+        }
+
+        /// <summary>The number of times <see cref="Create"/> has been called, safe to read from another thread.</summary>
+        private int createCallCount;
+
+        /// <summary>The number of times <see cref="Create"/> has been called.</summary>
+        public int CreateCallCount => Volatile.Read(ref createCallCount);
+
+        /// <inheritdoc/>
+        public IAdapterIpcConnection Create(Stream stream)
+        {
+            Interlocked.Increment(ref createCallCount);
+            return create(stream);
+        }
     }
 }

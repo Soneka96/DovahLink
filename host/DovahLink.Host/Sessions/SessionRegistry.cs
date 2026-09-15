@@ -10,6 +10,12 @@ namespace DovahLink.Host.Sessions;
 /// </summary>
 public interface ISessionRegistry
 {
+    /// <summary>The current number of active sessions.</summary>
+    int ActiveCount { get; }
+
+    /// <summary>The maximum number of simultaneous active sessions.</summary>
+    int MaxActiveSessions { get; }
+
     /// <summary>Attempts to create a new session for a client and owning connection.</summary>
     /// <param name="clientId">The client the session belongs to.</param>
     /// <param name="connectionId">The transport connection that owns the session.</param>
@@ -172,19 +178,26 @@ public sealed class SessionRegistry : ISessionRegistry
 
     /// <summary>Creates a registry with an explicit active-session admission bound.</summary>
     /// <param name="securityStateGate">The linearization point shared with <see cref="Trust.TrustStore"/>.</param>
-    /// <param name="maxActiveSessions">The maximum number of simultaneous active sessions.</param>
-    public SessionRegistry(ISecurityStateGate securityStateGate, int maxActiveSessions = Constants.MaxActiveSessions)
+    /// <param name="settings">
+    /// The resolved host configuration this registry's admission bound comes from. Defaults to
+    /// <see langword="null"/>, which is treated as <see cref="Constants.MaxActiveSessions"/> -- the
+    /// same default the composition root's own <see cref="HostSettings"/> falls back to when no
+    /// settings file overrides it.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="settings"/>'s <see cref="HostSettings.MaxActiveSessions"/> is not positive.</exception>
+    public SessionRegistry(ISecurityStateGate securityStateGate, HostSettings? settings = null)
     {
+        int maxActiveSessions = (settings ?? new HostSettings(Constants.MaxActiveSessions)).MaxActiveSessions;
         if (maxActiveSessions <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(maxActiveSessions));
+            throw new ArgumentOutOfRangeException(nameof(settings));
         }
 
         this.securityStateGate = securityStateGate;
         this.maxActiveSessions = maxActiveSessions;
     }
 
-    /// <summary>The current number of active sessions.</summary>
+    /// <inheritdoc/>
     public int ActiveCount
     {
         get
@@ -201,7 +214,7 @@ public sealed class SessionRegistry : ISessionRegistry
         }
     }
 
-    /// <summary>The maximum number of simultaneous active sessions.</summary>
+    /// <inheritdoc/>
     public int MaxActiveSessions => maxActiveSessions;
 
     /// <summary>Returns the current trust tier of an active session, for diagnostics and tests.</summary>
