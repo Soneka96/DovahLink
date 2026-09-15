@@ -155,7 +155,7 @@ public class AdapterIpcServiceExtensionsTests
         ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, persistence);
 
         var services = new ServiceCollection();
-        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddCoreServices(clock, securityGate, shutdown, new FakeHostSettingsProvider());
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
 

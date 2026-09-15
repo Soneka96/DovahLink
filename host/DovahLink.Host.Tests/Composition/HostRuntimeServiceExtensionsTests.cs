@@ -64,7 +64,7 @@ public class HostRuntimeServiceExtensionsTests
         ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
 
         var services = new ServiceCollection();
-        services.AddCoreServices(clock, securityGate, shutdown);
+        services.AddCoreServices(clock, securityGate, shutdown, new FakeHostSettingsProvider());
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort: 0, new OwnerLifetimeId(1, 2));
         services.AddPublicClientServices(publicListenerPort);
