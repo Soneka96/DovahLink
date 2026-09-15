@@ -3,7 +3,7 @@ using DovahLink.Host.Process;
 namespace DovahLink.Host.Tests.Process;
 
 /// <summary>Tests for <see cref="FileHostRendezvousPublisher"/> and <see cref="Constants.RendezvousFilePath"/>.</summary>
-public class HostRendezvousTests : IDisposable
+public class FileHostRendezvousPublisherTests : IDisposable
 {
     /// <summary>A temporary file path this test's publisher writes to, cleaned up after the test.</summary>
     private readonly string tempFilePath = Path.Combine(Path.GetTempPath(), $"dovahlink-rendezvous-test-{Guid.NewGuid():N}.dat");

@@ -3,7 +3,7 @@ using DovahLink.Host.Process;
 namespace DovahLink.Host.Tests.Process;
 
 /// <summary>Tests for <see cref="NamedEventHostShutdownSignal"/>.</summary>
-public class HostShutdownSignalTests
+public class NamedEventHostShutdownSignalTests
 {
     /// <summary>The default time allowed for an expected-to-complete wait.</summary>
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
