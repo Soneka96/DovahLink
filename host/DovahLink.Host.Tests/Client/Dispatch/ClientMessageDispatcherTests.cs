@@ -779,9 +779,9 @@ public class ClientMessageDispatcherTests
 
     /// <summary>
     /// Verifies that a presented code which is not exactly six ASCII decimal digits is rejected as
-    /// malformed protocol input before it ever reaches <see cref="IPairingCoordinator.ConfirmCode"/>,
-    /// per Concept 02's "wrong shape is malformed protocol, not failed authentication" precedent --
-    /// never consumed as an ordinary wrong-code attempt.
+    /// malformed protocol input before it ever reaches <see cref="IPairingCoordinator.ConfirmCode"/> --
+    /// wrong shape is malformed protocol, not failed authentication, so it is never consumed as an
+    /// ordinary wrong-code attempt.
     /// </summary>
     [Theory]
     [InlineData("12345")]
@@ -1272,9 +1272,8 @@ public class ClientMessageDispatcherTests
     /// <summary>
     /// Verifies that a presented credential which is not exactly the approved hex length/shape is
     /// rejected as malformed protocol input before it ever reaches
-    /// <see cref="IPairingCoordinator.CommitPendingAsync"/>, per Concept 02's "wrong shape is
-    /// malformed protocol, not failed authentication" precedent -- never treated as an ordinary
-    /// <c>pending_not_found</c> secret mismatch.
+    /// <see cref="IPairingCoordinator.CommitPendingAsync"/> -- wrong shape is malformed protocol, not
+    /// failed authentication, so it is never treated as an ordinary <c>pending_not_found</c> secret mismatch.
     /// </summary>
     [Theory]
     [InlineData("not-hex-at-all-not-hex-at-all!!")]
@@ -1773,7 +1772,7 @@ public class ClientMessageDispatcherTests
     }
 
     /// <summary>
-    /// Verifies the actual double-display race this concept's redisplay reservation closes: while
+    /// Verifies the actual double-display race the redisplay reservation closes: while
     /// dispatch A's adapter notification is still in flight, a concurrent <c>pairing_renotify</c> for
     /// the same client (dispatch B) is told <c>already_idle</c> without ever reaching the adapter --
     /// so the adapter is invoked at most once per outstanding reservation, never twice for one

@@ -16,12 +16,12 @@ namespace DovahLink.Host.Client.Subscription;
 /// <see cref="AreaDeliveryPhase.Live"/>: establishing a baseline holds any Event above the baseline's
 /// revision rather than discarding or forwarding it ahead of the baseline, and releases the held
 /// Events, in arrival order, only once the connection actually admits the baseline -- per
-/// <c>protocol/schema/README.md</c>'s "the bridge sends a snapshot before events for each accepted
+/// <c>protocol/schema/README.md</c>'s "the host sends a snapshot before events for each accepted
 /// state area." A play-context transition, or a <see cref="IStateAuthorityLifecycle.Rotated"/>
 /// state-authority rotation, invalidates every area's live baseline and any Events held for it, so a
-/// later Event stops forwarding until this connection obtains a fresh baseline -- the latter is
-/// `01.3a`'s post-rotation baseline rule: incremental continuity from the previous
-/// <see cref="StateAuthorityId"/> is invalid until a fresh baseline is established under the new one.
+/// later Event stops forwarding until this connection obtains a fresh baseline: incremental
+/// continuity from the previous <see cref="StateAuthorityId"/> is invalid until a fresh baseline is
+/// established under the new one.
 /// </summary>
 public interface IPublicStateSubscription
 {
@@ -301,10 +301,10 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
     /// <summary>
     /// Invalidates every area's live baseline and abandons every in-progress recovery, the same way
-    /// <see cref="OnPlayContextTransitioned"/> does for a play-context transition: per `01.3a`'s
-    /// post-rotation baseline rule, incremental continuity from the previous
-    /// <see cref="StateAuthorityId"/> is invalid outright once it rotates, so this connection must
-    /// obtain a fresh baseline before it forwards another Event for any area. Bumping each area's
+    /// <see cref="OnPlayContextTransitioned"/> does for a play-context transition: incremental
+    /// continuity from the previous <see cref="StateAuthorityId"/> is invalid outright once it
+    /// rotates, so this connection must obtain a fresh baseline before it forwards another Event for
+    /// any area. Bumping each area's
     /// recovery epoch here ensures a <see cref="TryEstablishBaseline"/> call already in flight under
     /// the old value is ignored when it completes, rather than incorrectly committing a stale
     /// baseline live.
@@ -589,10 +589,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             {
                 state.Phase = AreaDeliveryPhase.Live;
 
-                // A Snapshot buffered while Recovering is a complete replacement value, not a delta: it
-                // is superseded outright by this same baseline it raced against, or, if newer, is the
-                // area's true current value and must reach the client even though it arrived before the
-                // baseline this call just admitted committed Live.
+                // A Snapshot buffered while Recovering is a complete replacement value, not a delta:
+                // superseded outright by this same baseline it raced against, or, if newer, the area's
+                // true current value that must still reach the client.
                 StateSnapshotPublication? pendingSnapshot = state.PendingSnapshot;
                 state.PendingSnapshot = null;
                 if (pendingSnapshot is StateSnapshotPublication pending && pending.Revision.Value > snapshot!.Revision.Value)

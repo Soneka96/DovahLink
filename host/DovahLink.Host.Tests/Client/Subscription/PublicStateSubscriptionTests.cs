@@ -928,10 +928,9 @@ public class PublicStateSubscriptionTests
     /// <summary>
     /// Verifies that a state-authority rotation invalidates a live area's baseline the same way a
     /// play-context transition does: an Event that would otherwise have forwarded stops forwarding
-    /// once <see cref="IStateAuthorityLifecycle.Rotated"/> fires, until the area is re-armed. This is
-    /// `01.3a`'s post-rotation baseline rule: incremental continuity from the previous
-    /// <see cref="StateAuthorityId"/> is invalid until a fresh baseline is established under the new
-    /// one.
+    /// once <see cref="IStateAuthorityLifecycle.Rotated"/> fires, until the area is re-armed.
+    /// Incremental continuity from the previous <see cref="StateAuthorityId"/> is invalid until a
+    /// fresh baseline is established under the new one.
     /// </summary>
     [Fact]
     public void OnEventOccurred_StateAuthorityRotated_StopsForwardingUntilReArmed()

@@ -5,8 +5,6 @@ namespace DovahLink.Host.Client.Dispatch;
 /// pairing notification. The adapter performs only presentation/glue; every pairing, trust,
 /// authorization, and retry decision remains host-owned, per
 /// <c>ai/context/protocol/security.md</c>'s "No client request directly invokes Skyrim code" boundary.
-/// A later concept implements this over the private adapter IPC channel; this concept only depends on
-/// and calls it.
 /// </summary>
 public interface IPairingAdapterNotifier
 {
