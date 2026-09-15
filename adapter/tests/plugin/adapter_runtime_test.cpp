@@ -10,10 +10,12 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <string>
 
@@ -65,9 +67,7 @@ AdapterStartupContext BuildStartupContext(
 ///  AdapterRuntime's own connection worker thread can be proven against an
 ///  actual live socket, per ai/context/skse/testing.md's "before using real
 ///  sockets" -- AdapterRuntime has no injectable socket seam to fake this
-///  with instead. Single-threaded: `AcceptOne` is called directly from the
-///  test's own thread and blocks it, which is exactly the deterministic
-///  barrier this test needs.
+///  with instead.
 class LoopbackListener {
   public:
     LoopbackListener() {
@@ -107,12 +107,32 @@ class LoopbackListener {
     ///  The actual loopback port this listener is bound to.
     std::uint16_t Port() const { return port_; }
 
-    ///  Blocks until one connection is accepted -- the deterministic barrier
-    ///  proving AdapterRuntime's own connection worker thread has physically
-    ///  connected and moved on to waiting for the Hello handshake it will
-    ///  never receive from this listener.
+    ///  Blocks, bounded, until one connection is accepted -- the
+    ///  deterministic barrier proving AdapterRuntime's own connection worker
+    ///  thread has physically connected and moved on to waiting for the
+    ///  Hello handshake it will never receive from this listener. Runs the
+    ///  blocking `accept()` on a background thread and bounds only the wait
+    ///  for it to finish, mirroring `adapter_ipc_connection_test.cpp`'s own
+    ///  `std::async`/`wait_for` pattern, so a regression that stops the
+    ///  connection from ever reaching this listener fails this test with a
+    ///  clear timeout instead of hanging until CI's outer timeout kills it.
     void AcceptOne() {
-        acceptedSocket_ = accept(listenSocket_, nullptr, nullptr);
+        std::future<SOCKET> accepted = std::async(std::launch::async, [this] {
+            return accept(listenSocket_, nullptr, nullptr);
+        });
+        if (accepted.wait_for(std::chrono::seconds(5)) !=
+            std::future_status::ready) {
+            //  A std::async future's destructor blocks until its task
+            //  completes, even while unwinding through a thrown exception --
+            //  closing the listening socket first unblocks the still-running
+            //  accept() (the same mechanism this file's own StopAccepting-
+            //  style shutdown relies on) so FAIL()'s unwind cannot deadlock
+            //  here instead of actually failing the test.
+            closesocket(listenSocket_);
+            listenSocket_ = INVALID_SOCKET;
+            FAIL("AcceptOne timed out waiting for a connection");
+        }
+        acceptedSocket_ = accepted.get();
         REQUIRE(acceptedSocket_ != INVALID_SOCKET);
     }
 
