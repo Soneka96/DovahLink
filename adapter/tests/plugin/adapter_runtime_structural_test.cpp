@@ -28,6 +28,58 @@ TEST_CASE("AdapterRuntime does not start the private IPC connection before "
           std::string::npos);
 }
 
+TEST_CASE("AdapterRuntime routes a connected target to the session",
+          "[plugin][structural]") {
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_RUNTIME_SOURCE_FILE);
+
+    std::size_t onTargetConnected = source.find(".onTargetConnected =");
+    REQUIRE(onTargetConnected != std::string::npos);
+    std::size_t handleConnected =
+        source.find("session_->HandleConnected(target);", onTargetConnected);
+
+    REQUIRE(handleConnected != std::string::npos);
+    CHECK(onTargetConnected < handleConnected);
+}
+
+TEST_CASE("AdapterRuntime routes a received message to the session",
+          "[plugin][structural]") {
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_RUNTIME_SOURCE_FILE);
+
+    std::size_t onMessageReceived = source.find(".onMessageReceived =");
+    REQUIRE(onMessageReceived != std::string::npos);
+    std::size_t handleMessage =
+        source.find("session_->HandleMessage(message);", onMessageReceived);
+
+    REQUIRE(handleMessage != std::string::npos);
+    CHECK(onMessageReceived < handleMessage);
+}
+
+TEST_CASE("AdapterRuntime routes a decode failure to the session",
+          "[plugin][structural]") {
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_RUNTIME_SOURCE_FILE);
+
+    std::size_t onDecodeFailure = source.find(".onDecodeFailure =");
+    REQUIRE(onDecodeFailure != std::string::npos);
+    std::size_t handleDecodeFailure =
+        source.find("session_->HandleDecodeFailure();", onDecodeFailure);
+
+    REQUIRE(handleDecodeFailure != std::string::npos);
+    CHECK(onDecodeFailure < handleDecodeFailure);
+}
+
+TEST_CASE("AdapterRuntime routes connection closing to the session",
+          "[plugin][structural]") {
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_RUNTIME_SOURCE_FILE);
+
+    std::size_t onClosing = source.find(".onClosing =");
+    REQUIRE(onClosing != std::string::npos);
+    std::size_t handleClosing =
+        source.find("session_->HandleClosing();", onClosing);
+
+    REQUIRE(handleClosing != std::string::npos);
+    CHECK(onClosing < handleClosing);
+}
+
 TEST_CASE("AdapterRuntime notifies the supervisor when the connection "
           "reports the host lost",
           "[plugin][structural]") {

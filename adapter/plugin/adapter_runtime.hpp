@@ -21,21 +21,11 @@ namespace dovahlink::adapter::plugin {
 
 ///  Owns the adapter's process-lifetime object graph: the capture handoff
 ///  queue, native dispatcher, private IPC session/connection/transport, and
-///  the host-discovery supervisor. `SKSEPluginLoad` constructs exactly one
-///  `AdapterRuntime` and never destroys it -- 1B does not support live DLL
-///  unload/reload, and destroying these thread-owning collaborators during
-///  `DLL_PROCESS_DETACH` could block under the Windows loader lock; Windows
-///  reclaims them, their threads, and their sockets when Skyrim exits.
-///  `AdapterRuntime` itself has no such constraint and destructs normally --
-///  the intentional leak is a production call-site decision, not a property
-///  of this type -- so tests may construct and destroy it freely.
+///  the host-discovery supervisor.
 ///
-///  This is the composition root for the graph it owns: its constructor
-///  builds each collaborator directly, per `ai/context/common.md`'s
-///  composition-root exception to constructor injection. It has no
-///  `IAdapterRuntime` interface: nothing consumes it as an injected
-///  collaborator, the same reasoning that leaves the Host's
-///  `DovahLinkHostRuntime` interface-free.
+///  `SKSEPluginLoad` constructs exactly one instance and never destroys it,
+///  because destroying these worker-owning collaborators during DLL detach
+///  could block under the Windows loader lock.
 class AdapterRuntime final {
   public:
     ///  Constructs the complete graph from already-resolved startup values.
