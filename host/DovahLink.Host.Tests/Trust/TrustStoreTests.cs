@@ -291,9 +291,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Verifies that an unpaired known device is never eligible for Block, per the canonical Stage 3.2
-    /// contract in <c>ai/context/protocol/security.md</c>: Block applies only to a Trusted or Revoked
-    /// device.
+    /// Verifies that Block applies only to a Trusted or Revoked device: an unpaired known device is
+    /// never eligible and the call leaves the record and security fence generation unchanged.
     /// </summary>
     [Fact]
     public async Task BlockAsync_UnpairedRecord_ReturnsNotEligibleWithoutMutation()
