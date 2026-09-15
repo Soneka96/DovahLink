@@ -7,9 +7,7 @@ namespace DovahLink.Host.State;
 /// The domain-agnostic, already-JSON-encoded push source a per-session delivery queue consumes to
 /// answer <c>subscribe</c> and <c>snapshot_request</c> and to forward ongoing <c>state_event</c>
 /// updates. Deliberately decoupled from <see cref="IStatePublisher{TState}"/>'s strongly-typed
-/// domain storage: a later concept adapts each concrete registered domain's captured values into
-/// this feed once that domain's C# type and wire mapping exist, so this contract and its consumers
-/// never depend on a concrete Skyrim domain shape.
+/// domain storage, so this contract and its consumers never depend on a concrete Skyrim domain shape.
 ///
 /// The implementation backing this feed owns the following ordering and freshness guarantees --
 /// matching the single authoritative per-state-area ordering point that assigns revisions before
@@ -24,20 +22,15 @@ namespace DovahLink.Host.State;
 /// <see cref="StateSnapshotPublication.Revision"/> order.</item>
 /// <item><see cref="TryGetSnapshot"/> never returns a value for an area whose revision is older
 /// than the most recent <see cref="StateEventPublication.Revision"/> already raised through
-/// <see cref="EventOccurred"/> for that same area -- a read is never allowed to appear staler than
-/// an event this feed has already announced.</item>
+/// <see cref="EventOccurred"/> for that same area.</item>
 /// <item>
 /// The implementation must check the adapter's current availability/authority and raise
 /// <see cref="EventOccurred"/>/<see cref="SnapshotChanged"/> for the resulting value as one
-/// atomic step under a single lock -- the same check-then-store discipline
-/// <see cref="IStatePublisher{TState}"/>'s own implementation already uses for
-/// <see cref="IStatePublisher{TState}.Apply"/> -- never as two separable steps
-/// (validate, then announce later) with a gap a concurrent
-/// <see cref="IStateAuthorityLifecycle.Rotated"/> rotation could land in. Per
-/// `01.3a`'s post-rotation baseline rule, an event produced under a
-/// <see cref="StateAuthorityId"/> that has already rotated away by the time it is announced
-/// must never reach a subscriber still treating an older baseline as live; splitting the
-/// check from the announcement reopens exactly the race that rule exists to close.
+/// atomic step under a single lock -- matching <see cref="IStatePublisher{TState}.Apply"/>'s own
+/// check-then-store discipline -- never as two separable steps, so a concurrent
+/// <see cref="IStateAuthorityLifecycle.Rotated"/> rotation can never let an event produced under an
+/// already-rotated-away <see cref="StateAuthorityId"/> reach a subscriber still treating an older
+/// baseline as live.
 /// </item>
 /// </list>
 /// </summary>
