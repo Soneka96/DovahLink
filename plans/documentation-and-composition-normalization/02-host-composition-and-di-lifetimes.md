@@ -107,8 +107,10 @@ Per R2.9: composition/lifetime tests proving --
 
 - Every R2.x acceptance bullet satisfied and traceable to a specific file/test.
 - Full Host test suite green; new composition/lifetime tests included and passing.
-- `PLAN.md` status table updated with this concept's PR number, marked `Complete` once
-  merged; unblocks Concept 04.
+- `PLAN.md` status table's own rule followed: this concept's branch may record `Complete`
+  once its own work above is finished, with no PR number required until one exists;
+  merging to `main` is what makes that `Complete` authoritative on `main` and unblocks
+  Concept 04, per `PLAN.md` section 8's status-table rule.
 
 ### R2.1-R2.10 traceability
 
