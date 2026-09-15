@@ -1089,9 +1089,9 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Proves the confirmed Rename-resurrection defect is closed for Revoke: a rename that reaches
-    /// this store's serialized mutation only after a concurrent Revoke has already committed must
-    /// observe the now-Revoked record, not the Trusted snapshot it would have read had it captured
+    /// Verifies that a rename which reaches this store's serialized mutation only after a concurrent
+    /// Revoke has already committed must observe the now-Revoked record, not the Trusted snapshot it
+    /// would have read had it captured
     /// state before acquiring the store's own mutation serialization -- so it reports
     /// <see cref="TrustMutationOutcome.NotEligible"/> and never resurrects Trusted state or the
     /// destroyed credential verifier.
