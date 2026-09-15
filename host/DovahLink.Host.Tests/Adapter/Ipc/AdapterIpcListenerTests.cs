@@ -371,15 +371,15 @@ public class AdapterIpcListenerTests
         /// <summary>The function this stub delegates <see cref="Create"/> to.</summary>
         private readonly Func<Stream, IAdapterIpcConnection> create;
 
+        /// <summary>The number of times <see cref="Create"/> has been called, safe to read from another thread.</summary>
+        private int createCallCount;
+
         /// <summary>Creates a stub delegating to an explicit function.</summary>
         /// <param name="create">The function this stub delegates <see cref="Create"/> to.</param>
         public StubAdapterConnectionFactory(Func<Stream, IAdapterIpcConnection> create)
         {
             this.create = create;
         }
-
-        /// <summary>The number of times <see cref="Create"/> has been called, safe to read from another thread.</summary>
-        private int createCallCount;
 
         /// <summary>The number of times <see cref="Create"/> has been called.</summary>
         public int CreateCallCount => Volatile.Read(ref createCallCount);
