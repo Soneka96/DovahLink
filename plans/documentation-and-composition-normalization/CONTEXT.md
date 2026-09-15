@@ -49,13 +49,17 @@ Status: active (package frozen 2026-09-13)
   (fail-closed ordering, exception types, rendezvous line ordering) are unchanged; only the
   internal composition *mechanism* changed. D9 later required one mechanical exception to that,
   recorded below where D9 is described.
-- `ValidateOnBuild` is deliberately not set when building the `ServiceProvider`: it eagerly
-  constructs every registered service at build time and wraps any resulting exception in
-  `AggregateException`, which would have turned `ProgramCompositionTests`' expected direct
-  `SocketException`/`InvalidDataException` into a wrapped one. Resolving `DovahLinkHostRuntime`
-  once, immediately after building the provider, achieves the same fail-fast-at-startup goal
-  through ordinary lazy singleton resolution, which propagates exceptions directly -- documented
-  inline in `Program.cs` and in `HostRuntimeServiceExtensions.cs`.
+- `ValidateOnBuild` was originally left unset in this pass on the mistaken assumption that it
+  eagerly constructs every registered service at build time and wraps any resulting exception in
+  `AggregateException`. A later review-response pass (after D9 closed, not one of its own numbered
+  steps) corrected that: `ValidateOnBuild` only validates that every registered service's
+  constructor dependencies are themselves resolvable, via `CallSiteFactory.GetCallSite` -- it never
+  invokes a constructor, so it cannot itself throw or wrap `SocketException`/`InvalidDataException`.
+  Resolving `IHostRuntime` is still what triggers real construction (and, for the listeners, socket
+  bind), so those exceptions still propagate directly, unwrapped, exactly as `ProgramCompositionTests`
+  expects. `ValidateOnBuild` is now enabled, catching a missing/miswired registration at startup
+  instead of at whatever later resolution happens to hit it first -- documented inline in
+  `Program.cs` and proven by `ProgramCompositionTests.BuildServiceProvider_ValidateOnBuildWithMissingDependency_ThrowsAtBuildTime`.
 - Final acceptance gate (this session's second pass): `dotnet build ... -p:GenerateDocumentationFile=true
   -p:TreatWarningsAsErrors=true` clean; `dotnet test host/DovahLink.Host.Tests` 1771/1771 passed
   (1763 first-pass baseline + 8 new); `python -m unittest discover -s tooling -p "test_*.py"`
