@@ -279,9 +279,8 @@ public class AdapterConnectionLifecycleTests
 
     /// <summary>
     /// Verifies that a concurrent <c>IsActive</c> call is never blocked by an Available subscriber
-    /// still running -- unlike the tracker's old combined publish operation, publication happens
-    /// after <c>stateGate</c> has already been released -- and already reflects the lease/tracker
-    /// commit, which lands before the subscriber ever runs.
+    /// still running: publication happens after <c>stateGate</c> has already been released, and
+    /// already reflects the lease/tracker commit, which lands before the subscriber ever runs.
     /// </summary>
     [Fact]
     public async Task ConcurrentIsActive_DuringActivateSubscriber_ReturnsCommittedStateWithoutBlocking()
