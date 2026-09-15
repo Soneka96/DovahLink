@@ -10,7 +10,7 @@ public static class HostRuntimeServiceExtensions
 {
     /// <summary>
     /// Registers <see cref="IHostShutdownSignal"/>, <see cref="IHostRendezvousPublisher"/>, and
-    /// <see cref="DovahLinkHostRuntime"/> itself. <see cref="DovahLinkHostRuntime"/>'s own
+    /// <see cref="IHostRuntime"/> itself. <see cref="DovahLinkHostRuntime"/>'s own
     /// <c>publicListener</c> constructor parameter defaults to <see langword="null"/>, so automatic
     /// constructor resolution supplies <see langword="null"/> exactly when
     /// <see cref="PublicClientServiceExtensions.AddPublicClientServices"/> left
@@ -21,8 +21,8 @@ public static class HostRuntimeServiceExtensions
     /// <paramref name="services"/>.
     /// </summary>
     /// <param name="services">The service collection to register into.</param>
-    /// <param name="lifetime">The host lifetime <see cref="DovahLinkHostRuntime"/> runs until the process is asked to exit.</param>
-    /// <param name="rendezvousOutput">Where <see cref="DovahLinkHostRuntime"/> reports the rendezvous endpoint for a launching adapter to read.</param>
+    /// <param name="lifetime">The host lifetime <see cref="IHostRuntime"/> runs until the process is asked to exit.</param>
+    /// <param name="rendezvousOutput">Where <see cref="IHostRuntime"/> reports the rendezvous endpoint for a launching adapter to read.</param>
     /// <returns><paramref name="services"/>, for chaining.</returns>
     public static IServiceCollection AddHostRuntime(this IServiceCollection services, IHostProcessLifetime lifetime, TextWriter rendezvousOutput)
     {
@@ -31,7 +31,7 @@ public static class HostRuntimeServiceExtensions
 
         services.AddSingleton<IHostShutdownSignal, NamedEventHostShutdownSignal>();
         services.AddSingleton<IHostRendezvousPublisher, FileHostRendezvousPublisher>();
-        services.AddSingleton<DovahLinkHostRuntime>();
+        services.AddSingleton<IHostRuntime, DovahLinkHostRuntime>();
 
         return services;
     }

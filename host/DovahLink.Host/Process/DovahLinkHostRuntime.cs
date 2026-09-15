@@ -4,15 +4,35 @@ using DovahLink.Host.Client.Transport;
 namespace DovahLink.Host.Process;
 
 /// <summary>
-/// Controls one composed Host lifetime's explicit startup and shutdown ordering: publishes the
+/// Owns one composed Host lifetime's explicit startup and shutdown ordering: publishes the
 /// adapter-IPC rendezvous endpoint, runs the adapter-IPC and (when composed) public listeners until
-/// the host lifetime ends or shutdown is requested -- by the caller, or by this runtime's own
-/// named-shutdown-signal watcher -- then tears both down in the exact order already proven safe:
-/// adapter-IPC listener first, then the public listener, then the shutdown-signal watcher. Ownership
-/// and disposal of every collaborator below remain with the composition root that constructs this
-/// runtime; this type only makes the run/shutdown sequence explicit and named, not a resource owner.
+/// the host lifetime ends or shutdown is requested, then tears both down in a proven-safe order.
 /// </summary>
-public sealed class DovahLinkHostRuntime
+public interface IHostRuntime
+{
+    /// <summary>
+    /// Publishes the rendezvous endpoint, starts both listeners, runs until <paramref name="shutdown"/>
+    /// is cancelled, then tears down in order: cancels shutdown, awaits the adapter-IPC listener, then
+    /// the public listener, then the shutdown-signal watcher.
+    /// </summary>
+    /// <param name="shutdown">
+    /// The shared shutdown source; cancelled by the caller on process exit, and internally by this
+    /// runtime's own named shutdown-signal watcher. Both listeners stop admitting new connections and
+    /// tear down through this one shared token.
+    /// </param>
+    /// <returns>A successful process exit code once shutdown completes and teardown finishes.</returns>
+    Task<int> RunAsync(CancellationTokenSource shutdown);
+}
+
+/// <inheritdoc cref="IHostRuntime"/>
+/// <remarks>
+/// Shutdown may be requested by the caller cancelling <c>shutdown</c> directly, or internally by
+/// this runtime's own named-shutdown-signal watcher; either source tears down in the same proven-safe
+/// order. Ownership and disposal of every collaborator below remain with the composition root that
+/// constructs this runtime; this type only makes the run/shutdown sequence explicit and named, not a
+/// resource owner.
+/// </remarks>
+public sealed class DovahLinkHostRuntime : IHostRuntime
 {
     /// <summary>Accepts the private adapter-IPC connection.</summary>
     private readonly IAdapterIpcListener adapterListener;
@@ -65,17 +85,7 @@ public sealed class DovahLinkHostRuntime
         this.peerProofVerifier = peerProofVerifier;
     }
 
-    /// <summary>
-    /// Publishes the rendezvous endpoint, starts both listeners, runs until <paramref name="shutdown"/>
-    /// is cancelled, then tears down in order: cancels shutdown, awaits the adapter-IPC listener, then
-    /// the public listener, then the shutdown-signal watcher.
-    /// </summary>
-    /// <param name="shutdown">
-    /// The shared shutdown source; cancelled by the caller on process exit, and internally by this
-    /// runtime's own named shutdown-signal watcher. Both listeners stop admitting new connections and
-    /// tear down through this one shared token.
-    /// </param>
-    /// <returns>A successful process exit code once shutdown completes and teardown finishes.</returns>
+    /// <inheritdoc/>
     public async Task<int> RunAsync(CancellationTokenSource shutdown)
     {
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);

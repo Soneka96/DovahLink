@@ -134,7 +134,7 @@ internal static class Program
 
         // Resolving the runtime is what triggers construction (and, for the listeners, socket bind) of the
         // whole remaining graph, in the same adapter-then-public order the manual composition it replaces used.
-        var runtime = provider.GetRequiredService<DovahLinkHostRuntime>();
+        IHostRuntime runtime = provider.GetRequiredService<IHostRuntime>();
         return await runtime.RunAsync(shutdown);
     }
 
