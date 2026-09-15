@@ -269,9 +269,9 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
-    /// Reproduces the confirmed Unblock fail-open bad trace end-to-end against the real
-    /// <see cref="TrustStore"/>: while <see cref="TrustStore.UnblockAsync"/>'s persistence write is in
-    /// flight -- and even once that persistence goes on to fail -- an unpaired hello for the Blocked
+    /// Verifies end-to-end against the real <see cref="TrustStore"/> that while
+    /// <see cref="TrustStore.UnblockAsync"/>'s persistence write is in flight -- and even once that
+    /// persistence goes on to fail -- an unpaired hello for the Blocked
     /// client must still be rejected as blocked, never transiently admitted as a restricted session
     /// through an Unpaired state that was never actually durable.
     /// </summary>
@@ -313,9 +313,9 @@ public class PublicHelloAdmissionTests
     }
 
     /// <summary>
-    /// Reproduces the confirmed Factory Reset/Clear race end-to-end against the real
-    /// <see cref="TrustStore"/>: while <see cref="TrustStore.ClearAsync"/>'s persistence write is in
-    /// flight -- and even once that persistence goes on to fail -- an unpaired hello for the Blocked
+    /// Verifies end-to-end against the real <see cref="TrustStore"/> that while
+    /// <see cref="TrustStore.ClearAsync"/>'s persistence write is in flight -- and even once that
+    /// persistence goes on to fail -- an unpaired hello for the Blocked
     /// client must still be rejected as blocked, never transiently admitted through a store that
     /// appeared empty before durability was actually established.
     /// </summary>
