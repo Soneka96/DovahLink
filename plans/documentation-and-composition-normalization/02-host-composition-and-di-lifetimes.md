@@ -1,8 +1,8 @@
 # Concept 02 -- Host composition, DI scopes, and service lifetimes
 
-**Status:** Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet
-opened as a PR (see `CONTEXT.md`'s Active concept entry, D8, and D9 for the full
-step-build history). D8 introduced a real `Microsoft.Extensions.DependencyInjection`
+**Status:** Complete on branch `feature/02-host-composition-and-di-lifetimes`, open as
+PR #67 and under review (see `CONTEXT.md`'s Active concept entry, D8, and D9 for the
+full step-build history). D8 introduced a real `Microsoft.Extensions.DependencyInjection`
 composition mechanism, but that pass's registrations still manually forwarded
 constructor dependencies through `sp => new Foo(sp.GetRequiredService<...>(), ...)`
 lambdas in most services -- using the container without gaining its actual benefit (a

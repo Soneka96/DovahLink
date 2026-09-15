@@ -10,9 +10,9 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `02-host-composition-and-di-lifetimes.md`
-- Status: Complete on branch `feature/02-host-composition-and-di-lifetimes`, not yet opened
-  as a PR. Reopened from a prior `Complete` label per D9's maintainer-clarified DI
-  requirement, then closed out again after D9's six step-build steps (see below).
+- Status: Complete on branch `feature/02-host-composition-and-di-lifetimes`, open as PR
+  #67 and under review. Reopened from a prior `Complete` label per D9's maintainer-clarified
+  DI requirement, then closed out again after D9's six step-build steps (see below).
   Prerequisite (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit
   `3768c1e0`, PR #66), not inferred from a prior label.
 - First implementation pass (manual composition, six reviewable step-build steps) introduced
@@ -43,11 +43,12 @@ Status: active (package frozen 2026-09-13)
   `ComposeAndRunAsync`/`DovahLinkHostRuntime` directly can omit one); (7) this close-out, including
   removing the first pass's now-closed R2.9 gap note above and adding Concept 02's own R2.1-R2.10
   traceability table.
-- `ProgramCompositionTests.cs` and `DovahLinkHostRuntimeTests.cs` required **zero** edits across the
-  entire DI migration (confirmed via `git diff --stat` immediately after the migration step) --
-  `Program.ComposeAndRunAsync`'s public signature and every observable behavior (fail-closed
-  ordering, exception types, rendezvous line ordering) are unchanged; only the internal composition
-  *mechanism* changed.
+- `ProgramCompositionTests.cs` and `DovahLinkHostRuntimeTests.cs` required **zero** edits during
+  the D8 DI migration itself (confirmed via `git diff --stat` immediately after the migration
+  step) -- `Program.ComposeAndRunAsync`'s public signature and every observable behavior
+  (fail-closed ordering, exception types, rendezvous line ordering) are unchanged; only the
+  internal composition *mechanism* changed. D9 later required one mechanical exception to that,
+  recorded below where D9 is described.
 - `ValidateOnBuild` is deliberately not set when building the `ServiceProvider`: it eagerly
   constructs every registered service at build time and wraps any resulting exception in
   `AggregateException`, which would have turned `ProgramCompositionTests`' expected direct
@@ -144,10 +145,10 @@ Status: active (package frozen 2026-09-13)
   (its `onComposed` callback's two local variable types, from the interface-only-resolution
   refinement) -- not the "zero edits" D8 achieved, recorded accurately in the concept file's
   own R2.10 row rather than left as a stale carried-over claim.
-- Next action: maintainer review, then open the PR. Once merged, Concept 04 (Host documentation
-  sweep) becomes eligible to start, per `PLAN.md` section 6's merge-not-just-complete rule; Concept
-  03 (Adapter composition) remains independently eligible regardless, per its own dependency on
-  `01.1`/`01.3c` only.
+- Next action: address PR #67 review findings and merge once CI/review is clean. Once merged,
+  Concept 04 (Host documentation sweep) becomes eligible to start, per `PLAN.md` section 6's
+  merge-not-just-complete rule; Concept 03 (Adapter composition) remains independently eligible
+  regardless, per its own dependency on `01.1`/`01.3c` only.
 
 ## Completed concepts
 
