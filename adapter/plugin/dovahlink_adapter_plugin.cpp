@@ -4,24 +4,16 @@
 
 #include "SKSE/SKSE.h"
 
-#include "capture/adapter_capture_handoff_queue.hpp"
 #include "capture/adapter_capture_work_item.hpp"
 #include "constants.hpp"
-#include "dispatch/adapter_native_dispatcher.hpp"
-#include "identity/adapter_instance_id.hpp"
 #include "identity/adapter_instance_id_generator.hpp"
-#include "ipc/adapter_ipc_connection.hpp"
-#include "ipc/adapter_ipc_connection_callbacks.hpp"
-#include "ipc/adapter_ipc_session.hpp"
 #include "ipc/commonlib_adapter_pairing_notification_sink.hpp"
-#include "ipc/ipc_frame_codec.hpp"
-#include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
 #include "papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp"
-#include "process/adapter_host_process_launcher.hpp"
+#include "plugin/adapter_runtime.hpp"
+#include "plugin/adapter_startup_context.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
 #include "process/adapter_host_shutdown_requester.hpp"
-#include "process/adapter_host_supervisor.hpp"
 #include "process/adapter_owner_lifetime_id.hpp"
 #include "runtime/adapter_game_behavior_config.hpp"
 #include "runtime/adapter_game_behavior_config_file_reader.hpp"
@@ -217,84 +209,45 @@ SKSEPluginInfo(
         dovahlink::adapter::runtime::InstallAchievementCompatibilityPatch();
     }
 
-    //  Plugin-lifetime adapter state, declared as function-local statics in
-    //  the exact order they depend on each other. The pointed-to objects are
-    //  intentionally process-lifetime allocations: 1B does not support live
-    //  DLL unload/reload, and allowing their destructors to join under DLL
-    //  detach would violate the loader-lock boundary. Windows reclaims these
-    //  objects, threads, sockets, and handles when Skyrim exits.
-    static auto* captureQueue =
-        new dovahlink::adapter::capture::AdapterCaptureHandoffQueue(
-            [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
-                SKSE::log::info("Adapter capture drained for intent key {}.",
-                                item.intentKey);
-            },
-            [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
-                SKSE::log::warn("Adapter capture queue rejected intent key {}.",
-                                item.intentKey);
-            });
+    //  CommonLibAdapterTaskMarshaller and CommonLibAdapterPairingNotificationSink
+    //  require CommonLib, so they are constructed here -- like AdapterRuntime
+    //  below, as intentional process-lifetime allocations, never deleted --
+    //  and passed into AdapterRuntime, which is otherwise CommonLib-free.
     static auto* taskMarshaller =
         new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller;
-    static auto* dispatcher =
-        new dovahlink::adapter::dispatch::AdapterNativeDispatcher;
     static auto* pairingNotificationSink =
         new dovahlink::adapter::ipc::CommonLibAdapterPairingNotificationSink;
 
     dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
-    static dovahlink::adapter::identity::AdapterInstanceId instanceId =
-        idGenerator.Generate();
-    const auto& stableOwnerLifetimeId = *gOwnerLifetimeId;
-    static auto* session = new dovahlink::adapter::ipc::AdapterIpcSession(
-        instanceId, stableOwnerLifetimeId, *taskMarshaller, *dispatcher,
-        *captureQueue, *pairingNotificationSink, [] {
+    dovahlink::adapter::plugin::AdapterStartupContext startupContext{
+        .instanceId = idGenerator.Generate(),
+        .ownerLifetimeId = *gOwnerLifetimeId,
+        .rendezvousPath = *rendezvousPath,
+        .hostExecutablePath = *hostExecutablePath,
+    };
+
+    //  The one process-lifetime AdapterRuntime, owning the rest of the
+    //  object graph. Never destroyed for the same loader-lock reason
+    //  documented on AdapterRuntime itself.
+    static auto* runtime = new dovahlink::adapter::plugin::AdapterRuntime(
+        startupContext, *taskMarshaller, *pairingNotificationSink,
+        [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
+            SKSE::log::info("Adapter capture drained for intent key {}.",
+                            item.intentKey);
+        },
+        [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
+            SKSE::log::warn("Adapter capture queue rejected intent key {}.",
+                            item.intentKey);
+        },
+        [] {
             SKSE::log::warn("Adapter IPC session rejected a deferred "
                             "game-thread dispatch at capacity.");
         });
 
-    static auto* socket = new dovahlink::adapter::ipc::WinsockAdapterIpcSocket(0);
-    static auto* codec = new dovahlink::adapter::ipc::IpcFrameCodec;
-
-    //  Process-lifecycle discovery: an adopt-from-rendezvous-or-launch-fresh
-    //  supervisor keeps the connection's complete target snapshot pointed at a
-    //  authenticated target for this plugin's whole lifetime.
-    static auto* reader =
-        new dovahlink::adapter::process::FileAdapterHostRendezvousReader(
-            *rendezvousPath);
-    static auto* launcher =
-        new dovahlink::adapter::process::Win32AdapterHostProcessLauncher(
-            *hostExecutablePath, stableOwnerLifetimeId);
-    static auto* supervisor =
-        static_cast<dovahlink::adapter::process::AdapterHostSupervisor*>(
-            nullptr);
-    static auto* connection = new dovahlink::adapter::ipc::AdapterIpcConnection(
-        *socket, *codec,
-        dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
-            .onTargetConnected =
-                [](const dovahlink::adapter::ipc::AdapterIpcTarget& target) {
-                    session->HandleConnected(target);
-                },
-            .onMessageReceived =
-                [](const dovahlink::adapter::ipc::IpcMessage& message) {
-                    return session->HandleMessage(message);
-                },
-            .onDecodeFailure = [] { session->HandleDecodeFailure(); },
-            .onDisconnected = [] { session->HandleDisconnected(); },
-            .onAttemptFinished =
-                [](std::uint64_t targetGeneration,
-                   dovahlink::adapter::ipc::AdapterIpcAttemptOutcome outcome) {
-                    supervisor->NotifyConnectionLost(targetGeneration, outcome);
-                },
-            .onClosing = [] { session->HandleClosing(); },
-        });
-    if (supervisor == nullptr) {
-        supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(
-            *reader, *launcher, *connection);
-    }
-    session->AttachConnection(*connection);
-
-    dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(*session);
+    dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(
+        runtime->Session());
     dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(
-        *session, *taskMarshaller);
+        runtime->Session(), *taskMarshaller);
 
     //  SKSE-QUIRK: see
     //  ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin
@@ -303,7 +256,7 @@ SKSEPluginInfo(
     //  it fails if a second RegisterListener call is ever added to this file.
     messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
         if (message->type == SKSE::MessagingInterface::kDataLoaded) {
-            supervisor->Start();
+            runtime->Start();
             SKSE::log::info(
                 "DovahLink Adapter connecting to the private host IPC channel.");
         }
