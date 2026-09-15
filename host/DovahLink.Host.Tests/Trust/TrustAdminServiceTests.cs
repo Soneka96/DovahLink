@@ -197,10 +197,9 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Verifies that an unpaired known device is never eligible for Block, per the canonical Stage 3.2
-    /// contract in <c>ai/context/protocol/security.md</c>: the device stays unpaired, and none of
-    /// Block's side effects (pairing cancellation, session invalidation) apply to a mutation that
-    /// never happened.
+    /// Verifies that Block applies only to a Trusted or Revoked device: blocking an unpaired device
+    /// throws, the device stays unpaired, and none of Block's side effects (pairing cancellation,
+    /// session invalidation) apply to a mutation that never happened.
     /// </summary>
     [Fact]
     public async Task BlockAsync_UnpairedDevice_ThrowsAndDoesNotApplySideEffects()
