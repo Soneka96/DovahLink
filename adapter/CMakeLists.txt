@@ -43,6 +43,7 @@ add_library(dovahlink_adapter_core STATIC
     process/adapter_host_shutdown_requester.cpp
     process/adapter_host_supervisor.cpp
     process/adapter_shutdown_orchestrator.cpp
+    plugin/adapter_runtime.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -175,6 +176,9 @@ add_executable(dovahlink_adapter_tests
     tests/papyrus/commonlib_adapter_trust_admin_papyrus_adapter_test.cpp
     tests/plugin/dovahlink_adapter_plugin_test.cpp
     tests/plugin/dovahlink_adapter_plugin_compatibility_test.cpp
+    tests/plugin/adapter_startup_context_test.cpp
+    tests/plugin/adapter_runtime_test.cpp
+    tests/plugin/adapter_runtime_structural_test.cpp
 )
 target_include_directories(dovahlink_adapter_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(dovahlink_adapter_tests PRIVATE
@@ -191,6 +195,7 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_STATUS_PAPYRUS_ADAPTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/papyrus/commonlib_adapter_status_papyrus_adapter.cpp"
     DOVAHLINK_ADAPTER_TRUST_ADMIN_PAPYRUS_ADAPTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp"
     DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_adapter_plugin.cpp"
+    DOVAHLINK_ADAPTER_RUNTIME_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/adapter_runtime.cpp"
     DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     DOVAHLINK_ADAPTER_LAUNCHER_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_launcher_test_fixture>"
     DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"

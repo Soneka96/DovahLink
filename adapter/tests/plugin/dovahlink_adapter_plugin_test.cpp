@@ -44,11 +44,11 @@ TEST_CASE("the adapter plugin defers host discovery startup to kDataLoaded",
 
     std::size_t dataLoadedCheck =
         source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
-    std::size_t supervisorStart = source.find("supervisor->Start();");
+    std::size_t runtimeStart = source.find("runtime->Start();");
 
     REQUIRE(dataLoadedCheck != std::string::npos);
-    REQUIRE(supervisorStart != std::string::npos);
-    CHECK(dataLoadedCheck < supervisorStart);
+    REQUIRE(runtimeStart != std::string::npos);
+    CHECK(dataLoadedCheck < runtimeStart);
 }
 
 TEST_CASE("the adapter plugin calls SKSE::Init before registering the "
@@ -66,22 +66,17 @@ TEST_CASE("the adapter plugin calls SKSE::Init before registering the "
     CHECK(skseInit < registerListener);
 }
 
-TEST_CASE("the adapter plugin attaches the connection to the session and "
-          "registers the Papyrus status surface before serving any "
-          "callback",
+TEST_CASE("the adapter plugin registers the Papyrus status surface before "
+          "serving any callback",
           "[plugin][structural]") {
     std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
-    std::size_t attachConnection =
-        source.find("session->AttachConnection(*connection);");
     std::size_t installPapyrus =
-        source.find("InstallAdapterStatusPapyrusAdapter(*session);");
+        source.find("InstallAdapterStatusPapyrusAdapter(");
     std::size_t registerListener = source.find("messaging->RegisterListener(");
 
-    REQUIRE(attachConnection != std::string::npos);
     REQUIRE(installPapyrus != std::string::npos);
     REQUIRE(registerListener != std::string::npos);
-    CHECK(attachConnection < registerListener);
     CHECK(installPapyrus < registerListener);
 }
 
@@ -90,13 +85,10 @@ TEST_CASE("the adapter plugin registers the Papyrus trust-admin console "
           "[plugin][structural]") {
     std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
-    std::size_t attachConnection =
-        source.find("session->AttachConnection(*connection);");
     std::size_t installTrustAdmin =
         source.find("InstallAdapterTrustAdminPapyrusAdapter(");
     std::size_t registerListener = source.find("messaging->RegisterListener(");
 
-    REQUIRE(attachConnection != std::string::npos);
     REQUIRE(installTrustAdmin != std::string::npos);
     REQUIRE(registerListener != std::string::npos);
     CHECK(installTrustAdmin < registerListener);
@@ -136,13 +128,14 @@ TEST_CASE("the adapter plugin derives and reuses one owner-lifetime identity",
     CHECK(source.find("gOwnerLifetimeId = *ownerLifetimeId;") !=
           std::string::npos);
     //  Whitespace-normalized: pins that the derived owner-lifetime identity is
-    //  reused for both rendezvous resolution and shutdown signaling, not
-    //  clang-format's current line-wrap/indentation for either call.
+    //  reused for both rendezvous resolution and the startup context handed to
+    //  AdapterRuntime, not clang-format's current line-wrap/indentation for
+    //  either.
     CHECK(normalizedSource.find(NormalizeWhitespace(
               "ResolveDefaultRendezvousFilePath(*gOwnerLifetimeId)")) !=
           std::string::npos);
-    CHECK(source.find("*hostExecutablePath, stableOwnerLifetimeId") !=
-          std::string::npos);
+    CHECK(normalizedSource.find(NormalizeWhitespace(
+              ".ownerLifetimeId = *gOwnerLifetimeId,")) != std::string::npos);
     CHECK(normalizedSource.find(NormalizeWhitespace(
               "*gOwnerLifetimeId).RequestShutdown();")) != std::string::npos);
 }
@@ -227,71 +220,11 @@ TEST_CASE("the adapter plugin starts the host-discovery supervisor on "
 
     std::size_t dataLoadedCheck =
         source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
-    std::size_t supervisorStart = source.find("supervisor->Start();");
+    std::size_t runtimeStart = source.find("runtime->Start();");
 
     REQUIRE(dataLoadedCheck != std::string::npos);
-    REQUIRE(supervisorStart != std::string::npos);
-    CHECK(dataLoadedCheck < supervisorStart);
-}
-
-TEST_CASE("the adapter plugin does not start IPC before supervisor discovery",
-          "[plugin][structural]") {
-    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
-
-    CHECK(source.find("connection->Start();") == std::string::npos);
-    CHECK(source.find(".onTargetConnected") != std::string::npos);
-    CHECK(source.find("*launcher, *connection") != std::string::npos);
-}
-
-TEST_CASE("the adapter plugin notifies the supervisor when the connection "
-          "reports the host lost",
-          "[plugin][structural]") {
-    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
-
-    std::size_t onDisconnected = source.find(".onDisconnected =");
-    REQUIRE(onDisconnected != std::string::npos);
-    std::size_t handleDisconnected =
-        source.find("session->HandleDisconnected();", onDisconnected);
-    std::size_t attemptFinished = source.find(".onAttemptFinished =");
-    std::size_t notifyConnectionLost = source.find(
-        "supervisor->NotifyConnectionLost(targetGeneration, outcome);",
-        attemptFinished);
-
-    REQUIRE(handleDisconnected != std::string::npos);
-    REQUIRE(attemptFinished != std::string::npos);
-    REQUIRE(notifyConnectionLost != std::string::npos);
-    //  The session observes the physical disconnect before the completed
-    //  attempt notifies the supervisor. The latter runs after the worker has
-    //  marked itself restartable.
-    CHECK(onDisconnected < handleDisconnected);
-    CHECK(handleDisconnected < attemptFinished);
-    CHECK(attemptFinished < notifyConnectionLost);
-}
-
-TEST_CASE("the adapter plugin notifies the supervisor when a connection "
-          "attempt fails",
-          "[plugin][structural]") {
-    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
-
-    std::size_t attemptFinished = source.find(".onAttemptFinished =");
-    REQUIRE(attemptFinished != std::string::npos);
-    std::size_t notifyConnectionLost = source.find(
-        "supervisor->NotifyConnectionLost(targetGeneration, outcome);",
-        attemptFinished);
-
-    REQUIRE(notifyConnectionLost != std::string::npos);
-    CHECK(attemptFinished < notifyConnectionLost);
-}
-
-TEST_CASE("the adapter plugin has no throwaway discovery verifier path",
-          "[plugin][structural]") {
-    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
-
-    CHECK(source.find("AdapterHostHandshakeVerifier") == std::string::npos);
-    CHECK(source.find("verifierSocket") == std::string::npos);
-    CHECK(source.find("NotifyConnectionLost();") == std::string::npos);
-    CHECK(source.find("NotifyConnectionLost(targetGeneration, outcome);") !=
-          std::string::npos);
+    REQUIRE(runtimeStart != std::string::npos);
+    CHECK(dataLoadedCheck < runtimeStart);
 }
 
 TEST_CASE("DllMain signals shutdown without calling the blocking ordered "
@@ -344,8 +277,11 @@ TEST_CASE("the adapter plugin fails load cleanly when the rendezvous file "
     std::size_t messagingCheck = source.find("if (!messaging)");
     std::size_t messagingReturnFalse =
         source.find("return false;", messagingCheck);
+    //  The first process-lifetime `new` after every fatal startup guard:
+    //  CommonLibAdapterTaskMarshaller, constructed just before AdapterRuntime
+    //  itself.
     std::size_t workerConstruction = source.find(
-        "new dovahlink::adapter::capture::AdapterCaptureHandoffQueue");
+        "new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller");
 
     REQUIRE(rendezvousCheck != std::string::npos);
     REQUIRE(rendezvousReturnFalse != std::string::npos);
@@ -364,39 +300,17 @@ TEST_CASE("the adapter plugin fails load cleanly when the rendezvous file "
     CHECK(messagingReturnFalse < workerConstruction);
 }
 
-TEST_CASE("the adapter plugin keeps worker-owning runtime objects out of DLL "
-          "detach destruction",
+TEST_CASE("the adapter plugin constructs exactly one process-lifetime "
+          "AdapterRuntime and never a destructible local instance",
           "[plugin][structural]") {
     std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
-    //  1B intentionally keeps these objects alive until Skyrim exits. A
-    //  function-local static object would be destroyed during DLL detach and
-    //  could join its worker under the loader lock.
-    for (const char* automaticWorkerType :
-         {"static dovahlink::adapter::capture::AdapterCaptureHandoffQueue",
-          "static dovahlink::adapter::ipc::AdapterIpcConnection",
-          "static dovahlink::adapter::process::AdapterHostSupervisor"}) {
-        INFO("checking " << automaticWorkerType);
-        CHECK(source.find(automaticWorkerType) == std::string::npos);
-    }
-
-    //  Whitespace-normalized: pins that each object is a `static auto*`
-    //  process-lifetime allocation of the exact expected type, not
-    //  clang-format's current indentation, line-wrap, or pointer-alignment
-    //  spacing for the declaration.
-    std::string normalizedSource = NormalizeWhitespace(source);
-    CHECK(normalizedSource.find(NormalizeWhitespace(
-              "static auto* captureQueue = new "
-              "dovahlink::adapter::capture::AdapterCaptureHandoffQueue")) !=
-          std::string::npos);
-    CHECK(normalizedSource.find(NormalizeWhitespace(
-              "static auto* connection = new dovahlink::adapter::ipc::"
-              "AdapterIpcConnection")) != std::string::npos);
-    CHECK(normalizedSource.find(NormalizeWhitespace(
-              "static auto* supervisor = static_cast<"
-              "dovahlink::adapter::process::AdapterHostSupervisor*>")) !=
-          std::string::npos);
-    CHECK(source.find("supervisor = new "
-                      "dovahlink::adapter::process::AdapterHostSupervisor") !=
-          std::string::npos);
+    //  A function-local (non-pointer) AdapterRuntime would be destroyed
+    //  during DLL detach, which could join its worker-owning collaborators
+    //  under the loader lock. Windows reclaims the leaked heap allocation,
+    //  its threads, and its sockets when Skyrim exits instead.
+    CHECK(source.find("static dovahlink::adapter::plugin::AdapterRuntime "
+                      "runtime") == std::string::npos);
+    CHECK(CountOccurrences(
+              source, "new dovahlink::adapter::plugin::AdapterRuntime(") == 1);
 }
