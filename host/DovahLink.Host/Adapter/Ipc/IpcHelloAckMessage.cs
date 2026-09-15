@@ -9,15 +9,6 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// </summary>
 public sealed record IpcHelloAckMessage : IpcMessage
 {
-    /// <summary>Whether the host accepted the connection.</summary>
-    public bool Accepted { get; }
-
-    /// <summary>
-    /// The negotiation failure reason when <see cref="Accepted"/> is <see langword="false"/>; otherwise
-    /// <see cref="IpcHelloRejectReason.None"/>.
-    /// </summary>
-    public IpcHelloRejectReason RejectReason { get; }
-
     /// <summary>
     /// The owned HMAC-SHA256 proof bytes: <c>HMAC-SHA256(key = peerProofToken, message = challenge ||
     /// correlationId || adapterInstanceId || ownerLifetimeId)</c>, proving the host holds the shared
@@ -25,9 +16,6 @@ public sealed record IpcHelloAckMessage : IpcMessage
     /// compute a real proof for a connection it is refusing.
     /// </summary>
     private readonly byte[] hostProof;
-
-    /// <summary>A fresh copy of the host proof bytes, safe for the caller to mutate.</summary>
-    public byte[] HostProof => hostProof.ToArray();
 
     /// <summary>Creates a HelloAck and copies the caller's host-proof bytes into owned storage.</summary>
     /// <param name="correlationId">Matches the <see cref="IpcHelloMessage"/> this responds to.</param>
@@ -53,4 +41,16 @@ public sealed record IpcHelloAckMessage : IpcMessage
         RejectReason = rejectReason;
         this.hostProof = hostProof?.ToArray() ?? new byte[Constants.IpcHostProofBytes];
     }
+
+    /// <summary>Whether the host accepted the connection.</summary>
+    public bool Accepted { get; }
+
+    /// <summary>
+    /// The negotiation failure reason when <see cref="Accepted"/> is <see langword="false"/>; otherwise
+    /// <see cref="IpcHelloRejectReason.None"/>.
+    /// </summary>
+    public IpcHelloRejectReason RejectReason { get; }
+
+    /// <summary>A fresh copy of the host proof bytes, safe for the caller to mutate.</summary>
+    public byte[] HostProof => hostProof.ToArray();
 }
