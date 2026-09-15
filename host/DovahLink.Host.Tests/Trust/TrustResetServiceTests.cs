@@ -251,7 +251,7 @@ public class TrustResetServiceTests
     }
 
     /// <summary>
-    /// Proves the confirmed claim-ownership race is closed: once a correct confirm has claimed the
+    /// Verifies claim ownership: once a correct confirm has claimed the
     /// active challenge and is blocked inside <see cref="TrustStore.ClearAsync"/>, a concurrent
     /// wrong-code confirm must respect that claim before it may evaluate or mutate the challenge at
     /// all -- it returns <see langword="false"/> without clearing <c>activeChallenge</c>. When the
@@ -364,7 +364,7 @@ public class TrustResetServiceTests
     }
 
     /// <summary>
-    /// Proves the confirmed Factory Reset replacement race is closed: once an in-flight
+    /// Verifies that once an in-flight
     /// <see cref="TrustResetService.ConfirmResetAsync"/> has irrevocably claimed the active challenge
     /// and moved on to its destructive work, a concurrent <see cref="TrustResetService.BeginReset"/>
     /// must not silently replace it. The claimed challenge still completes the reset exactly once, and
