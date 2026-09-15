@@ -2010,12 +2010,12 @@ public class PairingCoordinatorTests
 
     /// <summary>
     /// Verifies that an administrative Block attempt against an Unpaired known device -- not eligible
-    /// for Block per the restored Stage 3.2 contract -- reports <see cref="TrustMutationOutcome.NotEligible"/>
-    /// without advancing <see cref="ITrustStore.SecurityFenceGeneration"/>, so it can never invalidate a
-    /// concurrently pending pairing credential the way a genuinely eligible Block (Trusted or Revoked)
-    /// correctly does. Combines the Stage 3.2 Block-eligibility fix with the real <see cref="TrustStore"/>
-    /// used elsewhere in this class, unlike <see cref="CommitPending_BlockDuringPersistence_CannotRestoreTrustedCredential"/>
-    /// which exercises the eligible-and-invalidating case.
+    /// for Block -- reports <see cref="TrustMutationOutcome.NotEligible"/> without advancing
+    /// <see cref="ITrustStore.SecurityFenceGeneration"/>, so it can never invalidate a concurrently
+    /// pending pairing credential the way a genuinely eligible Block (Trusted or Revoked) correctly
+    /// does. Uses the real <see cref="TrustStore"/> used elsewhere in this class, unlike
+    /// <see cref="CommitPending_BlockDuringPersistence_CannotRestoreTrustedCredential"/> which exercises
+    /// the eligible-and-invalidating case.
     /// </summary>
     [Fact]
     public async Task CommitPending_BlockAttemptAgainstUnpairedDeviceDuringPersistence_NeverInvalidatesPendingCredential()
