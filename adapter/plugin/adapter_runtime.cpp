@@ -66,6 +66,29 @@ AdapterRuntime::AdapterRuntime(
     session_->AttachConnection(*connection_);
 }
 
+AdapterRuntime::~AdapterRuntime() {
+    //  Stop the supervisor's own thread first: after RequestStop() returns,
+    //  it can never start another discovery round or call connection_.Start()
+    //  again. Then stop the connection's own thread. Any onAttemptFinished/
+    //  onDisconnected callback it fires in between still safely reaches
+    //  supervisor_ -- not yet destroyed, only marked stopping -- because
+    //  AdapterHostSupervisor::NotifyConnectionLost no-ops once stopping_ is
+    //  set.
+    //
+    //  Both calls can rethrow a std::thread::join failure. A destructor is
+    //  implicitly noexcept, so an escaping exception here would terminate the
+    //  whole process instead of unwinding one AdapterRuntime -- the same
+    //  reason AdapterIpcConnection's own destructor contains Stop()'s.
+    try {
+        supervisor_->RequestStop();
+    } catch (...) {
+    }
+    try {
+        connection_->Stop();
+    } catch (...) {
+    }
+}
+
 void AdapterRuntime::Start() { supervisor_->Start(); }
 
 ipc::IAdapterIpcSession& AdapterRuntime::Session() { return *session_; }

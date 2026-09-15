@@ -67,6 +67,16 @@ class AdapterRuntime final {
             onCaptureQueueRejected,
         std::function<void()> onGameThreadDispatchRejected);
 
+    ///  Stops the supervisor and the connection before either's automatic
+    ///  member destructor runs. Declaration order alone is not enough here:
+    ///  `connection_` owns its own background thread, independent of
+    ///  `supervisor_`'s, and that thread's own completion callbacks
+    ///  (`onAttemptFinished`, ...) call into `supervisor_`. Stopping only
+    ///  `supervisor_` first would leave a window where its automatic
+    ///  destructor has already run while `connection_`'s thread is still
+    ///  live and can call a now-destroyed `supervisor_`.
+    ~AdapterRuntime();
+
     AdapterRuntime(const AdapterRuntime&) = delete;
     AdapterRuntime& operator=(const AdapterRuntime&) = delete;
     AdapterRuntime(AdapterRuntime&&) = delete;
@@ -88,11 +98,12 @@ class AdapterRuntime final {
     ///  the caller's concrete implementation requires CommonLib.
     ipc::IAdapterPairingNotificationSink& pairingNotificationSink_;
 
-    ///  Constructed and destroyed in this exact declaration order: each
-    ///  collaborator below depends only on ones declared above it, and C++
-    ///  destroys members in reverse declaration order, so the host-discovery
-    ///  supervisor always stops before the connection it drives is destroyed,
-    ///  which in turn stops before the session it calls into is destroyed.
+    ///  Constructed in this exact declaration order: each collaborator below
+    ///  depends only on ones declared above it. The destructor above stops
+    ///  `supervisor_` and `connection_` explicitly before any automatic
+    ///  member destructor runs; declaration order alone does not make their
+    ///  teardown safe, since `connection_` owns a background thread
+    ///  independent of `supervisor_`'s own.
     std::unique_ptr<capture::AdapterCaptureHandoffQueue> captureQueue_;
     std::unique_ptr<dispatch::AdapterNativeDispatcher> dispatcher_;
     std::unique_ptr<ipc::AdapterIpcSession> session_;
