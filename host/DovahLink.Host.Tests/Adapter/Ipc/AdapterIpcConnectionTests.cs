@@ -1444,8 +1444,8 @@ public class AdapterIpcConnectionTests
     /// Verifies that a trust-admin handler which blocks the calling thread synchronously -- before
     /// its own returned <see cref="Task"/> is even created, rather than one that merely returns an
     /// already-incomplete <see cref="Task"/> -- still does not block the private IPC read loop from
-    /// serving an unrelated pairing-display acknowledgement. This is the deterministic regression
-    /// proof for the asynchronous scheduling boundary at the top of
+    /// serving an unrelated pairing-display acknowledgement. This is the deterministic proof for the
+    /// asynchronous scheduling boundary at the top of
     /// <c>AdapterIpcConnection.RunTrustAdminRequestAsync</c> (private, so not link-eligible from
     /// here): the earlier
     /// <see cref="RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing"/> test
