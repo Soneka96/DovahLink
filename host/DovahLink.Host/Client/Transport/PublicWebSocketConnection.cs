@@ -814,7 +814,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                 // deadline, recreated each receive only because WebSocket.ReceiveAsync accepts one
                 // token; disposing this wrapper never touches fragmentAssemblyDeadline's own timer,
                 // so it carries none of the two-independent-timers disposal race NotifyDisconnectedAsync
-                // had to be fixed for elsewhere in this file.
+                // must also avoid elsewhere in this file.
                 using CancellationTokenSource? receiveLink = fragmentAssemblyDeadline is null
                     ? null
                     : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, fragmentAssemblyDeadline.Token);
