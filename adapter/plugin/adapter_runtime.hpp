@@ -1,0 +1,107 @@
+#pragma once
+
+#include "capture/adapter_capture_handoff_queue.hpp"
+#include "capture/adapter_capture_work_item.hpp"
+#include "dispatch/adapter_native_dispatcher.hpp"
+#include "ipc/adapter_ipc_connection.hpp"
+#include "ipc/adapter_ipc_session.hpp"
+#include "ipc/adapter_pairing_notification_sink.hpp"
+#include "ipc/ipc_frame_codec.hpp"
+#include "ipc/winsock_adapter_ipc_socket.hpp"
+#include "plugin/adapter_startup_context.hpp"
+#include "process/adapter_host_process_launcher.hpp"
+#include "process/adapter_host_rendezvous_reader.hpp"
+#include "process/adapter_host_supervisor.hpp"
+#include "runtime/adapter_task_marshaller.hpp"
+
+#include <functional>
+#include <memory>
+
+namespace dovahlink::adapter::plugin {
+
+///  Owns the adapter's process-lifetime object graph: the capture handoff
+///  queue, native dispatcher, private IPC session/connection/transport, and
+///  the host-discovery supervisor. `SKSEPluginLoad` constructs exactly one
+///  `AdapterRuntime` and never destroys it -- 1B does not support live DLL
+///  unload/reload, and destroying these thread-owning collaborators during
+///  `DLL_PROCESS_DETACH` could block under the Windows loader lock; Windows
+///  reclaims them, their threads, and their sockets when Skyrim exits.
+///  `AdapterRuntime` itself has no such constraint and destructs normally --
+///  the intentional leak is a production call-site decision, not a property
+///  of this type -- so tests may construct and destroy it freely.
+///
+///  This is the composition root for the graph it owns: its constructor
+///  builds each collaborator directly, per `ai/context/common.md`'s
+///  composition-root exception to constructor injection. It has no
+///  `IAdapterRuntime` interface: nothing consumes it as an injected
+///  collaborator, the same reasoning that leaves the Host's
+///  `DovahLinkHostRuntime` interface-free.
+class AdapterRuntime final {
+  public:
+    ///  Constructs the complete graph from already-resolved startup values.
+    ///  `taskMarshaller` and `pairingNotificationSink` are supplied by the
+    ///  caller rather than constructed here because their only implementations
+    ///  require CommonLib, which this class -- like the rest of
+    ///  `dovahlink_adapter_core` -- does not depend on. For the same reason,
+    ///  `onCaptureDrained`, `onCaptureQueueRejected`, and
+    ///  `onGameThreadDispatchRejected` are diagnostic callbacks the caller
+    ///  supplies rather than `SKSE::log` calls made directly here.
+    ///  @param startupContext The resolved startup values this graph is built
+    ///  from.
+    ///  @param taskMarshaller Marshals work onto the Skyrim game thread.
+    ///  @param pairingNotificationSink Presents pairing codes at the
+    ///  Skyrim-facing display seam.
+    ///  @param onCaptureDrained Invoked for each capture item the handoff
+    ///  queue's worker thread drains.
+    ///  @param onCaptureQueueRejected Invoked when the handoff queue rejects a
+    ///  capture item at capacity.
+    ///  @param onGameThreadDispatchRejected Invoked when the private IPC
+    ///  session's deferred game-thread dispatch is rejected at capacity.
+    AdapterRuntime(
+        AdapterStartupContext startupContext,
+        runtime::IAdapterTaskMarshaller& taskMarshaller,
+        ipc::IAdapterPairingNotificationSink& pairingNotificationSink,
+        std::function<void(const capture::AdapterCaptureWorkItem&)>
+            onCaptureDrained,
+        std::function<void(const capture::AdapterCaptureWorkItem&)>
+            onCaptureQueueRejected,
+        std::function<void()> onGameThreadDispatchRejected);
+
+    AdapterRuntime(const AdapterRuntime&) = delete;
+    AdapterRuntime& operator=(const AdapterRuntime&) = delete;
+    AdapterRuntime(AdapterRuntime&&) = delete;
+    AdapterRuntime& operator=(AdapterRuntime&&) = delete;
+
+    ///  Starts host discovery. Idempotent: a call while discovery is already
+    ///  running has no effect.
+    void Start();
+
+    ///  The private IPC session, for the Skyrim-facing Papyrus adapters
+    ///  `SKSEPluginLoad` installs against it.
+    ipc::IAdapterIpcSession& Session();
+
+  private:
+    ///  Marshals work onto the Skyrim game thread. Not owned: the caller's
+    ///  concrete implementation requires CommonLib.
+    runtime::IAdapterTaskMarshaller& taskMarshaller_;
+    ///  Presents pairing codes at the Skyrim-facing display seam. Not owned:
+    ///  the caller's concrete implementation requires CommonLib.
+    ipc::IAdapterPairingNotificationSink& pairingNotificationSink_;
+
+    ///  Constructed and destroyed in this exact declaration order: each
+    ///  collaborator below depends only on ones declared above it, and C++
+    ///  destroys members in reverse declaration order, so the host-discovery
+    ///  supervisor always stops before the connection it drives is destroyed,
+    ///  which in turn stops before the session it calls into is destroyed.
+    std::unique_ptr<capture::AdapterCaptureHandoffQueue> captureQueue_;
+    std::unique_ptr<dispatch::AdapterNativeDispatcher> dispatcher_;
+    std::unique_ptr<ipc::AdapterIpcSession> session_;
+    std::unique_ptr<ipc::WinsockAdapterIpcSocket> socket_;
+    std::unique_ptr<ipc::IpcFrameCodec> codec_;
+    std::unique_ptr<process::FileAdapterHostRendezvousReader> reader_;
+    std::unique_ptr<process::Win32AdapterHostProcessLauncher> launcher_;
+    std::unique_ptr<ipc::AdapterIpcConnection> connection_;
+    std::unique_ptr<process::AdapterHostSupervisor> supervisor_;
+};
+
+} //  namespace dovahlink::adapter::plugin

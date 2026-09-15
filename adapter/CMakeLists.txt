@@ -43,6 +43,7 @@ add_library(dovahlink_adapter_core STATIC
     process/adapter_host_shutdown_requester.cpp
     process/adapter_host_supervisor.cpp
     process/adapter_shutdown_orchestrator.cpp
+    plugin/adapter_runtime.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -176,6 +177,7 @@ add_executable(dovahlink_adapter_tests
     tests/plugin/dovahlink_adapter_plugin_test.cpp
     tests/plugin/dovahlink_adapter_plugin_compatibility_test.cpp
     tests/plugin/adapter_startup_context_test.cpp
+    tests/plugin/adapter_runtime_test.cpp
 )
 target_include_directories(dovahlink_adapter_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(dovahlink_adapter_tests PRIVATE
