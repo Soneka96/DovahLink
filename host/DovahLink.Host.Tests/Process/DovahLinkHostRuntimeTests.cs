@@ -142,6 +142,43 @@ public class DovahLinkHostRuntimeTests
         Assert.Equal(0, await runTask.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>
+    /// Verifies R2.9's shutdown-idempotency requirement: racing the caller's own <c>shutdown.Cancel()</c>
+    /// against the adapter's named shutdown-signal firing at nearly the same instant -- whichever source
+    /// wins -- never throws, never hangs, and never runs either listener's teardown more than once.
+    /// Repeated across many fresh runtime instances rather than asserting one deterministic interleaving,
+    /// for a real chance of exposing a timing bug instead of merely proving the race is possible.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CallerCancellationRacesNamedShutdownSignal_CompletesOnceWithNoDuplicateEffects()
+    {
+        for (int iteration = 0; iteration < 20; iteration++)
+        {
+            var adapterListener = new FakeAdapterIpcListener();
+            var publicListener = new FakePublicWebSocketListener();
+            var shutdownSignal = new FakeHostShutdownSignal();
+            var runtime = new DovahLinkHostRuntime(
+                adapterListener, shutdownSignal, new HostProcessLifetime(),
+                new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
+                new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, publicListener);
+            using var shutdown = new CancellationTokenSource();
+
+            Task<int> runTask = runtime.RunAsync(shutdown);
+
+            await Task.WhenAll(Task.Run(shutdown.Cancel), Task.Run(shutdownSignal.Set));
+
+            int exitCode = await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(adapterListener.RunAsyncCalled);
+            Assert.True(publicListener.RunAsyncCalled);
+
+            // Crossed/repeated signals after completion must never have any further effect.
+            Assert.Null(Record.Exception(() => shutdown.Cancel()));
+            Assert.Null(Record.Exception(shutdownSignal.Set));
+        }
+    }
+
     /// <summary>Polls <paramref name="condition"/> until it is true, failing if <paramref name="runTask"/> ends first or the bound elapses.</summary>
     private static async Task WaitUntilAsync(Func<bool> condition, Task runTask)
     {
