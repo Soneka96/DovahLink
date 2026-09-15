@@ -41,13 +41,9 @@ internal static class Program
 
     /// <summary>
     /// Composes the real adapter-IPC stack and the shared trust-services graph for one Skyrim
-    /// lifetime, publishes the adapter-IPC rendezvous endpoint, reports it over
-    /// <paramref name="rendezvousOutput"/> for a launching adapter to read, and runs until
-    /// <paramref name="shutdown"/> is cancelled -- either by the process exiting or by the adapter's
-    /// own named shutdown-request signal. Trust persistence is loaded -- and, per its own contract,
-    /// fails this entire call closed on malformed or undecryptable data -- before either listener is
-    /// constructed, so neither can ever admit a client under a partially loaded or silently reset
-    /// trust store.
+    /// lifetime. Trust persistence is loaded -- and, per its own contract, fails this entire call
+    /// closed on malformed or undecryptable data -- before either listener is constructed, so
+    /// neither can ever admit a client under a partially loaded or silently reset trust store.
     /// </summary>
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
     /// <param name="listenerPort">The private adapter-IPC loopback port to bind, or zero to let the operating system assign one.</param>
@@ -57,39 +53,27 @@ internal static class Program
     /// </param>
     /// <param name="lifetime">The host lifetime to run once composition completes.</param>
     /// <param name="shutdown">
-    /// The shared shutdown source; cancelled by the caller on process exit, and internally by this
-    /// method's own named shutdown-signal watcher. Both the adapter-IPC and (when composed) public
-    /// listeners stop admitting new connections and tear down through this one shared token.
+    /// The shared shutdown source; cancelled by the caller on process exit or by this method's own
+    /// named shutdown-signal watcher. Both listeners tear down through this one shared token.
     /// </param>
     /// <param name="publicListenerPort">
-    /// The public loopback port to bind, or zero to let the operating system assign one. The public
-    /// listener is composed and run only when this is supplied; the production <see cref="Main"/>
-    /// entry point always supplies one -- <see cref="Constants.PublicWebSocketPort"/> unless
-    /// overridden, per <see cref="ResolvePublicListenerPort"/> -- so only test code that calls this
-    /// method directly, without going through <see cref="Main"/>, can pass <see langword="null"/> to
-    /// leave the public listener uncomposed.
+    /// The public loopback port to bind, or zero for an OS-assigned port. Composed only when
+    /// supplied; the production <see cref="Main"/> entry point always supplies one, so only test
+    /// code calling this method directly can pass <see langword="null"/> to leave it uncomposed.
     /// </param>
     /// <param name="trustStorePersistence">
     /// The trust-store persistence adapter to load from and write through to. Defaults to the real
-    /// per-Windows-user DPAPI-protected file. A test that calls this method directly may override it
-    /// to exercise startup ordering and fail-closed behavior without touching a real encrypted file;
-    /// the production <see cref="Main"/> entry point instead redirects it to a private, per-test file
-    /// only when <see cref="ResolveTestTrustStorePersistence"/> resolves an override from
-    /// <see cref="Constants.TestTrustStorePathEnvironmentVariableName"/>, so a real cross-process test
-    /// launch never touches the real store.
+    /// per-Windows-user DPAPI-protected file; a test may override it, and the production
+    /// <see cref="Main"/> entry point redirects it per <see cref="ResolveTestTrustStorePersistence"/>.
     /// </param>
     /// <param name="onComposed">
     /// Invoked once, immediately after composition, with the composed session registry and pairing
-    /// coordinator -- test observability only, so a test can inspect authoritative state after this
-    /// method's own shutdown teardown has run, without this composition root exposing that state as
-    /// part of its own return value or a new production service. Never invoked by the production
-    /// <see cref="Main"/> entry point.
+    /// coordinator -- test observability only, letting a test capture references to inspect after
+    /// teardown. Never invoked by the production <see cref="Main"/> entry point.
     /// </param>
     /// <param name="hostSettingsProvider">
     /// The provider the user-configured device cap is resolved from. Defaults to the real
-    /// <see cref="HostSettingsProvider"/>, reading the production settings file. A test that calls
-    /// this method directly may override it to exercise a specific resolved cap without touching a
-    /// real file.
+    /// <see cref="HostSettingsProvider"/>; a test may override it to exercise a specific cap.
     /// </param>
     /// <returns>A successful process exit code once <paramref name="shutdown"/> is cancelled and teardown completes.</returns>
     /// <exception cref="System.Net.Sockets.SocketException">A listener could not bind its configured port.</exception>
@@ -105,12 +89,9 @@ internal static class Program
         Action<ISessionRegistry, IPairingCoordinator>? onComposed = null,
         IHostSettingsProvider? hostSettingsProvider = null)
     {
-        // The only two services constructed outside the container: TrustServiceExtensions.CreateTrustStoreAsync
-        // must complete -- and fail this whole call closed on malformed/undecryptable data -- before the
-        // container is built, since every other trust-graph service depends on an already-successfully-loaded
-        // trust store existing. Both are registered as these exact instances below, so every downstream
-        // consumer resolves them through the container like everything else, rather than carrying a bootstrap
-        // variable around outside the dependency graph.
+        // Trust must load and fail this call closed on malformed data before the container is built --
+        // every trust-graph service depends on an already-loaded store. Both are registered as these
+        // exact instances below, so every consumer still resolves them through the container.
         IClock clock = new SystemClock();
         ISecurityStateGate securityGate = new SecurityStateGate();
         ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, trustStorePersistence);
@@ -122,15 +103,9 @@ internal static class Program
         services.AddPublicClientServices(publicListenerPort);
         services.AddHostRuntime(lifetime, rendezvousOutput);
 
-        // ValidateOnBuild only validates that every registered service's constructor dependencies are
-        // themselves resolvable (via CallSiteFactory.GetCallSite) -- it never invokes a constructor, so it
-        // cannot itself throw or wrap a SocketException/InvalidDataException that only occurs once a real
-        // constructor actually runs. Resolving IHostRuntime below is what still triggers that real
-        // construction (and, for the listeners, socket bind), so a bad-port SocketException or a
-        // malformed-store InvalidDataException still propagate directly, unwrapped, exactly as
-        // ProgramCompositionTests expects. ValidateOnBuild's own value is catching a missing/miswired
-        // registration -- a composition mistake, not a runtime failure -- at startup instead of at whatever
-        // later resolution happens to hit it first.
+        // ValidateOnBuild only checks that dependencies are resolvable; it never constructs anything, so a
+        // bad-port SocketException or malformed-store InvalidDataException still surfaces, unwrapped, only
+        // once IHostRuntime is resolved below and real construction happens.
         await using ServiceProvider provider = services.BuildServiceProvider(
             new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
 

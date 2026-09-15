@@ -2,11 +2,11 @@ using DovahLink.Host.Process;
 
 namespace DovahLink.Host;
 
-// ---- Trust ----
-
 /// <summary>Small, cross-cutting constant values shared across the host, grouped by area.</summary>
 public static class Constants
 {
+    // ---- Trust ----
+
     /// <summary>The default per-Windows-user file the trust store is persisted to.</summary>
     public static string TrustStoreFilePath
     {
@@ -145,9 +145,9 @@ public static class Constants
 
     /// <summary>
     /// The maximum total byte length (header plus payload) of one private IPC frame. Approved as a
-    /// provisional value for this concept's small control-only messages; a later concept that needs
-    /// to carry a larger payload over this channel may revise it with the same documented approval
-    /// <c>ai/context/protocol/security.md</c>'s own limits require.
+    /// provisional value for today's small control-only messages; revise it with the same documented
+    /// approval <c>ai/context/protocol/security.md</c>'s own limits require if a larger payload is
+    /// ever needed.
     /// </summary>
     public const int MaxIpcFrameBytes = 65536;
 
@@ -155,14 +155,14 @@ public static class Constants
     public const int MaxIpcPeerProofTokenBytes = 64;
 
     /// <summary>
-    /// The bounded capacity later concepts must enforce for a private IPC send/receive queue. Not
-    /// itself enforced by this contract's codec.
+    /// The bounded capacity approved for a private IPC send/receive queue; not itself enforced by
+    /// this contract's codec.
     /// </summary>
     public const int MaxIpcQueuedMessages = 256;
 
     /// <summary>
-    /// The maximum inbound private IPC message rate later concepts must enforce, per connected peer.
-    /// Not itself enforced by this contract's codec.
+    /// The maximum inbound private IPC message rate approved per connected peer; not itself enforced
+    /// by this contract's codec.
     /// </summary>
     public const int MaxIpcMessagesPerSecond = 200;
 
@@ -289,9 +289,8 @@ public static class Constants
     // ---- Client transport ----
 
     /// <summary>
-    /// The public loopback port the production launch path binds its public WebSocket listener to,
-    /// carried forward from the retired native Bridge's own default. A real cross-process test
-    /// launch overrides it with
+    /// The public loopback port the production launch path binds its public WebSocket listener to. A
+    /// real cross-process test launch overrides it with
     /// <see cref="TestPublicListenerPortEnvironmentVariableName"/> instead, and test code that
     /// composes directly through <c>Program.ComposeAndRunAsync</c> injects its own explicit port.
     /// </summary>
@@ -479,7 +478,7 @@ public static class Constants
     /// <summary>
     /// The maximum number of distinct client <c>messageId</c> values retained per session before the
     /// host closes it, per <c>ai/context/protocol/security.md</c>'s "Session and replay protection":
-    /// "the bridge retains all seen IDs for the session; the 10,000-message session bound keeps this
+    /// "the host retains all seen IDs for the session; the 10,000-message session bound keeps this
     /// set bounded and prevents eviction-based replay."
     /// </summary>
     public const int PublicProtocolMaxSessionMessages = 10_000;

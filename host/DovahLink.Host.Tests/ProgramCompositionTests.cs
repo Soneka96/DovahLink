@@ -350,12 +350,9 @@ public class ProgramCompositionTests
             UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown);
         await WaitUntilAsync(() => output.Snapshot().Contains("PORT "), runTask);
 
-        // Known limitation: proving PUBLICPORT is never written is proving a negative, and
-        // Program.cs exposes no cheaper completion signal for the omitted-listener path -- unlike
-        // the positive case, there is no later text marker to wait on, since starting the public
-        // listener (if this branch were ever wrongly taken) involves real async socket setup before
-        // it would write anything. This bounded margin gives that setup time to happen before the
-        // assertion below, rather than asserting immediately after "PORT " and risking a false pass.
+        // Known limitation: proving PUBLICPORT is never written proves a negative with no cheaper
+        // completion signal to wait on, so this bounded delay gives a wrongly-taken public-listener
+        // path time to write before asserting, instead of asserting immediately and risking a false pass.
         await Task.Delay(TimeSpan.FromMilliseconds(200));
 
         shutdown.Cancel();
@@ -422,8 +419,7 @@ public class ProgramCompositionTests
     /// <summary>
     /// Verifies that neither listener is ever constructed while trust persistence is still loading,
     /// so a slow or malformed load can never race a client's connection attempt against a
-    /// not-yet-fully-loaded trust store -- the ordering proof handed off to this concept by
-    /// <c>DIVERGENCES.md</c>'s D4.
+    /// not-yet-fully-loaded trust store.
     /// </summary>
     [Fact]
     public async Task ComposeAndRunAsync_TrustPersistenceLoadInProgress_NeitherListenerIsReportedUntilItCompletes()
@@ -503,20 +499,15 @@ public class ProgramCompositionTests
             await connectHelloAndPairTask.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(0, await runTask.WaitAsync(TimeSpan.FromSeconds(5)));
 
-            // ComposeAndRunAsync has now returned, so its own deterministic public-session and
-            // private-IPC teardown already ran (see its own await adapterListenerTask/publicListenerTask
-            // sequencing) -- the private Adapter IPC listener and public listener being stopped is
-            // already proven by that return itself, not re-asserted here. No authoritative public
-            // session survives this iteration's client, regardless of whether the race landed before,
-            // during, or after admission.
+            // ComposeAndRunAsync returning proves its own deterministic teardown already ran (both
+            // listeners stopped), so no authoritative session may survive this iteration's client
+            // regardless of when the race landed.
             Assert.NotNull(sessionRegistry);
             Assert.Equal(0, sessionRegistry.ActiveCount);
 
-            // No active (committed/displayed) pairing challenge survives for this iteration's client:
-            // a genuinely interrupted pairing_request either never started, or its own rollback path
-            // already ran before ComposeAndRunAsync returned. UncommittedDisplayReservation is
-            // accepted alongside Idle -- per PairingCoordinator's own documented distinction, it was
-            // never actually shown to the client, so it is not an active challenge either.
+            // UncommittedDisplayReservation counts as idle alongside Idle itself: per PairingCoordinator's
+            // documented distinction, it was never actually shown to the client, so it is not an active
+            // challenge either.
             Assert.NotNull(pairingCoordinator);
             PairingStatusSnapshot snapshot = pairingCoordinator.GetStatusSnapshot(clientId);
             Assert.True(
@@ -568,9 +559,7 @@ public class ProgramCompositionTests
         shutdown.Cancel();
 
         // Shutdown must close the connection in a well-defined way: an orderly close handshake or an
-        // abort (surfacing as a WebSocketException here) are both valid outcomes, matching the same
-        // force-close contract the administrative-invalidation tests already prove for their own
-        // trigger.
+        // abort (surfacing as a WebSocketException here) are both valid outcomes.
         try
         {
             WebSocketReceiveResult closeResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
