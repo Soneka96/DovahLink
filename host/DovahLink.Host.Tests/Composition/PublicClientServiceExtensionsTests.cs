@@ -47,6 +47,21 @@ public class PublicClientServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IPublicWebSocketListener>());
     }
 
+    /// <summary>
+    /// Verifies that the real, container-registered <see cref="IPublicWebSocketTransportDiagnostics"/>
+    /// placeholder never throws -- the documented contract every implementation of this interface
+    /// must honor, since it is called on a connection's own read/write path during teardown.
+    /// </summary>
+    [Fact]
+    public async Task AddPublicClientServices_ReportAbnormalEndOnRegisteredDiagnostics_DoesNotThrow()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+        IPublicWebSocketTransportDiagnostics diagnostics = provider.GetRequiredService<IPublicWebSocketTransportDiagnostics>();
+
+        Assert.Null(Record.Exception(() => diagnostics.ReportAbnormalEnd(PublicWebSocketConnectionEndReason.HandshakeTimeout)));
+    }
+
     /// <summary>Verifies that omitting the public listener port leaves the listener unregistered rather than defaulting to some bound port.</summary>
     [Fact]
     public async Task AddPublicClientServices_NoPublicListenerPort_ListenerIsNull()

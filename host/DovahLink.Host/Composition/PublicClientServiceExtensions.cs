@@ -60,11 +60,13 @@ public static class PublicClientServiceExtensions
     }
 
     /// <summary>
-    /// A minimal composition-time placeholder for <see cref="IPublicWebSocketTransportDiagnostics"/>:
-    /// reports to the process's own standard error stream. <see cref="IPublicWebSocketTransportDiagnostics"/>'s
-    /// own documentation defers the real logging/telemetry sink to a later concept; this exists only
-    /// so today's composition root has some observable signal rather than silently discarding every
-    /// report.
+    /// A composition-time placeholder for <see cref="IPublicWebSocketTransportDiagnostics"/> that
+    /// deliberately discards every report. <see cref="IPublicWebSocketTransportDiagnostics"/>'s own
+    /// documentation defers the real, bounded logging/telemetry sink to a later concept; a synchronous
+    /// console write here would risk violating that interface's own must-not-block contract (this is
+    /// called on the connection's read/write path during teardown) if standard error is ever a
+    /// stalled redirected pipe, so this placeholder stays a true no-op rather than trade that
+    /// guarantee for an interim observable signal.
     /// </summary>
     private sealed class NullPublicWebSocketTransportDiagnostics : IPublicWebSocketTransportDiagnostics
     {
@@ -74,14 +76,6 @@ public static class PublicClientServiceExtensions
         /// <inheritdoc/>
         public void ReportAbnormalEnd(PublicWebSocketConnectionEndReason reason)
         {
-            try
-            {
-                Console.Error.WriteLine($"[public-websocket] abnormal end: {reason}");
-            }
-            catch
-            {
-                // Must never throw or block; see the interface's own documented contract.
-            }
         }
     }
 
