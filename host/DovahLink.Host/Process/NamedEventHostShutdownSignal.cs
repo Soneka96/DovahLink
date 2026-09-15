@@ -38,11 +38,9 @@ public sealed class NamedEventHostShutdownSignal : IHostShutdownSignal
 
     /// <inheritdoc/>
     public Task WaitAsync(CancellationToken cancellationToken = default) =>
-        //  Deliberately does not pass cancellationToken to Task.Run itself: that would let Task.Run
-        //  cancel *scheduling* the task if the token fires before it starts, throwing
-        //  TaskCanceledException instead of returning normally. Cancellation is instead observed by
-        //  WaitAny itself, via the token's own wait handle, so this method always completes normally
-        //  regardless of which handle woke it.
+        // Not passed to Task.Run itself, which would throw TaskCanceledException if the token fires
+        // before scheduling; WaitAny instead observes cancellation via the token's own wait handle,
+        // so this always completes normally regardless of which handle woke it.
         Task.Run(() => WaitHandle.WaitAny([handle, cancellationToken.WaitHandle]));
 
     /// <inheritdoc/>

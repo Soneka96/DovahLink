@@ -8,8 +8,7 @@ public class DovahLinkHostRuntimeTests
 {
     /// <summary>
     /// Verifies that startup publishes the rendezvous endpoint and starts both listeners before
-    /// shutdown is ever requested -- proving R2.7's explicit startup ordering, not something left
-    /// implicit.
+    /// shutdown is ever requested, rather than leaving that ordering implicit.
     /// </summary>
     [Fact]
     public async Task RunAsync_BeforeShutdownRequested_PublishesRendezvousAndStartsBothListeners()
@@ -78,7 +77,7 @@ public class DovahLinkHostRuntimeTests
     /// <summary>
     /// Verifies that shutdown teardown is ordered: the overall run does not complete until the
     /// adapter-IPC listener's own task completes, even when the public listener's task has already
-    /// finished -- proving R2.9's ordered-shutdown requirement rather than an accidental race.
+    /// finished.
     /// </summary>
     [Fact]
     public async Task RunAsync_ShutdownRequested_AwaitsAdapterListenerBeforePublicListenerCompletionIsObserved()
@@ -143,11 +142,11 @@ public class DovahLinkHostRuntimeTests
     }
 
     /// <summary>
-    /// Verifies R2.9's shutdown-idempotency requirement: racing the caller's own <c>shutdown.Cancel()</c>
-    /// against the adapter's named shutdown-signal firing at nearly the same instant -- whichever source
-    /// wins -- never throws, never hangs, and never runs either listener's teardown more than once.
-    /// Repeated across many fresh runtime instances rather than asserting one deterministic interleaving,
-    /// for a real chance of exposing a timing bug instead of merely proving the race is possible.
+    /// Verifies that racing the caller's own <c>shutdown.Cancel()</c> against the adapter's named
+    /// shutdown-signal firing at nearly the same instant -- whichever source wins -- never throws,
+    /// never hangs, and never runs either listener's teardown more than once. Repeated across many
+    /// fresh runtime instances rather than asserting one deterministic interleaving, for a real
+    /// chance of exposing a timing bug instead of merely proving the race is possible.
     /// </summary>
     [Fact]
     public async Task RunAsync_CallerCancellationRacesNamedShutdownSignal_CompletesOnceWithNoDuplicateEffects()

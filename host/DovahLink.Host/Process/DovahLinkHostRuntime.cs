@@ -26,11 +26,9 @@ public interface IHostRuntime
 
 /// <inheritdoc cref="IHostRuntime"/>
 /// <remarks>
-/// Shutdown may be requested by the caller cancelling <c>shutdown</c> directly, or internally by
-/// this runtime's own named-shutdown-signal watcher; either source tears down in the same proven-safe
-/// order. Ownership and disposal of every collaborator below remain with the composition root that
-/// constructs this runtime; this type only makes the run/shutdown sequence explicit and named, not a
-/// resource owner.
+/// Ownership and disposal of every collaborator below remain with the composition root that
+/// constructs this runtime; this type only makes the run/shutdown sequence explicit and named, not
+/// a resource owner.
 /// </remarks>
 public sealed class DovahLinkHostRuntime : IHostRuntime
 {
@@ -94,12 +92,9 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         byte[] hostProofKey = peerProofVerifier.HostProofKey;
         rendezvousPublisher.Publish(adapterListener.BoundPort, peerProofToken, hostProofKey);
 
-        // PORT, PROOF, and HOSTPROOF are always exactly the first three lines, in this exact
-        // order: a real launched process's own native launcher (Win32AdapterHostProcessLauncher)
-        // reads exactly three lines from this stream and treats them positionally as those three
-        // values, with no public-listener awareness of its own. PUBLICPORT is written last,
-        // strictly after them and only when the public listener is composed, so its presence can
-        // never shift PROOF or HOSTPROOF into the position that reader expects the other to occupy.
+        // PORT, PROOF, and HOSTPROOF are always exactly the first three lines, in this order: a
+        // real launched process's native launcher reads exactly three positional lines. PUBLICPORT
+        // is written last and only when composed, so it can never shift the other three out of position.
         await rendezvousOutput.WriteLineAsync($"PORT {adapterListener.BoundPort}");
         await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(peerProofToken)}");
         await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(hostProofKey)}");
