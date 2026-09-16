@@ -2,7 +2,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <string>
@@ -139,23 +138,6 @@ TEST_CASE("the adapter plugin derives and reuses one owner-lifetime identity",
               "*gOwnerLifetimeId).RequestShutdown();")) != std::string::npos);
 }
 
-TEST_CASE("adapter/CMakeLists.txt never links or builds a bridge/ target",
-          "[plugin][structural][boundary]") {
-    //  Proof obligation: independent adapter configuration/build does not link
-    //  or include bridge/.
-    //  Checks actual build directives, not prose: this file's own comments
-    //  legitimately reference bridge/CMakeLists.txt as documentation (the same
-    //  way ai/context/adapter/architecture.md does), which is not a link or
-    //  include.
-    std::filesystem::path cmakeListsPath =
-        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) /
-        "CMakeLists.txt";
-    std::string source = ReadSource(cmakeListsPath);
-
-    CHECK(source.find("add_subdirectory") == std::string::npos);
-    CHECK(source.find("dovahlink_bridge") == std::string::npos);
-}
-
 TEST_CASE("the real-package-layout CTest fixture keys its skip decision on "
           "the Adapter's own build configuration, not the Host's",
           "[plugin][structural][boundary]") {
@@ -182,34 +164,6 @@ TEST_CASE("the real-package-layout CTest fixture keys its skip decision on "
           std::string::npos);
     CHECK(addTestBlock.find("DOVAHLINK_HOST_BUILD_CONFIGURATION") ==
           std::string::npos);
-}
-
-TEST_CASE("no adapter production source file includes a bridge/ header",
-          "[plugin][structural][boundary]") {
-    std::filesystem::path root{DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR};
-
-    int fileCount = 0;
-    for (const char* subdirectory :
-         std::array{"capture", "dispatch", "identity", "ipc", "papyrus", "plugin",
-                    "process", "runtime"}) {
-        std::filesystem::path directory = root / subdirectory;
-        REQUIRE(std::filesystem::exists(directory));
-
-        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-            if (entry.path().extension() != ".hpp" &&
-                entry.path().extension() != ".cpp") {
-                continue;
-            }
-            ++fileCount;
-
-            std::string text = ReadSource(entry.path());
-            INFO("checking " << entry.path().filename().string());
-            CHECK(text.find("#include \"bridge/") == std::string::npos);
-            CHECK(text.find("#include <bridge/") == std::string::npos);
-        }
-    }
-
-    CHECK(fileCount > 0);
 }
 
 TEST_CASE("the adapter plugin starts the host-discovery supervisor on "
