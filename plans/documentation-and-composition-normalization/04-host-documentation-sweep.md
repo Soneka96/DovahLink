@@ -1,7 +1,7 @@
 # Concept 04 -- Host documentation and member organization sweep
 
-**Status:** Complete on branch `feature/04-host-documentation-sweep`, not yet opened as a
-pull request. See this file's own R4.1-R4.11 traceability table below for the
+**Status:** Complete on branch `feature/04-host-documentation-sweep`, open as PR #69
+and under review. See this file's own R4.1-R4.11 traceability table below for the
 per-requirement evidence.
 
 **Covers:** R4.1-R4.11 (see `PLAN.md` Requirement IDs; original wording in `SOURCE.md`

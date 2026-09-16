@@ -10,8 +10,8 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `04-host-documentation-sweep.md`
-- Status: Complete on branch `feature/04-host-documentation-sweep`, not yet opened as a
-  pull request. Prerequisite (Concept 02 merged to `main`) confirmed via `git log`
+- Status: Complete on branch `feature/04-host-documentation-sweep`, open as PR #69 and
+  under review. Prerequisite (Concept 02 merged to `main`) confirmed via `git log`
   (merge commit `76519e8a`, PR #67), not inferred from a prior label.
 - Implementation: 46 commits, all typed `docs(host)`/`test(host)`, sweeping
   `host/DovahLink.Host/**` and `host/DovahLink.Host.Tests/**` for R4.1-R4.11 --
@@ -32,12 +32,10 @@ Status: active (package frozen 2026-09-13)
   byte-for-byte identical to the removed-line multiset in both `host/DovahLink.Host/`
   (107/107) and `host/DovahLink.Host.Tests/` (117/117), confirming every code change on
   this branch is a pure relocation with no line's content edited.
-- Next action: open the Concept 04 pull request (git/publish action, requires the
-  maintainer's own action or explicit go-ahead per `AGENTS.md`/`CONTRIBUTING.md`'s
-  branch-and-PR workflow) and merge once CI/review is clean. Once merged, Concept 05
-  (Adapter documentation sweep) is already independently eligible to start (Concept 03
-  merged, PR #68, merge commit `e76b7640`) regardless of Concept 04's own merge state,
-  per `PLAN.md` section 6.
+- Next action: address PR #69 review findings and merge once CI/review is clean. Once
+  merged, Concept 05 (Adapter documentation sweep) is already independently eligible to
+  start (Concept 03 merged, PR #68, merge commit `e76b7640`) regardless of Concept 04's
+  own merge state, per `PLAN.md` section 6.
 
 ## Completed concepts
 
@@ -874,7 +872,6 @@ confirmed satisfied by the merge commit above. This session's close-out (see the
 concept entry above) found Concept 04's implementation already complete: it re-ran both
 Host CI gate commands clean at head `e26cd723`, added an R4.1-R4.11 traceability table
 to `04-host-documentation-sweep.md`, and flipped its `Status` to `Complete`. Concept 04
-has no pull request open yet -- opening one is this concept's own remaining next action,
-not something this bookkeeping pass performs. Concept 05 (Adapter documentation sweep)
-is independently eligible to start as well, per `PLAN.md` section 6, but is not the one
+is now open as PR #69 and under review. Concept 05 (Adapter documentation sweep) is
+independently eligible to start as well, per `PLAN.md` section 6, but is not the one
 this session is picking up.
