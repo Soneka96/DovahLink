@@ -18,33 +18,6 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         Stream = stream;
     }
 
-    /// <inheritdoc/>
-    public async Task RunAsync(CancellationToken cancellationToken)
-    {
-        using CancellationTokenRegistration registration = cancellationToken.Register(() => completionSource.TrySetCanceled(cancellationToken));
-        await completionSource.Task.ConfigureAwait(false);
-    }
-
-    /// <summary>Ends the pending <see cref="RunAsync"/> call as if the connection ended normally.</summary>
-    public void Complete() => completionSource.TrySetResult();
-
-    /// <inheritdoc/>
-    public bool TrySendListenEvent(uint eventKey, out ulong correlationId)
-    {
-        correlationId = 0;
-        return false;
-    }
-
-    /// <inheritdoc/>
-    public bool TrySendReadSample(uint sampleToken, out ulong correlationId)
-    {
-        correlationId = 0;
-        return false;
-    }
-
-    /// <inheritdoc/>
-    public bool TryCancel(ulong correlationId) => false;
-
     /// <summary>The result <see cref="TrySendPairingDisplay"/> returns.</summary>
     public bool TrySendPairingDisplayResult { get; set; }
 
@@ -67,6 +40,30 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
     public List<(ulong CorrelationId, TimeSpan Timeout, CancellationToken CancellationToken)> AwaitPairingDisplayAckAsyncCalls { get; } = [];
 
     /// <inheritdoc/>
+    public async Task RunAsync(CancellationToken cancellationToken)
+    {
+        using CancellationTokenRegistration registration = cancellationToken.Register(() => completionSource.TrySetCanceled(cancellationToken));
+        await completionSource.Task.ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendListenEvent(uint eventKey, out ulong correlationId)
+    {
+        correlationId = 0;
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendReadSample(uint sampleToken, out ulong correlationId)
+    {
+        correlationId = 0;
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public bool TryCancel(ulong correlationId) => false;
+
+    /// <inheritdoc/>
     public bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId)
     {
         PairingDisplayCalls.Add((code, mode));
@@ -87,4 +84,7 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         AwaitPairingDisplayAckAsyncCalls.Add((correlationId, timeout, cancellationToken));
         return AwaitPairingDisplayAckAsyncResult(correlationId, timeout, cancellationToken);
     }
+
+    /// <summary>Ends the pending <see cref="RunAsync"/> call as if the connection ended normally.</summary>
+    public void Complete() => completionSource.TrySetResult();
 }
