@@ -27,15 +27,33 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
         this.teardownDelayAfterCancellation = teardownDelayAfterCancellation;
     }
 
+    /// <summary>The value <see cref="TrySend"/> returns; defaults to <see langword="false"/>.</summary>
+    public bool TrySendResult { get; set; }
+
+    /// <summary>The value <see cref="TrySendSnapshot"/> returns; defaults to <see langword="false"/>.</summary>
+    public bool TrySendSnapshotResult { get; set; }
+
+    /// <summary>Every payload passed to <see cref="TrySend"/> so far, in call order.</summary>
+    public List<byte[]> SentPayloads { get; } = [];
+
+    /// <summary>Every area/payload pair passed to <see cref="TrySendSnapshot"/> so far, in call order.</summary>
+    public List<(StateAreaId AreaId, byte[] Payload)> SentSnapshots { get; } = [];
+
+    /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
+    public int RequestCloseCalls { get; private set; }
+
+    /// <summary>Every lane passed to <see cref="TrySend"/> so far, in call order, index-aligned with <see cref="SentPayloads"/>.</summary>
+    public List<PublicOutboundLane> SentLanes { get; } = [];
+
+    /// <summary>The value <see cref="RemainingOutboundCapacity"/> returns for every lane; defaults to <see cref="int.MaxValue"/>.</summary>
+    public int RemainingOutboundCapacityResult { get; set; } = int.MaxValue;
+
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         using CancellationTokenRegistration registration = cancellationToken.Register(() => _ = EndAfterTeardownDelayAsync(cancellationToken));
         await completionSource.Task.ConfigureAwait(false);
     }
-
-    /// <summary>Ends the pending <see cref="RunAsync"/> call as if the connection ended normally.</summary>
-    public void Complete() => completionSource.TrySetResult();
 
     /// <inheritdoc/>
     public bool TrySend(ReadOnlyMemory<byte> payload, PublicOutboundLane lane)
@@ -52,6 +70,15 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
         return TrySendSnapshotResult;
     }
 
+    /// <inheritdoc/>
+    public void RequestClose() => RequestCloseCalls++;
+
+    /// <inheritdoc/>
+    public int RemainingOutboundCapacity(PublicOutboundLane lane) => RemainingOutboundCapacityResult;
+
+    /// <summary>Ends the pending <see cref="RunAsync"/> call as if the connection ended normally.</summary>
+    public void Complete() => completionSource.TrySetResult();
+
     /// <summary>Ends <see cref="RunAsync"/> as cancelled after <see cref="teardownDelayAfterCancellation"/>, simulating bounded teardown work.</summary>
     /// <param name="cancellationToken">The token <see cref="RunAsync"/> was cancelled with.</param>
     private async Task EndAfterTeardownDelayAsync(CancellationToken cancellationToken)
@@ -63,31 +90,4 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
         completionSource.TrySetCanceled(cancellationToken);
     }
-
-    /// <summary>The value <see cref="TrySend"/> returns; defaults to <see langword="false"/>.</summary>
-    public bool TrySendResult { get; set; }
-
-    /// <summary>The value <see cref="TrySendSnapshot"/> returns; defaults to <see langword="false"/>.</summary>
-    public bool TrySendSnapshotResult { get; set; }
-
-    /// <summary>Every payload passed to <see cref="TrySend"/> so far, in call order.</summary>
-    public List<byte[]> SentPayloads { get; } = [];
-
-    /// <summary>Every area/payload pair passed to <see cref="TrySendSnapshot"/> so far, in call order.</summary>
-    public List<(StateAreaId AreaId, byte[] Payload)> SentSnapshots { get; } = [];
-
-    /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
-    public int RequestCloseCalls { get; private set; }
-
-    /// <inheritdoc/>
-    public void RequestClose() => RequestCloseCalls++;
-
-    /// <summary>Every lane passed to <see cref="TrySend"/> so far, in call order, index-aligned with <see cref="SentPayloads"/>.</summary>
-    public List<PublicOutboundLane> SentLanes { get; } = [];
-
-    /// <summary>The value <see cref="RemainingOutboundCapacity"/> returns for every lane; defaults to <see cref="int.MaxValue"/>.</summary>
-    public int RemainingOutboundCapacityResult { get; set; } = int.MaxValue;
-
-    /// <inheritdoc/>
-    public int RemainingOutboundCapacity(PublicOutboundLane lane) => RemainingOutboundCapacityResult;
 }
