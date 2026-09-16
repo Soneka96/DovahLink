@@ -8,7 +8,7 @@
 
 ### Outcome
 
-One bridge raises the bounded session-registry capacity beyond the Stage 4.2 value of `1` and
+One Host raises the bounded session-registry capacity beyond the Stage 4.2 value of `1` and
 serves concurrent clients while capture remains shared and one slow client cannot destabilize
 Skyrim or healthy clients.
 

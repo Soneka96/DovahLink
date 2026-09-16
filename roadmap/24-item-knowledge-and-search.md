@@ -12,7 +12,7 @@ Players search versioned reference information without confusing it with live sa
 
 ### Scope and behavior
 
-- Keep large reference data outside the live bridge stream.
+- Keep large reference data outside the live state stream.
 - Provide approved names, categories, descriptions, guidance, and source context.
 - Link entries to live state only through stable identities and explicit confidence.
 - Make provenance, version, localization, caching, and updates visible.

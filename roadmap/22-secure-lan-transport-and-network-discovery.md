@@ -11,13 +11,13 @@ generalized and hardened LAN capability.
 
 ### Outcome
 
-Approved LAN clients securely discover and connect to the intended bridge without trusting the LAN.
+Approved LAN clients securely discover and connect to the intended Host without trusting the LAN.
 
 ### Scope and behavior
 
 - Complete the threat model and pairing design required by `ai/context/protocol/security.md`.
 - Use established authenticated encryption; do not invent cryptography.
-- Discover multiple hosts and bridges without treating address as identity.
+- Discover multiple machines and DovahLink instances without treating address as identity.
 - Authenticate endpoints before trusting advertised metadata.
 - Preserve per-client authorization, revocation, replay protection, and session binding.
 - Add approved wired and Wi-Fi/LAN candidates where platforms permit.
@@ -31,5 +31,5 @@ relay, accounts, or cloud presence.
 
 ### Acceptance criteria
 
-Clients distinguish and securely connect to the intended bridge; spoofed or unpaired endpoints are
+Clients distinguish and securely connect to the intended Host; spoofed or unpaired endpoints are
 not trusted; revocation works; and localhost remains preferred where applicable.

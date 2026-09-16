@@ -27,4 +27,4 @@ transport. It does not imply internet access, hosted relay, accounts, or identic
 ### Acceptance criteria
 
 A device pairs and reconnects securely, survives background and network changes, presents existing
-features accessibly, and cannot confuse another discovered bridge.
+features accessibly, and cannot confuse another discovered Host.

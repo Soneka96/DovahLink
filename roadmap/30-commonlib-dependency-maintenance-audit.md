@@ -15,7 +15,7 @@ before the next public release.
 
 - Keep the Phase 1 dependency pinned for the current supported runtime.
 - Audit CommonLibSSE-NG and the selected registry for relevant fixes and releases.
-- Update pins only after bridge, toolchain, protocol, integration, and in-game checks.
+- Update pins only after adapter, toolchain, protocol, integration, and in-game checks.
 - Record reviewed versions, decision, results, and limitations before the next public release.
 - Define a reviewed fallback if the package route cannot provide a validated build.
 

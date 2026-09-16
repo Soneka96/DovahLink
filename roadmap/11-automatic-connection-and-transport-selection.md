@@ -8,12 +8,12 @@
 
 ### Outcome
 
-The client chooses the best path to the intended local bridge while preserving manual control.
+The client chooses the best path to the intended local Host while preserving manual control.
 
 ### Scope and behavior
 
-- Keep connection candidates separate from bridge identity.
-- Remember the preferred bridge independently from its endpoint.
+- Keep connection candidates separate from Host identity.
+- Remember the preferred Host independently from its endpoint.
 - Prefer approved same-machine candidates and retain manual fallback.
 - Observe coarse Skyrim process presence without reading game memory.
 - Represent stopped, launching, initializing, ready, loading, playing, recovery, and failures.
@@ -27,5 +27,5 @@ internet exposure, hosted relay, and accounts.
 
 ### Acceptance criteria
 
-The client reconnects to the intended bridge, never confuses simultaneous instances, backs off
+The client reconnects to the intended Host, never confuses simultaneous instances, backs off
 responsibly, and provides actionable manual recovery.
