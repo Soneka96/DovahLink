@@ -155,7 +155,7 @@ public class PublicWebSocketHandshakeTests
         Assert.Equal(HandshakeRejectReason.UnsupportedVersion, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
-    /// <summary>Verifies that a supported version value surrounded by header-value whitespace is trimmed and still accepted, not misclassified as unsupported by the newly split version gate.</summary>
+    /// <summary>Verifies that a supported version value surrounded by header-value whitespace is trimmed and still accepted, not misclassified as unsupported.</summary>
     [Fact]
     public void TryParseUpgradeRequest_SupportedVersionWithSurroundingWhitespace_IsAccepted()
     {
@@ -295,7 +295,7 @@ public class PublicWebSocketHandshakeTests
         Assert.Equal(HandshakeRejectReason.Malformed, PublicWebSocketHandshake.TryParseUpgradeRequest(request, out _));
     }
 
-    /// <summary>Verifies that a header name built entirely from permitted non-alphanumeric token characters is not rejected by the new grammar check.</summary>
+    /// <summary>Verifies that a header name built entirely from permitted non-alphanumeric token characters is accepted.</summary>
     [Fact]
     public void TryParseUpgradeRequest_HeaderNameWithPermittedTokenCharacters_IsAccepted()
     {

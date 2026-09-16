@@ -145,8 +145,8 @@ public class IpcFrameCodecTests
     public void Decode_Hello_MissingChallengeAndOwnerLifetimeIdTail_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        // The pre-D2 payload shape: 17 identity/length bytes plus a 2-byte token, with none of the
-        // new fixed-size fields appended.
+        // A payload with only the original 17 identity/length bytes plus a 2-byte token -- missing
+        // the challenge/owner-lifetime-id tail entirely.
         byte[] payload = new byte[19];
         payload[16] = 2;
         byte[] frame = BuildFrame(IpcMessageKind.Hello, correlationId: 1, payload);
@@ -239,7 +239,8 @@ public class IpcFrameCodecTests
     public void Decode_HelloAck_MissingHostProofTail_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        // The pre-D2 2-byte payload shape, with no hostProof appended.
+        // A payload with only the original 2-byte accepted/reject-reason fields, missing the
+        // hostProof tail entirely.
         byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1, [1, 0]);
 
         IpcDecodeResult result = codec.Decode(frame);

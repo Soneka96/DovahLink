@@ -38,9 +38,8 @@ public static class PublicClientServiceExtensions
     /// <returns><paramref name="services"/>, for chaining.</returns>
     public static IServiceCollection AddPublicClientServices(this IServiceCollection services, int? publicListenerPort)
     {
-        // No state area is registered yet and no real domain feed exists -- a later concept
-        // registers each real Skyrim domain here and supplies a feed that adapts its captured
-        // values, per ai/context/protocol/security.md's "no state area is currently registered".
+        // No state area is registered and no real domain feed exists, so both placeholders below
+        // reflect this composition root's actual current behavior.
         services.AddSingleton<IRegisteredStateAreaPolicy, RegisteredStateAreaPolicy>();
         services.AddSingleton<IStatePublicationFeed>(NullStatePublicationFeed.Instance);
         services.AddSingleton<IPublicWebSocketTransportDiagnostics>(NullPublicWebSocketTransportDiagnostics.Instance);
@@ -61,12 +60,10 @@ public static class PublicClientServiceExtensions
 
     /// <summary>
     /// A composition-time placeholder for <see cref="IPublicWebSocketTransportDiagnostics"/> that
-    /// deliberately discards every report. <see cref="IPublicWebSocketTransportDiagnostics"/>'s own
-    /// documentation defers the real, bounded logging/telemetry sink to a later concept; a synchronous
-    /// console write here would risk violating that interface's own must-not-block contract (this is
-    /// called on the connection's read/write path during teardown) if standard error is ever a
-    /// stalled redirected pipe, so this placeholder stays a true no-op rather than trade that
-    /// guarantee for an interim observable signal.
+    /// deliberately discards every report. A synchronous console write here would risk violating that
+    /// interface's own must-not-block contract (this is called on the connection's read/write path
+    /// during teardown) if standard error is ever a stalled redirected pipe, so this placeholder
+    /// stays a true no-op rather than trade that guarantee for an interim observable signal.
     /// </summary>
     private sealed class NullPublicWebSocketTransportDiagnostics : IPublicWebSocketTransportDiagnostics
     {
@@ -85,7 +82,7 @@ public static class PublicClientServiceExtensions
     /// today's composition root's production behavior, since no state area is registered yet --
     /// <see cref="IRegisteredStateAreaPolicy.IsRegistered"/> already rejects every area before any
     /// caller would ever reach this feed, so its own responses are never actually exercised in
-    /// production. A later concept, once a real domain is registered, supplies a real feed instead.
+    /// production.
     /// </summary>
     private sealed class NullStatePublicationFeed : IStatePublicationFeed
     {

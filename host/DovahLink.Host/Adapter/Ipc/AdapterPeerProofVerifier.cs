@@ -11,8 +11,8 @@ namespace DovahLink.Host.Adapter.Ipc;
 public interface IAdapterPeerProofVerifier
 {
     /// <summary>
-    /// The proof value for this host process's lifetime. A later concept's process-launch code reads
-    /// this to pass the same value to the adapter it starts.
+    /// The proof value for this host process's lifetime, read by process-launch code to pass the
+    /// same value to the adapter it starts.
     /// </summary>
     byte[] ExpectedToken { get; }
 

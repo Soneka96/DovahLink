@@ -257,9 +257,8 @@ public sealed class PairingCoordinator : IPairingCoordinator
     /// the claimant already won the race to finalize it, so cancellation can no longer truthfully
     /// claim it cancelled that exact credential. Also gates <see cref="CommitPendingAsync"/> itself: a
     /// concurrent call arriving while this is already set is not the claimant and must never re-claim
-    /// or proceed toward persistence, closing the residual a bare claimed/unclaimed flag left open --
-    /// two concurrent calls both observing "unclaimed" and both winning would otherwise both reach
-    /// persistence for the same reservation. Reset back to <see langword="null"/> whenever the
+    /// or proceed toward persistence, so at most one concurrent call ever reaches persistence for the
+    /// same reservation. Reset back to <see langword="null"/> whenever the
     /// claiming call's own attempt resolves -- through <see cref="ClearPending"/> on a durable outcome,
     /// or <see cref="ReleaseCommitClaim"/> when the attempt never reached persistence or the
     /// persistence attempt itself faulted or was cancelled -- and only ever by the exact invocation

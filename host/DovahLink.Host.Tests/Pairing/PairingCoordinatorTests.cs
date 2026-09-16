@@ -73,11 +73,11 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Proves the confirmed stale-challenge-across-mutation defect is closed: a challenge's security
-    /// fence is captured at <see cref="PairingCoordinator.BeginPairing"/>, so a trust-store mutation
-    /// that commits after the challenge began -- but before a genuinely correct code is evaluated --
-    /// must invalidate it rather than let it mint a pending credential under the mutation's new
-    /// generation. The existing pending-credential fence check in
+    /// Verifies that a challenge's security fence is captured at
+    /// <see cref="PairingCoordinator.BeginPairing"/>, so a trust-store mutation that commits after the
+    /// challenge began -- but before a genuinely correct code is evaluated -- must invalidate it rather
+    /// than let it mint a pending credential under the mutation's new generation. The existing
+    /// pending-credential fence check in
     /// <see cref="PairingCoordinator.CommitPendingAsync"/> only protects a credential that was already
     /// pending before such a mutation; it cannot protect a challenge that survives across one.
     /// </summary>
@@ -658,14 +658,14 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Verifies the exception-safety guarantee for the section this fix newly protects: an unexpected
-    /// fault in the post-claim record construction and verifier hashing that runs after the short-id is
-    /// already resolved -- not a trust-store lookup or a short-id generator fault, which
+    /// Verifies the exception-safety guarantee for the post-claim record construction and verifier
+    /// hashing that runs after the short-id is already resolved -- not a trust-store lookup or a
+    /// short-id generator fault, which
     /// <see cref="CommitPending_TrustStoreTryGetThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential"/>
     /// and <see cref="CommitPending_ShortIdGeneratorThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential"/>
     /// already cover -- still releases the claim through the single ownership-tracking <c>finally</c>
     /// rather than a dedicated catch for this specific fault, proving the cleanup rule itself rather
-    /// than only the previously-known fault sites.
+    /// than only the other known fault sites.
     /// </summary>
     [Fact]
     public async Task CommitPending_VerifierHasherThrowsUnexpectedly_ReleasesClaimAndPreservesPendingCredential()
@@ -809,9 +809,10 @@ public class PairingCoordinatorTests
 
     /// <summary>
     /// Verifies that cancellation requested while persistence is genuinely in flight -- after the
-    /// pairing-operation lock has already been released, per the lock-boundary fix -- still propagates
-    /// <see cref="OperationCanceledException"/> and leaves the pending credential retryable, the same
-    /// contract <see cref="CommitPending_CancelledWait_DoesNotConsumePendingCredential"/> proves for
+    /// pairing-operation lock has already been released, since persistence itself runs outside that
+    /// lock -- still propagates <see cref="OperationCanceledException"/> and leaves the pending
+    /// credential retryable, the same contract
+    /// <see cref="CommitPending_CancelledWait_DoesNotConsumePendingCredential"/> proves for
     /// cancellation requested before the call even starts.
     /// </summary>
     [Fact]
@@ -1468,7 +1469,7 @@ public class PairingCoordinatorTests
     /// <summary>
     /// Verifies that a freshly reserved challenge whose initial display has not yet committed reports
     /// as an uncommitted reservation, never as a displayed challenge or a pending credential -- the
-    /// exact ambiguity a nullable challenge lookup used to collapse.
+    /// three states remain distinguishable at every point in the reservation lifecycle.
     /// </summary>
     [Fact]
     public void GetStatusSnapshot_UncommittedReservation_ReportsUncommittedDisplayReservation()
@@ -1831,8 +1832,8 @@ public class PairingCoordinatorTests
     /// <see cref="CommitPending_ResetTrustDuringPersistence_CannotRestoreTrustedCredential"/> for a
     /// first-time pairing, where Reset Trust has no currently trusted record to revoke at all -- the
     /// exact race <see cref="TrustStore.ResetTrustAsync"/>'s zero-affected fence advance exists to
-    /// close. Before that fix, this pending credential's captured fence generation would have observed
-    /// no movement and persisted regardless of the concurrent Reset Trust.
+    /// close: without it, this pending credential's captured fence generation would observe no
+    /// movement and persist regardless of the concurrent Reset Trust.
     /// </summary>
     [Fact]
     public async Task CommitPending_ResetTrustWithNoTrustedRecordsDuringPersistence_CannotRestoreTrustedCredential()
@@ -1897,8 +1898,7 @@ public class PairingCoordinatorTests
     /// matches by the exact credential secret (<see cref="CredentialHasher.FixedTimeEquals"/>), so the
     /// old credential can never match the replacement's own -- this makes the stale-incarnation ACK
     /// structurally impossible without any session-identity check, unlike <c>pairing_request</c>'s own
-    /// need for one. Documents and locks in that <see cref="IPairingCoordinator.CommitPendingAsync"/>
-    /// needed no redesign for this fix.
+    /// need for one.
     /// </summary>
     [Fact]
     public async Task CommitPendingAsync_StaleCredentialFromCancelledEarlierPairing_CannotCommitAgainstReplacementPairingState()
@@ -2010,12 +2010,12 @@ public class PairingCoordinatorTests
 
     /// <summary>
     /// Verifies that an administrative Block attempt against an Unpaired known device -- not eligible
-    /// for Block per the restored Stage 3.2 contract -- reports <see cref="TrustMutationOutcome.NotEligible"/>
-    /// without advancing <see cref="ITrustStore.SecurityFenceGeneration"/>, so it can never invalidate a
-    /// concurrently pending pairing credential the way a genuinely eligible Block (Trusted or Revoked)
-    /// correctly does. Combines the Stage 3.2 Block-eligibility fix with the real <see cref="TrustStore"/>
-    /// used elsewhere in this class, unlike <see cref="CommitPending_BlockDuringPersistence_CannotRestoreTrustedCredential"/>
-    /// which exercises the eligible-and-invalidating case.
+    /// for Block -- reports <see cref="TrustMutationOutcome.NotEligible"/> without advancing
+    /// <see cref="ITrustStore.SecurityFenceGeneration"/>, so it can never invalidate a concurrently
+    /// pending pairing credential the way a genuinely eligible Block (Trusted or Revoked) correctly
+    /// does. Uses the real <see cref="TrustStore"/> used elsewhere in this class, unlike
+    /// <see cref="CommitPending_BlockDuringPersistence_CannotRestoreTrustedCredential"/> which exercises
+    /// the eligible-and-invalidating case.
     /// </summary>
     [Fact]
     public async Task CommitPending_BlockAttemptAgainstUnpairedDeviceDuringPersistence_NeverInvalidatesPendingCredential()
@@ -2039,9 +2039,9 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Reproduces the confirmed Unblock fail-open bad trace end-to-end against the real
-    /// <see cref="TrustStore"/>: while <see cref="TrustStore.UnblockAsync"/>'s persistence write is in
-    /// flight, <see cref="PairingCoordinator.BeginPairing"/> must still see the client as Blocked --
+    /// Verifies end-to-end against the real <see cref="TrustStore"/> that while
+    /// <see cref="TrustStore.UnblockAsync"/>'s persistence write is in flight,
+    /// <see cref="PairingCoordinator.BeginPairing"/> must still see the client as Blocked --
     /// never a transient Unpaired state that would let it start a pairing operation past a Block that
     /// was never actually lifted. Only once persistence actually succeeds does pairing become eligible.
     /// </summary>
@@ -2107,9 +2107,9 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Reproduces the confirmed Factory Reset/Clear race end-to-end against the real
-    /// <see cref="TrustStore"/>: while <see cref="TrustStore.ClearAsync"/>'s persistence write is in
-    /// flight, <see cref="PairingCoordinator.BeginPairing"/> must still see a Blocked client as
+    /// Verifies end-to-end against the real <see cref="TrustStore"/> that while
+    /// <see cref="TrustStore.ClearAsync"/>'s persistence write is in flight,
+    /// <see cref="PairingCoordinator.BeginPairing"/> must still see a Blocked client as
     /// Blocked -- never a transiently-empty store that would let it start pairing as though never
     /// known. Only once persistence actually succeeds is the identity gone and pairing eligible again.
     /// </summary>
@@ -2173,7 +2173,7 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Reproduces the confirmed BeginPairing coherent-snapshot fix end-to-end against the real
+    /// Verifies BeginPairing's coherent-snapshot guarantee end-to-end against the real
     /// <see cref="TrustStore"/>: while a concurrent <see cref="TrustStore.BlockAsync"/>'s persistence
     /// write is still in flight -- so the store's live state and generation are still the pre-Block
     /// values -- <see cref="PairingCoordinator.BeginPairing"/> must observe the non-Blocked state
@@ -2246,7 +2246,7 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Verifies the coherent-snapshot fix generalizes beyond Block to any generation-advancing
+    /// Verifies the coherent-snapshot guarantee generalizes beyond Block to any generation-advancing
     /// administrative mutation: a concurrent Revoke never sets Blocked eligibility, so it must not
     /// prevent the challenge from starting, but its in-flight persistence must still leave the
     /// snapshot's generation coherent with the record it was read alongside -- proven the same way as
@@ -2295,8 +2295,8 @@ public class PairingCoordinatorTests
     /// the exact same pending credential can never also claim it while a first call's exclusive claim
     /// is still live: it observes <see cref="PairingCommitOutcome.PendingNotFound"/> without ever
     /// reaching persistence, and exactly one persistence attempt -- the first call's own -- ever
-    /// succeeds. Closes the residual a bare claimed/unclaimed flag left open, where both calls could
-    /// observe "unclaimed" and both proceed toward persistence for the same reservation.
+    /// succeeds: the exclusive claim identity ensures at most one concurrent call ever reaches
+    /// persistence for the same reservation.
     /// </summary>
     [Fact]
     public async Task CommitPending_ConcurrentSecondAck_NeverReachesPersistenceAndExactlyOnePersistenceAttemptSucceeds()
@@ -2332,12 +2332,9 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Reproduces the previously exploitable ordering the exclusive claim identity now closes: a
-    /// second concurrent ACK arrives while the first already holds the exclusive claim, the first
-    /// ACK's own persistence then fails, and <see cref="PairingCoordinator.Cancel"/> races in
-    /// immediately afterward. Before this fix, releasing the first ACK's claim reset a shared boolean
-    /// flag with no memory of which call had reclaimed it, so a second ACK could go on to persist a
-    /// credential Cancel had already reported cancelled. With the claim identity, the second ACK never
+    /// Verifies the claim-identity ordering guarantee: a second concurrent ACK arrives while the first
+    /// already holds the exclusive claim, the first ACK's own persistence then fails, and
+    /// <see cref="PairingCoordinator.Cancel"/> races in immediately afterward. The second ACK never
     /// claimed anything in the first place -- it already observed <see cref="PairingCommitOutcome.PendingNotFound"/>
     /// before the first ACK even failed -- so Cancel's report and the trust store's actual state stay
     /// coherent, and no further attempt with this credential can ever persist it.
@@ -2379,7 +2376,7 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Verifies the same previously exploitable ordering as
+    /// Verifies the same claim-identity ordering guarantee as
     /// <see cref="CommitPending_FirstAckFailsThenCancelRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist"/>
     /// for the first ACK's own <see cref="CancellationToken"/> being cancelled during persistence
     /// instead of persistence throwing.
@@ -2485,7 +2482,7 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Verifies the same previously exploitable ordering as
+    /// Verifies the same claim-identity ordering guarantee as
     /// <see cref="CommitPending_FirstAckFailsThenCancelRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist"/>
     /// for the multi-client <see cref="PairingCoordinator.CancelAll"/> path.
     /// </summary>
@@ -2526,7 +2523,7 @@ public class PairingCoordinatorTests
     }
 
     /// <summary>
-    /// Verifies the same previously exploitable ordering as
+    /// Verifies the same claim-identity ordering guarantee as
     /// <see cref="CommitPending_FirstAckFailsThenCancelAllRaces_TrustStoreNeverBecomesTrustedAndSecondAckCannotPersist"/>
     /// for the first ACK's own <see cref="CancellationToken"/> being cancelled during persistence
     /// instead of persistence throwing.

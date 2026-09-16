@@ -90,8 +90,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>
     /// This connection's own state-area subscription and event-forwarding gate, or
     /// <see langword="null"/> when no subscription capability is available -- <c>subscribe</c> and
-    /// <c>snapshot_request</c> then reject every request, matching the behavior before this concept
-    /// existed.
+    /// <c>snapshot_request</c> then reject every request.
     /// </summary>
     private readonly IPublicStateSubscription? subscription;
 
@@ -243,8 +242,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
             // A message arriving after the session's message bound was already reached is silently
             // dropped rather than answered: the connection is already closing, per the security
-            // contract's "do not retry invalid input indefinitely," and this message was never
-            // recorded or dispatched.
+            // contract's "do not retry invalid input indefinitely."
             return;
         }
 
@@ -287,9 +285,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             if (envelope.SessionId != currentSessionId.ToString() || !sessionRegistry.IsActive(currentSessionId, connectionId))
             {
                 // The second condition catches a session this connection still believes is admitted but
-                // that the authoritative registry no longer considers active -- for example, invalidated
-                // by a concurrent Factory Reset after this connection's own admission completed. Local
-                // admitted state alone must never be treated as authorization forever.
+                // the authoritative registry no longer considers active (e.g. invalidated by a
+                // concurrent Factory Reset) -- local admitted state alone is never authorization forever.
                 RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.StaleSession, "This sessionId is not valid on this connection.");
                 return;
             }
@@ -297,13 +294,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             if (envelope.StateAuthorityId is not null || envelope.PlayContextId is not null ||
                 !Guid.TryParse(envelope.ClientId, out Guid presentedClientId) || presentedClientId != currentClientId.Value)
             {
-                // A post-admission client message must carry the socket-bound sessionId and its declared
-                // clientId: clientId is required (not merely permitted) once a session exists. Comparing
-                // the parsed Guid value rather than envelope.ClientId's raw wire string
-                // against currentClientId.ToString() avoids reintroducing a textual-representation-aliasing
-                // gap: Guid.TryParse accepts several equivalent textual forms (braces, hyphenless, etc.)
-                // for the same identity, and a client is not required to reuse hello's exact wire form on
-                // every later message.
+                // A post-admission message must carry its declared clientId (required, not merely
+                // permitted). Comparing the parsed Guid rather than the raw wire string avoids a
+                // textual-representation-aliasing gap: Guid.TryParse accepts multiple equivalent forms.
                 RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "This message carries an invalid envelope identity or context field.");
                 return;
             }
@@ -344,13 +337,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
                     if (dispatchResult.UpgradeToFullTrust)
                     {
-                        // The pairing coordinator already committed this credential to durable trust
-                        // before reporting this signal; this upgrades the same session's own
-                        // authorization tier in place, exactly once, with no reconnect required. A losing
-                        // race against a concurrent invalidation is caught the same way every other
-                        // post-admission message already is -- the next message's own IsActive recheck --
-                        // so an unconditional local update here can never grant authorization the
-                        // authoritative registry does not also (still) recognize.
+                        // The pairing coordinator already committed this credential before reporting
+                        // this signal, so this upgrades the session's tier in place, exactly once. A
+                        // losing race against a concurrent invalidation is caught by the next message's own IsActive recheck.
                         lock (gate)
                         {
                             trustTier = SessionTrustTier.Full;
@@ -364,11 +353,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         }
         finally
         {
-            // The message that reaches the session message bound is itself still accepted, per
-            // ai/context/protocol/security.md's "the bridge closes the session before this bound is
-            // exceeded": everything above -- including a response this exact message triggers, via
-            // either a successful dispatch or RecordViolationAndReject's own error send -- has already
-            // had its chance to enqueue onto the outbound queue before the orderly close begins here.
+            // The message that reaches the session bound is itself still accepted, per
+            // ai/context/protocol/security.md's "the host closes the session before this bound is
+            // exceeded": everything above already had its chance to enqueue before the close begins here.
             if (reachedBound)
             {
                 // A deliberate application-level close, the same as the protocol-violation threshold
@@ -538,15 +525,14 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <summary>
     /// Records <paramref name="messageId"/> as seen, rejecting a repeat as replay. Reports, without
     /// itself requesting the connection's close, when this message recording reaches the
-    /// session-lifetime message bound, per <c>ai/context/protocol/security.md</c>'s "the bridge closes
+    /// session-lifetime message bound, per <c>ai/context/protocol/security.md</c>'s "the host closes
     /// the session before this bound is exceeded" -- the message that reaches the bound is still
     /// accepted; only a later one is not. The caller alone decides when to actually request the close:
     /// it must first let this message's own dispatch and any response it produces reach the outbound
     /// queue, since <see cref="IPublicConnectionContext.RequestClose"/> completes that queue immediately
     /// rather than only once teardown finishes. Checks the bound before recording, not only after: a
     /// message already in flight through the read loop when the bound is reached could otherwise still
-    /// reach this method and be recorded before the requested close actually takes effect. Checking the
-    /// bound first means such a message is never added and never dispatched, regardless of timing.
+    /// reach this method and be recorded before the requested close actually takes effect.
     /// </summary>
     /// <param name="messageId">The message id to record.</param>
     /// <param name="boundAlreadyExceeded">
@@ -728,23 +714,15 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
-        // Registered before TryFinalizeAdmission, not after: TryFinalizeAdmission is the sole
-        // linearization point against a concurrent unconditional invalidation (Factory Reset), so a
-        // registration that only happened afterward left a window where that invalidation's own
-        // termination notifier could find no connection to force-close. Registering first guarantees
-        // any invalidation reaching the registry after this point always finds this connection
-        // already registered.
+        // Registered before TryFinalizeAdmission: that call is the sole linearization point against
+        // a concurrent Factory Reset, so registering first guarantees any invalidation reaching the
+        // registry afterward always finds this connection already registered to force-close.
         connectionRegistry.Register(newSessionId, connectionId, connectionContext);
         if (!sessionRegistry.TryFinalizeAdmission(newSessionId, connectionId))
         {
-            // TryFinalizeAdmission is the sole linearization point between this admission and a
-            // concurrent unconditional invalidation (Factory Reset): an invalidation that reached the
-            // registry before this call decides the outcome here, so this branch means the session is
-            // already gone and must not be admitted. TryClaimAdmission already consumed this
-            // connection's one-shot admission outcome (deliberately never reset back to Pending, so a
-            // concurrently racing deadline task can never mistake this for still-pending admission),
-            // so this connection can never complete admission again; close it explicitly rather than
-            // leaving it open with no path to ever being torn down.
+            // TryFinalizeAdmission is the sole linearization point against a concurrent Factory Reset:
+            // this branch means an invalidation won the race, so the session is already gone and must
+            // be closed explicitly, since this connection's one-shot admission outcome is already consumed.
             connectionRegistry.Unregister(connectionId);
             tokenAuthenticator.RollbackReservation(reservation);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
@@ -768,7 +746,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// the initial check and this recheck can never admit a session for a credential that is no longer
     /// current. A deleted record is rejected the same way as a never-paired identity (<see
     /// cref="PublicProtocolErrorCode.Unauthenticated"/>), per <c>ai/context/protocol/security.md</c>'s
-    /// "Because Factory Reset deletes every Known Device record ... the Bridge rejects it through the
+    /// "Because Factory Reset deletes every Known Device record ... the Host rejects it through the
     /// ordinary unrecognized-credential/unpaired path". This recheck compares directly rather than
     /// through <see cref="credentialThrottle"/>: it re-validates an attempt already accounted for by the
     /// initial check above, so re-throttling it here would let unrelated concurrent failures spuriously
@@ -803,13 +781,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
                 return;
             }
 
-            // A nonexistent/untrusted record compares against DummyCredentialVerifier instead of
-            // short-circuiting before credentialThrottle.TryAttempt: otherwise an attacker could evade
-            // the global failure budget entirely by rotating clientId, since a random unseeded clientId
-            // would never reach the throttle at all. isEligible is combined with the bitwise `&`, not
-            // the short-circuiting `&&`, so CredentialHasher.FixedTimeEquals always actually runs even
-            // when isEligible is false -- keeping this path's timing shape identical to a genuine
-            // wrong-credential comparison against a known, trusted client.
+            // Compares against DummyCredentialVerifier instead of short-circuiting, so rotating
+            // clientId can never evade the global failure budget. isEligible uses bitwise `&`, not
+            // `&&`, so FixedTimeEquals always runs -- keeping this path's timing identical to a genuine wrong-credential comparison.
             bool isEligible = record is not null && record.State == KnownDeviceState.Trusted;
             string verifierToCompare = isEligible ? record!.CredentialVerifier : DummyCredentialVerifier;
             if (!credentialThrottle.TryAttempt(() => isEligible & CredentialHasher.FixedTimeEquals(verifierToCompare, CredentialHasher.Hash(credential!))))
@@ -852,8 +826,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         {
             // The authoritative record was deleted (Factory Reset), demoted, or its verifier rotated
             // between the initial check above and this point. A deleted record is classified the same
-            // as a never-paired identity, not Blocked/Revoked, per this method's own documented
-            // Factory Reset contract.
+            // as a never-paired identity, not Blocked/Revoked.
             sessionRegistry.Invalidate(newSessionId, connectionId);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.Unauthenticated, "Authentication failed.");
             return;
@@ -865,23 +838,15 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             return;
         }
 
-        // Registered before TryFinalizeAdmission, not after: TryFinalizeAdmission is the sole
-        // linearization point against a concurrent unconditional invalidation (Factory Reset), so a
-        // registration that only happened afterward left a window where that invalidation's own
-        // termination notifier could find no connection to force-close. Registering first guarantees
-        // any invalidation reaching the registry after this point always finds this connection
-        // already registered.
+        // Registered before TryFinalizeAdmission: that call is the sole linearization point against
+        // a concurrent Factory Reset, so registering first guarantees any invalidation reaching the
+        // registry afterward always finds this connection already registered to force-close.
         connectionRegistry.Register(newSessionId, connectionId, connectionContext);
         if (!sessionRegistry.TryFinalizeAdmission(newSessionId, connectionId))
         {
-            // TryFinalizeAdmission is the sole linearization point between this admission and a
-            // concurrent unconditional invalidation (Factory Reset): an invalidation that reached the
-            // registry before this call decides the outcome here, so this branch means the session is
-            // already gone and must not be admitted. TryClaimAdmission already consumed this
-            // connection's one-shot admission outcome (deliberately never reset back to Pending, so a
-            // concurrently racing deadline task can never mistake this for still-pending admission),
-            // so this connection can never complete admission again; close it explicitly rather than
-            // leaving it open with no path to ever being torn down.
+            // TryFinalizeAdmission is the sole linearization point against a concurrent Factory Reset:
+            // this branch means an invalidation won the race, so the session is already gone and must
+            // be closed explicitly, since this connection's one-shot admission outcome is already consumed.
             connectionRegistry.Unregister(connectionId);
             RecordViolationAndReject(connectionContext, envelope.MessageId, PublicProtocolErrorCode.RateLimited, "The host cannot admit another session right now.", retryable: true);
             connectionContext.RequestClose();
@@ -988,12 +953,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             if (wasSecurityClose || terminationKind == PublicConnectionTerminationKind.SecurityEnforcement)
             {
                 // A deliberate protocol/security-driven termination ends any owned pairing challenge
-                // outright rather than preserving it for the ordinary reconnect grace, which applies
-                // only to connectivity loss (normal close, network loss, or connection timeout). This
-                // handler's own securityCloseRequested tracks its own application-level protocol-
-                // violation threshold and message-bound closes; terminationKind separately covers
-                // transport-level enforcement (oversized/binary/framing/rate-limit) this handler never
-                // otherwise observes -- either one alone is sufficient to end pairing outright.
+                // outright, unlike ordinary connectivity loss which preserves it for reconnect grace.
+                // securityCloseRequested tracks this handler's own application-level closes; terminationKind covers transport-level enforcement.
                 pairingCoordinator.Cancel(currentClientId);
             }
             else

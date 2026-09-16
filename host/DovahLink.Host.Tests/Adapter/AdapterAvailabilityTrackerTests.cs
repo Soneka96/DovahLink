@@ -303,12 +303,12 @@ public class AdapterAvailabilityTrackerTests
     }
 
     /// <summary>
-    /// Verifies that a delayed availability subscriber does not block a concurrent commit: unlike
-    /// the tracker's old combined publish operation, <see cref="AdapterAvailabilityTracker.CommitConnected"/>
-    /// only ever holds its own field-mutation lock, never the caller's publication step, so a second
-    /// commit is free to proceed and land while the first transition's subscriber is still running.
-    /// Serializing a complete commit-then-publish sequence relative to another is
-    /// <see cref="IAdapterConnectionLifecycle"/>'s responsibility now, proven by its own tests.
+    /// Verifies that a delayed availability subscriber does not block a concurrent commit:
+    /// <see cref="AdapterAvailabilityTracker.CommitConnected"/> only ever holds its own
+    /// field-mutation lock, never the caller's publication step, so a second commit is free to
+    /// proceed and land while the first transition's subscriber is still running. Serializing a
+    /// complete commit-then-publish sequence relative to another is
+    /// <see cref="IAdapterConnectionLifecycle"/>'s responsibility, proven by its own tests.
     /// </summary>
     [Fact]
     public async Task AvailabilityChanged_DelayedSubscriber_DoesNotBlockAConcurrentCommit()

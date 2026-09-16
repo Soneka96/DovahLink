@@ -35,8 +35,7 @@ public interface IStatePublisher<TState>
     /// <paramref name="capturedPlayContextId"/> or <paramref name="capturedPlayContextGeneration"/> no
     /// longer matches the play context this publisher currently applies state under -- provenance is a
     /// required caller-supplied fact about when the value was captured, not something this method
-    /// infers from its own current state at apply time, so a capture that was queued or delayed across
-    /// a play-context transition can never be silently misattributed to the new context.
+    /// infers from its own current state at apply time.
     /// </summary>
     /// <param name="sourceInstanceId">The adapter instance that produced the value.</param>
     /// <param name="sourceConnectionGeneration">The adapter connection generation that produced the value.</param>
@@ -325,6 +324,10 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     }
 
     /// <summary>A captured value tagged with its originating play context and adapter instance.</summary>
+    /// <param name="Value">The captured value.</param>
+    /// <param name="PlayContextId">The play context this value was captured under.</param>
+    /// <param name="AdapterInstanceId">The adapter instance that produced this value.</param>
+    /// <param name="ConnectionGeneration">The adapter connection generation that produced this value.</param>
     private sealed record StoredValue(
         TState Value,
         PlayContextId PlayContextId,

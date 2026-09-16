@@ -245,8 +245,8 @@ public class LocalConnectionTokenAuthenticatorTests
     }
 
     /// <summary>
-    /// Verifies the exact mixed-path hazard this fix closes: a reservation held by TryValidate
-    /// cannot be bypassed by calling TryConsume instead, and once the reservation is released,
+    /// Verifies that a reservation held by TryValidate cannot be bypassed by calling TryConsume
+    /// instead, and once the reservation is released,
     /// TryConsume works normally again.
     /// </summary>
     [Fact]

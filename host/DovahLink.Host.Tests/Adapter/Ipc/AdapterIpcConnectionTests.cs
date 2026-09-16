@@ -1398,8 +1398,7 @@ public class AdapterIpcConnectionTests
     /// Verifies that the read loop is not blocked by a trust-admin request whose dispatch has not
     /// yet finished: a pairing-display acknowledgement received while that dispatch is still
     /// outstanding is processed immediately, and the trust-admin request's own correlated result
-    /// still arrives once its dispatch is later released. This is the regression proof for the
-    /// reason this concept stopped awaiting the dispatch inline on the read loop.
+    /// still arrives once its dispatch is later released.
     /// </summary>
     [Fact]
     public async Task RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing()
@@ -1445,8 +1444,8 @@ public class AdapterIpcConnectionTests
     /// Verifies that a trust-admin handler which blocks the calling thread synchronously -- before
     /// its own returned <see cref="Task"/> is even created, rather than one that merely returns an
     /// already-incomplete <see cref="Task"/> -- still does not block the private IPC read loop from
-    /// serving an unrelated pairing-display acknowledgement. This is the deterministic regression
-    /// proof for the asynchronous scheduling boundary at the top of
+    /// serving an unrelated pairing-display acknowledgement. This is the deterministic proof for the
+    /// asynchronous scheduling boundary at the top of
     /// <c>AdapterIpcConnection.RunTrustAdminRequestAsync</c> (private, so not link-eligible from
     /// here): the earlier
     /// <see cref="RunAsync_TrustAdminRequestPending_DoesNotBlockPairingDisplayAckProcessing"/> test
@@ -1654,12 +1653,9 @@ public class AdapterIpcConnectionTests
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Help)));
 
-        // Waits for the session to actually be entered. DispatchTrustAdminRequest always
-        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
-        // lets it call the session (see that method's documentation), so this list update proves
-        // admission already happened -- the Cancel below is guaranteed something to actually
-        // cancel, rather than racing admission and silently relying on teardown's own blanket
-        // cancellation to cover for it.
+        // Waits for admission (DispatchTrustAdminRequest registers the pending dispatch before the
+        // handler is ever called), so the Cancel below is guaranteed something to actually cancel,
+        // rather than racing admission and relying on teardown's own blanket cancellation instead.
         await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
         await client.WriteAsync(codec.Encode(new IpcCancelMessage(3)));
 
@@ -1770,19 +1766,17 @@ public class AdapterIpcConnectionTests
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
 
-        // Waits for the session to actually be entered: DispatchTrustAdminRequest always
-        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
-        // lets it call the session, so this list update proves admission already happened and
+        // Waits for admission: DispatchTrustAdminRequest registers the pending dispatch before the
+        // handler is ever called, so this list update proves admission already happened and
         // disconnect below has an outstanding dispatch to cancel.
         await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
 
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        // Teardown now awaits every outstanding trust-admin dispatch actually finishing (bounded by
-        // Constants.TrustAdminTeardownDrainTimeout) before RunAsync itself completes, not merely
-        // requesting cancellation and moving on: this handler observes cancellation synchronously as
-        // part of that Cancel() call, so by the time runTask is done, cancelledSignal is already set.
+        // Teardown awaits every outstanding dispatch actually finishing before RunAsync completes,
+        // not merely requesting cancellation and moving on: this handler observes cancellation
+        // synchronously, so by the time runTask is done, cancelledSignal is already set.
         Assert.True(cancelledSignal.Task.IsCompleted);
     }
 
@@ -1814,9 +1808,8 @@ public class AdapterIpcConnectionTests
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
 
-        // Waits for the session to actually be entered: DispatchTrustAdminRequest always
-        // registers the pending dispatch before RunTrustAdminRequestAsync's own explicit yield
-        // lets it call the session, so this list update proves admission already happened and
+        // Waits for admission: DispatchTrustAdminRequest registers the pending dispatch before the
+        // handler is ever called, so this list update proves admission already happened and
         // disconnect below has an outstanding dispatch to cancel.
         await WaitUntilAsync(() => fakeSession.HandledTrustAdminRequests.Count == 1, runTask);
 

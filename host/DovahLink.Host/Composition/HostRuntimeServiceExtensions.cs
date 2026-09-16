@@ -10,13 +10,10 @@ public static class HostRuntimeServiceExtensions
 {
     /// <summary>
     /// Registers <see cref="IHostShutdownSignal"/>, <see cref="IHostRendezvousPublisher"/>, and
-    /// <see cref="IHostRuntime"/> itself. <see cref="DovahLinkHostRuntime"/>'s own
-    /// <c>publicListener</c> constructor parameter defaults to <see langword="null"/>, so automatic
-    /// constructor resolution supplies <see langword="null"/> exactly when
-    /// <see cref="PublicClientServiceExtensions.AddPublicClientServices"/> left
-    /// <see cref="IPublicWebSocketListener"/> unregistered, rather than throwing. Requires
-    /// <see cref="AdapterIpcServiceExtensions.AddAdapterIpcServices"/> (which registers the
-    /// <see cref="HostInstanceOptions"/> this method's own registrations resolve) and
+    /// <see cref="IHostRuntime"/> itself -- automatic constructor resolution supplies
+    /// <see cref="DovahLinkHostRuntime"/>'s optional <c>publicListener</c> parameter, per its own
+    /// contract. Requires <see cref="AdapterIpcServiceExtensions.AddAdapterIpcServices"/> (which
+    /// registers the <see cref="HostInstanceOptions"/> this method's own registrations resolve) and
     /// <see cref="PublicClientServiceExtensions.AddPublicClientServices"/> to already be registered on
     /// <paramref name="services"/>.
     /// </summary>

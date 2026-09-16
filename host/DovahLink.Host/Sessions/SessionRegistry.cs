@@ -163,10 +163,9 @@ public sealed class SessionRegistry : ISessionRegistry
     /// administrative-mutation publish, so a client's trust record changing and the sessions that
     /// change affects becoming unauthorized are always one indivisible event to every other caller of
     /// either type -- see <see cref="Trust.ITrustStore.RevokeAsync"/>'s own <c>onPublished</c> remarks.
-    /// Also this registry's own internal mutual exclusion, replacing what used to be a private
-    /// <c>object</c> field: every method here still serializes on this exact same gate the way it
-    /// always serialized on that field, so <see cref="TryExecuteIfActive{T}"/>'s own documented
-    /// guarantee against a concurrent invalidation is entirely unchanged.
+    /// Every method here serializes on this same gate, which is what
+    /// <see cref="TryExecuteIfActive{T}"/>'s own documented guarantee against a concurrent
+    /// invalidation relies on.
     /// </summary>
     private readonly ISecurityStateGate securityStateGate;
 

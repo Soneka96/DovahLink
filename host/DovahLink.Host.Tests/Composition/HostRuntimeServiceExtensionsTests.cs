@@ -44,8 +44,8 @@ public class HostRuntimeServiceExtensionsTests
 
     /// <summary>
     /// Verifies the concrete <see cref="DovahLinkHostRuntime"/> type is never itself resolvable --
-    /// only <see cref="IHostRuntime"/> is registered, closing the last concrete-type DI resolution
-    /// D9's no-service-locator refinement flagged.
+    /// only <see cref="IHostRuntime"/> is registered, so nothing can bypass the interface through a
+    /// direct concrete-type resolution.
     /// </summary>
     [Fact]
     public async Task AddHostRuntime_ConcreteDovahLinkHostRuntimeNotDirectlyResolvable()

@@ -84,8 +84,8 @@ public enum SessionTrustTier
 
 /// <summary>
 /// The authoritative reason an administrative trust mutation invalidates one or more sessions.
-/// Carried through to the terminal <c>session_invalidated</c> notification a later concept sends
-/// before forcing the affected connection closed.
+/// Carried through to the terminal <c>session_invalidated</c> notification sent before forcing the
+/// affected connection closed.
 /// </summary>
 public enum SessionInvalidationReason
 {

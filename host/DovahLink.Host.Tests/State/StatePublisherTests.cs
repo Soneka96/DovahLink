@@ -629,10 +629,6 @@ public class StatePublisherTests
         Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
     }
 
-    private sealed class ForeignResynchronizationToken : IAdapterResynchronizationToken
-    {
-    }
-
     /// <summary>Commits and publishes a connected transition in one call, for tests that only care about the combined effect and not the two-step API split.</summary>
     private static void PublishConnected(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long generation)
     {
@@ -651,5 +647,9 @@ public class StatePublisherTests
         {
             tracker.PublishTransition(transition);
         }
+    }
+
+    private sealed class ForeignResynchronizationToken : IAdapterResynchronizationToken
+    {
     }
 }

@@ -10,7 +10,7 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// handshake to the intended Skyrim lifetime -- accepting a connection is not itself proof that the
 /// responder is the legitimate host.
 /// </summary>
-/// The correlation id pairs this request with its <see cref="IpcHelloAckMessage"/> response.
+/// <remarks>The correlation id pairs this request with its <see cref="IpcHelloAckMessage"/> response.</remarks>
 public sealed record IpcHelloMessage : IpcMessage
 {
     /// <summary>The connecting adapter's instance identity.</summary>

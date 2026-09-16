@@ -3,12 +3,10 @@ using DovahLink.Host.Adapter;
 namespace DovahLink.Host.Identity;
 
 /// <summary>
-/// Owns the Host's <see cref="StateAuthorityId"/> rotation state machine, per
-/// <c>plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md</c>
-/// Section C's continuity-epoch invariant: the value changes exactly once at the moment an
-/// Adapter/IPC continuity loss is detected, stays locked under that value through any number of
-/// failed recovery attempts until a fresh authoritative baseline is established, and rotates again
-/// only for a loss detected after that baseline exists.
+/// Owns the Host's <see cref="StateAuthorityId"/> rotation state machine: the value changes exactly
+/// once at the moment an Adapter/IPC continuity loss is detected, stays locked under that value
+/// through any number of failed recovery attempts until a fresh authoritative baseline is
+/// established, and rotates again only for a loss detected after that baseline exists.
 /// </summary>
 public interface IStateAuthorityLifecycle
 {
@@ -21,9 +19,9 @@ public interface IStateAuthorityLifecycle
 
     /// <summary>
     /// Whether a runtime rotation failed after a continuity break was detected. Once
-    /// <see langword="true"/>, this never resets: per Section C's failure-behavior policy this is a
-    /// fatal Host invariant failure, not a degraded-mode condition, and the Host must proceed to its
-    /// normal deterministic shutdown rather than keep serving under any value.
+    /// <see langword="true"/>, this never resets: this is a fatal Host invariant failure, not a
+    /// degraded-mode condition, and the Host must proceed to its normal deterministic shutdown
+    /// rather than keep serving under any value.
     /// </summary>
     bool IsFaulted { get; }
 
@@ -34,9 +32,9 @@ public interface IStateAuthorityLifecycle
     event Action? FatalFailureOccurred;
 
     /// <summary>
-    /// Raised the moment a runtime rotation succeeds, carrying the newly minted value. Per Section
-    /// C's post-rotation baseline rule, a subscriber holding a live baseline established under the
-    /// previous value must invalidate it -- incremental continuity from the previous value is invalid
+    /// Raised the moment a runtime rotation succeeds, carrying the newly minted value. A subscriber
+    /// holding a live baseline established under the previous value must invalidate it -- incremental
+    /// continuity from the previous value is invalid
     /// until a fresh baseline is established under this new one. Never raised for the startup mint,
     /// a harmless resynchronization with no continuity break in progress, or a further loss already
     /// covered by an unresolved break (see <see cref="StateAuthorityLifecycle"/>'s repeated-loss
@@ -71,7 +69,7 @@ public sealed class StateAuthorityLifecycle : IStateAuthorityLifecycle
     /// Mints the Host-startup value eagerly and subscribes to <paramref name="adapterAvailability"/>'s
     /// loss/recovery signals. A failure minting the startup value propagates out of this constructor
     /// uncaught -- Host composition's own fail-closed startup handling is this type's startup-failure
-    /// path, per Section C's "at startup: the Host fails closed" case.
+    /// path.
     /// </summary>
     /// <param name="adapterAvailability">The Adapter availability signal this lifecycle rotates against.</param>
     /// <param name="idFactory">Mints a new underlying identifier value. Defaults to <see cref="Guid.NewGuid"/>.</param>
@@ -119,8 +117,8 @@ public sealed class StateAuthorityLifecycle : IStateAuthorityLifecycle
     public event Action<StateAuthorityId>? Rotated;
 
     /// <summary>
-    /// Rotates on a newly detected continuity loss, per Section C's core invariant. Ignores a
-    /// recovery transition and a further loss already covered by an unresolved break.
+    /// Rotates on a newly detected continuity loss. Ignores a recovery transition and a further loss
+    /// already covered by an unresolved break.
     /// </summary>
     /// <param name="transition">The committed availability transition.</param>
     private void HandleAvailabilityChanged(AdapterAvailabilityTransition transition)

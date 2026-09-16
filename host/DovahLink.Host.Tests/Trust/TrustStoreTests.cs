@@ -291,9 +291,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Verifies that an unpaired known device is never eligible for Block, per the canonical Stage 3.2
-    /// contract in <c>ai/context/protocol/security.md</c>: Block applies only to a Trusted or Revoked
-    /// device.
+    /// Verifies that Block applies only to a Trusted or Revoked device: an unpaired known device is
+    /// never eligible and the call leaves the record and security fence generation unchanged.
     /// </summary>
     [Fact]
     public async Task BlockAsync_UnpairedRecord_ReturnsNotEligibleWithoutMutation()
@@ -754,8 +753,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Verifies the confirmed Unblock fail-open race is closed: while <see cref="TrustStore.UnblockAsync"/>'s
-    /// persistence write is in flight, a Blocked client must remain observably Blocked to every reader
+    /// Verifies that while <see cref="TrustStore.UnblockAsync"/>'s persistence write is in flight, a
+    /// Blocked client must remain observably Blocked to every reader
     /// -- <see cref="TrustStore.TryGet"/>, <see cref="TrustStore.List"/>, and
     /// <see cref="TrustStore.TryGetByShortId"/> alike -- rather than transiently reporting Unpaired
     /// before durability is established. Only once persistence actually succeeds does the client become
@@ -834,8 +833,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Verifies the confirmed Factory Reset/Clear race is closed: while <see cref="TrustStore.ClearAsync"/>'s
-    /// persistence write is in flight, every previously known record -- Blocked included -- must remain
+    /// Verifies that while <see cref="TrustStore.ClearAsync"/>'s persistence write is in flight, every
+    /// previously known record -- Blocked included -- must remain
     /// observably present to every reader, rather than transiently appearing unknown before durability
     /// is established. Only once persistence actually succeeds does the store become empty and the
     /// security fence advance.
@@ -1090,9 +1089,9 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Proves the confirmed Rename-resurrection defect is closed for Revoke: a rename that reaches
-    /// this store's serialized mutation only after a concurrent Revoke has already committed must
-    /// observe the now-Revoked record, not the Trusted snapshot it would have read had it captured
+    /// Verifies that a rename which reaches this store's serialized mutation only after a concurrent
+    /// Revoke has already committed must observe the now-Revoked record, not the Trusted snapshot it
+    /// would have read had it captured
     /// state before acquiring the store's own mutation serialization -- so it reports
     /// <see cref="TrustMutationOutcome.NotEligible"/> and never resurrects Trusted state or the
     /// destroyed credential verifier.
@@ -1127,7 +1126,7 @@ public class TrustStoreTests
         Assert.Equal(original.DisplayName, final.DisplayName);
     }
 
-    /// <summary>Proves the same Rename-resurrection defect is closed for Block, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    /// <summary>Verifies the same rename-vs-concurrent-mutation invariant as <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>, for Block.</summary>
     [Fact]
     public async Task RenameIfTrustedAsync_QueuedBehindConcurrentBlock_DoesNotResurrectTrust()
     {
@@ -1158,7 +1157,7 @@ public class TrustStoreTests
         Assert.Equal(original.DisplayName, final.DisplayName);
     }
 
-    /// <summary>Proves the same Rename-resurrection defect is closed for Reset Trust, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    /// <summary>Verifies the same rename-vs-concurrent-mutation invariant as <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>, for Reset Trust.</summary>
     [Fact]
     public async Task RenameIfTrustedAsync_QueuedBehindConcurrentResetTrust_DoesNotResurrectTrust()
     {
@@ -1190,8 +1189,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Proves the same Rename-resurrection defect is closed for Factory Reset: a rename queued behind
-    /// a concurrent <see cref="TrustStore.ClearAsync"/> finds no record left to rename at all -- the
+    /// Verifies the same rename-vs-concurrent-mutation invariant for Factory Reset: a rename queued
+    /// behind a concurrent <see cref="TrustStore.ClearAsync"/> finds no record left to rename at all -- the
     /// deleted record must never be resurrected by a stale replacement either.
     /// </summary>
     [Fact]
@@ -1723,7 +1722,7 @@ public class TrustStoreTests
     /// <summary>
     /// Verifies the same same-shortId incarnation ABA guard as Revoke's own for
     /// <see cref="TrustStore.RenameIfTrustedAsync"/>. This is the ABA scenario the rename
-    /// authorization-boundary fix defends against: see
+    /// authorization boundary must defend against: see
     /// <see cref="DovahLink.Host.Client.Dispatch.ClientMessageDispatcher"/>'s own rename handling and its
     /// tests for the end-to-end proof through the dispatcher and a real
     /// <see cref="DovahLink.Host.Sessions.ISessionRegistry"/>.

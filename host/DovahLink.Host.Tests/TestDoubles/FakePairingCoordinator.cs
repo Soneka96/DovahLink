@@ -25,6 +25,12 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
     /// <summary>The result <see cref="GetStatusSnapshot"/> returns, configurable per test.</summary>
     public PairingStatusSnapshot StatusSnapshotResult { get; set; } = new(PairingStatusKind.Idle, null);
 
+    /// <summary>Every client id passed to <see cref="NotifyDisconnected"/>, in call order.</summary>
+    public List<DovahLink.Host.Identity.ClientId> DisconnectedClientIds { get; } = [];
+
+    /// <summary>Every client id passed to <see cref="NotifyReconnected"/>, in call order.</summary>
+    public List<DovahLink.Host.Identity.ClientId> ReconnectedClientIds { get; } = [];
+
     /// <inheritdoc/>
     public PairingStartResult BeginPairing(DovahLink.Host.Identity.ClientId clientId) => BeginPairingResult;
 
@@ -55,12 +61,6 @@ public sealed class FakePairingCoordinator : IPairingCoordinator
     /// <inheritdoc/>
     public PairingCancelOutcome Cancel(DovahLink.Host.Identity.ClientId clientId) =>
         CancelAndRecord(clientId);
-
-    /// <summary>Every client id passed to <see cref="NotifyDisconnected"/>, in call order.</summary>
-    public List<DovahLink.Host.Identity.ClientId> DisconnectedClientIds { get; } = [];
-
-    /// <summary>Every client id passed to <see cref="NotifyReconnected"/>, in call order.</summary>
-    public List<DovahLink.Host.Identity.ClientId> ReconnectedClientIds { get; } = [];
 
     /// <inheritdoc/>
     public void NotifyDisconnected(DovahLink.Host.Identity.ClientId clientId) => DisconnectedClientIds.Add(clientId);

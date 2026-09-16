@@ -197,10 +197,9 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Verifies that an unpaired known device is never eligible for Block, per the canonical Stage 3.2
-    /// contract in <c>ai/context/protocol/security.md</c>: the device stays unpaired, and none of
-    /// Block's side effects (pairing cancellation, session invalidation) apply to a mutation that
-    /// never happened.
+    /// Verifies that Block applies only to a Trusted or Revoked device: blocking an unpaired device
+    /// throws, the device stays unpaired, and none of Block's side effects (pairing cancellation,
+    /// session invalidation) apply to a mutation that never happened.
     /// </summary>
     [Fact]
     public async Task BlockAsync_UnpairedDevice_ThrowsAndDoesNotApplySideEffects()
@@ -434,8 +433,8 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Verifies the batch-invalidation guarantee the sequential-loop bug this fixes would have missed:
-    /// with the first affected client's notification deliberately held open, the second affected
+    /// Verifies the batch-invalidation guarantee: with the first affected client's notification
+    /// deliberately held open, the second affected
     /// client is already unauthorized in the registry -- proving both clients were removed from
     /// authorization in one atomic pass before either one's best-effort teardown began, rather than
     /// the second only becoming unauthorized once the loop reached it.
@@ -550,8 +549,8 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Proves the incarnation ABA fix end-to-end through <see cref="TrustAdminService"/>'s own wiring,
-    /// not only the underlying <see cref="ITrustStore"/> guard, deliberately reusing the exact same
+    /// Verifies the incarnation ABA guard end-to-end through <see cref="TrustAdminService"/>'s own
+    /// wiring, not only the underlying <see cref="ITrustStore"/> guard, deliberately reusing the exact same
     /// shortId <c>11111</c> for both incarnations: an administrative operation that resolved shortId
     /// <c>11111</c> to a device must not fall through to mutating a different, later incarnation of the
     /// exact same <see cref="ClientId"/> that appears in the gap between that resolution and the
@@ -754,7 +753,7 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Proves the client-scoped half of the lifecycle-linearization fix directly, from inside the
+    /// Verifies the client-scoped half of the lifecycle-linearization guarantee directly, from inside the
     /// notifier itself rather than only from the ordering label list above: by the instant the first
     /// (and only) target's best-effort notification is attempted, pairing has already been cancelled
     /// for that exact client -- closing the window where a stale pairing challenge could otherwise
@@ -810,7 +809,7 @@ public class TrustAdminServiceTests
     }
 
     /// <summary>
-    /// Proves the batch half of the same lifecycle-linearization fix as
+    /// Verifies the batch half of the same lifecycle-linearization guarantee as
     /// <see cref="RevokeAsync_PairingIsCancelledBeforeNotificationAttempted"/>: by the instant any
     /// affected session's best-effort notification is attempted during a Reset Trust, pairing has
     /// already been cancelled for every affected client, not merely the one about to be notified.
@@ -1066,7 +1065,7 @@ public class TrustAdminServiceTests
     /// <summary>
     /// Proves race F (developer-token semantics survive the new atomic path): a developer-token
     /// session for the same self-declared <see cref="ClientId"/> a client-scoped Revoke targets is
-    /// never deauthorized by it, exactly as before this fix -- <c>onPublished</c> only ever calls
+    /// never deauthorized by it -- <c>onPublished</c> only ever calls
     /// <see cref="IClientSessionInvalidator.InvalidateClient"/>, which already excludes
     /// <see cref="SessionAuthenticationSource.OneTimeLocalToken"/> sessions.
     /// </summary>

@@ -152,9 +152,8 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         finally
         {
             // Completed before HandleDisconnected so the outbound channel is already closed to new
-            // writes by the time a subscriber can observe Unavailable(N): Channel<T> guarantees
-            // TryWrite fails once TryComplete has run, so no send authorized concurrently with
-            // teardown can land in the channel after this generation's unavailability is published.
+            // writes once a subscriber could observe Unavailable(N): Channel<T> guarantees TryWrite
+            // fails once TryComplete has run, so nothing sent during teardown can land in the channel.
             outbound.Writer.TryComplete();
             session.HandleDisconnected();
             FailAllPendingPairingDisplayAcks();
@@ -305,10 +304,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
         catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
         {
-            // The adapter may still be holding this request queued for its Skyrim game thread (for
-            // example a stalled load), so withdrawing only the host's own local state would let a
-            // display the host has already reported unavailable appear later anyway. Best-effort:
-            // a failed remote cancellation still leaves this wait's own false result unchanged.
+            // The adapter may still be holding this request for its own game thread, so withdrawing
+            // only local state could let it display later anyway. Best-effort: a failed remote
+            // cancellation still leaves this wait's own false result unchanged.
             TryCancelRemotePairingDisplay(correlationId);
             return false;
         }
@@ -433,10 +431,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
             if (decodeResult.Message is IpcCancelMessage trustAdminCancel)
             {
-                // Best-effort only: falls through to the generic handling below unchanged, since a
-                // cancellation targeting a correlation id this connection never admitted as a
-                // trust-admin request (for example an unrelated pending intent) is that generic
-                // handling's own concern, not this one's.
+                // Falls through to the generic handling below unchanged: a cancellation for a
+                // correlation id this connection never admitted as a trust-admin request (for example
+                // an unrelated pending intent) is that generic handling's own concern, not this one's.
                 TryCancelPendingTrustAdminRequest(trustAdminCancel.CorrelationId);
             }
 
@@ -453,8 +450,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// Admits one received trust-admin request against the bounded, per-connection set of requests
     /// still dispatching and, once admitted, dispatches it without awaiting: the read loop continues
     /// serving other inbound frames -- including a pairing-display acknowledgement -- while this
-    /// request's persistence write is still outstanding, replacing the earlier design where this
-    /// connection's own read loop blocked on that write.
+    /// request's persistence write is still outstanding.
     /// </summary>
     /// <param name="request">The received request.</param>
     /// <returns>
@@ -485,10 +481,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                     request.CorrelationId, "Too many trust-administration requests in progress. Try again shortly."));
             }
 
-            // Started while still holding this gate, not after releasing it: RunTrustAdminRequestAsync's
-            // own explicit yield (see its documentation) guarantees none of its body can run before this
-            // call returns the Task below, so the entry below is always in place before that body's
-            // finally block could ever look for it, with no window for the two to race.
+            // Started while still holding this gate: RunTrustAdminRequestAsync's own explicit yield
+            // (see its docs) guarantees none of its body runs before this call returns, so the entry
+            // below is always in place before that body's finally block could look for it -- no window to race.
             Task dispatchTask = RunTrustAdminRequestAsync(request, requestCancellation);
             pendingTrustAdminRequests[request.CorrelationId] = new TrustAdminDispatch(requestCancellation, dispatchTask);
         }
@@ -524,9 +519,8 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             try
             {
                 // An async method otherwise runs synchronously up to its first genuinely incomplete
-                // await, so without this explicit yield, handler code invoked directly below could
-                // still execute inline on the private IPC read loop that called
-                // DispatchTrustAdminRequest without awaiting it.
+                // await, so without this explicit yield, handler code below could still execute
+                // inline on the private IPC read loop that called DispatchTrustAdminRequest without awaiting it.
                 await Task.Yield();
                 requestCancellation.Token.ThrowIfCancellationRequested();
                 resultText = await session.HandleTrustAdminRequestAsync(request, requestCancellation.Token).ConfigureAwait(false);
@@ -537,11 +531,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             }
             catch (Exception)
             {
-                // The handler is expected to have already sanitized any infrastructure or persistence
-                // failure into a formatted result; reaching this catch means it did not. Reported to
-                // the adapter as a controlled failure rather than left to time out with no host-side
-                // signal, and contained here rather than left to fault this task, which this
-                // connection's teardown depends on never happening (see this method's own summary).
+                // The handler is expected to sanitize infrastructure/persistence failures into a
+                // formatted result; reaching this catch means it did not. Reported to the adapter as
+                // a controlled failure rather than left to time out with no host-side signal.
                 outbound.Writer.TryWrite(codec.Encode(new IpcTrustAdminResultMessage(
                     request.CorrelationId, "Internal error processing the trust-administration request.")));
                 return;

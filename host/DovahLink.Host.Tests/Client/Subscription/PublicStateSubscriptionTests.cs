@@ -349,8 +349,8 @@ public class PublicStateSubscriptionTests
 
     /// <summary>
     /// Verifies that the wrapped connection declining to admit a baseline onto the Control/Recovery
-    /// lane never throws or otherwise disrupts the subscribe call that triggered it, and -- the
-    /// regression this covers -- that the area is never treated as live: a later Event for it must
+    /// lane never throws or otherwise disrupts the subscribe call that triggered it, and that the area
+    /// is never treated as live: a later Event for it must
     /// not be forwarded, since the client never actually received the baseline it depends on.
     /// </summary>
     [Fact]
@@ -370,7 +370,7 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>
-    /// Verifies the same regression as <see cref="HandleSubscribe_ConnectionDeclinesControlAdmission_AreaStaysNotLive_LaterEventNotForwarded"/>,
+    /// Verifies the same invariant as <see cref="HandleSubscribe_ConnectionDeclinesControlAdmission_AreaStaysNotLive_LaterEventNotForwarded"/>,
     /// but through <see cref="PublicStateSubscription.HandleSnapshotRequest"/> instead of the initial subscribe.
     /// </summary>
     [Fact]
@@ -407,12 +407,10 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>
-    /// Verifies the fix for the earlier window of the same event-loss race: an Event raised while the
-    /// baseline's own snapshot fetch is still in flight -- before the barrier revision is even known --
-    /// is held rather than discarded, since <see cref="AreaDeliveryPhase.Recovering"/> with an unknown
-    /// barrier still means "hold," not "not live yet." This is the window that remained open after the
-    /// first barrier implementation moved <c>Phase = Recovering</c> to after the fetch instead of
-    /// before it.
+    /// Verifies the earlier window of the same event-loss-avoidance invariant: an Event raised while
+    /// the baseline's own snapshot fetch is still in flight -- before the barrier revision is even
+    /// known -- is held rather than discarded, since <see cref="AreaDeliveryPhase.Recovering"/> with an
+    /// unknown barrier still means "hold," not "not live yet."
     /// </summary>
     [Fact]
     public void OnEventOccurred_DuringSnapshotFetch_EventIsHeldNotDiscarded()
@@ -470,7 +468,7 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>
-    /// Verifies the fix for the second race: a brand-new Event arriving while previously-held Events
+    /// Verifies the invariant for the second race: a brand-new Event arriving while previously-held Events
     /// are being drained (after baseline admission, before the area commits Live) joins the same drain
     /// instead of racing ahead of it through an independent, unordered send -- the final wire order
     /// matches arrival order exactly.
@@ -568,7 +566,7 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>
-    /// Verifies the fix for the original event-loss race: an Event above the baseline's own revision,
+    /// Verifies the invariant for the original event-loss race: an Event above the baseline's own revision,
     /// raised exactly while that baseline is being admitted onto the Control/Recovery lane, is held
     /// rather than discarded, and is released once the baseline actually lands -- instead of being
     /// silently lost because the area was not yet live at the moment the Event arrived.
@@ -928,10 +926,9 @@ public class PublicStateSubscriptionTests
     /// <summary>
     /// Verifies that a state-authority rotation invalidates a live area's baseline the same way a
     /// play-context transition does: an Event that would otherwise have forwarded stops forwarding
-    /// once <see cref="IStateAuthorityLifecycle.Rotated"/> fires, until the area is re-armed. This is
-    /// `01.3a`'s post-rotation baseline rule: incremental continuity from the previous
-    /// <see cref="StateAuthorityId"/> is invalid until a fresh baseline is established under the new
-    /// one.
+    /// once <see cref="IStateAuthorityLifecycle.Rotated"/> fires, until the area is re-armed.
+    /// Incremental continuity from the previous <see cref="StateAuthorityId"/> is invalid until a
+    /// fresh baseline is established under the new one.
     /// </summary>
     [Fact]
     public void OnEventOccurred_StateAuthorityRotated_StopsForwardingUntilReArmed()

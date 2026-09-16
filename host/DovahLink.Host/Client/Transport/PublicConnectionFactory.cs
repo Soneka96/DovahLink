@@ -28,22 +28,49 @@ public interface IPublicConnectionFactory
     IPublicWebSocketConnection Create(Stream stream);
 }
 
-/// <summary>See <see cref="IPublicConnectionFactory"/>.</summary>
+/// <inheritdoc cref="IPublicConnectionFactory"/>
 public sealed class PublicConnectionFactory : IPublicConnectionFactory
 {
+    /// <summary>Encodes and decodes the public wire envelope.</summary>
     private readonly IPublicEnvelopeCodec codec;
+
+    /// <summary>Tracks active sessions.</summary>
     private readonly ISessionRegistry sessionRegistry;
+
+    /// <summary>Owns the durable trust domain.</summary>
     private readonly ITrustStore trustStore;
+
+    /// <summary>Verifies a presented one-time local connection token.</summary>
     private readonly ILocalConnectionTokenAuthenticator tokenAuthenticator;
+
+    /// <summary>Throttles repeated authentication failures.</summary>
     private readonly ITrustedCredentialFailureThrottle credentialThrottle;
+
+    /// <summary>Tracks the current play context.</summary>
     private readonly IPlayContextTracker playContextTracker;
+
+    /// <summary>The time source every connection reports through.</summary>
     private readonly IClock clock;
+
+    /// <summary>Dispatches admitted client messages.</summary>
     private readonly IClientMessageDispatcher dispatcher;
+
+    /// <summary>Owns pairing state.</summary>
     private readonly IPairingCoordinator pairingCoordinator;
+
+    /// <summary>Resolves a session's exact live connection.</summary>
     private readonly IPublicSessionConnectionRegistry connectionRegistry;
+
+    /// <summary>Reports which state areas are currently registered.</summary>
     private readonly IRegisteredStateAreaPolicy registeredStateAreaPolicy;
+
+    /// <summary>The domain feed each connection's subscription reads from.</summary>
     private readonly IStatePublicationFeed statePublicationFeed;
+
+    /// <summary>Owns the state-authority continuity-epoch rotation.</summary>
     private readonly IStateAuthorityLifecycle stateAuthorityLifecycle;
+
+    /// <summary>Reports abnormal per-connection transport endings.</summary>
     private readonly IPublicWebSocketTransportDiagnostics diagnostics;
 
     /// <summary>Creates a factory over the Host-lifetime singletons every accepted connection shares.</summary>

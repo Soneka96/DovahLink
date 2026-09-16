@@ -497,7 +497,11 @@ public class PublicWebSocketListenerTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Verifies the same synchronous-completion race fix on the IPv6 loopback accept loop.</summary>
+    /// <summary>
+    /// Verifies the same synchronous-completion guarantee as
+    /// <see cref="RunAsync_ConnectionCompletesSynchronously_NeverExposesStaleConnectionAndAdmitsNext"/>
+    /// on the IPv6 loopback accept loop.
+    /// </summary>
     [Fact]
     public async Task RunAsync_ConnectionCompletesSynchronouslyOnIPv6_NeverExposesStaleConnectionAndAdmitsNext()
     {

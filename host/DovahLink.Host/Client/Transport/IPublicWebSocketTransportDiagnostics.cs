@@ -2,8 +2,7 @@ namespace DovahLink.Host.Client.Transport;
 
 /// <summary>
 /// Host-local observability for one public WebSocket connection's abnormal or security-relevant
-/// termination. A later concept supplies the real implementation (a logging/telemetry sink); this
-/// concept owns only the reporting contract and the point at which each report is emitted.
+/// termination.
 /// </summary>
 public interface IPublicWebSocketTransportDiagnostics
 {

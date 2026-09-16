@@ -11,21 +11,18 @@ public static class CoreServiceExtensions
 {
     /// <summary>
     /// Registers the core host-lifetime singletons and wires <see cref="IStateAuthorityLifecycle.FatalFailureOccurred"/>
-    /// to cancel <paramref name="shutdown"/> -- the runtime-mint-failure case, per
-    /// <c>plans/documentation-and-composition-normalization/01.3a-public-vocabulary-and-identity-semantics.md</c>
-    /// Section C's fail-closed policy; the startup-mint-failure case is covered separately by
+    /// to cancel <paramref name="shutdown"/> -- the fail-closed response to a runtime state-authority
+    /// mint failure; a startup-time mint failure is covered separately by
     /// <see cref="StateAuthorityLifecycle"/>'s own constructor propagating uncaught.
     /// </summary>
     /// <param name="services">The service collection to register into.</param>
     /// <param name="clock">
-    /// The clock this Host lifetime uses, already constructed so the fail-closed trust-store
-    /// bootstrap (<see cref="TrustServiceExtensions.CreateTrustStoreAsync"/>) can run before the
-    /// container is built. Registered as this exact instance, so every downstream consumer resolves
-    /// the same one through <see cref="IServiceProvider"/> rather than a second, independent copy.
+    /// The clock this Host lifetime uses; registered as this exact instance, so every downstream
+    /// consumer resolves the same one rather than a second, independent copy.
     /// </param>
     /// <param name="securityGate">
-    /// The security gate this Host lifetime uses, for the same pre-container bootstrap reason as
-    /// <paramref name="clock"/>. Registered as this exact instance.
+    /// The security gate this Host lifetime uses; registered as this exact instance, for the same
+    /// reason as <paramref name="clock"/>.
     /// </param>
     /// <param name="shutdown">The shared shutdown source a runtime state-authority mint failure cancels.</param>
     /// <param name="hostSettingsProvider">

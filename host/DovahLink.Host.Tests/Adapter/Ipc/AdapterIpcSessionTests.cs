@@ -156,19 +156,6 @@ public class AdapterIpcSessionTests
         Assert.Equal(IpcHelloRejectReason.InvalidProof, result.AckMessage.RejectReason);
     }
 
-    /// <summary>Independently recomputes the expected HostProof, mirroring the production byte layout without calling its private helper.</summary>
-    private static byte[] IndependentlyComputedHostProof(IpcHelloMessage hello, byte[] peerProofToken)
-    {
-        var message = new byte[Constants.IpcHostProofMessageBytes];
-        hello.Challenge.CopyTo(message, 0);
-        BinaryPrimitives.WriteUInt64LittleEndian(message.AsSpan(Constants.IpcChallengeBytes, 8), hello.CorrelationId);
-        hello.AdapterInstanceId.Value.TryWriteBytes(message.AsSpan(Constants.IpcChallengeBytes + 8, 16), bigEndian: true, out _);
-        hello.OwnerLifetimeId.CopyTo(message, Constants.IpcChallengeBytes + 8 + 16);
-
-        using var hmac = new HMACSHA256(peerProofToken);
-        return hmac.ComputeHash(message);
-    }
-
     /// <summary>Verifies that a Hello with a mismatched proof is rejected without connecting the tracker.</summary>
     [Fact]
     public void Handshake_WrongProof_RejectsWithInvalidProof()
@@ -867,5 +854,18 @@ public class AdapterIpcSessionTests
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
         return (session, tracker, lifecycle);
+    }
+
+    /// <summary>Independently recomputes the expected HostProof, mirroring the production byte layout without calling its private helper.</summary>
+    private static byte[] IndependentlyComputedHostProof(IpcHelloMessage hello, byte[] peerProofToken)
+    {
+        var message = new byte[Constants.IpcHostProofMessageBytes];
+        hello.Challenge.CopyTo(message, 0);
+        BinaryPrimitives.WriteUInt64LittleEndian(message.AsSpan(Constants.IpcChallengeBytes, 8), hello.CorrelationId);
+        hello.AdapterInstanceId.Value.TryWriteBytes(message.AsSpan(Constants.IpcChallengeBytes + 8, 16), bigEndian: true, out _);
+        hello.OwnerLifetimeId.CopyTo(message, Constants.IpcChallengeBytes + 8 + 16);
+
+        using var hmac = new HMACSHA256(peerProofToken);
+        return hmac.ComputeHash(message);
     }
 }

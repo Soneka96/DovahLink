@@ -133,9 +133,8 @@ public sealed class LocalConnectionTokenAuthenticator : ILocalConnectionTokenAut
             currentToken = token;
             expiresAtUtc = clock.UtcNow + Constants.LocalConnectionTokenLifetime;
             // A new issuance immediately supersedes any reservation still outstanding on the prior
-            // one: that reservation's generation no longer matches currentGeneration, so a later
-            // CommitConsumption/RollbackReservation call presenting it becomes a safe no-op instead of
-            // acting on this new issuance's state.
+            // one: its generation no longer matches currentGeneration, so a later
+            // CommitConsumption/RollbackReservation call presenting it becomes a safe no-op.
             reservedGeneration = null;
         }
 

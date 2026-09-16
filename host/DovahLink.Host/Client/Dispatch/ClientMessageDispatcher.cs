@@ -316,9 +316,8 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 finally
                 {
                     // Every path above except a successful CommitInitialDisplay leaves the reservation
-                    // uncommitted -- a rejected display, an exception from the adapter call, or this
-                    // await being cancelled (socket death, connection teardown) -- and must release it
-                    // rather than let it occupy the global pairing slot until disconnect grace/expiry.
+                    // uncommitted and must release it, rather than let it occupy the global pairing
+                    // slot until disconnect grace/expiry.
                     if (!displayCommitted)
                     {
                         pairingCoordinator.RollbackInitialDisplay(clientId, challenge.Id);
@@ -342,18 +341,15 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                     case PairingStatusKind.OtherDeviceActive:
                         // A concurrent operation raced BeginPairing's own ownership check between it
                         // and this status read: a different client won ownership before this snapshot
-                        // was taken. Report the same other_device_pairing status the initial
-                        // BeginPairing outcome reports for it, never folded into unavailable.
+                        // was taken. Report the same other_device_pairing status, never folded into unavailable.
                         SendPairingStatusOtherDevice(connection, sessionId, envelope.MessageId);
                         break;
 
                     case PairingStatusKind.Idle:
                     case PairingStatusKind.UncommittedDisplayReservation:
-                        // Idle: the same ownership race cleared this client's operation entirely
-                        // before the snapshot was taken. UncommittedDisplayReservation: never actually
-                        // shown to this client yet, so it is not yet a displayable challenge. Neither
-                        // is publicly resumable/displayed, so both report the same "nothing to show
-                        // yet" status Concept 03 defines for that.
+                        // Idle: the same ownership race cleared this client's operation before the
+                        // snapshot was taken. UncommittedDisplayReservation: never shown to this
+                        // client, so not a displayable challenge either -- both report the same status.
                         SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
                         break;
 
@@ -367,10 +363,9 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                 return new ClientDispatchResult();
 
             default:
-                // GeneratorFailed (secure code generation failed) and Blocked (unreachable in practice:
-                // an administratively blocked clientId can never hold the session this dispatch runs on,
-                // since Block immediately invalidates it) both fail safely without disclosing which case
-                // occurred.
+                // GeneratorFailed (secure code generation failed) and Blocked (unreachable in
+                // practice: Block immediately invalidates any session for that clientId) both fail
+                // safely without disclosing which case occurred.
                 SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to begin pairing.", retryable: true);
                 return new ClientDispatchResult();
         }
@@ -456,10 +451,9 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
 
         if (!IsValidPairingCode(payload.Code))
         {
-            // A code that is not exactly six ASCII decimal digits can never match a real challenge; per
-            // Concept 02's precedent for trusted_device_credential ("wrong shape is malformed protocol,
-            // not failed authentication"), this is rejected before it ever reaches ConfirmCode and
-            // consumes pacing/wrong-attempt state as an ordinary wrong code would.
+            // A code that is not exactly six ASCII decimal digits can never match a real challenge:
+            // wrong shape is malformed protocol, not failed authentication, so this is rejected before
+            // it ever reaches ConfirmCode and consumes pacing/wrong-attempt state as a wrong code would.
             SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_confirm message is malformed.");
             return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
         }
@@ -478,8 +472,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         {
             // The wire schema places no length/control-character constraint on pairing_confirm's
             // displayName, so this coordinator-level rejection is a client input validation failure
-            // discovered one layer past envelope decoding, not a distinct pairing_outcome the schema
-            // defines a value for.
+            // discovered one layer past envelope decoding, not a distinct pairing_outcome value.
             SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The display name is not valid.");
             return Task.FromResult(new ClientDispatchResult(IsProtocolViolation: true));
         }
@@ -498,10 +491,9 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             case PairingConfirmOutcome.Invalid:
                 if (confirm.AutoRenotifyCode is { } autoRenotifyCode)
                 {
-                    // Uses the exact code ConfirmCode evaluated this wrong attempt against, never a
-                    // later, separate status read: the challenge could be replaced or cancelled between
-                    // this call returning and any later read, which would redisplay a different
-                    // challenge's code under this attempt's own "wrong code" presentation.
+                    // Uses the exact code ConfirmCode evaluated this attempt against, never a later,
+                    // separate status read: the challenge could be replaced or cancelled between this
+                    // call returning and any later read, redisplaying a different challenge's code.
                     FireAndForget(() => adapterNotifier.NotifyCodeIncorrectAsync(autoRenotifyCode, cancellationToken));
                 }
 
@@ -599,9 +591,8 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         if (!CredentialHasher.IsValidHexCredential(payload.Credential, Constants.PairingCredentialLength))
         {
             // A credential that is not exactly the approved hex length/shape can never match a real
-            // pending credential; per Concept 02's precedent for trusted_device_credential, this is
-            // rejected before it ever reaches CommitPendingAsync as malformed protocol input, not as an
-            // ordinary pending_not_found secret mismatch.
+            // pending credential, so this is rejected before it ever reaches CommitPendingAsync as
+            // malformed protocol input, not as an ordinary pending_not_found secret mismatch.
             SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.MalformedMessage, "The pairing_ack message is malformed.");
             return new ClientDispatchResult(IsProtocolViolation: true);
         }
@@ -709,10 +700,8 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             catch
             {
                 // The adapter faulted unexpectedly, or threw its own OperationCanceledException
-                // independent of the caller's own token -- either way this is not a genuine request
-                // cancellation, so it must not propagate a raw exception to the caller.
-                // CommitRenotify has not run, so the active challenge and its cooldown remain
-                // untouched; the `finally` below releases the reservation for an immediate retry.
+                // independent of the caller's own token, so it must not propagate a raw exception.
+                // CommitRenotify never ran; the `finally` below releases the reservation for retry.
                 SendError(connection, sessionId, envelope.MessageId, PublicProtocolErrorCode.InternalError, "Unable to redisplay the pairing code.", retryable: true);
                 return new ClientDispatchResult();
             }

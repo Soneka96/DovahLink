@@ -159,6 +159,12 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
+    public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
+
+    /// <inheritdoc/>
+    public event Action<AdapterInstanceId, long>? Resynchronized;
+
+    /// <inheritdoc/>
     /// <remarks>
     /// The prior instance identity is not cleared -- it remains the last known adapter identity
     /// until a real reconnection replaces it here, matching Current separately reporting
@@ -258,12 +264,6 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
             return new AdapterAvailabilitySnapshot(current, currentInstanceId, needsResynchronization, currentConnectionGeneration);
         }
     }
-
-    /// <inheritdoc/>
-    public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
-
-    /// <inheritdoc/>
-    public event Action<AdapterInstanceId, long>? Resynchronized;
 
     /// <inheritdoc/>
     public void PublishTransition(AdapterAvailabilityTransition transition)

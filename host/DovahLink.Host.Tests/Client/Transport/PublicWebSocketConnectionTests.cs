@@ -148,12 +148,11 @@ public class PublicWebSocketConnectionTests
         await WaitUntilAsync(() => handler.ReceivedMessages.Count == 1, runTask);
 
         // HandleMessageAsync already returned its Task above; that Task now hangs forever, ignoring
-        // cancellation entirely. Without the fix, RunAsync would never observe this because it would
-        // be stuck awaiting that Task rather than the cancellation that is about to fire. The short
-        // graceful-close timeout above only bounds the unrelated close-handshake fallback this
-        // cancellation also triggers (matching
+        // cancellation entirely. RunAsync must still observe cancellation directly rather than getting
+        // stuck awaiting that hung Task. The short graceful-close timeout above only bounds the
+        // unrelated close-handshake fallback this cancellation also triggers (matching
         // RunAsync_CancellationWithUnresponsivePeer_FallsBackToAbortWithoutHanging), so this assertion
-        // is not accidentally measuring that instead of the fix under test.
+        // is not accidentally measuring that instead of the cancellation-responsiveness guarantee under test.
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         listener.Stop();
         cancellation.Cancel();
@@ -666,7 +665,7 @@ public class PublicWebSocketConnectionTests
 
     /// <summary>
     /// Verifies that later fragments of one still-incomplete message do not extend the assembly
-    /// deadline anchored by its first fragment -- the core regression this deadline exists to prove:
+    /// deadline anchored by its first fragment -- the exact guarantee this deadline exists to enforce:
     /// a deadline re-derived per fragment would let a peer trickle a message open indefinitely.
     /// </summary>
     [Fact]
