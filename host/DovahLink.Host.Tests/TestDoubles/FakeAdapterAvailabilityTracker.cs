@@ -6,6 +6,12 @@ namespace DovahLink.Host.Tests.TestDoubles;
 /// <summary>A controllable stand-in for <see cref="IAdapterAvailabilityTracker"/> whose fields a test can set directly.</summary>
 public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
 {
+    /// <summary>The token <see cref="TryClaimResynchronizationToken"/> hands out while a resynchronization is outstanding and unclaimed.</summary>
+    private IAdapterResynchronizationToken? currentResynchronizationToken = new FakeAdapterResynchronizationToken();
+
+    /// <summary>Whether <see cref="currentResynchronizationToken"/> has already been claimed by <see cref="TryClaimResynchronizationToken"/>.</summary>
+    private bool resynchronizationTokenClaimed;
+
     /// <inheritdoc/>
     public AdapterAvailability Current { get; set; } = AdapterAvailability.Unavailable;
 
@@ -17,10 +23,6 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
 
     /// <inheritdoc/>
     public long CurrentConnectionGeneration { get; set; }
-
-    private IAdapterResynchronizationToken? currentResynchronizationToken = new FakeAdapterResynchronizationToken();
-
-    private bool resynchronizationTokenClaimed;
 
     /// <inheritdoc/>
     public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
