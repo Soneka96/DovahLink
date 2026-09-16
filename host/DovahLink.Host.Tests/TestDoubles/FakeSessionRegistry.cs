@@ -6,8 +6,10 @@ namespace DovahLink.Host.Tests.TestDoubles;
 /// <summary>An in-memory stand-in for <see cref="ISessionRegistry"/> that records which clients were mass-invalidated.</summary>
 public sealed class FakeSessionRegistry : ISessionRegistry
 {
+    /// <summary>Guards every mutable field below against concurrent access.</summary>
     private readonly object gate = new();
 
+    /// <summary>Backing field for <see cref="MaxActiveSessions"/>.</summary>
     private readonly int maxActiveSessions;
 
     /// <summary>The client each currently active session belongs to.</summary>
@@ -15,6 +17,12 @@ public sealed class FakeSessionRegistry : ISessionRegistry
 
     /// <summary>Connection owners retained only so tests can assert ownership after invalidation.</summary>
     private readonly Dictionary<SessionId, ConnectionId> sessionConnections = new();
+
+    /// <summary>Every client id and reason passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
+    private readonly List<(ClientId ClientId, SessionInvalidationReason Reason)> invalidateAllForClientCalls = [];
+
+    /// <summary>Backing field for <see cref="InvalidateAllCallCount"/>.</summary>
+    private int invalidateAllCallCount;
 
     /// <summary>Creates a synchronized fake with a configurable admission bound.</summary>
     public FakeSessionRegistry(int maxActiveSessions = int.MaxValue)
@@ -26,9 +34,6 @@ public sealed class FakeSessionRegistry : ISessionRegistry
 
         this.maxActiveSessions = maxActiveSessions;
     }
-
-    /// <summary>Every client id and reason passed to <see cref="InvalidateAllForClient"/>, in call order.</summary>
-    private readonly List<(ClientId ClientId, SessionInvalidationReason Reason)> invalidateAllForClientCalls = [];
 
     /// <summary>
     /// When set, invoked synchronously by <see cref="TryCreate"/> after the new session record is
@@ -56,6 +61,33 @@ public sealed class FakeSessionRegistry : ISessionRegistry
             }
         }
     }
+
+    /// <summary>The number of times <see cref="InvalidateAll"/> has been called.</summary>
+    public int InvalidateAllCallCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return invalidateAllCallCount;
+            }
+        }
+    }
+
+    /// <summary>The current number of active sessions, mirroring <see cref="SessionRegistry.ActiveCount"/>.</summary>
+    public int ActiveCount
+    {
+        get
+        {
+            lock (gate)
+            {
+                return activeSessions.Count;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public int MaxActiveSessions => maxActiveSessions;
 
     /// <inheritdoc/>
     public bool TryCreate(
@@ -93,27 +125,6 @@ public sealed class FakeSessionRegistry : ISessionRegistry
                 activeSessions.Remove(sessionId);
             }
         }
-    }
-
-    /// <summary>
-    /// Creates a fake session for tests that do not inspect the generated connection identity or care
-    /// about authentication source/trust tier, defaulting to a trusted-device, fully-trusted session.
-    /// </summary>
-    public SessionId Create(ClientId clientId) => Create(clientId, ConnectionId.NewId());
-
-    /// <summary>
-    /// Creates a fake session with an explicit connection identity, defaulting to a trusted-device,
-    /// fully-trusted session for tests that do not care about authentication source/trust tier.
-    /// </summary>
-    public SessionId Create(ClientId clientId, ConnectionId connectionId)
-    {
-        if (!TryCreate(
-            clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId))
-        {
-            throw new InvalidOperationException("The active session capacity has been reached.");
-        }
-
-        return sessionId;
     }
 
     /// <inheritdoc/>
@@ -173,29 +184,6 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         }
     }
 
-    /// <summary>Returns the owner identity for a session created by this test double.</summary>
-    public ConnectionId ConnectionIdFor(SessionId sessionId)
-    {
-        lock (gate)
-        {
-            return sessionConnections[sessionId];
-        }
-    }
-
-    /// <summary>The number of times <see cref="InvalidateAll"/> has been called.</summary>
-    public int InvalidateAllCallCount
-    {
-        get
-        {
-            lock (gate)
-            {
-                return invalidateAllCallCount;
-            }
-        }
-    }
-
-    private int invalidateAllCallCount;
-
     /// <inheritdoc/>
     public IReadOnlyList<SessionInvalidationTarget> InvalidateAll(SessionInvalidationReason reason)
     {
@@ -212,36 +200,6 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         OnMutationApplied?.Invoke("InvalidateAll");
         return targets;
     }
-
-    /// <summary>Creates a fake session with an explicit connection identity, authentication source, and trust tier.</summary>
-    public SessionId Create(
-        ClientId clientId,
-        ConnectionId connectionId,
-        SessionAuthenticationSource authenticationSource,
-        SessionTrustTier trustTier)
-    {
-        if (!TryCreate(clientId, connectionId, authenticationSource, trustTier, out SessionId sessionId))
-        {
-            throw new InvalidOperationException("The active session capacity has been reached.");
-        }
-
-        return sessionId;
-    }
-
-    /// <summary>The current number of active sessions, mirroring <see cref="SessionRegistry.ActiveCount"/>.</summary>
-    public int ActiveCount
-    {
-        get
-        {
-            lock (gate)
-            {
-                return activeSessions.Count;
-            }
-        }
-    }
-
-    /// <inheritdoc/>
-    public int MaxActiveSessions => maxActiveSessions;
 
     /// <inheritdoc/>
     public bool TryFinalizeAdmission(SessionId sessionId, ConnectionId connectionId)
@@ -267,15 +225,6 @@ public sealed class FakeSessionRegistry : ISessionRegistry
         }
     }
 
-    /// <summary>Returns the current trust tier for a session created by this test double.</summary>
-    public SessionTrustTier TrustTierFor(SessionId sessionId)
-    {
-        lock (gate)
-        {
-            return activeSessions[sessionId].TrustTier;
-        }
-    }
-
     /// <inheritdoc/>
     public bool TryExecuteIfActive<T>(SessionId sessionId, ConnectionId connectionId, Func<T> action, out T result)
     {
@@ -289,6 +238,60 @@ public sealed class FakeSessionRegistry : ISessionRegistry
 
             result = action();
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Creates a fake session for tests that do not inspect the generated connection identity or care
+    /// about authentication source/trust tier, defaulting to a trusted-device, fully-trusted session.
+    /// </summary>
+    public SessionId Create(ClientId clientId) => Create(clientId, ConnectionId.NewId());
+
+    /// <summary>
+    /// Creates a fake session with an explicit connection identity, defaulting to a trusted-device,
+    /// fully-trusted session for tests that do not care about authentication source/trust tier.
+    /// </summary>
+    public SessionId Create(ClientId clientId, ConnectionId connectionId)
+    {
+        if (!TryCreate(
+            clientId, connectionId, SessionAuthenticationSource.TrustedDeviceCredential, SessionTrustTier.Full, out SessionId sessionId))
+        {
+            throw new InvalidOperationException("The active session capacity has been reached.");
+        }
+
+        return sessionId;
+    }
+
+    /// <summary>Creates a fake session with an explicit connection identity, authentication source, and trust tier.</summary>
+    public SessionId Create(
+        ClientId clientId,
+        ConnectionId connectionId,
+        SessionAuthenticationSource authenticationSource,
+        SessionTrustTier trustTier)
+    {
+        if (!TryCreate(clientId, connectionId, authenticationSource, trustTier, out SessionId sessionId))
+        {
+            throw new InvalidOperationException("The active session capacity has been reached.");
+        }
+
+        return sessionId;
+    }
+
+    /// <summary>Returns the owner identity for a session created by this test double.</summary>
+    public ConnectionId ConnectionIdFor(SessionId sessionId)
+    {
+        lock (gate)
+        {
+            return sessionConnections[sessionId];
+        }
+    }
+
+    /// <summary>Returns the current trust tier for a session created by this test double.</summary>
+    public SessionTrustTier TrustTierFor(SessionId sessionId)
+    {
+        lock (gate)
+        {
+            return activeSessions[sessionId].TrustTier;
         }
     }
 }
