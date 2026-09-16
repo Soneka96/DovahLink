@@ -49,6 +49,27 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
     /// </summary>
     public bool ReceivedTokenWasCancelled { get; private set; }
 
+    /// <summary>The connection capability passed to the most recent <see cref="HandleMessageAsync"/> call, or <see langword="null"/> before any message has been received.</summary>
+    public IPublicConnectionContext? LastConnection { get; private set; }
+
+    /// <summary>When set, every <see cref="HandleMessageAsync"/> call sends this payload through the connection context it received.</summary>
+    public byte[]? AutoRespondPayload { get; set; }
+
+    /// <summary>When <see langword="true"/>, <see cref="HandleMessageAsync"/> still returns its Task promptly but that Task then waits forever on a token it never observes, simulating a handler whose returned Task never completes and ignores cancellation.</summary>
+    public bool HangOnHandleMessageIgnoringCancellation { get; set; }
+
+    /// <summary>The number of times <see cref="HandleConnectionEstablished"/> has been called.</summary>
+    public int ConnectionEstablishedCalls { get; private set; }
+
+    /// <summary>When set, <see cref="HandleConnectionEstablished"/> throws this exception after recording the call.</summary>
+    public Exception? EstablishedFailure { get; set; }
+
+    /// <summary>The connection capability passed to <see cref="HandleConnectionEstablished"/>, or <see langword="null"/> before it has been called.</summary>
+    public IPublicConnectionContext? EstablishedConnection { get; private set; }
+
+    /// <summary>When set, invoked synchronously from <see cref="HandleConnectionEstablished"/> with the received connection, so a test can arm background work (for example a fire-and-forget delayed <see cref="IPublicConnectionContext.RequestClose"/>) without blocking the call.</summary>
+    public Action<IPublicConnectionContext>? OnConnectionEstablished { get; set; }
+
     /// <inheritdoc/>
     public async Task HandleMessageAsync(IPublicConnectionContext connection, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
@@ -110,27 +131,6 @@ public sealed class FakePublicWebSocketMessageHandler : IPublicWebSocketMessageH
             throw DisconnectedFailure;
         }
     }
-
-    /// <summary>The connection capability passed to the most recent <see cref="HandleMessageAsync"/> call, or <see langword="null"/> before any message has been received.</summary>
-    public IPublicConnectionContext? LastConnection { get; private set; }
-
-    /// <summary>When set, every <see cref="HandleMessageAsync"/> call sends this payload through the connection context it received.</summary>
-    public byte[]? AutoRespondPayload { get; set; }
-
-    /// <summary>When <see langword="true"/>, <see cref="HandleMessageAsync"/> still returns its Task promptly but that Task then waits forever on a token it never observes, simulating a handler whose returned Task never completes and ignores cancellation.</summary>
-    public bool HangOnHandleMessageIgnoringCancellation { get; set; }
-
-    /// <summary>The number of times <see cref="HandleConnectionEstablished"/> has been called.</summary>
-    public int ConnectionEstablishedCalls { get; private set; }
-
-    /// <summary>When set, <see cref="HandleConnectionEstablished"/> throws this exception after recording the call.</summary>
-    public Exception? EstablishedFailure { get; set; }
-
-    /// <summary>The connection capability passed to <see cref="HandleConnectionEstablished"/>, or <see langword="null"/> before it has been called.</summary>
-    public IPublicConnectionContext? EstablishedConnection { get; private set; }
-
-    /// <summary>When set, invoked synchronously from <see cref="HandleConnectionEstablished"/> with the received connection, so a test can arm background work (for example a fire-and-forget delayed <see cref="IPublicConnectionContext.RequestClose"/>) without blocking the call.</summary>
-    public Action<IPublicConnectionContext>? OnConnectionEstablished { get; set; }
 
     /// <inheritdoc/>
     public void HandleConnectionEstablished(IPublicConnectionContext connection)
