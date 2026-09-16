@@ -28,7 +28,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("gameInstanceId", architecture)
 
         for required_phrase in (
-            "A bridge restart creates a new identity",
+            "A native-plugin restart creates a new identity",
             "A client reconnect creates a new `sessionId` without silently changing its `clientId`",
             "loading another save creates a new `playContextId`",
             "It is valid only for that socket and is invalidated when the connection ends",
@@ -1324,12 +1324,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn(
             "a trusted client still authenticates into a fresh `sessionId` on every reconnect, "
-            "and a bridge restart still creates a new `bridgeInstanceId`",
+            "and a native-plugin restart still created a new restart-scoped identifier",
             normalized_identity_model,
         )
         self.assertIn(
-            "belongs to the Windows user profile running the client and the Bridge, and survives "
-            "Bridge, Skyrim, and Windows restarts",
+            "belonged to the Windows user profile running the client and the retired "
+            "native plugin, and survived the plugin, Skyrim, and Windows restarts",
             normalized_identity_model,
         )
         self.assertIn(

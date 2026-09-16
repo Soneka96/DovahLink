@@ -49,10 +49,10 @@ identities.
 
 Host and Adapter configuration surfaces -- the trust-store file, the runtime-compatibility INI, and
 every other on-disk or environment-variable name -- are Host/Adapter-owned names. A client that was
-only ever paired against the retired native Bridge is not recognized by the Host; a one-time
+only ever paired against the retired native plugin is not recognized by the Host; a one-time
 re-pair against the Host is the accepted outcome, consistent with `ai/context/common.md`'s
 pre-release compatibility policy -- no supported public DovahLink release has ever shipped, so
-preserving the retired Bridge's own configuration and trust-store layout was never a compatibility
+preserving the retired plugin's own configuration and trust-store layout was never a compatibility
 obligation.
 
 ## Target shape
@@ -77,7 +77,7 @@ obligation.
 
 Reads the supported game state and hands bounded, typed captures to the host over private IPC. It should not own presentation, client sessions, pairing policy, or device-specific behavior.
 
-SkyrimWebSocket and `bridge/` are historical references, not architectures for DovahLink to reproduce from scratch. The adapter owns only the Skyrim boundary; the host owns application behavior and public transport. Reuse does not make reference internals or wire formats canonical: the DovahLink protocol and private IPC contracts remain separate and authoritative at their respective boundaries.
+SkyrimWebSocket and this repository's own retired native plugin are historical references, not architectures for DovahLink to reproduce from scratch. The adapter owns only the Skyrim boundary; the host owns application behavior and public transport. Reuse does not make reference internals or wire formats canonical: the DovahLink protocol and private IPC contracts remain separate and authoritative at their respective boundaries.
 
 ### Protocol
 
@@ -112,11 +112,11 @@ One live Skyrim process owns one DovahLink adapter instance connected to one hos
 serves multiple concurrent clients, up to a configurable device cap (`ai/context/protocol/security.md`'s
 "maximum connected clients"), and one machine may host multiple adapter/host pairs when multiple supported
 Skyrim processes exist. Transport location is not identity: an address, port, hostname, or transport
-path locates an endpoint but must not become the durable identity of a bridge, play context, client,
+path locates an endpoint but must not become the durable identity of an adapter, play context, client,
 or connection.
 
-For historical compatibility, the old bridge behavior is recorded here.
-A bridge restart creates a new identity in the old bridge implementation; in
+For historical compatibility, the old native-plugin behavior is recorded here.
+A native-plugin restart creates a new identity in the old implementation; in
 the replacement this means a Skyrim process restart creates a new
 `adapterInstanceId`.
 The target architecture fixes five private
@@ -128,8 +128,8 @@ lifetime.
 - `adapterInstanceId` identifies one running adapter/plugin lifetime. Under the process-lifetime
   adapter policy, an adapter restart means a new Skyrim process and creates a new identity; live
   plugin unload/reload is not a supported lifecycle boundary. The host's OS process lifetime is
-  separate and has no public identity. The historical `bridgeInstanceId` name is retained only in
-  frozen-reference compatibility records.
+  separate and has no public identity. The retired predecessor identifier's name is retained only
+  in CHANGELOG.md/PLAN.md's frozen-reference compatibility records.
 - `playContextId` identifies the currently loaded authoritative play context. It changes whenever
   state from the previous loaded game must no longer be accepted as current.
 - `clientId` identifies one paired client or device independently of any connection it opens.
@@ -172,14 +172,15 @@ presents to reconnect without repeating pairing — belongs to the Windows user 
 client and the host, and survives host, adapter, Skyrim, and Windows restarts. It does not change
 `adapterInstanceId`'s per-restart identity, `playContextId`'s per-load identity, or `sessionId`'s
 per-socket identity: a trusted client still authenticates into a fresh `sessionId` on every reconnect,
-and a bridge restart still creates a new `bridgeInstanceId` in the frozen Bridge reference; in the
-replacement a Skyrim process restart creates a new `adapterInstanceId`. `ai/context/protocol/security.md` and
+and a native-plugin restart still created a new restart-scoped identifier in the frozen historical
+reference; in the replacement a Skyrim process restart creates a new `adapterInstanceId`.
+`ai/context/protocol/security.md` and
 `roadmap/03-local-device-pairing-and-reconnection.md`'s Phase 3 owns the pairing, storage, and revocation design; this section only fixes where
 persistent trust sits relative to the four identifiers above.
 
 The frozen reference's historical trust wording remains explicit: persistent
-trust belongs to the Windows user profile running the client and the Bridge,
-and survives Bridge, Skyrim, and Windows restarts. The target owner is the
+trust belonged to the Windows user profile running the client and the retired
+native plugin, and survived the plugin, Skyrim, and Windows restarts. The target owner is the
 host process and its per-user persistence adapter.
 
 ### Session registry and delivery ownership
@@ -221,7 +222,7 @@ previous context's state and establishes fresh authoritative state before public
 
 `protocol/schema/README.md` carries this ownership as the current canonical wire contract; see
 `roadmap/02-bridge-identity-and-authoritative-state.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
-the bridge and its clients. This ownership must not be implemented by silently reinterpreting
+the host and its clients. This ownership must not be implemented by silently reinterpreting
 messages from the previously published experimental release, which is archived rather than a
 supported compatibility target. The current contract has no independent runtime
 protocol-generation number; compatibility is identified by the Host's own release version,
