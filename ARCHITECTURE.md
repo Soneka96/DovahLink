@@ -112,8 +112,8 @@ One live Skyrim process owns one DovahLink adapter instance connected to one hos
 serves multiple concurrent clients, up to a configurable device cap (`ai/context/protocol/security.md`'s
 "maximum connected clients"), and one machine may host multiple adapter/host pairs when multiple supported
 Skyrim processes exist. Transport location is not identity: an address, port, hostname, or transport
-path locates an endpoint but must not become the durable identity of an adapter, play context, client,
-or connection.
+path locates an endpoint but must not become the durable identity of a DovahLink instance, play
+context, client, or connection.
 
 For historical compatibility, the old native-plugin behavior is recorded here.
 A native-plugin restart creates a new identity in the old implementation; in
