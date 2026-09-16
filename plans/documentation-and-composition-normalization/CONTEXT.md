@@ -9,20 +9,39 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `04-host-documentation-sweep.md`
-- Status: Complete on branch `feature/04-host-documentation-sweep`, open as PR #69 and
-  under review. Prerequisite (Concept 02 merged to `main`) confirmed via `git log`
-  (merge commit `76519e8a`, PR #67), not inferred from a prior label.
-- Implementation: 46 commits, all typed `docs(host)`/`test(host)`, sweeping
+- File: `05-adapter-documentation-sweep.md`
+- Status: In progress on branch `feature/05-adapter-documentation-sweep`. Prerequisite
+  (Concept 03 merged to `main`) confirmed via `git log` (merge commit `e76b7640`, PR
+  #68), not inferred from a prior label.
+- Started via `/step-build`, an 11-step plan (module-by-module doc/member-ordering
+  sweep across `adapter/`, `R5.6b`'s `cpp-style.md` trim, then a final acceptance
+  gate) -- see that skill's own plan output in this session for the full per-step
+  breakdown; not duplicated here per this package's own information-ownership rule
+  (R1.5).
+- Preflight (this session): Debug configure+build+ctest confirmed reproducible in this
+  environment (MSVC dev environment must be sourced manually every command --
+  `vcvars64.bat` + `VCPKG_ROOT=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\vcpkg`
+  -- since it is not on this shell's default `PATH`). Pre-sweep baseline: `ctest
+  --preset windows-x64-debug` 488/490 passed, 2 skipped (the Release-only
+  real-package-layout tests, expected). An early probe accidentally corrupted the
+  pre-existing `adapter/build/windows-x64-debug/` tree (SIGPIPE mid-reconfigure from a
+  truncating pipe); it is gitignored/untracked, so it was deleted and reconfigured
+  clean with no source file touched -- confirmed via `git status` before proceeding.
+
+## Completed concepts
+
+- `04-host-documentation-sweep.md` -- merged to `main` via PR #69 (merge commit
+  `f6e63530`), confirmed via `git log` (not inferred from the branch's own prior
+  "open as PR #69, under review" label, which this file previously carried and is now
+  stale). Implementation: 46 commits, all typed `docs(host)`/`test(host)`, sweeping
   `host/DovahLink.Host/**` and `host/DovahLink.Host.Tests/**` for R4.1-R4.11 --
   dropping historical/plan/requirement-ID/regression-genealogy narration from
   production and test documentation, trimming oversized XML doc blocks, adding docs
   that were missing, and reordering members/fakes to the semantic ordering Concept
   01/02 established. See `04-host-documentation-sweep.md`'s own R4.1-R4.11
   traceability table for the full per-requirement evidence -- not duplicated here per
-  this package's own information-ownership rule (R1.5).
-- Close-out verification (this session, at head `e26cd723`): `dotnet test
-  host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release`
+  this package's own information-ownership rule (R1.5). Close-out verification: `dotnet
+  test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release`
   1791/1791 passed (a first run showed 2 failures, both confirmed parallel-execution
   flakes -- one already-documented pre-existing DPAPI trust-store file-lock flake, one
   isolated-pass/clean-rerun-confirmed flake -- neither a regression); `dotnet build
@@ -31,13 +50,10 @@ Status: active (package frozen 2026-09-13)
   branch's diff against `main`, stripped and sorted) found the added-line multiset
   byte-for-byte identical to the removed-line multiset in both `host/DovahLink.Host/`
   (107/107) and `host/DovahLink.Host.Tests/` (117/117), confirming every code change on
-  this branch is a pure relocation with no line's content edited.
-- Next action: address PR #69 review findings and merge once CI/review is clean. Once
-  merged, Concept 05 (Adapter documentation sweep) is already independently eligible to
-  start (Concept 03 merged, PR #68, merge commit `e76b7640`) regardless of Concept 04's
-  own merge state, per `PLAN.md` section 6.
-
-## Completed concepts
+  this branch is a pure relocation with no line's content edited. Unblocks nothing
+  further on its own dependency chain (04 has no dependents); Concept 05 (Adapter
+  documentation sweep) was already independently eligible via Concept 03, per
+  `PLAN.md` section 6, and is now the active concept above.
 
 - `01-conventions-and-changelog.md` -- merged to `main` via PR #60 (merge commit
   `8847fcdc`, 2026-09-13).
@@ -865,13 +881,13 @@ but is not the one this session is picking up.
 
 Concept 02 merged to `main` via PR #67 (merge commit `76519e8a`); Concept 03 merged to
 `main` via PR #68 (merge commit `e76b7640`) -- both confirmed via `git log`, not
-inferred from either branch's own prior label. Handoff to Concept 04 (Host
-documentation sweep) is now active on branch `feature/04-host-documentation-sweep`, per
-the same one-branch/PR-per-concept rule -- `04`'s own prerequisite (02 merged) is
-confirmed satisfied by the merge commit above. This session's close-out (see the Active
-concept entry above) found Concept 04's implementation already complete: it re-ran both
-Host CI gate commands clean at head `e26cd723`, added an R4.1-R4.11 traceability table
-to `04-host-documentation-sweep.md`, and flipped its `Status` to `Complete`. Concept 04
-is now open as PR #69 and under review. Concept 05 (Adapter documentation sweep) is
-independently eligible to start as well, per `PLAN.md` section 6, but is not the one
-this session is picking up.
+inferred from either branch's own prior label. Concept 04 (Host documentation sweep)
+merged to `main` via PR #69 (merge commit `f6e63530`), confirmed via `git log` -- see
+the Completed-concepts entry above for the full evidence.
+
+Handoff to Concept 05 (Adapter documentation sweep) is now active on branch
+`feature/05-adapter-documentation-sweep`, per the same one-branch/PR-per-concept rule
+-- `05`'s own prerequisite (03 merged) is confirmed satisfied by the merge commit
+above, not inferred from either branch's own prior label. This session started
+Concept 05 via `/step-build`; see the Active-concept entry above for the plan shape
+and the preflight verification-capability evidence.
