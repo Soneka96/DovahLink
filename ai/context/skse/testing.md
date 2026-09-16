@@ -1,7 +1,7 @@
 # SKSE testing
 
 These testing conventions govern native SKSE/C++ work in this repository, including `adapter/`.
-The retired native Bridge (`bridge/`, deleted in 3A.2) is used below as the worked example that
+The retired native plugin (deleted in 3A.2) is used below as the worked example that
 established them; apply the same rules to `adapter/`'s own module boundaries.
 
 ## Test layers
@@ -44,7 +44,7 @@ synchronization, or mutable state is itself being controlled or asserted. Every 
 captured test state remains the test author's responsibility to synchronize. Project-owned
 interface inheritance is prohibited and is not a framework capability to validate.
 
-The retired Bridge's GoogleMock `1.18.0` configuration passed the supported MSVC/C++23 build, `const` methods,
+The retired native plugin's GoogleMock `1.18.0` configuration passed the supported MSVC/C++23 build, `const` methods,
 `std::optional` and `std::string_view` arguments, exact call counts, sequence verification,
 unexpected-call diagnostics, Catch2 failure reporting, and calls from the C1 session thread. This
 proves the framework integration, not that GoogleMock replaces a stateful fake where the behavior
@@ -70,8 +70,8 @@ queues, barriers, runtime adapters, and other tests where the fake's behavior is
   aggregate (it has invariants, computed state, or a non-trivial constructor), extract a
   `Build<Type>` free function with default parameter values instead of duplicating the value inline.
   Place it in that module's own test-support header (for example a new
-  `<module>/<module>_test_support.hpp`), mirroring `bridge/protocol/fixture_test_support.hpp`'s role
-  as the protocol module's test-only helper header.
+  `<module>/<module>_test_support.hpp`), following the same pattern the retired native plugin's own
+  protocol module used for its test-only helper header.
 - Do not introduce a mutable global or static test value; each call constructs a fresh instance.
 
 ## Required behavior

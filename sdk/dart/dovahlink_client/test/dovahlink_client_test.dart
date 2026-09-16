@@ -251,7 +251,7 @@ Future<void> _connectAndHello(
 ) async {
   await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
   transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-  transport.queueResponse(_rawFixture('capabilities/capabilities-bridge.json'));
+  transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
   await client.hello();
 }
 
@@ -418,7 +418,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
 
         final HelloResult result = await client.hello();
@@ -575,7 +575,7 @@ void main() {
       () async {
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
 
         final HelloResult result = await client.authenticate(
@@ -607,7 +607,7 @@ void main() {
           }),
         );
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
         await client.authenticate(uri);
@@ -629,7 +629,7 @@ void main() {
           }),
         );
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.authenticate(uri);
 
@@ -880,7 +880,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -907,7 +907,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -933,7 +933,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await client.hello();
 
@@ -959,7 +959,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
 
         await client.hello();
@@ -979,7 +979,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         final HelloResult helloResult = await client.hello();
         expect(helloResult.trustState, DovahLinkTrustState.unpaired);
@@ -1000,7 +1000,7 @@ void main() {
       // capabilities is queued before hello-ack here, unlike every other test above, to prove
       // the router does not treat "whatever arrives first" as the pending operation's reply.
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
 
@@ -1079,7 +1079,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1109,7 +1109,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await client.hello();
 
@@ -1140,7 +1140,7 @@ void main() {
             _rawFixture('connection/hello-ack-paired.json'),
           );
           transport.queueResponse(
-            _rawFixture('capabilities/capabilities-bridge.json'),
+            _rawFixture('capabilities/capabilities-host.json'),
           );
           await client.hello();
 
@@ -1170,7 +1170,7 @@ void main() {
           _rawFixture('connection/hello-ack-paired.json'),
         );
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1206,7 +1206,7 @@ void main() {
           _rawFixture('connection/hello-ack-paired.json'),
         );
         trackingTransport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await trackingClient.hello();
 
@@ -1243,7 +1243,7 @@ void main() {
           _rawFixture('connection/hello-ack-paired.json'),
         );
         failingTransport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await failingClient.hello();
 
@@ -1269,7 +1269,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1311,7 +1311,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await client.hello();
 
@@ -1374,7 +1374,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       final HelloResult result = await client.hello();
 
@@ -1412,7 +1412,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await client.hello();
 
@@ -1422,7 +1422,7 @@ void main() {
       // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       transport.queueResponse(
         _rawFixture('pairing/pairing-status-available.json'),
@@ -1442,7 +1442,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await client.hello();
 
@@ -1468,7 +1468,7 @@ void main() {
         }),
       );
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       transport.failMessagesWith(const SocketException('dropped'));
 
@@ -1485,7 +1485,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1503,7 +1503,7 @@ void main() {
         // admitted.
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         transport.failMessagesWith(const SocketException('dropped'));
         // Waits for the full automatic-reconnect cycle above -- connect, hello, admitSession, and
@@ -1519,7 +1519,7 @@ void main() {
         // operation.
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         transport.failMessagesWith(const SocketException('dropped again'));
 
@@ -1542,7 +1542,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1558,7 +1558,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1601,7 +1601,7 @@ void main() {
         _rawFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await reconnectClient.hello();
 
@@ -1612,7 +1612,7 @@ void main() {
         _rawFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       reconnectTransport.failMessagesWith(const SocketException('dropped'));
 
@@ -1675,7 +1675,7 @@ void main() {
         _rawFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       reconnectTransport.failMessagesWith(const SocketException('dropped'));
 
@@ -1721,7 +1721,7 @@ void main() {
           _rawFixture('connection/hello-ack-paired.json'),
         );
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1774,7 +1774,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1804,7 +1804,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1893,7 +1893,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await client.hello();
 
@@ -1906,7 +1906,7 @@ void main() {
       // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       transport.queueResponse(
         _rawFixture('pairing/pairing-outcome-trusted.json'),
@@ -1925,7 +1925,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -1957,7 +1957,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
         expect(transport.sent, hasLength(3));
@@ -1970,7 +1970,7 @@ void main() {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
+          _rawFixture('capabilities/capabilities-host.json'),
         );
         await client.hello();
 
@@ -2012,7 +2012,7 @@ void main() {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(
-        _rawFixture('capabilities/capabilities-bridge.json'),
+        _rawFixture('capabilities/capabilities-host.json'),
       );
       await client.hello();
 

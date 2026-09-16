@@ -294,7 +294,7 @@ class ValidateAllTests(unittest.TestCase):
             "pairing/pairing-outcome-renotify-cooldown.json",
             "pairing/pairing-outcome-cancelled.json",
             "pairing/pairing-outcome-hard-limit-reached.json",
-            "capabilities/capabilities-bridge.json",
+            "capabilities/capabilities-host.json",
             "capabilities/capabilities-client.json",
             "subscriptions/subscribe.json",
             "subscriptions/subscription-ack.json",

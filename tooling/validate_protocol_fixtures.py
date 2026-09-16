@@ -6,7 +6,7 @@ This checks envelope shape only (required fields, types, and the sessionId
 null-ability rule for hello and pre-session error messages). It does not
 check field-specific message or payload semantics beyond basic type shape;
 those are validated by the registered message codecs consuming these
-fixtures on the bridge and client sides.
+fixtures on the host and client sides.
 """
 
 from __future__ import annotations

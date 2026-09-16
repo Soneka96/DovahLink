@@ -17,7 +17,7 @@ and an external client, with read-only character information.
 
 ## Current development baseline
 
-The repository's historical `0.3.2` release, built on the now-retired native Bridge implementation,
+The repository's historical `0.3.2` release, built on the now-retired native plugin implementation,
 is not a supported public release or a compatibility target; the previous Nexus listing was removed
 because the companion application was not publicly downloadable. Production development now
 continues exclusively on the native Skyrim Adapter and the out-of-process C# Host described in
@@ -74,4 +74,4 @@ system boundaries.
 
 ## Name
 
-"Dovah" means dragon in the dragon language of Skyrim. "Link" describes the bridge between the game and the player's companion devices.
+"Dovah" means dragon in the dragon language of Skyrim. "Link" describes the connection between the game and the player's companion devices.

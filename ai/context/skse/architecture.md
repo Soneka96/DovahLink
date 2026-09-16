@@ -1,21 +1,21 @@
-# SKSE bridge architecture (retired implementation)
+# SKSE native-plugin architecture (retired implementation)
 
-This document records the concrete C++ design of the retired native Bridge (`bridge/`, deleted in
+This document records the concrete C++ design of the retired native plugin (deleted in
 3A.2 once Host + Adapter proved out as its production replacement). It is preserved as reference for
 the design decisions and hard-won lessons below (dependency-edge discipline, capture-dispatch
 ordering, cadence-driven sampling, bounded-queue failure semantics) -- it does not describe current
-`adapter/` or `host/` code, and `bridge/`'s own file paths referenced throughout no longer exist.
+`adapter/` or `host/` code, and the retired plugin's own file paths referenced throughout no longer exist.
 For the current native boundary's ownership contract, see `ai/context/adapter/architecture.md`; for
-the current host's, see `ai/context/host/architecture.md`. The bridge was a boundary adapter, not the place where the Flutter client or protocol became embedded.
+the current host's, see `ai/context/host/architecture.md`. The retired plugin was a boundary adapter, not the place where the Flutter client or protocol became embedded.
 
 ## Technology boundary
 
 - The native SKSE plugin is C++ code built for the supported Skyrim runtime through the approved SKSE/CommonLib toolchain.
-- Keep the runtime choice, CommonLib version, compiler, and build system documented when the first bridge feature is started.
-- Do not introduce Papyrus into the core bridge unless a capability genuinely requires Skyrim
+- Keep the runtime choice, CommonLib version, compiler, and build system documented when the first native-plugin feature is started.
+- Do not introduce Papyrus into the core native plugin unless a capability genuinely requires Skyrim
   scripting. The trust-administration console adapter
   (`ai/context/protocol/security.md`'s "Trust administration surface") is the approved exception: a
-  small Papyrus glue script living outside `bridge/`, calling native functions the plugin registers.
+  small Papyrus glue script living outside the native plugin's own directory, calling native functions the plugin registers.
   The Papyrus surface carries no application/business logic of its own -- only forwarding and output
   formatting.
 - Do not copy game-runtime types into DovahLink protocol or client code.
@@ -79,13 +79,13 @@ state machine imitate an orchestration service or move its invariants into a por
 
 ### Session and publication ownership
 
-The Bridge uses a bounded collection of authenticated session records, with capacity controlled by
-`bridge/security/constants.hpp`'s `kMaxConnectedClients`. The approved 4.2 value remains `1`; this
+The native plugin uses a bounded collection of authenticated session records, with capacity controlled by
+its own `security/constants.hpp`'s `kMaxConnectedClients`. The approved 4.2 value remains `1`; this
 preserves the single-client product boundary while keeping session delivery state collection-shaped
 for the later multi-client phase. Each session record owns its socket writer, capabilities,
 subscriptions, outbound queue, recovery barriers, and diagnostics.
 
-Capture policy, cadence, authoritative state, and revisions are shared at Bridge/play-context scope.
+Capture policy, cadence, authoritative state, and revisions are shared at plugin/play-context scope.
 When no session is connected, capture and authoritative-state updates continue; reliable Events are
 not retained for a later session, and the next session starts from fresh current Snapshots. Raising
 the capacity later must add fan-out and independent client recovery, not create a second authority or
@@ -93,7 +93,7 @@ duplicate equivalent Skyrim reads.
 
 ### Production capture and lifecycle composition
 
-The production plugin composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) constructs and
+The production plugin composition root constructs and
 injects one instance each of `CadenceScheduler`, `CapturePolicyRegistry`,
 `ActivePlayContextProvider`, `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`,
 `StatePublisher`, `CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`,
@@ -111,8 +111,8 @@ bounded" -- is real and tested before a later phase fills it with production cha
 native-event gate below.
 
 `SessionPublicationFactory` still depends on the concrete `ActiveSessionPublicationRouter`, not an
-interface, for a reason recorded in that class's own doc comment
-(`bridge/application/active_session_publication_router.hpp`): `Attach`/`Detach` are ordinary methods
+interface, for a reason recorded in that class's own doc comment:
+`Attach`/`Detach` are ordinary methods
 with no template constraint, but `ai/context/skse/cpp-style.md`'s "a C++ behavior-bearing
 implementation implements exactly one DovahLink-owned interface" rule blocks adding them to
 `IOutboundPublicationSink`, which `ActiveSessionPublicationRouter` already shares with
@@ -229,7 +229,7 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 ## Dependency rules
 
 - Plugin entry points may depend on the application coordinator and runtime integration, but they must not contain application policy.
-- Game-state adapters are the only bridge components that may depend directly on CommonLib or Skyrim runtime types.
+- Game-state adapters are the only native-plugin components that may depend directly on CommonLib or Skyrim runtime types.
 - Application code depends on DovahLink-owned interfaces and values, never on CommonLib types.
 - Protocol mapping depends on DovahLink-owned application values, never on game objects.
 - Transport depends on protocol messages and transport abstractions, never on game adapters or Skyrim APIs.
@@ -243,8 +243,8 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
   larger concrete class. Use the existing `I`-prefix convention for true injectable C++ ports.
 - Put each DovahLink port beside its one concrete implementation in the implementation's owning
   production header by default. The narrowly defined CommonLib target dependency-wall exception
-  documented in `ai/context/skse/cpp-style.md` applies to `IBridgeCallbackRegistry` and
-  `BridgeCallbackRegistry`. Do not place unrelated public types in that header; structs, result
+  documented in `ai/context/skse/cpp-style.md` applies to `IAdapterPairingNotificationSink` and
+  `CommonLibAdapterPairingNotificationSink`. Do not place unrelated public types in that header; structs, result
   types, and values own their own files. Every C++ port uses the `I<ClassName>` name matching its
   concrete implementation. A class may inherit from one required CommonLib/Skyrim framework base
   in a runtime adapter; that framework base is not a DovahLink port.
@@ -318,7 +318,7 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 
 ## Architectural non-goals
 
-- No remote gameplay actions in the first bridge.
+- No remote gameplay actions in the first native-plugin release.
 - No hosted backend or account system in the native plugin.
 - No generic event framework before one real state flow requires it.
 - No shared C++/Dart implementation layer; share the protocol contract only.

@@ -18,16 +18,13 @@ JsonMap _readPayload(String relativePath) {
 /// Runs [CapabilitiesPayload.fromJson] and [CapabilitiesPayload.toJson] behavior tests.
 void main() {
   group('Method fromJson behaves correctly', () {
-    test(
-      'Method fromJson matches the canonical capabilities-bridge fixture',
-      () {
-        final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(
-          _readPayload('capabilities/capabilities-bridge.json'),
-        );
+    test('Method fromJson matches the canonical capabilities-host fixture', () {
+      final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(
+        _readPayload('capabilities/capabilities-host.json'),
+      );
 
-        expect(payload.capabilities, isEmpty);
-      },
-    );
+      expect(payload.capabilities, isEmpty);
+    });
 
     test(
       'Method fromJson matches the canonical capabilities-client fixture',
@@ -80,14 +77,14 @@ void main() {
   });
 
   group('Method toJson behaves correctly', () {
-    test('Method toJson matches the canonical capabilities-bridge fixture', () {
+    test('Method toJson matches the canonical capabilities-host fixture', () {
       const CapabilitiesPayload payload = CapabilitiesPayload(
         capabilities: <Capability>[],
       );
 
       expect(
         payload.toJson(),
-        _readPayload('capabilities/capabilities-bridge.json'),
+        _readPayload('capabilities/capabilities-host.json'),
       );
     });
 

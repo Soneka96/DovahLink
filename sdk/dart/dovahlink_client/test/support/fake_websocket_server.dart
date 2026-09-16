@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 /// A real local WebSocket peer for [WebSocketTransport] tests that need an actual socket without
-/// depending on the legacy Bridge harness -- generalizes the inline `HttpServer` +
+/// depending on the legacy native-plugin harness -- generalizes the inline `HttpServer` +
 /// `WebSocketTransformer` pattern this suite already used for the binary-frame test.
 class FakeWebSocketServer {
   FakeWebSocketServer._(this._server, this._connections);

@@ -26,4 +26,4 @@ map navigation, and commands.
 ### Acceptance criteria
 
 Approved values remain accurate through play, reconnect, and play-context replacement; unavailable
-state degrades clearly; and cross-side tests prove bridge/client agreement.
+state degrades clearly; and cross-side tests prove Host/client agreement.

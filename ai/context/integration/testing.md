@@ -40,7 +40,7 @@ Cover at least:
 - reconnect and snapshot recovery
 - reconnect after an unhealthy Event session receiving only the current authoritative snapshot, with
   no replay of the previous session's queued events
-- an incompatible Bridge/client version during the compatibility bootstrap
+- an incompatible Host/client version during the compatibility bootstrap
 - unsupported capability
 - malformed message
 - oversized frame

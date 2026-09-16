@@ -4,8 +4,8 @@ Real, empirically-confirmed behavior of SKSE and Skyrim that is not (or not clea
 publicly, discovered while building DovahLink. This is not a style or architecture guide; it is a
 record of surprises so the next person debugging a similar symptom does not have to rediscover them
 from scratch. These are facts about the SKSE/Skyrim runtime itself, not about any one DovahLink
-component, so they apply equally to `adapter/`; a "Where" pointing at the retired native Bridge
-(`bridge/`, deleted in 3A.2) names where the quirk was originally found, not a claim that the path
+component, so they apply equally to `adapter/`; a "Where" pointing at the retired native plugin
+(deleted in 3A.2) names where the quirk was originally found, not a claim that the path
 still exists.
 
 Record a new entry here whenever a manual verification pass (see `testing.md`'s "Manual
@@ -23,7 +23,7 @@ call, or that there even were two, caused it.
 **Fix:** route every message type through the one listener already registered, dispatching on
 `message->type` inside its own callback, rather than registering a second listener.
 
-**Where (originally):** `bridge/plugin/dovahlink_bridge_plugin.cpp`, the single
+**Where (originally):** the retired native plugin's own plugin-entry source, the single
 `messaging->RegisterListener(...)` call. Found: 2026-08-14. The same single-listener discipline is
 now enforced in `adapter/plugin/dovahlink_adapter_plugin.cpp`'s own `RegisterListener` call.
 
@@ -41,7 +41,7 @@ through the `SKSE::` free-function API layer.
 
 **Fix:** call `SKSE::Init(skse)` early in `SKSEPluginLoad`, before any interface-registration call.
 
-**Where (originally):** `bridge/plugin/dovahlink_bridge_plugin.cpp`, `SKSEPluginLoad`. Found:
+**Where (originally):** the retired native plugin's own plugin-entry source, `SKSEPluginLoad`. Found:
 2026-08-14. `adapter/plugin/dovahlink_adapter_plugin.cpp`'s `SKSEPluginLoad` calls `SKSE::Init`
 first for the same reason.
 
@@ -56,7 +56,7 @@ crashes: for `success == true`, that's a read of address `0x1`, immediately and 
 
 **Fix:** compare the pointer's value directly (`data != nullptr`) rather than dereferencing it.
 
-**Where (originally):** `bridge/application/game_lifecycle_tracker.hpp`/`.cpp`,
+**Where (originally):** the retired native plugin's own lifecycle tracker,
 `DecodePostLoadGameSuccess`. Found: 2026-08-14, via a real crash dump showing address `0x1` being
 read. This decode has not yet been rebuilt under `adapter/`; the underlying SKSE behavior applies
 wherever that decode is added.

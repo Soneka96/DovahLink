@@ -5,5 +5,5 @@ library;
 // ---- Hosts ----
 
 /// The sole entry in the static Host list until Host discovery exists (matches the retired
-/// Bridge component's original default loopback port).
+/// native plugin's original default loopback port).
 final Uri defaultHostUri = Uri.parse('ws://127.0.0.1:58231/');

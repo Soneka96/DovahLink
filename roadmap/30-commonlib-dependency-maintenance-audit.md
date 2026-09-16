@@ -1,6 +1,6 @@
 # Stage 30 — CommonLib Dependency Maintenance Audit
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./29-runtime-profiling-and-advanced-bridge-hardening.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./29-runtime-profiling-and-advanced-hardening.md)
 
 ## 30. CommonLib Dependency Maintenance Audit
 
@@ -15,7 +15,7 @@ before the next public release.
 
 - Keep the Phase 1 dependency pinned for the current supported runtime.
 - Audit CommonLibSSE-NG and the selected registry for relevant fixes and releases.
-- Update pins only after bridge, toolchain, protocol, integration, and in-game checks.
+- Update pins only after adapter, toolchain, protocol, integration, and in-game checks.
 - Record reviewed versions, decision, results, and limitations before the next public release.
 - Define a reviewed fallback if the package route cannot provide a validated build.
 
