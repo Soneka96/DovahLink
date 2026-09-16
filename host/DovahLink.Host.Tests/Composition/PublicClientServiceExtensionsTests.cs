@@ -105,24 +105,6 @@ public class PublicClientServiceExtensionsTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Whether a connected socket has since been closed by the remote peer.</summary>
-    /// <param name="socket">The socket to probe.</param>
-    private static bool IsDisconnected(Socket socket)
-    {
-        try
-        {
-            return socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0;
-        }
-        catch (SocketException)
-        {
-            return true;
-        }
-        catch (ObjectDisposedException)
-        {
-            return true;
-        }
-    }
-
     /// <summary>
     /// Verifies that a client's <c>pairing_request</c> reaches the exact <see cref="IPairingAdapterNotifier"/>
     /// singleton the composed adapter-IPC listener also uses -- not an independently constructed,
@@ -231,6 +213,24 @@ public class PublicClientServiceExtensionsTests
             int read = await stream.ReadAsync(buffer.AsMemory(totalRead)).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(read > 0, "Unexpected end of stream while reading a test frame.");
             totalRead += read;
+        }
+    }
+
+    /// <summary>Whether a connected socket has since been closed by the remote peer.</summary>
+    /// <param name="socket">The socket to probe.</param>
+    private static bool IsDisconnected(Socket socket)
+    {
+        try
+        {
+            return socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0;
+        }
+        catch (SocketException)
+        {
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
         }
     }
 }
