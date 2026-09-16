@@ -31,8 +31,7 @@ TEST_CASE("the adapter plugin registers exactly one SKSE messaging listener",
     //  SKSE allows exactly one MessagingInterface::RegisterListener call per
     //  plugin; a second call fails both registrations, per
     //  ai/context/skse/runtime-quirks.md. Structural pin, not a functional
-    //  assertion, mirroring
-    //  bridge/plugin/dovahlink_bridge_plugin_registration_test.cpp.
+    //  assertion.
     std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
     CHECK(CountOccurrences(source, "RegisterListener(") == 1);
