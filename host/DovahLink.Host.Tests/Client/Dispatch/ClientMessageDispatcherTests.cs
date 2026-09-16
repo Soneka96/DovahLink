@@ -510,7 +510,7 @@ public class ClientMessageDispatcherTests
 
     /// <summary>
     /// Verifies that resuming while a concurrent operation raced ownership away to a different client
-    /// reports other_device_pairing rather than folding into unavailable -- the exhaustive mapping fix
+    /// reports other_device_pairing rather than folding into unavailable -- the exhaustive mapping
     /// for <see cref="PairingStatusKind.OtherDeviceActive"/> in the resumed-snapshot path. The real
     /// coordinator cannot deterministically reach <see cref="PairingStartOutcome.Resumed"/> together
     /// with a snapshot of <see cref="PairingStatusKind.OtherDeviceActive"/> for the same client without

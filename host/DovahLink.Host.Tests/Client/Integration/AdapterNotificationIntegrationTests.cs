@@ -158,8 +158,8 @@ public class AdapterNotificationIntegrationTests
     /// actually displayed, exactly as <see cref="PairingRequest_AdapterAcceptsDisplay_ReportsAvailableWithoutLeakingCodeOnTheWire"/>
     /// already proves never reaches the public wire -- issues a real trust credential, and a fresh
     /// connection presenting that exact credential is admitted as trusted without repeating pairing.
-    /// Proves the released Stage 3 pairing and trusted-reconnect behavior end-to-end against the
-    /// real production graph.
+    /// Verifies the pairing and trusted-reconnect behavior end-to-end against the real production
+    /// graph.
     /// </summary>
     [Fact]
     public async Task FullPairing_ThenReconnectWithIssuedCredential_AdmitsAsTrustedWithoutRePairing()
