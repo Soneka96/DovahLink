@@ -261,10 +261,10 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 01.3a -- Public vocabulary + identity/version design | Complete | #64 |
 | 01.3b -- Compatibility/version vocabulary cutover | Complete | #65 |
 | 01.3c -- Public state-authority continuity identity cutover | Complete | #66 |
-| 02 -- Host composition and DI lifetimes | Complete | -- |
-| 03 -- Adapter runtime composition | Planned | -- |
-| 04 -- Host documentation sweep | Blocked by 02 | -- |
-| 05 -- Adapter documentation sweep | Blocked by 03 | -- |
+| 02 -- Host composition and DI lifetimes | Complete | #67 |
+| 03 -- Adapter runtime composition | Complete | #68 |
+| 04 -- Host documentation sweep | Complete | -- |
+| 05 -- Adapter documentation sweep | Planned | -- |
 
 Status values: `Planned` -> `In progress` -> `Complete` (or `Blocked by <n>` while its
 dependency is unmerged). A concept's own branch may record `Complete` before its PR

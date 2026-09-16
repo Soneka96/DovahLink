@@ -9,150 +9,35 @@ Status: active (package frozen 2026-09-13)
 
 ## Active concept
 
-- File: `02-host-composition-and-di-lifetimes.md`
-- Status: Complete on branch `feature/02-host-composition-and-di-lifetimes`, open as PR
-  #67 and under review. Reopened from a prior `Complete` label per D9's maintainer-clarified
-  DI requirement, then closed out again after D9's six step-build steps (see below).
-  Prerequisite (Concept 01.3c merged to `main`) confirmed via `git log` (merge commit
-  `3768c1e0`, PR #66), not inferred from a prior label.
-- First implementation pass (manual composition, six reviewable step-build steps) introduced
-  `Composition/CoreServiceExtensions.cs`, `TrustServiceExtensions.cs`,
-  `AdapterIpcServiceExtensions.cs`, `PublicClientServiceExtensions.cs` as static `Compose*` methods
-  returning `*Services` records, plus `Process/DovahLinkHostRuntime.cs` as the explicit lifecycle
-  orchestrator R2.7 requires. That pass recorded one known, deliberate gap: R2.9's public-side
-  connection/reconnect-isolation bullet was structurally guaranteed (each connection-owned
-  collaborator constructed fresh by an inline connection-factory lambda) but not independently
-  wire-observable, since no state area was registered yet.
-- Second pass (this session, maintainer-directed scope expansion, see D8): closed that gap and
-  went further, per the maintainer's explicit instruction that stable Host dependencies use real
-  dependency injection throughout, not just the R2.9 proof. Eight reviewable step-build steps: (1)
-  extracted `Client/Transport/PublicConnectionFactory.cs` (`IPublicConnectionFactory`) from the
-  public-client inline connection lambda; (2) extracted `Adapter/Ipc/AdapterConnectionFactory.cs`
-  (`IAdapterConnectionFactory`) from the adapter-IPC inline connection lambda; (3) one atomic
-  cutover of all four composition modules from manual `Compose*`/`*Services`-record methods to
-  `Microsoft.Extensions.DependencyInjection` `IServiceCollection` registration extensions
-  (`AddCoreServices`/`AddTrustServices`/`AddAdapterIpcServices`/`AddPublicClientServices`), plus new
-  `HostRuntimeServiceExtensions.AddHostRuntime`, plus `Program.ComposeAndRunAsync` rewritten to
-  build one `ServiceCollection`/`ServiceProvider` -- done as one step because the four modules'
-  shared `CoreServices`/`TrustServices`/`AdapterIpcServices`/`PublicClientServices` records were
-  exactly what DI replaced, so no independently compiling intermediate state existed between
-  converting one module and converting all four; (4)-(5) the R2.9 proof tests
-  (`PublicClientConnectionLifetimeTests.cs`: outbound-isolation, reconnect/replay-state isolation);
-  (6) fixed two stale test doc comments claiming production `Main` defaults to no public listener
-  (`Main`'s own `ResolvePublicListenerPort` always resolves a real port; only test code calling
-  `ComposeAndRunAsync`/`DovahLinkHostRuntime` directly can omit one); (7) this close-out, including
-  removing the first pass's now-closed R2.9 gap note above and adding Concept 02's own R2.1-R2.10
-  traceability table.
-- `ProgramCompositionTests.cs` and `DovahLinkHostRuntimeTests.cs` required **zero** edits during
-  the D8 DI migration itself (confirmed via `git diff --stat` immediately after the migration
-  step) -- `Program.ComposeAndRunAsync`'s public signature and every observable behavior
-  (fail-closed ordering, exception types, rendezvous line ordering) are unchanged; only the
-  internal composition *mechanism* changed. D9 later required one mechanical exception to that,
-  recorded below where D9 is described.
-- `ValidateOnBuild` was originally left unset in this pass on the mistaken assumption that it
-  eagerly constructs every registered service at build time and wraps any resulting exception in
-  `AggregateException`. A later review-response pass (after D9 closed, not one of its own numbered
-  steps) corrected that: `ValidateOnBuild` only validates that every registered service's
-  constructor dependencies are themselves resolvable, via `CallSiteFactory.GetCallSite` -- it never
-  invokes a constructor, so it cannot itself throw or wrap `SocketException`/`InvalidDataException`.
-  Resolving `IHostRuntime` is still what triggers real construction (and, for the listeners, socket
-  bind), so those exceptions still propagate directly, unwrapped, exactly as `ProgramCompositionTests`
-  expects. `ValidateOnBuild` is now enabled, catching a missing/miswired registration at startup
-  instead of at whatever later resolution happens to hit it first -- documented inline in
-  `Program.cs` and proven by `ProgramCompositionTests.BuildServiceProvider_ValidateOnBuildWithMissingDependency_ThrowsAtBuildTime`.
-- Final acceptance gate (this session's second pass): `dotnet build ... -p:GenerateDocumentationFile=true
-  -p:TreatWarningsAsErrors=true` clean; `dotnet test host/DovahLink.Host.Tests` 1771/1771 passed
-  (1763 first-pass baseline + 8 new); `python -m unittest discover -s tooling -p "test_*.py"`
-  170/170 passed, unaffected. Whole-branch changed-file count vs. `main` (`git merge-base HEAD main`
-  = `3768c1e0`, then `git diff --name-only base...HEAD`): **27 files** -- comfortably under both the
-  80 re-plan threshold and the 100 hard stop (up from the first pass's 22, net of four `*Services.cs`
-  records created and later deleted within this same branch, which cancel out against `main`).
-  While verifying this pass, the suite twice hit an unrelated, pre-existing flake in tests that
-  read the real per-Windows-user DPAPI trust-store file with no cross-class serialization
-  protecting them from other tests/processes doing the same (confirmed absent from a clean
-  `git worktree` checkout of this branch's own base commit, and traced on this run to an orphaned
-  `vstest.console` process from an earlier invocation still holding the file open); not a defect in
-  this concept's own composition/DI work, and a follow-up task was filed separately rather than
-  fixed here (out of this concept's file scope).
-- R2.9's previously recorded gap is closed: `PublicClientConnectionLifetimeTests.cs` proves both
-  outbound-state isolation between two simultaneously accepted connections and that a reconnect
-  under the same persistent `clientId` and the identical `messageId` gets a fresh session rather
-  than being rejected as replayed -- proving fresh connection state, fresh replay state, a new
-  session, and that persistent `clientId` retains no connection-scoped state, all in one test. No
-  known Concept 02 gap remains. See the concept file's own R2.1-R2.10 traceability table for the
-  full per-requirement mapping.
-- Third pass (D9, this session, six step-build steps): removed every remaining pure
-  constructor-forwarding registration factory across all five composition modules. (1)
-  `SessionRegistry` takes the whole `HostSettings` object (default `null`, falling back to
-  `Constants.MaxActiveSessions`) instead of composition manually extracting
-  `MaxActiveSessions`; `TrustServiceExtensions` registers it with plain
-  `AddSingleton<SessionRegistry>()`. Mid-step, the maintainer further clarified that no
-  production consumer should ever resolve a service by its concrete type at all -- not even
-  the concrete-plus-interface-alias pattern D9 initially used for `SessionRegistry`/
-  `PairingCoordinator` -- so `ISessionRegistry` gained `ActiveCount`/`MaxActiveSessions`
-  (already implemented by `SessionRegistry`), `Program.ComposeAndRunAsync`'s `onComposed`
-  test-hook parameter changed from `Action<SessionRegistry, PairingCoordinator>?` to
-  `Action<ISessionRegistry, IPairingCoordinator>?`, and both services now register as plain
-  `AddSingleton<IX, X>()` with no concrete registration at all. (2) The remaining seven
-  `TrustServiceExtensions` registrations (`PairingCoordinator`, `PublicEnvelopeCodec`,
-  `PublicSessionTerminationNotifier`, `ClientSessionInvalidator`, `TrustAdminService`,
-  `TrustResetService`, `AdapterTrustAdminRequestHandler`) converted to plain `AddSingleton<I,T>()`
-  -- no production constructor changes needed, every dependency was already a registered
-  interface. (3) Introduced `Process/HostInstanceOptions.cs` (wraps `OwnerLifetimeId`) and
-  `Adapter/Ipc/AdapterIpcOptions.cs` (wraps the adapter-IPC listener port);
-  `AdapterConnectionFactory` now depends on `HostInstanceOptions` instead of a raw
-  `OwnerLifetimeId`; `AdapterIpcListener` gained a DI-friendly constructor taking
-  `AdapterIpcOptions`/`IAdapterConnectionFactory`; `AdapterConnectionLifecycle`,
-  `AdapterConnectionFactory`, `AdapterIpcListener`, and `AdapterPairingNotifier` all converted
-  to plain `AddSingleton<I,T>()`. (4) Introduced `Client/Transport/PublicListenerOptions.cs`
-  (wraps the public listener port); `PublicWebSocketListener` gained a DI-friendly constructor
-  taking `PublicListenerOptions`/`HostSettings`/`IPublicConnectionFactory`;
-  `LocalConnectionTokenAuthenticator`, `TrustedCredentialFailureThrottle`,
-  `ClientMessageDispatcher`, `PublicConnectionFactory` (the ~14-dependency factory), and
-  `PublicWebSocketListener` all converted to plain `AddSingleton<I,T>()` -- closing one of the
-  concept's clearest acceptance checks (`PublicConnectionFactory` itself is now DI-constructed).
-  (5) `DovahLinkHostRuntime` now depends on `IAdapterPeerProofVerifier` directly instead of
-  composition extracting raw `ExpectedToken`/`HostProofKey` byte arrays; its `publicListener`
-  parameter moved to the end of the parameter list and defaults to `null`, so Microsoft's own
-  optional-constructor-parameter resolution supplies `null` automatically when
-  `AddPublicClientServices` left `IPublicWebSocketListener` unregistered;
-  `NamedEventHostShutdownSignal`/`FileHostRendezvousPublisher` gained `HostInstanceOptions`-based
-  constructors reusing the same Host-instance identity; `AddHostRuntime` dropped its
-  `ownerLifetimeId` parameter (satisfied by the `HostInstanceOptions` `AddAdapterIpcServices`
-  already registers) and its one large forwarding lambda, replaced by plain
-  `AddSingleton<DovahLinkHostRuntime>()` plus instance registrations for the supplied
-  `IHostProcessLifetime`/`TextWriter`. (6) This close-out: the final composition audit (below)
-  confirmed exactly one justified remaining factory registration in the whole of
-  `Composition/` -- `CoreServiceExtensions`'s `IStateAuthorityLifecycle` event-wiring lambda,
-  unchanged since D8 and explicitly allowed by the concept's own design section -- plus two
-  pre-existing default-fallback instantiations (`HostSettingsProvider`,
-  `WindowsDpapiTrustStorePersistence`) that are bootstrap values, not DI registrations. Every
-  fresh-eyes test-gap pass across all six steps found and fixed real gaps before that step's
-  own tests were considered complete: a missing `AdapterIpcListener`/`PublicWebSocketListener`
-  options-constructor port-already-in-use test (mirroring the existing low-level-constructor
-  test), a missing options-constructor non-positive-cap test for `PublicWebSocketListener`, and
-  missing `NamedEventHostShutdownSignal`/`FileHostRendezvousPublisher`
-  options-vs-explicit-value equivalence tests.
-- D9's final acceptance gate: `dotnet build ... -p:GenerateDocumentationFile=true
-  -p:TreatWarningsAsErrors=true` clean (one cross-namespace `<see cref>` doc error was caught
-  and fixed by this exact check, in `DovahLinkHostRuntime.cs`'s own doc comment); `dotnet test
-  host/DovahLink.Host.Tests --configuration Release` 1787/1787 passed (1771 D8 baseline + 16
-  new); `python -m unittest discover -s tooling -p "test_*.py"` 170/170 passed, unaffected --
-  no `tooling/` file touched by D9. Whole-branch changed-file count vs. `main`
-  (`git merge-base HEAD main` = `3768c1e0`, then `git diff --name-only base...HEAD`): **45
-  files** -- comfortably under both the 80 re-plan threshold and the 100 hard stop (up from
-  D8's 27, reflecting D9's five new production files (`HostInstanceOptions.cs`,
-  `AdapterIpcOptions.cs`, `PublicListenerOptions.cs`, `FakeAdapterPeerProofVerifier.cs` test
-  double, plus `HostRuntimeServiceExtensionsTests.cs`) and edits across the remaining four
-  composition modules, ten production service classes, and their corresponding test files).
-  `ProgramCompositionTests.cs` required a single one-line-shape edit across the whole of D9
-  (its `onComposed` callback's two local variable types, from the interface-only-resolution
-  refinement) -- not the "zero edits" D8 achieved, recorded accurately in the concept file's
-  own R2.10 row rather than left as a stale carried-over claim.
-- Next action: address PR #67 review findings and merge once CI/review is clean. Once merged,
-  Concept 04 (Host documentation sweep) becomes eligible to start, per `PLAN.md` section 6's
-  merge-not-just-complete rule; Concept 03 (Adapter composition) remains independently eligible
-  regardless, per its own dependency on `01.1`/`01.3c` only.
+- File: `04-host-documentation-sweep.md`
+- Status: Complete on branch `feature/04-host-documentation-sweep`, not yet opened as a
+  pull request. Prerequisite (Concept 02 merged to `main`) confirmed via `git log`
+  (merge commit `76519e8a`, PR #67), not inferred from a prior label.
+- Implementation: 46 commits, all typed `docs(host)`/`test(host)`, sweeping
+  `host/DovahLink.Host/**` and `host/DovahLink.Host.Tests/**` for R4.1-R4.11 --
+  dropping historical/plan/requirement-ID/regression-genealogy narration from
+  production and test documentation, trimming oversized XML doc blocks, adding docs
+  that were missing, and reordering members/fakes to the semantic ordering Concept
+  01/02 established. See `04-host-documentation-sweep.md`'s own R4.1-R4.11
+  traceability table for the full per-requirement evidence -- not duplicated here per
+  this package's own information-ownership rule (R1.5).
+- Close-out verification (this session, at head `e26cd723`): `dotnet test
+  host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release`
+  1791/1791 passed (a first run showed 2 failures, both confirmed parallel-execution
+  flakes -- one already-documented pre-existing DPAPI trust-store file-lock flake, one
+  isolated-pass/clean-rerun-confirmed flake -- neither a regression); `dotnet build
+  ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true` clean, 0
+  warnings. A line-level check (every non-comment, non-blank line touched in the
+  branch's diff against `main`, stripped and sorted) found the added-line multiset
+  byte-for-byte identical to the removed-line multiset in both `host/DovahLink.Host/`
+  (107/107) and `host/DovahLink.Host.Tests/` (117/117), confirming every code change on
+  this branch is a pure relocation with no line's content edited.
+- Next action: open the Concept 04 pull request (git/publish action, requires the
+  maintainer's own action or explicit go-ahead per `AGENTS.md`/`CONTRIBUTING.md`'s
+  branch-and-PR workflow) and merge once CI/review is clean. Once merged, Concept 05
+  (Adapter documentation sweep) is already independently eligible to start (Concept 03
+  merged, PR #68, merge commit `e76b7640`) regardless of Concept 04's own merge state,
+  per `PLAN.md` section 6.
 
 ## Completed concepts
 
@@ -230,6 +115,29 @@ Status: active (package frozen 2026-09-13)
   Concepts 02 (Host composition) and 03 (Adapter composition, also requiring Concept
   01.1 merged, already satisfied) are now both eligible to start, per `PLAN.md`
   section 6's merge-not-just-complete rule. Concept 02 is the one now active, above.
+- `02-host-composition-and-di-lifetimes.md` -- merged to `main` via PR #67 (merge
+  commit `76519e8a`). Three passes: the first introduced manual `Compose*`/`*Services`-
+  record composition methods; D8 (maintainer-directed scope expansion) cut over all
+  four composition modules plus `Program.cs` to real
+  `Microsoft.Extensions.DependencyInjection` registration and extracted
+  `IPublicConnectionFactory`/`IAdapterConnectionFactory` from inline connection
+  lambdas; D9 (maintainer-clarified follow-up) removed every remaining pure
+  constructor-forwarding registration lambda across all five modules, introduced
+  `HostInstanceOptions`/`AdapterIpcOptions`/`PublicListenerOptions` for the runtime
+  values that had justified them, and closed a mid-pass refinement that no production
+  consumer resolve a service by concrete type (`ISessionRegistry`/`IPairingCoordinator`
+  gained the members `onComposed` needed). Final acceptance gate: `dotnet build
+  ... -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true` clean; `dotnet
+  test host/DovahLink.Host.Tests --configuration Release` 1787/1787 passed; whole-branch
+  changed-file count vs. `main`: 45 files. See this concept's own R2.1-R2.10
+  traceability table for the full per-requirement mapping.
+- `03-adapter-runtime-composition.md` -- merged to `main` via PR #68 (merge commit
+  `e76b7640`). Implemented outside this session's own conversation history, so no
+  step-by-step narrative is recorded in this file for it (unlike the concepts above) --
+  `PLAN.md`'s status table and the merge commit itself are this file's evidence that
+  R3.1-R3.10 are satisfied; see that concept's own file and PR #68 for its design and
+  proof obligations. Unblocks Concept 05 (Adapter documentation sweep), independently
+  of Concept 04's own merge state, per `PLAN.md` section 6.
 
 ## Decisions and approved deviations
 
@@ -956,3 +864,17 @@ confirmed satisfied by the merge commit above, not inferred from the branch's ow
 `Complete` label. Concept 03 (Adapter composition, also requiring Concept 01.1 merged,
 already satisfied) is independently eligible to start as well, per `PLAN.md` section 6,
 but is not the one this session is picking up.
+
+Concept 02 merged to `main` via PR #67 (merge commit `76519e8a`); Concept 03 merged to
+`main` via PR #68 (merge commit `e76b7640`) -- both confirmed via `git log`, not
+inferred from either branch's own prior label. Handoff to Concept 04 (Host
+documentation sweep) is now active on branch `feature/04-host-documentation-sweep`, per
+the same one-branch/PR-per-concept rule -- `04`'s own prerequisite (02 merged) is
+confirmed satisfied by the merge commit above. This session's close-out (see the Active
+concept entry above) found Concept 04's implementation already complete: it re-ran both
+Host CI gate commands clean at head `e26cd723`, added an R4.1-R4.11 traceability table
+to `04-host-documentation-sweep.md`, and flipped its `Status` to `Complete`. Concept 04
+has no pull request open yet -- opening one is this concept's own remaining next action,
+not something this bookkeeping pass performs. Concept 05 (Adapter documentation sweep)
+is independently eligible to start as well, per `PLAN.md` section 6, but is not the one
+this session is picking up.
