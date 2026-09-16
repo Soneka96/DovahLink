@@ -298,7 +298,7 @@ Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -Argum
 # actually run.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")
 # Otherwise compile-only here too, mirroring adapter-ci.yml: adapter's own CMakePresets.json
-# defines a ctest testPreset only for windows-x64-debug, matching bridge's identical convention.
+# defines a ctest testPreset only for windows-x64-debug, matching the retired native plugin's identical convention.
 # Release also provides the Release-named runtime DLLs (fmt.dll/spdlog.dll, unlike Debug's
 # debug-suffixed names) the real-package-layout test below requires.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")

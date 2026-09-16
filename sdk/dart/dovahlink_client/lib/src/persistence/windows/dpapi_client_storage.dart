@@ -11,7 +11,8 @@ import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 /// An [IClientStorage] implementation for Windows, encrypting persisted state at rest with DPAPI
 /// ([Dpapi]) in its default per-user scope -- the OS itself ties the encrypted material to the
 /// logged-in Windows user, matching `ai/context/protocol/security.md`'s "approved per-user
-/// secure-storage mechanism for the platform" and mirroring the Bridge's own DPAPI decision there.
+/// secure-storage mechanism for the platform" and mirroring the retired native plugin's own DPAPI
+/// decision there.
 /// Fails closed: a missing file is a valid empty store, but a file that exists and cannot be
 /// decrypted or parsed always throws [DovahLinkStorageException] rather than silently returning an
 /// empty or partial state.

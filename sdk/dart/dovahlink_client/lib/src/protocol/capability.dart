@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart
 part 'capability.g.dart';
 
 /// One entry in a `capabilities` message's `capabilities` list (`protocol/schema/README.md`'s
-/// `capabilities`). `id` and `version` are canonical protocol values, independent of the Bridge
+/// `capabilities`). `id` and `version` are canonical protocol values, independent of the Host
 /// release version; no capability is currently registered.
 @JsonSerializable(checked: true)
 class Capability {

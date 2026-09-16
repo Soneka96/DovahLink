@@ -156,7 +156,7 @@ jobs:
         # Proves the production Adapter configuration still compiles, and provides the Release-named
         # runtime DLLs (fmt.dll/spdlog.dll, unlike Debug's debug-suffixed names) the real-package-
         # layout test below requires. Otherwise compile-only: adapter's own CMakePresets.json defines
-        # a ctest testPreset only for windows-x64-debug (matching bridge's identical convention), and
+        # a ctest testPreset only for windows-x64-debug (matching the retired native plugin's identical convention), and
         # running the full native/real-process suite a second time in Release would double the native
         # and headless-host build cost for a target still settling, without a requirement driving it.
         working-directory: adapter
