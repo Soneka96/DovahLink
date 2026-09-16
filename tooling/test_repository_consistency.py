@@ -546,7 +546,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn("## Member and collection ordering", common)
         self.assertNotIn("## Addition convention", common)
-        self.assertNotIn("versioned Bridge ZIP", common)
         self.assertIn("Changelog entries: reverse-chronological", common)
         self.assertIn("C++ data members are the one exception", common)
         self.assertIn("20-40 lines", common)
@@ -556,15 +555,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             common,
         )
 
-    def test_common_repository_boundaries_describe_adapter_and_host_not_bridge(
+    def test_common_repository_boundaries_use_current_adapter_and_host_naming(
         self,
     ) -> None:
         """Guard common.md's repository-boundary and area-pointer prose against
-        describing the deleted bridge/ directory as current architecture."""
+        describing the deleted native plugin's directory as current architecture."""
         common = self._read("ai/context/common.md")
 
-        self.assertNotIn("Bridge", common)
-        self.assertNotIn("bridge", common)
         self.assertIn(
             "`adapter/` is reserved for the native SKSE Adapter plugin", common
         )
@@ -575,21 +572,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "update\n  Adapter, Host, SDK, app, tests, and docs together", common
         )
 
-    def test_root_instructions_describe_host_adapter_not_bridge_core(self) -> None:
+    def test_root_instructions_use_current_host_adapter_layering(self) -> None:
         """Guard AGENTS.md's active instructions and ROADMAP.md's layering example against
-        the retired Bridge/Core boundary framing. This does not ban "Bridge" outright:
-        AGENTS.md legitimately still names the retired native Bridge as a historical
-        reference point for `ai/context/skse/architecture.md`.
+        reverting to the retired three-tier boundary framing this repository replaced.
         """
         agents = self._read("AGENTS.md")
         roadmap = self._read("ROADMAP.md")
 
-        for stale_phrase in (
-            "Bridge/Core",
-            "Skyrim bridge",
-            "client and bridge meet at the contract",
-        ):
-            self.assertNotIn(stale_phrase, agents)
         self.assertIn(
             "tests that verify the client and Host meet at the contract", agents
         )
@@ -603,7 +592,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             agents,
         )
         # The legitimate historical reference must survive this pass untouched.
-        self.assertIn("the retired native Bridge's design as reference only", agents)
+        self.assertIn(
+            "the retired native SKSE plugin's design as reference only", agents
+        )
 
         self.assertNotIn("Core / Skyrim / Bridge", roadmap)
         self.assertIn(
@@ -635,11 +626,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("Add `<remarks>` only when", dotnet_style)
         self.assertNotIn("only when they add useful contract", dotnet_style)
 
-    def test_cpp_style_normative_rules_do_not_depend_on_deleted_bridge_paths(
+    def test_cpp_style_normative_rules_do_not_depend_on_deleted_native_plugin_paths(
         self,
     ) -> None:
-        """Guard cpp-style.md's normative rules against depending on bridge/ (deleted in
-        3A.2) or the retired skse/architecture.md as current authority, against
+        """Guard cpp-style.md's normative rules against depending on the deleted native
+        plugin's paths (removed in 3A.2) or the retired skse/architecture.md as current authority, against
         prescribing a directory adapter/ does not have, and confirm the current
         adapter/ examples and rules that replaced them are present.
 
@@ -649,10 +640,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
         cpp_style = self._read("ai/context/skse/cpp-style.md")
 
         for stale_literal in (
-            "bridge/",
-            "Bridge",
-            "IBridgeCallbackRegistry",
-            "BridgeCallbackRegistry",
             "IPairingNotificationSink",
             "CommonLibPairingNotificationSink",
             "TokenStore::Reservation",
@@ -706,7 +693,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("Never reorder existing data members", cpp_style)
         self.assertIn("## Member ordering", cpp_style)
         self.assertIn("Data members are the one deliberate exception", cpp_style)
-        self.assertNotIn("bridge-wide", cpp_style)
         self.assertNotIn("not consolidated adapter-wide like enums are", cpp_style)
         self.assertIn("Document each parameter with `@param`", cpp_style)
         self.assertIn("with `@return`, normally in one or two lines", cpp_style)
@@ -798,7 +784,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         The runner context is not resolved until a runner has picked up the job's steps, so
         referencing it in a job-level env: (as opposed to a step-level one) makes the whole
         workflow file invalid -- GitHub rejects the run before any job executes. This is exactly
-        the defect that silently made bridge-ci.yml and integration-ci.yml fail on every push.
+        the defect that silently made a now-deleted native-plugin CI workflow and
+        integration-ci.yml fail on every push.
         """
         workflow_directory = REPOSITORY_ROOT / ".github" / "workflows"
         for workflow_path in sorted(workflow_directory.glob("*.yml")):
@@ -1508,8 +1495,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("Function Devices", papyrus)
         self.assertNotIn("Function Blocked", papyrus)
 
-        # Current terminology and the live adapter/ source path, not the retired Bridge/mod name
-        # or its deleted implementation path (bridge/game_state/...).
         self.assertIn(
             "the native functions DovahLink's Adapter registers via SKSE's Papyrus interface",
             papyrus,
@@ -1518,14 +1503,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "adapter/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp", papyrus
         )
         self.assertIn("implemented natively by the Adapter plugin", papyrus)
-        self.assertNotIn("DovahLink Bridge", papyrus)
-        self.assertNotIn("bridge/game_state/", papyrus)
         self.assertIn(
             "ConsoleUtil Extended command definition for DovahLink's trust-administration console",
             yaml,
         )
         self.assertIn("installed alongside DovahLink.\n# Place this file", yaml)
-        self.assertNotIn("DovahLink Bridge", yaml)
 
         command_entries = re.findall(
             r"(?ms)^  - name: ([A-Za-z-]+)$\n(.*?)(?=^  - name: |\Z)", yaml
@@ -1861,33 +1843,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         # These conventions must point to the compatibility/security authorities, not restate
         # their content — this is the same rule common.md applies to every shared contract.
-        retired_duplication_phrase = (
-            "Compatibility is identified by the DovahLink Bridge/mod release version against the "
-            "supported Bridge-version range a client or SDK explicitly declares"
-        )
         for sdk_doc in (sdk_architecture, sdk_api_design, sdk_persistence, sdk_testing):
-            self.assertNotIn(retired_duplication_phrase, sdk_doc)
             self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
 
-        # This guards only against the retired Bridge *actor* language this pass corrected to Host
-        # reappearing; the separate `bridgeInstanceId` -> `stateAuthorityId` identity rename was
-        # `01.3c`'s own later concept (`bridgeVersion` was cut over to `hostVersion` by `01.3b`).
-        for stale_actor_phrase in (
-            "Bridge versus SDK ownership",
-            "The Bridge remains authoritative",
-            "Bridge compatibility implementation",
-            "matches a Bridge reply",
-        ):
-            self.assertNotIn(stale_actor_phrase, sdk_architecture)
-        for stale_actor_phrase in (
-            "Bridge unavailable",
-            "tells the\nBridge to stop traffic",
-            "whether the Bridge already executed it",
-        ):
-            self.assertNotIn(stale_actor_phrase, sdk_api_design)
-
-        # 01.3b activated the Host cutover (`ai/context/protocol/compatibility.md`), so
-        # api-design.md's compatibility vocabulary now says Host, not Bridge.
+        # api-design.md's compatibility vocabulary describes the Host, the current server-side actor.
         for compatibility_vocabulary_phrase in (
             "Host compatibility mechanics",
             "connected\nHost version, SDK/Host compatibility result",
@@ -1895,21 +1854,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"Host is older than supported" from "Host is\nnewer than supported"',
         ):
             self.assertIn(compatibility_vocabulary_phrase, sdk_api_design)
-        for retired_compatibility_phrase in (
-            "Bridge compatibility mechanics",
-            "Bridge version, SDK/Bridge compatibility result",
-            "incompatible Bridge\nversion",
-            '"Bridge is older than supported"',
-        ):
-            self.assertNotIn(retired_compatibility_phrase, sdk_api_design)
 
-    def test_sdk_and_integration_docs_describe_host_not_bridge_actor(self) -> None:
-        """Guard the remaining SDK/integration convention docs against describing the retired
-        Bridge, rather than the Host or the Adapter, as the current server-side actor
-        (`bridgeVersion`/"Bridge-version compatibility" wording was cut over to Host by `01.3b`;
-        the separate `bridgeInstanceId` -> `stateAuthorityId` identity rename was `01.3c`'s own
-        later concept).
-        """
+    def test_sdk_and_integration_docs_describe_host_as_the_current_actor(self) -> None:
+        """Guard the remaining SDK/integration convention docs against describing a retired
+        component, rather than the Host or the Adapter, as the current server-side actor."""
         dart_style = self._read("ai/context/dart/dart-style.md")
         sdk_persistence = self._read("ai/context/sdk/persistence.md")
         sdk_testing = self._read("ai/context/sdk/testing.md")
@@ -1919,16 +1867,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "A compatible Host/SDK pair must never rely on raw wire\n  strings for branching.",
             dart_style,
         )
-        self.assertNotIn("Bridge/SDK pair", dart_style)
 
         self.assertIn("reusable known-Host information", sdk_persistence)
         self.assertIn("preferred Host selection", sdk_persistence)
         self.assertIn("must be re-established from the Host after", sdk_persistence)
-        self.assertNotIn("known-Bridge", sdk_persistence)
 
         self.assertIn("not the Host harness -- is required only when", sdk_testing)
         self.assertIn("do not depend on the Host\nharness", sdk_testing)
-        self.assertNotIn("Bridge harness", sdk_testing)
 
         self.assertIn(
             "Integration tests prove that the Host and Flutter client agree on the canonical "
@@ -1945,7 +1890,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "A single-session Host process (today's capacity-one session-registry boundary)",
             integration_testing,
         )
-        self.assertNotIn("SKSE bridge", integration_testing)
         self.assertNotIn("kMaxConnectedClients", integration_testing)
 
     def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(
@@ -2027,9 +1971,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             protocol_readme,
         )
 
-    def test_protocol_docs_describe_host_not_skse_bridge(self) -> None:
+    def test_protocol_docs_describe_host_not_the_retired_native_plugin(self) -> None:
         """Guard protocol/README.md and ai/context/protocol/conventions.md against describing
-        the retired SKSE bridge, rather than the Host, as the protocol's server-side endpoint."""
+        the retired native SKSE plugin, rather than the Host, as the protocol's server-side endpoint."""
         protocol_readme = self._read("protocol/README.md")
         conventions = self._read("ai/context/protocol/conventions.md")
 
@@ -2047,21 +1991,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Do not use plausible defaults when the Host does not know a value",
             conventions,
         )
-        for stale_phrase in (
-            "SKSE bridge",
-            "asks the bridge",
-            "the bridge does not know",
-        ):
-            self.assertNotIn(stale_phrase, conventions)
-        self.assertNotIn("SKSE bridge", protocol_readme)
-
         security = self._read("ai/context/protocol/security.md")
         self.assertIn(
             "the approved, narrow exception to `ai/context/skse/architecture.md`'s Papyrus rule\n"
             "    (originally written for the retired Bridge, now the Adapter's own boundary)",
             security,
         )
-        self.assertNotIn("core bridge/adapter", security)
 
         # Stage 5 is still Planned/pulled-forward, not a frozen historical record, so its
         # ownership-boundary list must name the areas that actually exist today.
@@ -2094,7 +2029,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
 
     def test_state_identity_and_snapshot_exceptions_are_explicit(self) -> None:
-        """Keep bridge lifetime identity and snapshot delivery exceptions in the roadmap."""
+        """Keep native-plugin-lifetime identity and snapshot delivery exceptions in the roadmap."""
         identity = self._roadmap_section(
             "2. Bridge Identity and Authoritative State Foundation"
         )
@@ -2169,32 +2104,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("before public release", dependency_audit)
         self.assertEqual(dependency_audit.count("before the next public release"), 3)
 
-    def test_production_packaging_has_no_bridge_dependency(self) -> None:
-        """Guard that the real Host+Adapter packaging path never links, builds, or reads bridge/."""
-        for production_file in (
-            "host/DovahLink.Host/DovahLink.Host.csproj",
-            "tooling/package_adapter_host.py",
-            "tooling/adapter_host_packager.py",
-            "tooling/adapter_host_process_runner.py",
-        ):
-            text = self._read(production_file)
-            self.assertNotIn("bridge", text.lower(), production_file)
-
-    def test_no_stale_bridge_or_deleted_migration_references(self) -> None:
-        """Guard against reintroducing deleted migration docs or dead bridge/ files.
-
-        3A.3 deleted five migration-only paths, along with `bridge/README.md` and
-        `bridge/vcpkg.json`; 3A.2 deleted `bridge/` itself, including
-        `bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`, which
-        `console-admin/DovahLinkAdmin.psc` cited by path until this pass corrected it. This
-        intentionally does not ban path-shaped references into other `bridge/` subdirectories
-        (`bridge/application/`, `bridge/game_state/`, and similar): several `ai/context/skse/*.md`
-        files and adapter/ source comments deliberately cite the retired Bridge's real file layout
-        as a worked-example precedent, and a broad ban would flag that legitimate history alongside
-        genuine regressions. It also does not ban the word "Bridge" -- the retired `bridgeInstanceId`
-        and `bridgeVersion` field names as they appear in genuine history in CHANGELOG.md/PLAN.md,
-        and other genuine history there are legitimate and excluded below.
-        """
+    def test_no_deleted_migration_doc_references(self) -> None:
+        """Guard against reintroducing deleted migration docs."""
         deleted_paths = (
             "host/PLAN.md",
             "ai/context/host/migration-audit.md",
@@ -2208,34 +2119,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 f"{relative_path} was deleted by 3A.3 and must not be reintroduced",
             )
 
-        # CHANGELOG.md and root PLAN.md are intentionally frozen historical records; their dated
-        # entries stay truthful to what existed when they were written. The two D4 planning-package
-        # files below quote the dead papyrus path as their own historical record of the defect this
-        # pass fixed -- see plans/documentation-and-composition-normalization/DIVERGENCES.md D4.
-        excluded_files = {
-            REPOSITORY_ROOT / "CHANGELOG.md",
-            REPOSITORY_ROOT / "PLAN.md",
-            REPOSITORY_ROOT
-            / "plans"
-            / "documentation-and-composition-normalization"
-            / "01.2a-active-documentation-and-instruction-terminology.md",
-            REPOSITORY_ROOT
-            / "plans"
-            / "documentation-and-composition-normalization"
-            / "DIVERGENCES.md",
-        }
-        # adapter/'s vendored vcpkg tree and every language's build output are not our source and
-        # must never be walked -- vcpkg_installed alone can hold tens of thousands of vendor files.
-        excluded_dir_parts = {
-            "vcpkg_installed",
-            "build",
-            "bin",
-            "obj",
-            ".vs",
-            ".git",
-            ".claude",
-            ".dart_tool",
-        }
         adapter_source_subdirs = (
             "capture",
             "dispatch",
@@ -2279,30 +2162,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             Path("console-admin/DovahLinkAdmin.psc"),
         ):
             self.assertIn(previously_uncovered, scanned_paths)
-
-        stale_literals = (
-            "bridge/vcpkg.json",
-            "bridge/README.md",
-            "bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp",
-        )
-        violations = []
-        for path in candidate_paths:
-            if not path.is_file() or path in excluded_files:
-                continue
-            if any(part in excluded_dir_parts for part in path.parts):
-                continue
-            text = path.read_text(encoding="utf-8", errors="ignore")
-            for literal in stale_literals:
-                if literal in text:
-                    violations.append(f"{path.relative_to(REPOSITORY_ROOT)}: {literal}")
-
-        self.assertEqual(
-            violations,
-            [],
-            "Found a reference to a file 3A.2/3A.3 deleted (see stale_literals). If this is "
-            "genuine project history, move it to CHANGELOG.md or add the file to this test's "
-            "excluded_files.",
-        )
 
     @classmethod
     def _roadmap_corpus(cls) -> str:
