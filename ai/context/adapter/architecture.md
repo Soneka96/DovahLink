@@ -10,7 +10,7 @@ Stage 3 onward and must not be read back into this record.
 
 The adapter is a native SKSE plugin, C++. It is the only component allowed to depend directly on
 CommonLib or Skyrim runtime types, the same rule `ai/context/skse/architecture.md` (retired
-implementation) applied to the native Bridge's game-state adapters and `ai/context/skse/cpp-style.md`
+implementation) applied to the retired native plugin's game-state adapters and `ai/context/skse/cpp-style.md`
 still applies generally. Skyrim/CommonLib headers and runtime objects never cross into host code,
 matching `ai/context/host/architecture.md`'s "Boundary against Skyrim".
 

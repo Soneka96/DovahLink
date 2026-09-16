@@ -113,7 +113,7 @@ reconnects, null-after-startup answer, exact wire presence, comparison semantics
 This was a hard gate, not a soft preference: `state_snapshot` and `state_event` publication was not
 permitted to go live until `01.3c` implemented this field with real values, which it now does. A
 state revision's identity is scoped to `(stateAuthorityId, playContextId, stateArea)` (renamed from
-`(bridgeInstanceId, playContextId, stateArea)` -- see `01.3a` Section D), and clients rely on the
+its earlier tuple form -- see `01.3a` Section D), and clients rely on the
 authority component to reject state from an earlier authoritative-store lifetime; publishing live
 state before that component had a real, decided value would have let a client silently accept state
 from the wrong lifetime. Do not substitute `adapterInstanceId`, an OS process ID, a port, a path, or

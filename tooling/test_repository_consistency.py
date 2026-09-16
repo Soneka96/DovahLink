@@ -1062,7 +1062,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         testing = self._read("ai/context/integration/testing.md")
         self.assertIn("- compatibility bootstrap\n", testing)
         self.assertIn(
-            "- an incompatible Bridge/client version during the compatibility bootstrap\n",
+            "- an incompatible Host/client version during the compatibility bootstrap\n",
             testing,
         )
 
@@ -1994,7 +1994,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         security = self._read("ai/context/protocol/security.md")
         self.assertIn(
             "the approved, narrow exception to `ai/context/skse/architecture.md`'s Papyrus rule\n"
-            "    (originally written for the retired Bridge, now the Adapter's own boundary)",
+            "    (originally written for the retired native plugin, now the Adapter's own boundary)",
             security,
         )
 

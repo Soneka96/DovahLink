@@ -95,7 +95,7 @@ the public envelope is not reused as the internal IPC message model. `protocol/`
 canonical language-neutral contract between the host and its clients (Dart SDK and any other
 conforming client), per `ARCHITECTURE.md`'s "Protocol" boundary and `ai/context/protocol/`. Stage 1
 does not change that ownership or the schema itself -- it only moves the implementing process from
-`bridge/` to `host/`. The private host-to-adapter IPC contract is recorded separately, in
+the retired native plugin to `host/`. The private host-to-adapter IPC contract is recorded separately, in
 "Host-to-adapter IPC contract" below.
 
 ## Restart behavior

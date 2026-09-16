@@ -36,7 +36,7 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
 
 ## Test ownership boundaries
 
-SDK tests own: canonical contract encoding/decoding, semantic validation, session identity, Bridge
+SDK tests own: canonical contract encoding/decoding, semantic validation, session identity, adapter
 identity, play-context identity, revision handling, stale suppression, subscription state, snapshot
 recovery, reconnect, late-message handling, pairing client recovery, SDK persistence, and cache
 correctness. This list is unconditional: it runs in every SDK/App CI pass, regardless of what
