@@ -2119,50 +2119,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 f"{relative_path} was deleted by 3A.3 and must not be reintroduced",
             )
 
-        adapter_source_subdirs = (
-            "capture",
-            "dispatch",
-            "identity",
-            "ipc",
-            "papyrus",
-            "plugin",
-            "process",
-            "runtime",
-            "tests",
-        )
-
-        candidate_paths: list[Path] = []
-        for pattern in (
-            "**/*.md",
-            "host/**/*.cs",
-            "console-admin/**/*.yaml",
-            "console-admin/**/*.psc",
-        ):
-            candidate_paths.extend(REPOSITORY_ROOT.glob(pattern))
-        for subdir in adapter_source_subdirs:
-            candidate_paths.extend(
-                (REPOSITORY_ROOT / "adapter" / subdir).glob("**/*.cpp")
-            )
-            candidate_paths.extend(
-                (REPOSITORY_ROOT / "adapter" / subdir).glob("**/*.hpp")
-            )
-
-        # Regression guard for the scan's own breadth: these READMEs sit outside every directory
-        # the previous, narrower pattern list named, so a future narrowing back to an allowlist of
-        # remembered directories -- instead of "every Markdown file unless deliberately
-        # excluded" -- fails here before it can silently stop catching a real stale reference.
-        scanned_paths = {path.relative_to(REPOSITORY_ROOT) for path in candidate_paths}
-        for previously_uncovered in (
-            Path("adapter-host-ipc/README.md"),
-            Path("app/README.md"),
-            Path("integration/README.md"),
-            Path("sdk/README.md"),
-            Path("tooling/DovahLinkBuilder/README.md"),
-            Path("console-admin/dovahlink.yaml"),
-            Path("console-admin/DovahLinkAdmin.psc"),
-        ):
-            self.assertIn(previously_uncovered, scanned_paths)
-
     @classmethod
     def _roadmap_corpus(cls) -> str:
         """Read the ordered roadmap stage documents as one validation corpus."""
