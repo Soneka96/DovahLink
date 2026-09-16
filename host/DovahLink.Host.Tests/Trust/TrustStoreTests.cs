@@ -1126,7 +1126,7 @@ public class TrustStoreTests
         Assert.Equal(original.DisplayName, final.DisplayName);
     }
 
-    /// <summary>Proves the same Rename-resurrection defect is closed for Block, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    /// <summary>Verifies the same rename-vs-concurrent-mutation invariant as <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>, for Block.</summary>
     [Fact]
     public async Task RenameIfTrustedAsync_QueuedBehindConcurrentBlock_DoesNotResurrectTrust()
     {
@@ -1157,7 +1157,7 @@ public class TrustStoreTests
         Assert.Equal(original.DisplayName, final.DisplayName);
     }
 
-    /// <summary>Proves the same Rename-resurrection defect is closed for Reset Trust, per <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>.</summary>
+    /// <summary>Verifies the same rename-vs-concurrent-mutation invariant as <see cref="RenameIfTrustedAsync_QueuedBehindConcurrentRevoke_DoesNotResurrectTrust"/>, for Reset Trust.</summary>
     [Fact]
     public async Task RenameIfTrustedAsync_QueuedBehindConcurrentResetTrust_DoesNotResurrectTrust()
     {
@@ -1189,8 +1189,8 @@ public class TrustStoreTests
     }
 
     /// <summary>
-    /// Proves the same Rename-resurrection defect is closed for Factory Reset: a rename queued behind
-    /// a concurrent <see cref="TrustStore.ClearAsync"/> finds no record left to rename at all -- the
+    /// Verifies the same rename-vs-concurrent-mutation invariant for Factory Reset: a rename queued
+    /// behind a concurrent <see cref="TrustStore.ClearAsync"/> finds no record left to rename at all -- the
     /// deleted record must never be resurrected by a stale replacement either.
     /// </summary>
     [Fact]
@@ -1722,7 +1722,7 @@ public class TrustStoreTests
     /// <summary>
     /// Verifies the same same-shortId incarnation ABA guard as Revoke's own for
     /// <see cref="TrustStore.RenameIfTrustedAsync"/>. This is the ABA scenario the rename
-    /// authorization-boundary fix defends against: see
+    /// authorization boundary must defend against: see
     /// <see cref="DovahLink.Host.Client.Dispatch.ClientMessageDispatcher"/>'s own rename handling and its
     /// tests for the end-to-end proof through the dispatcher and a real
     /// <see cref="DovahLink.Host.Sessions.ISessionRegistry"/>.
