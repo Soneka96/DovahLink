@@ -357,3 +357,51 @@ the stale "99" to the true 102, both citing this divergence.
 two-file gap the correctness fixes required and explicitly authorizing 102 files as a
 one-time exception for this PR rather than splitting the fix, removing tests, or
 reopening `01.3a`.
+
+## D10 -- Two obsolete Bridge-specific structural regression tests removed from Concept 05
+
+**Original requirement:** None in `SOURCE.md`. `05-adapter-documentation-sweep.md`'s own
+frozen scope is documentation/member-ordering only, with the test suite expected to
+retain identical pass/fail outcomes -- this divergence is what authorizes departing
+from that expectation for exactly two test cases.
+
+**Observed conflict:** Concept 05's content sweep (`65aaec38`..`d427c6c1`) left two
+Catch2 `TEST_CASE`s in `adapter/tests/plugin/dovahlink_adapter_plugin_test.cpp` --
+`"adapter/CMakeLists.txt never links or builds a bridge/ target"` and `"no adapter
+production source file includes a bridge/ header"` -- and `a57e3421`'s close-out pass
+described them as an intentional, permanent exception to the concept's own "no
+remaining Bridge references" goal. On review, the maintainer concluded that framing was
+wrong: the native `/bridge` implementation is permanently deleted, with no intention to
+restore it or maintain compatibility with its architecture. A test whose only purpose is
+preventing the Adapter from depending on a directory that no longer exists is not a
+current architectural contract -- it is retired-architecture genealogy encoded as a
+regression guard rather than removed like the rest of Concept 05's Bridge cleanup.
+Keeping it contradicts the concept's own goal ("no Bridge genealogy... anywhere under
+`adapter/`") rather than satisfying it.
+
+**Proposed change:** Delete both `TEST_CASE`s (and the `#include <array>` that only the
+second one needed) in commit `33619155` (`test(adapter): remove obsolete Bridge
+regression guards`), without substituting a new, differently-worded Bridge-absence test
+-- per the maintainer's explicit instruction, `/bridge` requires no negative regression
+protection at all going forward. Current Host/Adapter architectural boundaries that are
+independently meaningful (exactly one SKSE messaging listener, `SKSE::Init` ordering,
+Papyrus registration ordering, startup failure ordering, owner-lifetime identity reuse,
+Adapter build-configuration package-layout behavior, `DllMain` loader-lock safety,
+process-lifetime `AdapterRuntime`, host discovery starting at `kDataLoaded`) are
+unaffected and keep their own dedicated tests. Scope is limited to exactly these two
+test cases and their directly-unused include; no broader test-suite cleanup,
+refactor, or rename is authorized by this divergence.
+
+**Impact:** Runtime, product, protocol, and security behavior are unchanged -- this is a
+test-only deletion. It does change the Adapter's discovered CTest total (490 -> 488) and
+this branch's commit-type composition (one `test(adapter)` commit alongside the
+`docs(adapter)`/`docs(plan)` commits), both explicitly authorized here rather than
+hidden as a documentation-only change. `05-adapter-documentation-sweep.md`'s R5.5, R5.9,
+and R5.10 evidence, and `CONTEXT.md`'s Concept 05 close-out entry, are corrected to cite
+this divergence instead of describing the two tests as an intentional exception.
+
+**Status:** approved.
+
+**Decision source:** Maintainer instruction (this session, 2026-09-16), explicit task
+brief directing removal of the two Bridge-specific structural tests and recording of
+this divergence, reviewed and applied via `/step-build`.

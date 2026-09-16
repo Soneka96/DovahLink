@@ -21,17 +21,42 @@ Status: active (package frozen 2026-09-13)
   `05-adapter-documentation-sweep.md`'s own R5.1-R5.10/R5.6b traceability table for
   the full per-requirement evidence. This is the package's final concept -- once its PR
   merges, verify `PLAN.md` section 9's phase completion gate.
-- Close-out: 9 commits (`aa44db1f` bookkeeping, 8 `docs(adapter)` content commits),
-  21 `adapter/` files changed, real content diff (formatting-reflow noise from the
-  staged-code pre-commit hook separated out via `git diff -b`) 199 insertions/243
-  deletions. Repo-wide `git grep -ilI bridge -- adapter/` confirms zero remaining Bridge
-  references outside the intentional regression-guard tests in
-  `dovahlink_adapter_plugin_test.cpp`. Full `ctest --preset windows-x64-debug` re-run
-  after every content-changing step: 488/490 passed, 2 skipped, identical to the
-  pre-sweep baseline every time; the IPC test group was additionally re-run 3 times
-  after the highest-risk step (`AdapterIpcSession`/`AdapterIpcConnection`/
-  `WinsockAdapterIpcSocket`) with no flakiness. `python -m unittest discover -s tooling
-  -p "test_*.py"` re-run clean, 170/170.
+- Content-sweep close-out: 9 commits (`aa44db1f` bookkeeping, 8 `docs(adapter)` content
+  commits), 21 `adapter/` files changed, real content diff (formatting-reflow noise from
+  the staged-code pre-commit hook separated out via `git diff -b`) 199 insertions/243
+  deletions. Full `ctest --preset windows-x64-debug` re-run after every content-changing
+  step: 488/490 passed, 2 skipped, identical to the pre-sweep baseline every time; the
+  IPC test group was additionally re-run 3 times after the highest-risk step
+  (`AdapterIpcSession`/`AdapterIpcConnection`/`WinsockAdapterIpcSocket`) with no
+  flakiness. `python -m unittest discover -s tooling -p "test_*.py"` re-run clean,
+  170/170. At this point, repo-wide `git grep -ilI bridge -- adapter/` confirmed zero
+  remaining Bridge references outside two structural regression-guard tests in
+  `dovahlink_adapter_plugin_test.cpp`, at the time described as an intentional,
+  permanent exception.
+- Correction (this session, 2026-09-16): the maintainer reviewed that exception and
+  concluded it was wrong -- `/bridge` is permanently deleted, so a test whose only
+  purpose is guarding against its reintroduction carries retired-architecture genealogy
+  forward rather than testing anything about the current architecture, contradicting
+  this concept's own "no Bridge genealogy anywhere under `adapter/`" goal. Commit
+  `33619155` (`test(adapter)`) removed both tests
+  (`"adapter/CMakeLists.txt never links or builds a bridge/ target"` and `"no adapter
+  production source file includes a bridge/ header"`) and their now-unused
+  `#include <array>`, with no replacement Bridge-absence test. See `DIVERGENCES.md` D10
+  for the full rationale and scope boundary (limited to these two tests and their
+  directly-unused include; no broader test-suite cleanup). Post-removal rebuild + full
+  `ctest --preset windows-x64-debug`: **486/488 passed, 2 skipped** (the same 2
+  Release-only real-package-layout tests as the content-sweep baseline; the discovered
+  total dropped from 490 to 488 solely because the two removed tests are gone). Repo-wide
+  `git grep -niI bridge -- adapter/` now returns **zero matches**, with no remaining
+  exception.
+- Final branch statistics (after both the content sweep and this correction, head
+  `33619155afcca9151b1249926e07c91f862fca41`): 12 commits total -- `docs(adapter)` (8),
+  `docs(plan)` (3, including this reconciliation), `test(adapter)` (1). `git diff
+  --name-only main...HEAD -- adapter/` = 21 files, 199 insertions/289 deletions
+  (`git diff -b`; the correction added 46 deletions and 0 insertions to the same file
+  set, no new file). Whole-branch `git diff --name-only main...HEAD` = 25 files (the 21
+  above, plus `05-adapter-documentation-sweep.md`, `CONTEXT.md`, `PLAN.md`, and
+  `DIVERGENCES.md`), comfortably under the 80-file re-plan threshold.
 - Preflight (this session): Debug configure+build+ctest confirmed reproducible in this
   environment (MSVC dev environment must be sourced manually every command --
   `vcvars64.bat` + `VCPKG_ROOT=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\vcpkg`
@@ -319,6 +344,19 @@ Status: active (package frozen 2026-09-13)
   whole concept, not just these two services -- the concrete-plus-alias pattern item 4/31
   of the maintainer's original follow-up brief described as "legitimate" no longer has a
   live use case anywhere in this composition graph.
+- D10 (2026-09-16, this session, Concept 05, maintainer-directed correction): the
+  maintainer reviewed Concept 05's close-out, which had described two Bridge-specific
+  structural regression tests in `dovahlink_adapter_plugin_test.cpp` as an intentional,
+  permanent exception to the concept's own "no Bridge references under `adapter/`"
+  goal, and concluded that framing was wrong -- `/bridge` is permanently deleted, so a
+  test that only guards against its reintroduction is retired-architecture genealogy
+  encoded as a regression guard, not a current architectural contract. Commit
+  `33619155` (`test(adapter)`) removed both tests and their now-unused
+  `#include <array>`, with no replacement test. Current Host/Adapter architectural
+  boundaries that are independently meaningful (SKSE listener/init/Papyrus/startup
+  ordering, owner-lifetime identity, package-layout behavior, `DllMain` loader-lock
+  safety, process-lifetime `AdapterRuntime`, `kDataLoaded` host discovery) are
+  unaffected. See `DIVERGENCES.md` D10 for the full rationale and scope boundary.
 
 ## Deferred debt
 
