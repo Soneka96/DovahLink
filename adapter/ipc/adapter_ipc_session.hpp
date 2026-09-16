@@ -37,13 +37,11 @@ class IAdapterIpcConnection;
 ///  same generic pipe -- marshal onto the game thread, translate via
 ///  `IAdapterNativeDispatcher`, hand the owned result to
 ///  `IAdapterCaptureHandoffQueue`. No per-message-kind service exists; a
-///  resynchronization request is just another marshaled game-thread task that
-///  reports unavailable until an approved baseline domain exists (this
-///  phase's non-goal against speculative domain registries -- the fresh
-///  baseline data itself is a later concept's contract, per
-///  `IpcResynchronizeResultMessage`'s own documentation). Owns no transport
-///  I/O of its own; every lifecycle event reaches this session through
-///  `AdapterIpcConnection`'s callbacks.
+///  resynchronization request is just another marshaled game-thread task
+///  that reports unavailable, since no approved baseline domain exists yet
+///  (see `IpcResynchronizeResultMessage`'s own documentation). Owns no
+///  transport I/O of its own; every lifecycle event reaches this session
+///  through `AdapterIpcConnection`'s callbacks.
 class IAdapterIpcSession {
   public:
     virtual ~IAdapterIpcSession() = default;

@@ -84,8 +84,7 @@ TEST_CASE(
 //  ApplyAlwaysActiveSetting and InstallAchievementCompatibilityPatch touch
 //  CommonLib runtime state directly (ai/context/skse/testing.md excludes such
 //  adapters from unit testing -- there is no Skyrim process to run against),
-//  so this file asserts the plugin entry point's wiring structurally instead,
-//  mirroring bridge/plugin/dovahlink_bridge_plugin_compatibility_test.cpp:
+//  so this file asserts the plugin entry point's wiring structurally instead:
 //  each call exists exactly once, gated behind its own config flag, so a
 //  future edit cannot accidentally call either unconditionally or drop the
 //  gate.

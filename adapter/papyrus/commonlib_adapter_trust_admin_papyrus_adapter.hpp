@@ -10,12 +10,11 @@ namespace dovahlink::adapter::papyrus {
 ///  an optional ConsoleUtil Extended integration calls, forwarding every
 ///  command to `session`'s `SendTrustAdminRequest` -- the host remains the
 ///  sole trust-administration authority, and this adapter performs no trust
-///  logic of its own. Reuses the frozen `bridge/` implementation's exact
-///  Papyrus class and function names (see
-///  `bridge/game_state/commonlib_trust_admin_papyrus_adapter.hpp`) so the
-///  same optional glue script and ConsoleUtil Extended YAML config work
-///  unchanged against either. See `ai/context/protocol/security.md`'s "Trust
-///  administration surface". Registration is attempted unconditionally,
+///  logic of its own. The `DovahLinkAdmin` Papyrus class and function names
+///  are a stable external contract with ConsoleUtil Extended's own glue
+///  script and YAML config, which reference them by these exact names. See
+///  `ai/context/protocol/security.md`'s "Trust administration surface".
+///  Registration is attempted unconditionally,
 ///  independent of whether ConsoleUtil Extended or its Papyrus glue script
 ///  are actually installed; a failure is logged and remains isolated to this
 ///  optional adapter, and the registered functions simply go unused if they
@@ -31,7 +30,7 @@ namespace dovahlink::adapter::papyrus {
 ///  `DispatchTrustAdminCompletion`. Must outlive the Papyrus VM, the same as
 ///  `session`.
 void InstallAdapterTrustAdminPapyrusAdapter(
-    ipc::IAdapterIpcSession &session,
-    runtime::IAdapterTaskMarshaller &marshaller);
+    ipc::IAdapterIpcSession& session,
+    runtime::IAdapterTaskMarshaller& marshaller);
 
 } //  namespace dovahlink::adapter::papyrus

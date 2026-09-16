@@ -14,8 +14,7 @@ namespace {
 //  Address Library IDs for Skyrim's achievement-eligibility check: SE 13647,
 //  AE/current-runtime 441528. Confirmed against aers/EngineFixesSkyrim64
 //  (MIT-licensed; commit c37a8041ffc0a5859e78a19c71b877327773455d) rather
-//  than assumed -- the same technique already ported once into the retired
-//  native Bridge, translated to this project's pinned CommonLibSSE-NG, which
+//  than assumed, translated to this project's pinned CommonLibSSE-NG, which
 //  exposes REL::safe_fill/safe_write free functions where that reference's
 //  CommonLibSSE fork exposes Relocation::write_fill/write member functions
 //  instead.

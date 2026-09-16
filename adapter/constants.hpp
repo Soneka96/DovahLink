@@ -29,21 +29,20 @@ inline constexpr std::size_t kIpcFrameHeaderBytes = 9;
 //  ---- Limits ----
 
 ///  The maximum total byte length (header plus payload) of one private IPC
-///  frame. Approved as a provisional value for this concept's small
-///  control-only messages; a later concept that needs to carry a larger payload
-///  over this channel may revise it with the same documented approval
-///  `ai/context/protocol/security.md`'s own limits require.
+///  frame, sized for this channel's current small control-only messages.
+///  Revising it to carry a larger payload requires the same documented
+///  approval `ai/context/protocol/security.md`'s own limits require.
 inline constexpr std::size_t kMaxIpcFrameBytes = 65536;
 
 ///  The maximum byte length of an `IpcHelloMessage` peer-ownership proof token.
 inline constexpr std::size_t kMaxIpcPeerProofTokenBytes = 64;
 
-///  The bounded capacity later concepts must enforce for a private IPC
-///  send/receive queue. Not itself enforced by this contract's codec.
+///  The bounded capacity of `AdapterIpcConnection`'s own outbound queue (see
+///  `IAdapterIpcConnection::TrySend`).
 inline constexpr std::size_t kMaxIpcQueuedMessages = 256;
 
-///  The maximum inbound private IPC message rate later concepts must enforce,
-///  per connected peer. Not itself enforced by this contract's codec.
+///  The maximum inbound private IPC message rate `AdapterIpcConnection`
+///  enforces per connected peer (see its `TryAcceptInboundMessage`).
 inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 
 ///  The maximum number of deferred game-thread dispatches `AdapterIpcSession`
@@ -141,11 +140,9 @@ namespace dovahlink::adapter::process {
 //  ---- Process launch ----
 
 ///  The packaged host executable's path relative to the adapter plugin's own
-///  directory. Packaging the final release layout is a non-goal of this
-///  concept; this records the assumed layout a future packaging step must
-///  honor -- the host executable installed as a sibling
-///  `DovahLink.Host/DovahLink.Host.exe` directory beside the adapter plugin
-///  DLL. Combined with that directory by the plugin composition root, which
+///  directory, matching the layout `tooling/adapter_host_packager.py`
+///  produces (`DovahLink.Host/DovahLink.Host.exe` beside the adapter plugin
+///  DLL). Combined with that directory by the plugin composition root, which
 ///  is the only place able to resolve its own module path.
 inline const std::filesystem::path kAdapterHostExecutableRelativePath =
     "DovahLink.Host/DovahLink.Host.exe";
@@ -158,8 +155,8 @@ inline constexpr std::chrono::milliseconds kDefaultAdapterHostLaunchTimeout{
 
 ///  How often `Win32AdapterHostProcessLauncher` polls a launched process's
 ///  redirected stdout pipe for new bytes. Anonymous pipes do not support
-///  overlapped (asynchronous) I/O, so a short poll is this concept's bounded
-///  alternative to a blocking read with no timeout.
+///  overlapped (asynchronous) I/O, so a short poll is the bounded alternative
+///  to a blocking read with no timeout.
 inline constexpr std::chrono::milliseconds kAdapterHostLaunchStdoutPollInterval{
     20};
 

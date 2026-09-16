@@ -25,8 +25,8 @@ ComputeIpcHmacSha256(std::span<const std::byte> key,
 ///  Builds the fixed message `hostProof` is computed over: `challenge ||
 ///  correlationId || adapterInstanceId || ownerLifetimeId`, in exactly this
 ///  field order, matching the wire's little-endian integer convention. Used
-///  identically to compute the expected proof (adapter side) and, in a
-///  future concept, the actual proof (host side, mirrored in C#).
+///  to compute the expected proof on the adapter side; the host side mirrors
+///  this exact construction in C#.
 std::array<std::byte, kIpcHostProofMessageBytes> BuildHostProofMessage(
     const std::array<std::byte, kIpcChallengeBytes>& challenge,
     std::uint64_t correlationId,

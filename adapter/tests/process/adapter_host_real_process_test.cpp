@@ -1163,14 +1163,11 @@ TEST_CASE("a real native adapter completes a trust-admin Revoke request "
     //  Extends the trust-admin List E2E above to a short-id-targeted mutation:
     //  proves TrustAdminOperation::kRevoke and its shortId argument round-trip
     //  through the real cross-language wire encoding and a real Host's real
-    //  handler -- closing the roadmap's "revoke" real end-to-end requirement,
-    //  previously only proven against a raw IPC stream stand-in for the
-    //  adapter (host/DovahLink.Host.Tests), never the real native adapter
-    //  binary. As with the List test above, this test's real Host runs against
-    //  RealHostFixture's isolated per-test trust store, so no client with this
-    //  short id is ever actually trusted here -- this asserts only that the
-    //  result is well-formed and echoes the short id back, not a specific
-    //  outcome.
+    //  handler, using the real native adapter binary. As with the List test
+    //  above, this test's real Host runs against RealHostFixture's isolated
+    //  per-test trust store, so no client with this short id is ever actually
+    //  trusted here -- this asserts only that the result is well-formed and
+    //  echoes the short id back, not a specific outcome.
     RealHostFixture fixture(std::byte{0xE8});
 
     auto resultPromise =
@@ -1201,8 +1198,7 @@ TEST_CASE("a real native adapter completes a trust-admin Revoke request "
 TEST_CASE("a real native adapter completes a trust-admin Block request "
           "against a real launched Host, decoding its typed result",
           "[process][integration]") {
-    //  Mirrors the Revoke E2E above for TrustAdminOperation::kBlock, closing
-    //  the roadmap's "block" real end-to-end requirement the same way.
+    //  Mirrors the Revoke E2E above for TrustAdminOperation::kBlock.
     RealHostFixture fixture(std::byte{0xE9});
 
     auto resultPromise =
@@ -1233,9 +1229,9 @@ TEST_CASE("a real native adapter completes a trust-admin ResetTrust request "
           "against a real launched Host, decoding its typed result",
           "[process][integration]") {
     //  Mirrors the Revoke/Block E2Es above for the no-argument, bulk
-    //  TrustAdminOperation::kResetTrust, closing the roadmap's "reset" real
-    //  end-to-end requirement. Unlike Revoke/Block, ResetTrust's result text is
-    //  deterministic regardless of the real trust store's content -- it always
+    //  TrustAdminOperation::kResetTrust. Unlike Revoke/Block, ResetTrust's
+    //  result text is deterministic regardless of the real trust store's
+    //  content -- it always
     //  reports how many devices it revoked, including zero -- so this asserts
     //  the exact shape rather than merely a substring. Against RealHostFixture's
     //  isolated, empty-on-start per-test store, zero devices are ever trusted
@@ -1484,10 +1480,8 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
     //  second, independent public connection presenting that exact credential
     //  is admitted as `clientIdentityKind: "paired"` with no adapter
     //  involvement at all -- proving trusted reconnect never depends on the
-    //  adapter being present. Closes the roadmap's "trusted reconnect" real
-    //  end-to-end requirement, previously only proven against a raw IPC stream
-    //  stand-in for the adapter (host/DovahLink.Host.Tests), never the real
-    //  native adapter binary that produces the displayed code here.
+    //  adapter being present, using the real native adapter binary that
+    //  produces the displayed code here.
     constexpr std::uint16_t kPublicListenerPort = 58431;
     ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
         kPublicListenerPort);

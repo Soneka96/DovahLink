@@ -20,8 +20,8 @@ find_package(Catch2 3.0 CONFIG REQUIRED)
 # Python dependency.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-# Independent of bridge/: no CommonLib/Skyrim dependency, per
-# ai/context/adapter/architecture.md's "Technology boundary".
+# No CommonLib/Skyrim dependency, per ai/context/adapter/architecture.md's
+# "Technology boundary".
 add_library(dovahlink_adapter_core STATIC
     ipc/ipc_frame_codec.cpp
     ipc/winsock_adapter_ipc_socket.cpp
@@ -70,10 +70,9 @@ add_library(dovahlink_adapter_runtime STATIC
 )
 target_link_libraries(dovahlink_adapter_runtime PUBLIC dovahlink_adapter_core CommonLibSSE::CommonLibSSE)
 
-# The real SKSE plugin binary. Deliberately NOT using add_commonlibsse_plugin,
-# for the same reason documented in bridge/CMakeLists.txt: that macro
-# auto-generates a small file including REL/Relocation.h before SKSE/SKSE.h,
-# which breaks at this project's pinned CommonLibSSE-NG commit.
+# The real SKSE plugin binary. Deliberately NOT using add_commonlibsse_plugin:
+# that macro auto-generates a small file including REL/Relocation.h before
+# SKSE/SKSE.h, which breaks at this project's pinned CommonLibSSE-NG commit.
 # plugin/dovahlink_adapter_plugin.cpp includes SKSE/SKSE.h first and declares
 # the SKSEPluginInfo block itself instead.
 add_library(dovahlink_adapter_plugin SHARED plugin/dovahlink_adapter_plugin.cpp)
@@ -83,9 +82,7 @@ target_link_libraries(dovahlink_adapter_plugin PRIVATE dovahlink_adapter_runtime
 # A tiny standalone process used only by
 # adapter_host_process_launcher_test.cpp to exercise real Win32 process
 # launch, stdout redirection, and Job Object termination: a real,
-# controllable child process referenced by its own built path, the same
-# shape the Bridge's own test-harness executable target uses for its
-# equivalent need.
+# controllable child process referenced by its own built path.
 add_executable(dovahlink_adapter_launcher_test_fixture
     tests/process/adapter_host_launcher_test_fixture_process.cpp
 )

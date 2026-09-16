@@ -11,8 +11,7 @@ namespace dovahlink::adapter::ipc {
 ///  a connecting peer belongs to the matching packaged pair
 ///  (`ai/context/host/architecture.md`'s "Framing and package ownership").
 ///  The host generates the value; process launch is responsible for handing
-///  the same value to the adapter it starts -- a later concept's
-///  process-lifecycle work, not this one.
+///  the same value to the adapter it starts. That wiring does not exist yet.
 class IAdapterIpcPeerProofProvider {
   public:
     virtual ~IAdapterIpcPeerProofProvider() = default;

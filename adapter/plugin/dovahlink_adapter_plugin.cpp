@@ -38,8 +38,7 @@
 
 namespace {
 
-///  Minimal file logging to the SKSE log directory, mirroring
-///  `bridge/plugin/dovahlink_bridge_plugin.cpp`'s `SetupLogging`: async so no
+///  Configures asynchronous file logging to the SKSE log directory so no
 ///  `SKSE::log::` call inside a raw SKSE callback (the messaging listener)
 ///  can block on filesystem I/O.
 void SetupLogging() {
