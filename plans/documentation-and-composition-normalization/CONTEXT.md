@@ -10,14 +10,28 @@ Status: active (package frozen 2026-09-13)
 ## Active concept
 
 - File: `05-adapter-documentation-sweep.md`
-- Status: In progress on branch `feature/05-adapter-documentation-sweep`. Prerequisite
-  (Concept 03 merged to `main`) confirmed via `git log` (merge commit `e76b7640`, PR
-  #68), not inferred from a prior label.
-- Started via `/step-build`, an 11-step plan (module-by-module doc/member-ordering
-  sweep across `adapter/`, `R5.6b`'s `cpp-style.md` trim, then a final acceptance
-  gate) -- see that skill's own plan output in this session for the full per-step
-  breakdown; not duplicated here per this package's own information-ownership rule
-  (R1.5).
+- Status: Complete on branch `feature/05-adapter-documentation-sweep`, not yet opened
+  as a PR. Prerequisite (Concept 03 merged to `main`) confirmed via `git log` (merge
+  commit `e76b7640`, PR #68), not inferred from a prior label.
+- Implemented via `/step-build`, an 11-step plan (module-by-module doc/member-ordering
+  survey across `adapter/{capture,dispatch,identity,ipc,papyrus,plugin,process,runtime}/`,
+  `R5.6b`'s `cpp-style.md` trim, then a final acceptance gate) -- see that skill's own
+  plan output in this session for the full per-step breakdown; not duplicated here per
+  this package's own information-ownership rule (R1.5). See
+  `05-adapter-documentation-sweep.md`'s own R5.1-R5.10/R5.6b traceability table for
+  the full per-requirement evidence. This is the package's final concept -- once its PR
+  merges, verify `PLAN.md` section 9's phase completion gate.
+- Close-out: 9 commits (`aa44db1f` bookkeeping, 8 `docs(adapter)` content commits),
+  21 `adapter/` files changed, real content diff (formatting-reflow noise from the
+  staged-code pre-commit hook separated out via `git diff -b`) 199 insertions/243
+  deletions. Repo-wide `git grep -ilI bridge -- adapter/` confirms zero remaining Bridge
+  references outside the intentional regression-guard tests in
+  `dovahlink_adapter_plugin_test.cpp`. Full `ctest --preset windows-x64-debug` re-run
+  after every content-changing step: 488/490 passed, 2 skipped, identical to the
+  pre-sweep baseline every time; the IPC test group was additionally re-run 3 times
+  after the highest-risk step (`AdapterIpcSession`/`AdapterIpcConnection`/
+  `WinsockAdapterIpcSocket`) with no flakiness. `python -m unittest discover -s tooling
+  -p "test_*.py"` re-run clean, 170/170.
 - Preflight (this session): Debug configure+build+ctest confirmed reproducible in this
   environment (MSVC dev environment must be sourced manually every command --
   `vcvars64.bat` + `VCPKG_ROOT=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\vcpkg`
@@ -885,9 +899,16 @@ inferred from either branch's own prior label. Concept 04 (Host documentation sw
 merged to `main` via PR #69 (merge commit `f6e63530`), confirmed via `git log` -- see
 the Completed-concepts entry above for the full evidence.
 
-Handoff to Concept 05 (Adapter documentation sweep) is now active on branch
+Concept 05 (Adapter documentation sweep) implemented via `/step-build` on branch
 `feature/05-adapter-documentation-sweep`, per the same one-branch/PR-per-concept rule
--- `05`'s own prerequisite (03 merged) is confirmed satisfied by the merge commit
-above, not inferred from either branch's own prior label. This session started
-Concept 05 via `/step-build`; see the Active-concept entry above for the plan shape
-and the preflight verification-capability evidence.
+-- `05`'s own prerequisite (03 merged) was confirmed satisfied by the merge commit
+above, not inferred from either branch's own prior label. See the Active-concept entry
+above for the plan shape, preflight verification-capability evidence, and close-out
+summary; see `05-adapter-documentation-sweep.md`'s own traceability table for the
+full per-requirement evidence.
+
+This was the package's final concept. Its branch is not yet opened as a PR or merged
+-- that, and the `PLAN.md` section 9 phase-completion-gate check that follows once it
+merges, remain for the maintainer. Every requirement ID in `PLAN.md`'s traceability
+matrix now traces to a `Complete`-status concept on its own branch; no ID is
+outstanding.

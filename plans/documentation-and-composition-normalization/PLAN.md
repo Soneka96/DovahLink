@@ -264,7 +264,7 @@ no requirement ID -- see `DIVERGENCES.md` D4.
 | 02 -- Host composition and DI lifetimes | Complete | #67 |
 | 03 -- Adapter runtime composition | Complete | #68 |
 | 04 -- Host documentation sweep | Complete | #69 |
-| 05 -- Adapter documentation sweep | In progress | -- |
+| 05 -- Adapter documentation sweep | Complete | -- |
 
 Status values: `Planned` -> `In progress` -> `Complete` (or `Blocked by <n>` while its
 dependency is unmerged). A concept's own branch may record `Complete` before its PR
