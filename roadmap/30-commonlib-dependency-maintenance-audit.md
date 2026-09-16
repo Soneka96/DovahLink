@@ -1,6 +1,6 @@
 # Stage 30 — CommonLib Dependency Maintenance Audit
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./29-runtime-profiling-and-advanced-bridge-hardening.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./29-runtime-profiling-and-advanced-hardening.md)
 
 ## 30. CommonLib Dependency Maintenance Audit
 

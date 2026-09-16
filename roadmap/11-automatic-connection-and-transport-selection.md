@@ -1,6 +1,6 @@
 # Stage 11 — Automatic Connection and Transport Selection
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./10-multi-bridge-and-local-discovery-foundation.md) · [Next stage](./12-mod-awareness.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./10-multi-instance-and-local-discovery-foundation.md) · [Next stage](./12-mod-awareness.md)
 
 ## 11. Automatic Connection and Transport Selection
 

@@ -1,6 +1,6 @@
 # Stage 28 — Safe Companion Authorization Foundation
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./27-optional-ui-mod-adapters.md) · [Next stage](./29-runtime-profiling-and-advanced-bridge-hardening.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./27-optional-ui-mod-adapters.md) · [Next stage](./29-runtime-profiling-and-advanced-hardening.md)
 
 ## 28. Safe Companion Authorization Foundation
 

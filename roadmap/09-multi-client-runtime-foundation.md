@@ -1,6 +1,6 @@
 # Stage 9 — Multi-Client Runtime Foundation
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./08-live-player-state.md) · [Next stage](./10-multi-bridge-and-local-discovery-foundation.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./08-live-player-state.md) · [Next stage](./10-multi-instance-and-local-discovery-foundation.md)
 
 ## 9. Multi-Client Runtime Foundation
 
