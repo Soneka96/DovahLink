@@ -92,3 +92,65 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes and copies vitals in "
     CHECK(healthCopyPosition < magickaCopyPosition);
     CHECK(magickaCopyPosition < staminaCopyPosition);
 }
+
+TEST_CASE("CommonLibAdapterNativeCaptureRouter::RegisterEvent fails closed "
+          "for any key other than the approved level-changed key",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    std::string source = NormalizeWhitespace(RouterSource());
+
+    CHECK(source.find(NormalizeWhitespace(
+              "if (static_cast<capture::CharacterEventKey>(eventKey) != "
+              "capture::CharacterEventKey::kCharacterLevelChanged) {")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("return false;")) != std::string::npos);
+}
+
+TEST_CASE("CommonLibAdapterNativeCaptureRouter::RegisterEvent registers the "
+          "owned sink instance on RE::LevelIncrease's real event source",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    std::string source = NormalizeWhitespace(RouterSource());
+
+    CHECK(source.find(NormalizeWhitespace(
+              "RE::LevelIncrease::GetEventSource()->AddEventSink("
+              "levelChangedEventSink_.get());")) != std::string::npos);
+}
+
+TEST_CASE("LevelChangedEventSink::ProcessEvent guards a null event and "
+          "enqueues an Available Event-sourced capture for the level-changed "
+          "key on a non-null one",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    std::string source = NormalizeWhitespace(RouterSource());
+
+    CHECK(source.find(NormalizeWhitespace("if (event == nullptr) {\nreturn "
+                                          "RE::BSEventNotifyControl::kContinue;")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("EncodeUInt16LittleEndian(event->newLevel)")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              ".intentKey = static_cast<std::uint32_t>(\n"
+              "capture::CharacterEventKey::kCharacterLevelChanged),")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(".source = capture::CaptureSourceKind::kEvent,")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(".availability = capture::CaptureAvailability::kAvailable,")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              ".capturedValue = std::vector<std::byte>(encoded.begin(), encoded.end()),")) !=
+          std::string::npos);
+    //  Both stay their captured/no-context defaults until a following step
+    //  adds real resynchronization correlation and play-context tracking on
+    //  the adapter side; guards against either silently changing here first.
+    CHECK(source.find(NormalizeWhitespace(".correlationId = 0,")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(".playContextId = {},")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("captureQueue_.TryEnqueue(")) != std::string::npos);
+}
+
+TEST_CASE("CommonLibAdapterNativeCaptureRouter constructs its owned sink "
+          "with the same captureQueue reference it was given",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    //  Guards against a refactor that constructs the sink with a different
+    //  or default-constructed queue, silently disconnecting event captures
+    //  from the real handoff queue.
+    std::string source = NormalizeWhitespace(RouterSource());
+
+    CHECK(source.find(NormalizeWhitespace(
+              "levelChangedEventSink_(std::make_unique<LevelChangedEventSink>(captureQueue))")) !=
+          std::string::npos);
+}

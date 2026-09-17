@@ -1,5 +1,7 @@
 #include "runtime/commonlib_adapter_native_capture_router.hpp"
 
+#include "RE/Skyrim.h"
+
 #include <algorithm>
 #include <array>
 #include <iterator>
@@ -9,6 +11,50 @@
 #include "runtime/commonlib_adapter_character_capture.hpp"
 
 namespace dovahlink::adapter::runtime {
+
+///  The real `RE::LevelIncrease::Event` sink. Defined only here so the
+///  owning header stays Skyrim/SKSE-free; see the header's own doc comment.
+class CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink final
+    : public RE::BSTEventSink<RE::LevelIncrease::Event> {
+  public:
+    explicit LevelChangedEventSink(capture::IAdapterCaptureHandoffQueue& captureQueue)
+        : captureQueue_(captureQueue) {}
+
+    ///  Copies the new level and enqueues it. The queue may reject an item
+    ///  at capacity; reliable-Event loss under sustained capture-queue
+    ///  pressure is a known, documented open risk (see
+    ///  `roadmap/04-live-state-synchronization-foundation.md`'s "Real
+    ///  capture and host integration"), not silently handled here.
+    RE::BSEventNotifyControl
+    ProcessEvent(const RE::LevelIncrease::Event* event,
+                 RE::BSTEventSource<RE::LevelIncrease::Event>*) override {
+        if (event == nullptr) {
+            return RE::BSEventNotifyControl::kContinue;
+        }
+        std::array<std::byte, 2> encoded =
+            capture::EncodeUInt16LittleEndian(event->newLevel);
+        captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+            .intentKey = static_cast<std::uint32_t>(
+                capture::CharacterEventKey::kCharacterLevelChanged),
+            .capturedValue = std::vector<std::byte>(encoded.begin(), encoded.end()),
+            .correlationId = 0,
+            .source = capture::CaptureSourceKind::kEvent,
+            .availability = capture::CaptureAvailability::kAvailable,
+            .playContextId = {},
+        });
+        return RE::BSEventNotifyControl::kContinue;
+    }
+
+  private:
+    capture::IAdapterCaptureHandoffQueue& captureQueue_;
+};
+
+CommonLibAdapterNativeCaptureRouter::CommonLibAdapterNativeCaptureRouter(
+    capture::IAdapterCaptureHandoffQueue& captureQueue)
+    : captureQueue_(captureQueue),
+      levelChangedEventSink_(std::make_unique<LevelChangedEventSink>(captureQueue)) {}
+
+CommonLibAdapterNativeCaptureRouter::~CommonLibAdapterNativeCaptureRouter() = default;
 
 std::optional<std::vector<std::byte>>
 CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
@@ -49,8 +95,13 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
     }
 }
 
-bool CommonLibAdapterNativeCaptureRouter::RegisterEvent(std::uint32_t /*eventKey*/) {
-    return false;
+bool CommonLibAdapterNativeCaptureRouter::RegisterEvent(std::uint32_t eventKey) {
+    if (static_cast<capture::CharacterEventKey>(eventKey) !=
+        capture::CharacterEventKey::kCharacterLevelChanged) {
+        return false;
+    }
+    RE::LevelIncrease::GetEventSource()->AddEventSink(levelChangedEventSink_.get());
+    return true;
 }
 
 } //  namespace dovahlink::adapter::runtime

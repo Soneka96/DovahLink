@@ -2,9 +2,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
+#include "capture/adapter_capture_handoff_queue.hpp"
 #include "dispatch/adapter_native_capture_router.hpp"
 
 namespace dovahlink::adapter::runtime {
@@ -22,17 +24,45 @@ namespace dovahlink::adapter::runtime {
 ///  `IAdapterNativeCaptureRouter::CaptureSample`'s own contract does not
 ///  distinguish the two; the host applies the same "unavailable" treatment
 ///  to either.
+///
+///  Also registers and owns the `RE::LevelIncrease::Event` sink for
+///  `CharacterEventKey::kCharacterLevelChanged`: a spontaneous native event
+///  has no session-driven caller to hand a captured value back to the way a
+///  sampled `CaptureSample` result does, so this router enqueues the event's
+///  own capture directly onto `captureQueue` (given at construction) instead.
+///  `LevelChangedEventSink` stays forward-declared here, defined only in the
+///  `.cpp`, so this header stays free of Skyrim/SKSE runtime types, matching
+///  every other `adapter/runtime` header.
 class CommonLibAdapterNativeCaptureRouter final
     : public dispatch::IAdapterNativeCaptureRouter {
   public:
+    ///  Creates a router that enqueues level-changed event captures onto
+    ///  `captureQueue`.
+    ///  @param captureQueue Must outlive this router.
+    explicit CommonLibAdapterNativeCaptureRouter(capture::IAdapterCaptureHandoffQueue& captureQueue);
+
+    ///  Declared out-of-line so `LevelChangedEventSink` need not be complete here.
+    ~CommonLibAdapterNativeCaptureRouter() override;
+
+    CommonLibAdapterNativeCaptureRouter(const CommonLibAdapterNativeCaptureRouter&) = delete;
+    CommonLibAdapterNativeCaptureRouter& operator=(const CommonLibAdapterNativeCaptureRouter&) = delete;
+
     ///  @copydoc IAdapterNativeCaptureRouter::CaptureSample
     std::optional<std::vector<std::byte>>
     CaptureSample(std::uint32_t sampleToken) override;
 
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
-    ///  Not yet implemented: always returns `false`. The level-changed
-    ///  native-event sink lands in a following step.
+    ///  Only `CharacterEventKey::kCharacterLevelChanged` is approved; any
+    ///  other key fails closed. Idempotent: `RE::BSTEventSource::AddEventSink`
+    ///  itself de-duplicates by sink pointer, and this router always
+    ///  registers the same owned sink instance.
     bool RegisterEvent(std::uint32_t eventKey) override;
+
+  private:
+    class LevelChangedEventSink;
+
+    capture::IAdapterCaptureHandoffQueue& captureQueue_;
+    std::unique_ptr<LevelChangedEventSink> levelChangedEventSink_;
 };
 
 } //  namespace dovahlink::adapter::runtime
