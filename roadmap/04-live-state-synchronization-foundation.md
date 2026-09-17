@@ -468,7 +468,10 @@ removed merely because they are not real Skyrim data.
 
 #### Real capture and host integration
 
-**Status:** Planned — follows Host-owned state/publication/delivery
+**Status:** Implementation complete on Host and Adapter. Every acceptance criterion below is met
+by the code except the last, which requires the maintainer's own live Skyrim session to verify --
+this environment cannot run Skyrim, so that check has not happened yet. Do not mark this slice
+Complete until it has.
 
 Connect the real adapter capture stream and play-context lifecycle to the host state pipeline. Add
 the first production state flow through the host/adapter boundary, including current-state
@@ -511,3 +514,40 @@ Acceptance criteria:
 - The first real state flow is proven over the host, adapter, and client processes.
 
 Not in scope: broad domain expansion beyond the narrow first slice.
+
+**Implementation record.** The existing `ReadSample`/`ListenEvent`/`CaptureResult`/
+`ResynchronizeRequest` private IPC messages, `LiveStateCatalog`, and `LiveCaptureSink` (all already
+built before this slice) needed no changes; the remaining work was entirely the real capture path
+behind them.
+
+- Host: `LiveStateScheduler` drives the Fast/Medium `ReadSample` cadence for the vitals and XP
+  capture units from `LiveStateCatalog`, as a third concurrent task in `DovahLinkHostRuntime`. It
+  never sends `ListenEvent`: the level-changed event and every baseline sample (level, vitals, XP)
+  are registered and captured entirely by the Adapter's own resynchronization handling below, not by
+  a Host-sent request. `IpcListenEventMessage`/`TrySendListenEvent` therefore remain unused by
+  production code in this slice -- present on the wire and exercised only by direct
+  `AdapterIpcSession` tests -- rather than dead code to remove, since a future reliable-event domain
+  may still need a Host-initiated registration path independent of resync.
+- Adapter: `CommonLibCharacterCapture` (`adapter/runtime/`) performs the real native reads --
+  health/magicka/stamina via one coherent `RE::ActorValueOwner::GetActorValue` lookup, XP via
+  `PlayerCharacter::GetInfoRuntimeData().skills->data->xp`, and the level baseline via
+  `Actor::GetLevel()` -- each returning `std::nullopt` rather than a fabricated value on any
+  failure. `GetActorValue` (the current-value accessor, not `GetPermanentActorValue`/
+  `GetBaseActorValue`) was a deliberate choice for "current" `character_health`/`character_magicka`/
+  `character_stamina` semantics; it has not been verified in a running Skyrim session, particularly
+  around death, essential/downed actors, and negative health. `CommonLibAdapterNativeCaptureRouter`
+  maps each `CharacterSampleToken` to its read and encodes the little-endian wire payload
+  `LiveCaptureSink.cs` decodes, and owns the `RE::LevelIncrease::Event` sink for
+  `CharacterEventKey::kCharacterLevelChanged` (registration is idempotent because
+  `RE::BSTEventSource::AddEventSink` itself de-duplicates by sink pointer, and the router always
+  registers the same owned instance). `AdapterIpcSession::HandleResynchronizeRequest` registers the
+  level-changed event before reading the level baseline, in the same game-thread task, so there is
+  no window a level-up could land in unobserved; `accepted` is now unconditionally `true` once that
+  path runs, since an individual capture's own unavailability is carried by its own `CaptureResult`,
+  not by rejecting the whole resync. `AdapterPlayContextGenerator` sends a fresh play-context
+  identity, unconditionally, on every `kNewGame` and `kPostLoadGame` SKSE message (including a
+  reload of the same save) through the session's existing `SendPlayContextChanged`; captures are
+  stamped with that context at capture time, per the Host's own staleness-rejection contract.
+- Reliable native-Event delivery under sustained capture-queue pressure remains the same open,
+  documented risk named above -- `character_level`'s real event now exercises that path for the
+  first time, but no additional mitigation was added in this slice.
