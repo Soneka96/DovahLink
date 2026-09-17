@@ -166,7 +166,7 @@ TEST_CASE("AdapterRuntime owns every collaborator in its graph through a "
 
     for (const char* ownedMember :
          {"std::unique_ptr<capture::AdapterCaptureHandoffQueue> captureQueue_;",
-          "std::unique_ptr<dispatch::AdapterNativeCaptureRouter> captureRouter_;",
+          "std::unique_ptr<dispatch::IAdapterNativeCaptureRouter> captureRouter_;",
           "std::unique_ptr<ipc::AdapterIpcSession> session_;",
           "std::unique_ptr<ipc::WinsockAdapterIpcSocket> socket_;",
           "std::unique_ptr<ipc::IpcFrameCodec> codec_;",
@@ -178,4 +178,25 @@ TEST_CASE("AdapterRuntime owns every collaborator in its graph through a "
         INFO("checking " << ownedMember);
         CHECK(source.find(ownedMember) != std::string::npos);
     }
+}
+
+TEST_CASE("AdapterRuntime calls the capture-router factory only after "
+          "captureQueue_ is constructed",
+          "[plugin][structural]") {
+    //  captureRouterFactory takes the capture queue as its own argument, so
+    //  calling it before captureQueue_ exists would pass a dereferenced
+    //  not-yet-constructed unique_ptr. See AdapterRuntime's own constructor
+    //  doc comment for why the factory -- rather than an already-constructed
+    //  collaborator, like taskMarshaller and pairingNotificationSink -- is
+    //  the right shape here.
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_RUNTIME_SOURCE_FILE);
+
+    std::size_t queueConstruction = source.find(
+        "captureQueue_ = std::make_unique<capture::AdapterCaptureHandoffQueue>");
+    std::size_t routerFactoryCall =
+        source.find("captureRouter_ = captureRouterFactory(*captureQueue_);");
+
+    REQUIRE(queueConstruction != std::string::npos);
+    REQUIRE(routerFactoryCall != std::string::npos);
+    CHECK(queueConstruction < routerFactoryCall);
 }

@@ -19,6 +19,7 @@
 #include "runtime/adapter_game_behavior_config_file_reader.hpp"
 #include "runtime/adapter_runtime_guard.hpp"
 #include "runtime/commonlib_adapter_game_behavior_compatibility.hpp"
+#include "runtime/commonlib_adapter_native_capture_router.hpp"
 #include "runtime/commonlib_adapter_task_marshaller.hpp"
 
 #ifndef NOMINMAX
@@ -212,6 +213,11 @@ SKSEPluginInfo(
     //  require CommonLib, so they are constructed here -- like AdapterRuntime
     //  below, as intentional process-lifetime allocations, never deleted --
     //  and passed into AdapterRuntime, which is otherwise CommonLib-free.
+    //  CommonLibAdapterNativeCaptureRouter also requires CommonLib, but it
+    //  additionally needs AdapterRuntime's own capture queue, which does not
+    //  exist yet at this point -- so it is supplied as a factory instead of
+    //  an already-constructed instance; see AdapterRuntime's own constructor
+    //  doc comment for why.
     static auto* taskMarshaller =
         new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller;
     static auto* pairingNotificationSink =
@@ -230,6 +236,11 @@ SKSEPluginInfo(
     //  documented on AdapterRuntime itself.
     static auto* runtime = new dovahlink::adapter::plugin::AdapterRuntime(
         startupContext, *taskMarshaller, *pairingNotificationSink,
+        [](dovahlink::adapter::capture::IAdapterCaptureHandoffQueue& queue) {
+            return std::make_unique<
+                dovahlink::adapter::runtime::CommonLibAdapterNativeCaptureRouter>(
+                queue);
+        },
         [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
             SKSE::log::info("Adapter capture drained for intent key {}.",
                             item.intentKey);

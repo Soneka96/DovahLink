@@ -10,6 +10,9 @@ AdapterRuntime::AdapterRuntime(
     AdapterStartupContext startupContext,
     runtime::IAdapterTaskMarshaller& taskMarshaller,
     ipc::IAdapterPairingNotificationSink& pairingNotificationSink,
+    std::function<std::unique_ptr<dispatch::IAdapterNativeCaptureRouter>(
+        capture::IAdapterCaptureHandoffQueue&)>
+        captureRouterFactory,
     std::function<void(const capture::AdapterCaptureWorkItem&)>
         onCaptureDrained,
     std::function<void(const capture::AdapterCaptureWorkItem&)>
@@ -33,7 +36,7 @@ AdapterRuntime::AdapterRuntime(
             }
         },
         std::move(onCaptureQueueRejected));
-    captureRouter_ = std::make_unique<dispatch::AdapterNativeCaptureRouter>();
+    captureRouter_ = captureRouterFactory(*captureQueue_);
 
     session_ = std::make_unique<ipc::AdapterIpcSession>(
         startupContext.instanceId, startupContext.ownerLifetimeId,

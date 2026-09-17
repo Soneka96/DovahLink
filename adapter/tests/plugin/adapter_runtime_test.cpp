@@ -18,6 +18,9 @@
 #include <string>
 
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
+using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
+using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
+using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::ipc::IAdapterPairingNotificationSink;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::test_support::FakeAdapterTaskMarshaller;
@@ -45,6 +48,15 @@ class RecordingPairingNotificationSink final
   private:
     int displayCalls_ = 0;
 };
+
+///  A capture-router factory that always builds the core no-op stub, for
+///  tests that only need AdapterRuntime's own wiring to compile and run --
+///  not real native capture behavior, which requires CommonLib and is
+///  covered separately by the runtime/ structural tests.
+std::unique_ptr<IAdapterNativeCaptureRouter>
+MakeStubCaptureRouter(IAdapterCaptureHandoffQueue&) {
+    return std::make_unique<AdapterNativeCaptureRouter>();
+}
 
 ///  Builds a startup context pointing at safe, non-colliding scratch paths:
 ///  a rendezvous file that does not exist (so discovery's first read returns
@@ -153,7 +165,7 @@ TEST_CASE("AdapterRuntime constructs its complete object graph exactly once "
         std::filesystem::temp_directory_path() / "dovahlink_adapter_runtime_test";
     std::filesystem::create_directories(scratchDirectory);
 
-    AdapterRuntime runtime(BuildStartupContext(scratchDirectory), taskMarshaller, pairingSink, [](const AdapterCaptureWorkItem&) {}, [](const AdapterCaptureWorkItem&) {}, [] {});
+    AdapterRuntime runtime(BuildStartupContext(scratchDirectory), taskMarshaller, pairingSink, MakeStubCaptureRouter, [](const AdapterCaptureWorkItem&) {}, [](const AdapterCaptureWorkItem&) {}, [] {});
 
     //  A freshly constructed session has no connected host yet; observing this
     //  through the real session confirms Session() returns the same object the
@@ -172,7 +184,7 @@ TEST_CASE("AdapterRuntime::Start is idempotent and destruction while started "
         std::filesystem::temp_directory_path() / "dovahlink_adapter_runtime_test";
     std::filesystem::create_directories(scratchDirectory);
 
-    AdapterRuntime runtime(BuildStartupContext(scratchDirectory), taskMarshaller, pairingSink, [](const AdapterCaptureWorkItem&) {}, [](const AdapterCaptureWorkItem&) {}, [] {});
+    AdapterRuntime runtime(BuildStartupContext(scratchDirectory), taskMarshaller, pairingSink, MakeStubCaptureRouter, [](const AdapterCaptureWorkItem&) {}, [](const AdapterCaptureWorkItem&) {}, [] {});
 
     runtime.Start();
     runtime.Start();
@@ -209,7 +221,7 @@ TEST_CASE("AdapterRuntime destroys safely while its connection is actively "
     };
 
     auto runtime = std::make_unique<AdapterRuntime>(
-        startupContext, taskMarshaller, pairingSink,
+        startupContext, taskMarshaller, pairingSink, MakeStubCaptureRouter,
         [](const AdapterCaptureWorkItem&) {},
         [](const AdapterCaptureWorkItem&) {}, [] {});
     runtime->Start();

@@ -32,8 +32,14 @@ class AdapterRuntime final {
     ///  `taskMarshaller` and `pairingNotificationSink` are supplied by the
     ///  caller rather than constructed here because their only implementations
     ///  require CommonLib, which this class -- like the rest of
-    ///  `dovahlink_adapter_core` -- does not depend on. For the same reason,
-    ///  `onCaptureDrained`, `onCaptureQueueRejected`, and
+    ///  `dovahlink_adapter_core` -- does not depend on. `captureRouterFactory`
+    ///  is a factory rather than an already-constructed collaborator like the
+    ///  other two: its only real implementation also requires CommonLib, but
+    ///  it needs `captureQueue_`, which does not exist until this
+    ///  constructor's body runs, so the caller cannot construct it in
+    ///  advance -- this constructor calls the factory itself, immediately
+    ///  after `captureQueue_` is built. For the same CommonLib-boundary
+    ///  reason, `onCaptureDrained`, `onCaptureQueueRejected`, and
     ///  `onGameThreadDispatchRejected` are diagnostic callbacks the caller
     ///  supplies rather than `SKSE::log` calls made directly here.
     ///  @param startupContext The resolved startup values this graph is built
@@ -41,6 +47,8 @@ class AdapterRuntime final {
     ///  @param taskMarshaller Marshals work onto the Skyrim game thread.
     ///  @param pairingNotificationSink Presents pairing codes at the
     ///  Skyrim-facing display seam.
+    ///  @param captureRouterFactory Builds the native capture router given
+    ///  the capture queue it enqueues spontaneous native-event captures onto.
     ///  @param onCaptureDrained Invoked for each capture item the handoff
     ///  queue's worker thread drains.
     ///  @param onCaptureQueueRejected Invoked when the handoff queue rejects a
@@ -51,6 +59,9 @@ class AdapterRuntime final {
         AdapterStartupContext startupContext,
         runtime::IAdapterTaskMarshaller& taskMarshaller,
         ipc::IAdapterPairingNotificationSink& pairingNotificationSink,
+        std::function<std::unique_ptr<dispatch::IAdapterNativeCaptureRouter>(
+            capture::IAdapterCaptureHandoffQueue&)>
+            captureRouterFactory,
         std::function<void(const capture::AdapterCaptureWorkItem&)>
             onCaptureDrained,
         std::function<void(const capture::AdapterCaptureWorkItem&)>
@@ -95,7 +106,7 @@ class AdapterRuntime final {
     ///  teardown safe, since `connection_` owns a background thread
     ///  independent of `supervisor_`'s own.
     std::unique_ptr<capture::AdapterCaptureHandoffQueue> captureQueue_;
-    std::unique_ptr<dispatch::AdapterNativeCaptureRouter> captureRouter_;
+    std::unique_ptr<dispatch::IAdapterNativeCaptureRouter> captureRouter_;
     std::unique_ptr<ipc::AdapterIpcSession> session_;
     std::unique_ptr<ipc::WinsockAdapterIpcSocket> socket_;
     std::unique_ptr<ipc::IpcFrameCodec> codec_;
