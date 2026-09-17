@@ -3,6 +3,7 @@
 #include "constants.hpp"
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -397,21 +398,22 @@ std::vector<std::byte> IpcFrameCodec::EncodeCaptureResult(
             "An unavailable capture result must carry an empty payload.");
     }
 
-    std::vector<std::byte> payload(6 + captureResult.payload.size());
+    std::vector<std::byte> payload(22 + captureResult.payload.size());
     payload[0] =
         static_cast<std::byte>(std::to_underlying(captureResult.source));
     WriteUInt32LittleEndian(std::span<std::byte, 4>(payload.data() + 1, 4),
                             captureResult.captureKey);
     payload[5] = static_cast<std::byte>(
         std::to_underlying(captureResult.availability));
-    std::ranges::copy(captureResult.payload, payload.begin() + 6);
+    std::ranges::copy(captureResult.playContextId, payload.begin() + 6);
+    std::ranges::copy(captureResult.payload, payload.begin() + 22);
     return payload;
 }
 
 std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeCaptureResult(std::uint64_t correlationId,
                                    std::span<const std::byte> payload) {
-    if (payload.size() < 6) {
+    if (payload.size() < 22) {
         return std::unexpected(IpcRejectReason::kMalformedPayload);
     }
 
@@ -425,7 +427,9 @@ IpcFrameCodec::DecodeCaptureResult(std::uint64_t correlationId,
 
     const auto availability =
         static_cast<capture::CaptureAvailability>(availabilityByte);
-    const std::span<const std::byte> valueBytes = payload.subspan(6);
+    std::array<std::byte, 16> playContextId{};
+    std::ranges::copy(payload.subspan(6, 16), playContextId.begin());
+    const std::span<const std::byte> valueBytes = payload.subspan(22);
     if (availability == capture::CaptureAvailability::kUnavailable &&
         !valueBytes.empty()) {
         return std::unexpected(IpcRejectReason::kMalformedPayload);
@@ -436,6 +440,7 @@ IpcFrameCodec::DecodeCaptureResult(std::uint64_t correlationId,
         .source = static_cast<capture::CaptureSourceKind>(sourceByte),
         .captureKey = captureKey,
         .availability = availability,
+        .playContextId = playContextId,
         .payload =
             std::vector<std::byte>(valueBytes.begin(), valueBytes.end()),
     }};

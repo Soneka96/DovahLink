@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -22,6 +23,9 @@ struct IpcCaptureResultMessage {
     ///  Whether `payload` holds a real captured value.
     capture::CaptureAvailability availability =
         capture::CaptureAvailability::kAvailable;
+    ///  The play context that was current at the moment this value was
+    ///  captured, matching `capture::AdapterCaptureWorkItem::playContextId`.
+    std::array<std::byte, 16> playContextId{};
     ///  The captured value, already copied out of Skyrim state; empty when
     ///  `availability` is `kUnavailable`.
     std::vector<std::byte> payload;

@@ -712,7 +712,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         return IpcDecodeResult.Success(new IpcTrustAdminResultMessage(correlationId, Encoding.UTF8.GetString(payload)));
     }
 
-    /// <summary>Encodes a capture result: source byte, four-byte capture key, availability byte, then the captured payload bytes.</summary>
+    /// <summary>Encodes a capture result: source byte, four-byte capture key, availability byte, 16-byte play-context id, then the captured payload bytes.</summary>
     /// <param name="captureResult">The result to encode.</param>
     /// <exception cref="ArgumentException">Thrown when the capture key is zero, or an unavailable result carries a nonempty payload.</exception>
     private static byte[] EncodeCaptureResult(IpcCaptureResultMessage captureResult)
@@ -727,20 +727,21 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             throw new ArgumentException("An unavailable capture result must carry an empty payload.", nameof(captureResult));
         }
 
-        var payload = new byte[6 + captureResult.Payload.Length];
+        var payload = new byte[22 + captureResult.Payload.Length];
         payload[0] = (byte)captureResult.Source;
         BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1, 4), captureResult.CaptureKey);
         payload[5] = (byte)captureResult.Availability;
-        captureResult.Payload.CopyTo(payload.AsSpan(6));
+        captureResult.PlayContextId.Value.TryWriteBytes(payload.AsSpan(6, 16), bigEndian: true, out _);
+        captureResult.Payload.CopyTo(payload.AsSpan(22));
         return payload;
     }
 
     /// <summary>Decodes a capture result, validating its source and availability enums and minimum payload length.</summary>
     /// <param name="correlationId">The request correlation id from the frame header.</param>
-    /// <param name="payload">The source byte, four-byte capture key, availability byte, then captured payload bytes.</param>
+    /// <param name="payload">The source byte, four-byte capture key, availability byte, 16-byte play-context id, then captured payload bytes.</param>
     private static IpcDecodeResult DecodeCaptureResult(ulong correlationId, ReadOnlySpan<byte> payload)
     {
-        if (payload.Length < 6 || !Enum.IsDefined((CaptureSourceKind)payload[0]))
+        if (payload.Length < 22 || !Enum.IsDefined((CaptureSourceKind)payload[0]))
         {
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
         }
@@ -752,14 +753,15 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         }
 
         var availability = (CaptureAvailability)payload[5];
-        ReadOnlySpan<byte> valueBytes = payload[6..];
+        var playContextId = new PlayContextId(new Guid(payload.Slice(6, 16), bigEndian: true));
+        ReadOnlySpan<byte> valueBytes = payload[22..];
         if (availability == CaptureAvailability.Unavailable && !valueBytes.IsEmpty)
         {
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
         }
 
         return IpcDecodeResult.Success(
-            new IpcCaptureResultMessage(correlationId, (CaptureSourceKind)payload[0], captureKey, availability, valueBytes.ToArray()));
+            new IpcCaptureResultMessage(correlationId, (CaptureSourceKind)payload[0], captureKey, availability, playContextId, valueBytes.ToArray()));
     }
 
     /// <summary>Encodes a listen-event result after enforcing its required request correlation.</summary>

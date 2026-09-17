@@ -409,7 +409,7 @@ public class AdapterIpcSessionTests
             lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink);
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
-        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, []);
+        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []);
 
         AdapterIpcOutcome outcome = session.HandleFrame(captureResult);
 
@@ -429,9 +429,9 @@ public class AdapterIpcSessionTests
             lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink);
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
-        var first = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Available, [1]);
-        var second = new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, 2, CaptureAvailability.Available, [2]);
-        var third = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 3, CaptureAvailability.Unavailable, []);
+        var first = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Available, default, [1]);
+        var second = new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, 2, CaptureAvailability.Available, default, [2]);
+        var third = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 3, CaptureAvailability.Unavailable, default, []);
 
         session.HandleFrame(first);
         session.HandleFrame(second);

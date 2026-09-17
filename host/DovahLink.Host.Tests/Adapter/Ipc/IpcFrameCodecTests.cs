@@ -391,7 +391,8 @@ public class IpcFrameCodecTests
     public void RoundTrip_CaptureResult_Available()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcCaptureResultMessage(7, CaptureSourceKind.Sample, 42, CaptureAvailability.Available, [1, 2, 3]);
+        var playContextId = new PlayContextId(Guid.NewGuid());
+        var original = new IpcCaptureResultMessage(7, CaptureSourceKind.Sample, 42, CaptureAvailability.Available, playContextId, [1, 2, 3]);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
@@ -400,6 +401,7 @@ public class IpcFrameCodecTests
         Assert.Equal(original.Source, decoded.Source);
         Assert.Equal(original.CaptureKey, decoded.CaptureKey);
         Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.PlayContextId, decoded.PlayContextId);
         Assert.Equal(original.Payload, decoded.Payload);
     }
 
@@ -408,7 +410,7 @@ public class IpcFrameCodecTests
     public void RoundTrip_CaptureResult_Available_ZeroCorrelationId()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, 1, CaptureAvailability.Available, [9]);
+        var original = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, 1, CaptureAvailability.Available, default, [9]);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
@@ -417,6 +419,7 @@ public class IpcFrameCodecTests
         Assert.Equal(original.Source, decoded.Source);
         Assert.Equal(original.CaptureKey, decoded.CaptureKey);
         Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.PlayContextId, decoded.PlayContextId);
         Assert.Equal(original.Payload, decoded.Payload);
     }
 
@@ -427,7 +430,7 @@ public class IpcFrameCodecTests
     public void RoundTrip_CaptureResult_Unavailable(CaptureSourceKind source)
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcCaptureResultMessage(0, source, 1, CaptureAvailability.Unavailable, []);
+        var original = new IpcCaptureResultMessage(0, source, 1, CaptureAvailability.Unavailable, default, []);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
@@ -436,6 +439,7 @@ public class IpcFrameCodecTests
         Assert.Equal(original.Source, decoded.Source);
         Assert.Equal(original.CaptureKey, decoded.CaptureKey);
         Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.PlayContextId, decoded.PlayContextId);
         Assert.Equal(original.Payload, decoded.Payload);
     }
 
@@ -444,7 +448,7 @@ public class IpcFrameCodecTests
     public void Encode_CaptureResult_ZeroCaptureKey_Throws()
     {
         var codec = new IpcFrameCodec();
-        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 0, CaptureAvailability.Available, []);
+        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 0, CaptureAvailability.Available, default, []);
 
         Assert.Throws<ArgumentException>(() => codec.Encode(message));
     }
@@ -454,7 +458,7 @@ public class IpcFrameCodecTests
     public void Encode_CaptureResult_UnavailableWithPayload_Throws()
     {
         var codec = new IpcFrameCodec();
-        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, [1]);
+        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, [1]);
 
         Assert.Throws<ArgumentException>(() => codec.Encode(message));
     }
@@ -464,7 +468,7 @@ public class IpcFrameCodecTests
     public void Decode_CaptureResult_TooShort_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[5]);
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[21]);
 
         IpcDecodeResult result = codec.Decode(frame);
 
@@ -476,7 +480,7 @@ public class IpcFrameCodecTests
     public void Decode_CaptureResult_ZeroCaptureKey_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[6]);
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[22]);
 
         IpcDecodeResult result = codec.Decode(frame);
 
@@ -488,10 +492,10 @@ public class IpcFrameCodecTests
     public void Decode_CaptureResult_UnavailableWithPayload_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] payload = new byte[7];
+        byte[] payload = new byte[23];
         payload[1] = 1;
         payload[5] = 1;
-        payload[6] = 9;
+        payload[22] = 9;
         byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
 
         IpcDecodeResult result = codec.Decode(frame);
@@ -504,7 +508,7 @@ public class IpcFrameCodecTests
     public void Decode_CaptureResult_OutOfRangeSource_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] payload = new byte[6];
+        byte[] payload = new byte[22];
         payload[0] = 2;
         payload[1] = 1;
         byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
@@ -519,7 +523,7 @@ public class IpcFrameCodecTests
     public void Decode_CaptureResult_OutOfRangeAvailability_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] payload = new byte[6];
+        byte[] payload = new byte[22];
         payload[1] = 1;
         payload[5] = 2;
         byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
@@ -1793,10 +1797,12 @@ public class IpcFrameCodecTests
             (new IpcTrustAdminRequestMessage(10, TrustAdminOperation.Revoke, ShortId: "12345"),
                 "0F0000000D0A00000000000000023132333435"),
             (new IpcTrustAdminResultMessage(11, "OK"), "0B0000000E0B000000000000004F4B"),
-            // 8-byte CaptureResult payload: source (Sample=0) + 4-byte captureKey (13) +
-            // availability (Available=0) + the UTF-8 bytes of "OK".
-            (new IpcCaptureResultMessage(12, CaptureSourceKind.Sample, 13, CaptureAvailability.Available, [0x4F, 0x4B]),
-                "110000000F0C00000000000000000D000000004F4B"),
+            // 24-byte CaptureResult payload: source (Sample=0) + 4-byte captureKey (13) +
+            // availability (Available=0) + 16-byte play-context id (the same big-endian GUID
+            // identity bytes as the PlayContextChanged vector below) + the UTF-8 bytes of "OK".
+            (new IpcCaptureResultMessage(12, CaptureSourceKind.Sample, 13, CaptureAvailability.Available,
+                new PlayContextId(new Guid("00112233-4455-6677-8899-aabbccddeeff")), [0x4F, 0x4B]),
+                "210000000F0C00000000000000000D0000000000112233445566778899AABBCCDDEEFF4F4B"),
             (new IpcListenEventResultMessage(13, Accepted: true), "0A000000100D0000000000000001"),
             // 16-byte PlayContextChanged payload: the big-endian GUID identity bytes.
             (new IpcPlayContextChangedMessage(0, new PlayContextId(new Guid("00112233-4455-6677-8899-aabbccddeeff"))),
@@ -1856,6 +1862,7 @@ public class IpcFrameCodecTests
                     Assert.Equal(expectedMessage.Source, actualMessage.Source);
                     Assert.Equal(expectedMessage.CaptureKey, actualMessage.CaptureKey);
                     Assert.Equal(expectedMessage.Availability, actualMessage.Availability);
+                    Assert.Equal(expectedMessage.PlayContextId, actualMessage.PlayContextId);
                     Assert.Equal(expectedMessage.Payload, actualMessage.Payload);
                     break;
                 case (IpcListenEventResultMessage expectedMessage, IpcListenEventResultMessage actualMessage):

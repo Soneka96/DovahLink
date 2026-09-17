@@ -157,7 +157,8 @@ class IpcFrameCodec final : public IIpcFrameCodec {
                            std::span<const std::byte> payload);
 
     ///  Encodes a capture result: source byte, four-byte capture key,
-    ///  availability byte, then the captured payload bytes.
+    ///  availability byte, 16-byte play-context id, then the captured
+    ///  payload bytes.
     static std::vector<std::byte>
     EncodeCaptureResult(const IpcCaptureResultMessage& captureResult);
 

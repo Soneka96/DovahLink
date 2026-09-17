@@ -408,6 +408,12 @@ TEST_CASE("an available capture result round-trips its source, key, and "
         .source = CaptureSourceKind::kSample,
         .captureKey = 42,
         .availability = CaptureAvailability::kAvailable,
+        .playContextId = {std::byte{1}, std::byte{2}, std::byte{3},
+                          std::byte{4}, std::byte{5}, std::byte{6},
+                          std::byte{7}, std::byte{8}, std::byte{9},
+                          std::byte{10}, std::byte{11}, std::byte{12},
+                          std::byte{13}, std::byte{14}, std::byte{15},
+                          std::byte{16}},
         .payload = {std::byte{1}, std::byte{2}, std::byte{3}},
     };
 
@@ -486,7 +492,7 @@ TEST_CASE("a capture result payload shorter than the fixed header fails "
     IpcFrameCodec codec;
     std::vector<std::byte> frame =
         BuildFrame(IpcMessageKind::kCaptureResult, 1,
-                   std::vector<std::byte>(5));
+                   std::vector<std::byte>(21));
 
     auto result = codec.Decode(frame);
 
@@ -497,7 +503,7 @@ TEST_CASE("a capture result payload shorter than the fixed header fails "
 TEST_CASE("a capture result with a zero capture key fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    std::vector<std::byte> payload(6);
+    std::vector<std::byte> payload(22);
     payload[0] = std::byte{0};
     std::vector<std::byte> frame =
         BuildFrame(IpcMessageKind::kCaptureResult, 1, payload);
@@ -513,13 +519,13 @@ TEST_CASE("a capture result with an out-of-range source or availability "
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
 
-    std::vector<std::byte> badSource(6);
+    std::vector<std::byte> badSource(22);
     badSource[0] = std::byte{2};
     badSource[1] = std::byte{1};
     CHECK(codec.Decode(BuildFrame(IpcMessageKind::kCaptureResult, 1, badSource))
               .error() == IpcRejectReason::kMalformedPayload);
 
-    std::vector<std::byte> badAvailability(6);
+    std::vector<std::byte> badAvailability(22);
     badAvailability[1] = std::byte{1};
     badAvailability[5] = std::byte{2};
     CHECK(codec.Decode(BuildFrame(IpcMessageKind::kCaptureResult, 1,
@@ -531,10 +537,10 @@ TEST_CASE("a capture result marked unavailable with a nonempty payload "
           "fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    std::vector<std::byte> payload(7);
+    std::vector<std::byte> payload(23);
     payload[1] = std::byte{1};
     payload[5] = std::byte{1};
-    payload[6] = std::byte{9};
+    payload[22] = std::byte{9};
     std::vector<std::byte> frame =
         BuildFrame(IpcMessageKind::kCaptureResult, 1, payload);
 
@@ -1868,17 +1874,26 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
              IpcTrustAdminResultMessage{.correlationId = 11, .resultText = "ok"}},
          Bytes({0x0B, 0x00, 0x00, 0x00, 0x0E, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x6F, 0x6B})},
-        //  8-byte payload: source (kSample=0) + 4-byte captureKey (13) +
-        //  availability (kAvailable=0) + the UTF-8 bytes of "OK".
-        {IpcMessage{IpcCaptureResultMessage{.correlationId = 12,
-                                            .source = CaptureSourceKind::kSample,
-                                            .captureKey = 13,
-                                            .availability =
-                                                CaptureAvailability::kAvailable,
-                                            .payload = {std::byte{0x4F},
-                                                        std::byte{0x4B}}}},
-         Bytes({0x11, 0x00, 0x00, 0x00, 0x0F, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x4F, 0x4B})},
+        //  24-byte payload: source (kSample=0) + 4-byte captureKey (13) +
+        //  availability (kAvailable=0) + 16-byte play-context id (the same
+        //  big-endian identity bytes as the PlayContextChanged vector below)
+        //  + the UTF-8 bytes of "OK".
+        {IpcMessage{IpcCaptureResultMessage{
+             .correlationId = 12,
+             .source = CaptureSourceKind::kSample,
+             .captureKey = 13,
+             .availability = CaptureAvailability::kAvailable,
+             .playContextId = {std::byte{0x00}, std::byte{0x11}, std::byte{0x22},
+                               std::byte{0x33}, std::byte{0x44}, std::byte{0x55},
+                               std::byte{0x66}, std::byte{0x77}, std::byte{0x88},
+                               std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+                               std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE},
+                               std::byte{0xFF}},
+             .payload = {std::byte{0x4F}, std::byte{0x4B}}}},
+         Bytes({0x21, 0x00, 0x00, 0x00, 0x0F, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22,
+                0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
+                0xEE, 0xFF, 0x4F, 0x4B})},
         {IpcMessage{
              IpcListenEventResultMessage{.correlationId = 13, .accepted = true}},
          Bytes({0x0A, 0x00, 0x00, 0x00, 0x10, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00,

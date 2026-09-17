@@ -41,9 +41,12 @@ class IAdapterIpcConnection;
 ///  through a separate capture path, not from this dispatch's own result. A
 ///  resynchronization request is just another marshaled game-thread task
 ///  that reports unavailable, since no approved baseline domain exists yet
-///  (see `IpcResynchronizeResultMessage`'s own documentation). Owns no
-///  transport I/O of its own; every lifecycle event reaches this session
-///  through `AdapterIpcConnection`'s callbacks.
+///  (see `IpcResynchronizeResultMessage`'s own documentation). Also tracks the
+///  play context most recently announced through `SendPlayContextChanged` and
+///  stamps it onto every capture enqueued afterward, so a value captured just
+///  before a later transition is never misattributed to the context that
+///  follows it. Owns no transport I/O of its own; every lifecycle event
+///  reaches this session through `AdapterIpcConnection`'s callbacks.
 class IAdapterIpcSession {
   public:
     virtual ~IAdapterIpcSession() = default;
@@ -497,6 +500,12 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     mutable std::mutex availableMutex_;
     ///  The current transport's authentication lifecycle phase.
     AuthenticationState authenticationState_ = AuthenticationState::kClosed;
+    ///  The play context this process considers current, set by
+    ///  `SendPlayContextChanged` and stamped onto every `AdapterCaptureWorkItem`
+    ///  enqueued afterward. Guarded by `availableMutex_`, the same lock the
+    ///  capture-enqueueing game-thread tasks already hold while reading it.
+    ///  All-zero until the first real play-context transition.
+    std::array<std::byte, 16> currentPlayContextId_{};
     ///  The number of deferred game-thread dispatches currently admitted but
     ///  not yet run, bounded by `kMaxPendingGameThreadDispatches`. Incremented
     ///  when a request is admitted and decremented when its marshaled task

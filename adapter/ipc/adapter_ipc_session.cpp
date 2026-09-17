@@ -486,6 +486,7 @@ void AdapterIpcSession::SendCaptureResult(
             .source = item.source,
             .captureKey = item.intentKey,
             .availability = item.availability,
+            .playContextId = item.playContextId,
             .payload = item.capturedValue,
         }});
     } catch (...) {
@@ -497,6 +498,7 @@ void AdapterIpcSession::SendCaptureResult(
 void AdapterIpcSession::SendPlayContextChanged(
     std::array<std::byte, 16> playContextId) {
     std::lock_guard<std::mutex> lock(availableMutex_);
+    currentPlayContextId_ = playContextId;
     if (authenticationState_ != AuthenticationState::kAuthenticated ||
         connection_ == nullptr) {
         return;
@@ -686,6 +688,7 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                 return;
             }
             try {
+                std::array<std::byte, 16> playContextId{};
                 {
                     std::lock_guard<std::mutex> lock(availableMutex_);
                     //  Read from this dispatch's own captured object; see
@@ -701,6 +704,13 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                         cancelled) {
                         return;
                     }
+                    //  Read the play context under the same lock as the guard
+                    //  above, immediately before the Skyrim read below, rather
+                    //  than later on a different thread: this is the tightest
+                    //  window this session's existing lock scoping allows
+                    //  between observing "this context is current" and
+                    //  actually capturing the value under it.
+                    playContextId = currentPlayContextId_;
                 }
                 std::optional<std::vector<std::byte>> captured =
                     captureRouter_.CaptureSample(sampleToken);
@@ -712,6 +722,7 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                     .availability = captured.has_value()
                                         ? capture::CaptureAvailability::kAvailable
                                         : capture::CaptureAvailability::kUnavailable,
+                    .playContextId = playContextId,
                 });
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -25,6 +26,13 @@ struct AdapterCaptureWorkItem {
     CaptureSourceKind source = CaptureSourceKind::kSample;
     ///  Whether `capturedValue` holds a real captured value.
     CaptureAvailability availability = CaptureAvailability::kAvailable;
+    ///  The play context that was current at the moment this value was
+    ///  captured, stamped at the same callback boundary rather than read
+    ///  later by worker-owned code -- so a value captured just before a save
+    ///  transition can never be misattributed to a context it was not
+    ///  actually captured under. All-zero until the adapter's first real
+    ///  play-context transition.
+    std::array<std::byte, 16> playContextId{};
 
     ///  Structural equality over every field.
     bool operator==(const AdapterCaptureWorkItem&) const = default;

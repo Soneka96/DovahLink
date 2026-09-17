@@ -1523,6 +1523,93 @@ TEST_CASE("AdapterIpcSession handles a read-sample request by dispatching "
     CHECK(fixture.captureQueue.Enqueued().front().intentKey == 3);
 }
 
+TEST_CASE("AdapterIpcSession stamps an enqueued sample capture with the "
+          "play context most recently sent by SendPlayContextChanged") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetSampleResult(3, {std::byte{5}});
+    std::array<std::byte, 16> playContextId{
+        std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+        std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8},
+        std::byte{9}, std::byte{10}, std::byte{11}, std::byte{12},
+        std::byte{13}, std::byte{14}, std::byte{15}, std::byte{16}};
+    fixture.session.SendPlayContextChanged(playContextId);
+
+    fixture.session.HandleMessage(IpcMessage{
+        IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().playContextId ==
+          playContextId);
+}
+
+TEST_CASE("AdapterIpcSession stamps an enqueued sample capture with an "
+          "all-zero play context before any transition is ever notified") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetSampleResult(3, {std::byte{5}});
+
+    fixture.session.HandleMessage(IpcMessage{
+        IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().playContextId ==
+          std::array<std::byte, 16>{});
+}
+
+TEST_CASE("AdapterIpcSession stamps later captures with a second "
+          "SendPlayContextChanged value, not the first") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetSampleResult(3, {std::byte{5}});
+    std::array<std::byte, 16> firstPlayContextId{};
+    firstPlayContextId[0] = std::byte{1};
+    std::array<std::byte, 16> secondPlayContextId{};
+    secondPlayContextId[0] = std::byte{2};
+
+    fixture.session.SendPlayContextChanged(firstPlayContextId);
+    fixture.session.SendPlayContextChanged(secondPlayContextId);
+    fixture.session.HandleMessage(IpcMessage{
+        IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().playContextId ==
+          secondPlayContextId);
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged updates the tracked "
+          "play context even before authentication") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    fixture.dispatcher.SetSampleResult(3, {std::byte{5}});
+    std::array<std::byte, 16> playContextId{};
+    playContextId[0] = std::byte{7};
+
+    //  Sent while unauthenticated, so the notification itself is a silent
+    //  no-op -- but the tracked value must still update for later captures.
+    fixture.session.SendPlayContextChanged(playContextId);
+    CHECK(connection.Sent().empty());
+
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.session.HandleMessage(IpcMessage{
+        IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().playContextId ==
+          playContextId);
+}
+
 TEST_CASE("AdapterIpcSession::SendCaptureResult sends a capture result "
           "through the authenticated connection") {
     SessionFixture fixture;
@@ -1530,12 +1617,18 @@ TEST_CASE("AdapterIpcSession::SendCaptureResult sends a capture result "
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
 
+    std::array<std::byte, 16> playContextId{
+        std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+        std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8},
+        std::byte{9}, std::byte{10}, std::byte{11}, std::byte{12},
+        std::byte{13}, std::byte{14}, std::byte{15}, std::byte{16}};
     fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
         .intentKey = 5,
         .capturedValue = {std::byte{1}, std::byte{2}},
         .correlationId = 3,
         .source = CaptureSourceKind::kSample,
         .availability = CaptureAvailability::kAvailable,
+        .playContextId = playContextId,
     });
 
     REQUIRE(connection.Sent().size() == 1);
@@ -1546,6 +1639,7 @@ TEST_CASE("AdapterIpcSession::SendCaptureResult sends a capture result "
     CHECK(captureResult->source == CaptureSourceKind::kSample);
     CHECK(captureResult->captureKey == 5);
     CHECK(captureResult->availability == CaptureAvailability::kAvailable);
+    CHECK(captureResult->playContextId == playContextId);
     CHECK(captureResult->payload ==
           std::vector<std::byte>{std::byte{1}, std::byte{2}});
 }
