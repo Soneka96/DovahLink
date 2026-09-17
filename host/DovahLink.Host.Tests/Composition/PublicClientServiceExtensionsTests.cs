@@ -39,6 +39,7 @@ public class PublicClientServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IRegisteredStateAreaPolicy>());
         Assert.NotNull(provider.GetRequiredService<LiveStateCatalog>());
         Assert.NotNull(provider.GetRequiredService<IStatePublicationFeed>());
+        Assert.NotNull(provider.GetRequiredService<IStatePublicationSink>());
         Assert.NotNull(provider.GetRequiredService<IPublicWebSocketTransportDiagnostics>());
         Assert.NotNull(provider.GetRequiredService<ILocalConnectionTokenAuthenticator>());
         Assert.NotNull(provider.GetRequiredService<ITrustedCredentialFailureThrottle>());
@@ -62,6 +63,16 @@ public class PublicClientServiceExtensionsTests
         }
 
         Assert.Equal(LiveStateCatalog.Default.StateAreas.Count, registeredAreaPolicy.Count);
+    }
+
+    /// <summary>Verifies that IStatePublicationFeed and IStatePublicationSink resolve to the same shared instance, so a publish reaches the same feed subscribers read from.</summary>
+    [Fact]
+    public async Task AddPublicClientServices_StatePublicationFeedAndSink_ResolveToSameInstance()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+
+        Assert.Same(provider.GetRequiredService<IStatePublicationFeed>(), provider.GetRequiredService<IStatePublicationSink>());
     }
 
     /// <summary>

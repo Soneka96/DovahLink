@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
@@ -49,9 +48,9 @@ public static class PublicClientServiceExtensions
 
             return policy;
         });
-        // No real domain feed exists yet, so this placeholder reflects this composition root's
-        // actual current behavior.
-        services.AddSingleton<IStatePublicationFeed>(NullStatePublicationFeed.Instance);
+        services.AddSingleton<StatePublicationFeed>();
+        services.AddSingleton<IStatePublicationFeed>(sp => sp.GetRequiredService<StatePublicationFeed>());
+        services.AddSingleton<IStatePublicationSink>(sp => sp.GetRequiredService<StatePublicationFeed>());
         services.AddSingleton<IPublicWebSocketTransportDiagnostics>(NullPublicWebSocketTransportDiagnostics.Instance);
 
         services.AddSingleton<ILocalConnectionTokenAuthenticator, LocalConnectionTokenAuthenticator>();
@@ -86,38 +85,4 @@ public static class PublicClientServiceExtensions
         }
     }
 
-    /// <summary>
-    /// A minimal composition-time placeholder for <see cref="IStatePublicationFeed"/>: never has a
-    /// current value and never raises <see cref="IStatePublicationFeed.EventOccurred"/>. Correct
-    /// today's composition root's production behavior, since no state area is registered yet --
-    /// <see cref="IRegisteredStateAreaPolicy.IsRegistered"/> already rejects every area before any
-    /// caller would ever reach this feed, so its own responses are never actually exercised in
-    /// production.
-    /// </summary>
-    private sealed class NullStatePublicationFeed : IStatePublicationFeed
-    {
-        /// <summary>The shared, stateless instance every connection reads through.</summary>
-        public static readonly NullStatePublicationFeed Instance = new();
-
-        /// <inheritdoc/>
-        public event Action<StateEventPublication>? EventOccurred
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public event Action<StateSnapshotPublication>? SnapshotChanged
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot)
-        {
-            snapshot = null;
-            return false;
-        }
-    }
 }
