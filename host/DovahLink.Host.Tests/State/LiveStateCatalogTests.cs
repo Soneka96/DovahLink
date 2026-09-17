@@ -27,6 +27,7 @@ public class LiveStateCatalogTests
 
         Assert.Equal(CaptureSourceKind.Sample, vitals.Source);
         Assert.Equal(RateClass.Fast, vitals.RateClass);
+        Assert.Equal(SynchronizationRole.BaselineSample, vitals.SynchronizationRole);
         Assert.Equal(
             [new StateAreaId(Constants.CharacterHealthStateArea), new StateAreaId(Constants.CharacterMagickaStateArea), new StateAreaId(Constants.CharacterStaminaStateArea)],
             vitals.StateAreas);
@@ -39,6 +40,7 @@ public class LiveStateCatalogTests
         CaptureUnitDefinition xp = LiveStateCatalog.Default.CaptureUnits.Single(unit => unit.CaptureKey == (uint)CharacterSampleToken.CharacterXp && unit.Source == CaptureSourceKind.Sample);
 
         Assert.Equal(RateClass.Medium, xp.RateClass);
+        Assert.Equal(SynchronizationRole.BaselineSample, xp.SynchronizationRole);
         Assert.Equal([new StateAreaId(Constants.CharacterXpStateArea)], xp.StateAreas);
     }
 
@@ -53,9 +55,36 @@ public class LiveStateCatalogTests
         CaptureUnitDefinition baseline = Assert.Single(feedingLevel, unit => unit.Source == CaptureSourceKind.Sample);
         Assert.Equal((uint)CharacterSampleToken.CharacterLevelBaseline, baseline.CaptureKey);
         Assert.Null(baseline.RateClass);
+        Assert.Equal(SynchronizationRole.BaselineSample, baseline.SynchronizationRole);
         CaptureUnitDefinition levelChanged = Assert.Single(feedingLevel, unit => unit.Source == CaptureSourceKind.Event);
         Assert.Equal((uint)CharacterEventKey.CharacterLevelChanged, levelChanged.CaptureKey);
         Assert.Null(levelChanged.RateClass);
+        Assert.Equal(SynchronizationRole.PersistentEvent, levelChanged.SynchronizationRole);
+    }
+
+    /// <summary>
+    /// Verifies that SynchronizationRole is not inferable from RateClass: the level baseline sample
+    /// has no RateClass (it is polled on no cadence) yet is still a BaselineSample, while Vitals and
+    /// XP have a RateClass yet are also BaselineSample -- the two properties vary independently, per
+    /// <see cref="DovahLink.Host.SynchronizationRole"/>'s own documentation.
+    /// </summary>
+    [Fact]
+    public void Default_SynchronizationRole_IsIndependentOfRateClass()
+    {
+        CaptureUnitDefinition[] baselineSamples = [.. LiveStateCatalog.Default.CaptureUnits.Where(unit => unit.SynchronizationRole == SynchronizationRole.BaselineSample)];
+
+        Assert.Equal(3, baselineSamples.Length);
+        Assert.Contains(baselineSamples, unit => unit.RateClass == RateClass.Fast);
+        Assert.Contains(baselineSamples, unit => unit.RateClass == RateClass.Medium);
+        Assert.Contains(baselineSamples, unit => unit.RateClass == null);
+
+        CaptureUnitDefinition persistentEvent = Assert.Single(LiveStateCatalog.Default.CaptureUnits, unit => unit.SynchronizationRole == SynchronizationRole.PersistentEvent);
+        Assert.Null(persistentEvent.RateClass);
+
+        //  Exhaustiveness: every capture unit falls into exactly one of the two roles checked above,
+        //  so a future unit added with no role assignment (or an unexpected one) cannot silently
+        //  evade both counts.
+        Assert.Equal(LiveStateCatalog.Default.CaptureUnits.Count, baselineSamples.Length + 1);
     }
 
     /// <summary>Verifies that every capture unit's state areas are already registered in the catalog's own state-area list, so nothing feeds an area the catalog does not also define.</summary>

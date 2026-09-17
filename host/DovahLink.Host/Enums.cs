@@ -369,6 +369,28 @@ public enum RateClass
 }
 
 /// <summary>
+/// A <see cref="State.CaptureUnitDefinition"/>'s role in resynchronization, independent of
+/// <see cref="RateClass"/>: a unit polled on an ordinary cadence (like Vitals or XP) is still a
+/// required baseline the very first time it is captured after a connection or play-context
+/// transition, and a unit with no <see cref="RateClass"/> (like the level baseline sample) is still
+/// only a sample, not a persistent registration. Neither property can be inferred from the other.
+/// </summary>
+public enum SynchronizationRole
+{
+    /// <summary>
+    /// A <c>ReadSample</c> capture required to establish a fresh authoritative baseline for the
+    /// state area(s) it feeds.
+    /// </summary>
+    BaselineSample,
+
+    /// <summary>
+    /// A <c>ListenEvent</c> registration for a native event that delivers its own later, ordered
+    /// updates; registering it produces no baseline value of its own.
+    /// </summary>
+    PersistentEvent,
+}
+
+/// <summary>
 /// The canonical live-delivery mode a <see cref="State.StateAreaDefinition"/> declares. A consumer
 /// does not choose between them per subscription; the state area's own definition fixes it.
 /// </summary>

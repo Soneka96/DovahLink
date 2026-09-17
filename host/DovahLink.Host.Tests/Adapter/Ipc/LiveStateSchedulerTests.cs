@@ -148,7 +148,7 @@ public class LiveStateSchedulerTests
     public async Task RunAsync_NoRateClassedCaptureUnits_CompletesImmediately()
     {
         LiveStateCatalog emptyCatalog = new(
-            captureUnits: [new CaptureUnitDefinition(CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, RateClass: null, [new StateAreaId(Constants.CharacterLevelStateArea)])],
+            captureUnits: [new CaptureUnitDefinition(CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, RateClass: null, SynchronizationRole.PersistentEvent, [new StateAreaId(Constants.CharacterLevelStateArea)])],
             stateAreas: [new StateAreaDefinition(new StateAreaId(Constants.CharacterLevelStateArea), UpdateMode.Event)]);
         FakeAdapterIpcListener listener = new() { CurrentConnection = null };
         LiveStateScheduler scheduler = new(listener, emptyCatalog, FastIntervals);

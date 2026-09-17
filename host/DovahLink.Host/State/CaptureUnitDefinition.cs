@@ -15,9 +15,15 @@ namespace DovahLink.Host.State;
 /// polled on any cadence -- either because it is event-sourced, or because it is a sample used only
 /// to establish a resynchronization baseline.
 /// </param>
+/// <param name="SynchronizationRole">
+/// This unit's role in resynchronization, independent of <paramref name="RateClass"/>: see
+/// <see cref="DovahLink.Host.SynchronizationRole"/>'s own documentation for why the two cannot be
+/// inferred from each other.
+/// </param>
 /// <param name="StateAreas">Every state area this capture unit's value is applied to.</param>
 public sealed record CaptureUnitDefinition(
     CaptureSourceKind Source,
     uint CaptureKey,
     RateClass? RateClass,
+    SynchronizationRole SynchronizationRole,
     IReadOnlyList<StateAreaId> StateAreas);

@@ -38,6 +38,7 @@ public sealed class LiveStateCatalog
                 CaptureSourceKind.Sample,
                 (uint)CharacterSampleToken.CharacterVitals,
                 RateClass.Fast,
+                SynchronizationRole.BaselineSample,
                 [
                     new StateAreaId(Constants.CharacterHealthStateArea),
                     new StateAreaId(Constants.CharacterMagickaStateArea),
@@ -47,16 +48,19 @@ public sealed class LiveStateCatalog
                 CaptureSourceKind.Sample,
                 (uint)CharacterSampleToken.CharacterXp,
                 RateClass.Medium,
+                SynchronizationRole.BaselineSample,
                 [new StateAreaId(Constants.CharacterXpStateArea)]),
             new CaptureUnitDefinition(
                 CaptureSourceKind.Sample,
                 (uint)CharacterSampleToken.CharacterLevelBaseline,
                 RateClass: null,
+                SynchronizationRole: SynchronizationRole.BaselineSample,
                 [new StateAreaId(Constants.CharacterLevelStateArea)]),
             new CaptureUnitDefinition(
                 CaptureSourceKind.Event,
                 (uint)CharacterEventKey.CharacterLevelChanged,
                 RateClass: null,
+                SynchronizationRole: SynchronizationRole.PersistentEvent,
                 [new StateAreaId(Constants.CharacterLevelStateArea)]),
         ],
         stateAreas:
