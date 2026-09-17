@@ -53,11 +53,21 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         return false;
     }
 
+    /// <summary>The result <see cref="TrySendReadSample"/> returns.</summary>
+    public bool TrySendReadSampleResult { get; set; }
+
+    /// <summary>The correlation id <see cref="TrySendReadSample"/> reports when <see cref="TrySendReadSampleResult"/> is <see langword="true"/>.</summary>
+    public ulong TrySendReadSampleCorrelationId { get; set; }
+
+    /// <summary>The sample tokens passed to <see cref="TrySendReadSample"/>, in call order.</summary>
+    public List<uint> ReadSampleCalls { get; } = [];
+
     /// <inheritdoc/>
     public bool TrySendReadSample(uint sampleToken, out ulong correlationId)
     {
-        correlationId = 0;
-        return false;
+        ReadSampleCalls.Add(sampleToken);
+        correlationId = TrySendReadSampleResult ? TrySendReadSampleCorrelationId : 0;
+        return TrySendReadSampleResult;
     }
 
     /// <inheritdoc/>
