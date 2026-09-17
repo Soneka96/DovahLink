@@ -49,6 +49,40 @@ TEST_CASE("the adapter plugin defers host discovery startup to kDataLoaded",
     CHECK(dataLoadedCheck < runtimeStart);
 }
 
+TEST_CASE("the adapter plugin sends a fresh play-context identity on both "
+          "kNewGame and kPostLoadGame",
+          "[plugin][structural]") {
+    std::string rawSource = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+    std::string source = NormalizeWhitespace(rawSource);
+
+    std::size_t newGameCheck =
+        source.find("message->type==SKSE::MessagingInterface::kNewGame");
+    std::size_t postLoadGameCheck =
+        source.find("message->type==SKSE::MessagingInterface::kPostLoadGame");
+    std::string sendCall = NormalizeWhitespace(
+        "SendPlayContextChanged(playContextGenerator->Generate());");
+    std::size_t sendPlayContextChanged = source.find(sendCall);
+
+    REQUIRE(newGameCheck != std::string::npos);
+    REQUIRE(postLoadGameCheck != std::string::npos);
+    REQUIRE(sendPlayContextChanged != std::string::npos);
+    //  Both message-type checks must guard the same one send call, not each
+    //  have their own separate call -- CountOccurrences below proves that.
+    CHECK(CountOccurrences(source, sendCall) == 1);
+}
+
+TEST_CASE("the adapter plugin never sends a play-context identity for "
+          "kPreLoadGame",
+          "[plugin][structural]") {
+    //  kPreLoadGame fires before the new state is actually loaded; sending a
+    //  fresh identity there would stamp captures with a context that does
+    //  not yet correspond to real loaded state.
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+    CHECK(source.find("SKSE::MessagingInterface::kPreLoadGame") ==
+          std::string::npos);
+}
+
 TEST_CASE("the adapter plugin calls SKSE::Init before registering the "
           "messaging listener",
           "[plugin][structural]") {

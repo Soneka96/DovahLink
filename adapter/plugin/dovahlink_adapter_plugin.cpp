@@ -7,6 +7,7 @@
 #include "capture/adapter_capture_work_item.hpp"
 #include "constants.hpp"
 #include "identity/adapter_instance_id_generator.hpp"
+#include "identity/adapter_play_context_generator.hpp"
 #include "ipc/commonlib_adapter_pairing_notification_sink.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
 #include "papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp"
@@ -222,6 +223,12 @@ SKSEPluginInfo(
         new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller;
     static auto* pairingNotificationSink =
         new dovahlink::adapter::ipc::CommonLibAdapterPairingNotificationSink;
+    //  Generates a fresh play-context identity for each real New Game/Load
+    //  Game SKSE message below. CommonLib-free, but kept alongside the other
+    //  process-lifetime allocations the messaging listener's own lambda
+    //  captures.
+    static auto* playContextGenerator =
+        new dovahlink::adapter::identity::AdapterPlayContextGenerator;
 
     dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
     dovahlink::adapter::plugin::AdapterStartupContext startupContext{
@@ -269,6 +276,18 @@ SKSEPluginInfo(
             runtime->Start();
             SKSE::log::info(
                 "DovahLink Adapter connecting to the private host IPC channel.");
+        }
+        //  Every genuinely new game and every load -- including a reload of
+        //  the same save file -- gets its own fresh play-context identity
+        //  unconditionally: state captured before a load is not guaranteed
+        //  continuous with state after it, so there is no case where
+        //  deduplicating against the previous identity would be correct
+        //  here. kPreLoadGame is deliberately not used: it fires before the
+        //  new state is actually loaded.
+        if (message->type == SKSE::MessagingInterface::kNewGame ||
+            message->type == SKSE::MessagingInterface::kPostLoadGame) {
+            runtime->Session().SendPlayContextChanged(
+                playContextGenerator->Generate());
         }
     });
 
