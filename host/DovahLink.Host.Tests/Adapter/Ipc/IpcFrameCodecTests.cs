@@ -665,6 +665,18 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that a play-context-changed notification round-trips its identity.</summary>
+    [Fact]
+    public void RoundTrip_PlayContextChanged()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcPlayContextChangedMessage(0, PlayContextId.NewId());
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
     /// <summary>Verifies that a trust-admin request round-trips for every no-argument operation.</summary>
     [Theory]
     [InlineData(TrustAdminOperation.Help)]
@@ -836,6 +848,15 @@ public class IpcFrameCodecTests
         var codec = new IpcFrameCodec();
 
         Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingAttemptsExhaustedMessage(1)));
+    }
+
+    /// <summary>Verifies that encoding a play-context-changed notification with a nonzero correlation id throws.</summary>
+    [Fact]
+    public void Encode_PlayContextChanged_NonZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPlayContextChangedMessage(1, PlayContextId.NewId())));
     }
 
     /// <summary>Verifies that encoding a trust-admin request with a zero correlation id fails closed.</summary>
@@ -1511,6 +1532,32 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a play-context-changed notification carrying a correlation id fails closed because it is unsolicited.</summary>
+    [Fact]
+    public void Decode_PlayContextChanged_NonZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextChanged, correlationId: 1, new byte[16]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a play-context-changed notification payload of the wrong length fails closed, both shorter and longer than the fixed 16-byte shape.</summary>
+    [Theory]
+    [InlineData(15)]
+    [InlineData(17)]
+    public void Decode_PlayContextChanged_WrongPayloadLength_FailsClosed(int payloadLength)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextChanged, correlationId: 0, new byte[payloadLength]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that an attempts-exhausted notification carrying a correlation id fails closed because it is unsolicited.</summary>
     [Fact]
     public void Decode_PairingAttemptsExhausted_NonZeroCorrelationId_FailsClosed()
@@ -1751,6 +1798,9 @@ public class IpcFrameCodecTests
             (new IpcCaptureResultMessage(12, CaptureSourceKind.Sample, 13, CaptureAvailability.Available, [0x4F, 0x4B]),
                 "110000000F0C00000000000000000D000000004F4B"),
             (new IpcListenEventResultMessage(13, Accepted: true), "0A000000100D0000000000000001"),
+            // 16-byte PlayContextChanged payload: the big-endian GUID identity bytes.
+            (new IpcPlayContextChangedMessage(0, new PlayContextId(new Guid("00112233-4455-6677-8899-aabbccddeeff"))),
+                "1900000011000000000000000000112233445566778899AABBCCDDEEFF"),
         };
 
         foreach ((IpcMessage message, string hex) in vectors)
@@ -1810,6 +1860,9 @@ public class IpcFrameCodecTests
                     break;
                 case (IpcListenEventResultMessage expectedMessage, IpcListenEventResultMessage actualMessage):
                     Assert.Equal(expectedMessage.Accepted, actualMessage.Accepted);
+                    break;
+                case (IpcPlayContextChangedMessage expectedMessage, IpcPlayContextChangedMessage actualMessage):
+                    Assert.Equal(expectedMessage.PlayContextId, actualMessage.PlayContextId);
                     break;
                 case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
                 case (IpcCancelMessage, IpcCancelMessage):

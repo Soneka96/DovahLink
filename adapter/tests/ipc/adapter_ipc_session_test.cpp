@@ -51,6 +51,7 @@ using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
+using dovahlink::adapter::ipc::IpcPlayContextChangedMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
@@ -1585,6 +1586,63 @@ TEST_CASE("AdapterIpcSession::SendCaptureResult contains an exception "
 
     REQUIRE_NOTHROW(fixture.session.SendCaptureResult(
         AdapterCaptureWorkItem{.intentKey = 5, .correlationId = 3}));
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged sends a notification "
+          "through the authenticated connection") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    std::array<std::byte, 16> playContextId{
+        std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+        std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8},
+        std::byte{9}, std::byte{10}, std::byte{11}, std::byte{12},
+        std::byte{13}, std::byte{14}, std::byte{15}, std::byte{16}};
+
+    fixture.session.SendPlayContextChanged(playContextId);
+
+    REQUIRE(connection.Sent().size() == 1);
+    auto* notification =
+        std::get_if<IpcPlayContextChangedMessage>(&connection.Sent().front());
+    REQUIRE(notification != nullptr);
+    CHECK(notification->correlationId == 0);
+    CHECK(notification->playContextId == playContextId);
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged does nothing before "
+          "authentication") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+
+    fixture.session.SendPlayContextChanged({});
+
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged does nothing after "
+          "disconnection") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.session.HandleDisconnected();
+
+    fixture.session.SendPlayContextChanged({});
+
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged contains an exception "
+          "thrown by TrySend") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.ThrowOnNextSend();
+
+    REQUIRE_NOTHROW(fixture.session.SendPlayContextChanged({}));
 }
 
 TEST_CASE("AdapterIpcSession never dispatches a listen-event or read-sample "

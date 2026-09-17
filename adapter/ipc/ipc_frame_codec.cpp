@@ -57,7 +57,7 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-    return value >= 1 && value <= 16;
+    return value >= 1 && value <= 17;
 }
 
 ///  Whether `value` is one of `TrustAdminOperation`'s contiguous defined
@@ -457,6 +457,31 @@ IpcFrameCodec::DecodeListenEventResult(std::uint64_t correlationId,
         .correlationId = correlationId, .accepted = acceptedByte == 1}};
 }
 
+std::vector<std::byte> IpcFrameCodec::EncodePlayContextChanged(
+    const IpcPlayContextChangedMessage& playContextChanged) {
+    if (playContextChanged.correlationId != 0) {
+        throw std::invalid_argument(
+            "A play-context-changed notification must have correlation id "
+            "zero.");
+    }
+
+    std::vector<std::byte> payload(playContextChanged.playContextId.size());
+    std::ranges::copy(playContextChanged.playContextId, payload.begin());
+    return payload;
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodePlayContextChanged(std::uint64_t correlationId,
+                                        std::span<const std::byte> payload) {
+    if (correlationId != 0 || payload.size() != 16) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    IpcPlayContextChangedMessage message{.correlationId = correlationId};
+    std::ranges::copy(payload, message.playContextId.begin());
+    return IpcMessage{message};
+}
+
 std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeTrustAdminRequest(std::uint64_t correlationId,
                                        std::span<const std::byte> payload) {
@@ -620,6 +645,10 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage& message) const {
                 }
                 kind = IpcMessageKind::kListenEventResult;
                 payload = {static_cast<std::byte>(value.accepted ? 1 : 0)};
+            } else if constexpr (std::is_same_v<T,
+                                                IpcPlayContextChangedMessage>) {
+                kind = IpcMessageKind::kPlayContextChanged;
+                payload = EncodePlayContextChanged(value);
             }
         },
         message);
@@ -905,6 +934,8 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
         return DecodeCaptureResult(correlationId, payload);
     case IpcMessageKind::kListenEventResult:
         return DecodeListenEventResult(correlationId, payload);
+    case IpcMessageKind::kPlayContextChanged:
+        return DecodePlayContextChanged(correlationId, payload);
     }
 
     return std::unexpected(IpcRejectReason::kUnknownMessageKind);

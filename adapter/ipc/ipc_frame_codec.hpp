@@ -172,6 +172,17 @@ class IpcFrameCodec final : public IIpcFrameCodec {
     static std::expected<IpcMessage, IpcRejectReason>
     DecodeListenEventResult(std::uint64_t correlationId,
                             std::span<const std::byte> payload);
+
+    ///  Encodes a play-context-changed notification's 16-byte identity
+    ///  payload after enforcing its unsolicited-message correlation rule.
+    static std::vector<std::byte> EncodePlayContextChanged(
+        const IpcPlayContextChangedMessage& playContextChanged);
+
+    ///  Decodes a play-context-changed notification, validating its
+    ///  unsolicited-message correlation rule and fixed payload length.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodePlayContextChanged(std::uint64_t correlationId,
+                             std::span<const std::byte> payload);
 };
 
 } //  namespace dovahlink::adapter::ipc

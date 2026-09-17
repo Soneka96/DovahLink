@@ -303,6 +303,9 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the adapter in response to a listen-event request. See <see cref="Adapter.Ipc.IpcListenEventResultMessage"/>.</summary>
     ListenEventResult = 16,
+
+    /// <summary>Sent by the adapter to notify the host of a new play context. See <see cref="Adapter.Ipc.IpcPlayContextChangedMessage"/>.</summary>
+    PlayContextChanged = 17,
 }
 
 /// <summary>Which host-owned key namespace a captured value's key belongs to.</summary>

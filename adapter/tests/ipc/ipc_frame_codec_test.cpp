@@ -39,6 +39,7 @@ using dovahlink::adapter::ipc::IpcMessageKind;
 using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
+using dovahlink::adapter::ipc::IpcPlayContextChangedMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
@@ -626,6 +627,25 @@ TEST_CASE("attempts-exhausted notification round-trips",
     CHECK(*result == IpcMessage{original});
 }
 
+TEST_CASE("a play-context-changed notification round-trips its identity",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcPlayContextChangedMessage original{
+        .correlationId = 0,
+        .playContextId = {std::byte{0x00}, std::byte{0x11}, std::byte{0x22},
+                          std::byte{0x33}, std::byte{0x44}, std::byte{0x55},
+                          std::byte{0x66}, std::byte{0x77}, std::byte{0x88},
+                          std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+                          std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE},
+                          std::byte{0xFF}},
+    };
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
 TEST_CASE("trust-admin request round-trips for every operation",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
@@ -773,6 +793,16 @@ TEST_CASE("encoding an attempts-exhausted notification with a nonzero "
 
     CHECK_THROWS_AS(codec.Encode(IpcMessage{
                         IpcPairingAttemptsExhaustedMessage{.correlationId = 1}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("encoding a play-context-changed notification with a nonzero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{
+                        IpcPlayContextChangedMessage{.correlationId = 1}}),
                     std::invalid_argument);
 }
 
@@ -963,10 +993,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    //  17 is the value immediately past the currently highest defined kind
-    //  (kListenEventResult = 16); update this alongside any future kind
+    //  18 is the value immediately past the currently highest defined kind
+    //  (kPlayContextChanged = 17); update this alongside any future kind
     //  addition so it keeps testing the actual boundary.
-    for (std::byte kindByte : {std::byte{0}, std::byte{17}, std::byte{250}}) {
+    for (std::byte kindByte : {std::byte{0}, std::byte{18}, std::byte{250}}) {
         std::vector<std::byte> frame =
             codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
         frame[4] = kindByte;
@@ -1522,6 +1552,35 @@ TEST_CASE("an attempts-exhausted notification carrying an unexpected "
     CHECK(result.error() == IpcRejectReason::kMalformedPayload);
 }
 
+TEST_CASE("a play-context-changed notification with a nonzero correlation "
+          "id fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame = BuildFrame(
+        IpcMessageKind::kPlayContextChanged, 1, std::vector<std::byte>(16));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a play-context-changed notification payload of the wrong length "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (std::size_t payloadSize : {std::size_t{15}, std::size_t{17}}) {
+        std::vector<std::byte> frame = BuildFrame(
+            IpcMessageKind::kPlayContextChanged, 0,
+            std::vector<std::byte>(payloadSize));
+
+        auto result = codec.Decode(frame);
+
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+    }
+}
+
 TEST_CASE("a trust-admin request with a zero correlation id fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
@@ -1824,6 +1883,18 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
              IpcListenEventResultMessage{.correlationId = 13, .accepted = true}},
          Bytes({0x0A, 0x00, 0x00, 0x00, 0x10, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x01})},
+        //  16-byte payload: the big-endian GUID identity bytes.
+        {IpcMessage{IpcPlayContextChangedMessage{
+             .correlationId = 0,
+             .playContextId = {std::byte{0x00}, std::byte{0x11}, std::byte{0x22},
+                               std::byte{0x33}, std::byte{0x44}, std::byte{0x55},
+                               std::byte{0x66}, std::byte{0x77}, std::byte{0x88},
+                               std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+                               std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE},
+                               std::byte{0xFF}}}},
+         Bytes({0x19, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF})},
     };
 
     for (const auto& [message, expected] : vectors) {

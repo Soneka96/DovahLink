@@ -61,6 +61,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcTrustAdminResultMessage trustAdminResult => (IpcMessageKind.TrustAdminResult, EncodeTrustAdminResult(trustAdminResult)),
             IpcCaptureResultMessage captureResult => (IpcMessageKind.CaptureResult, EncodeCaptureResult(captureResult)),
             IpcListenEventResultMessage listenEventResult => (IpcMessageKind.ListenEventResult, EncodeListenEventResult(listenEventResult)),
+            IpcPlayContextChangedMessage playContextChanged => (IpcMessageKind.PlayContextChanged, EncodePlayContextChanged(playContextChanged)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -132,6 +133,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcMessageKind.TrustAdminResult => DecodeTrustAdminResult(correlationId, payload),
             IpcMessageKind.CaptureResult => DecodeCaptureResult(correlationId, payload),
             IpcMessageKind.ListenEventResult => DecodeListenEventResult(correlationId, payload),
+            IpcMessageKind.PlayContextChanged => DecodePlayContextChanged(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -785,5 +787,34 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         }
 
         return IpcDecodeResult.Success(new IpcListenEventResultMessage(correlationId, payload[0] == 1));
+    }
+
+    /// <summary>Encodes a play-context-changed notification's 16-byte identity payload after enforcing its unsolicited-message correlation rule.</summary>
+    /// <param name="playContextChanged">The notification to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the notification carries a nonzero correlation id.</exception>
+    private static byte[] EncodePlayContextChanged(IpcPlayContextChangedMessage playContextChanged)
+    {
+        if (playContextChanged.CorrelationId != 0)
+        {
+            throw new ArgumentException("A play-context-changed notification must have correlation id zero.", nameof(playContextChanged));
+        }
+
+        var payload = new byte[16];
+        playContextChanged.PlayContextId.Value.TryWriteBytes(payload, bigEndian: true, out _);
+        return payload;
+    }
+
+    /// <summary>Decodes a play-context-changed notification, validating its unsolicited-message correlation rule and fixed payload length.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed 16-byte play-context identity payload.</param>
+    private static IpcDecodeResult DecodePlayContextChanged(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId != 0 || payload.Length != 16)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        var playContextId = new PlayContextId(new Guid(payload, bigEndian: true));
+        return IpcDecodeResult.Success(new IpcPlayContextChangedMessage(correlationId, playContextId));
     }
 }

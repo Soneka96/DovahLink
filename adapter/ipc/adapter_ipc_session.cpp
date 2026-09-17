@@ -494,6 +494,22 @@ void AdapterIpcSession::SendCaptureResult(
     }
 }
 
+void AdapterIpcSession::SendPlayContextChanged(
+    std::array<std::byte, 16> playContextId) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    if (authenticationState_ != AuthenticationState::kAuthenticated ||
+        connection_ == nullptr) {
+        return;
+    }
+    try {
+        connection_->TrySend(IpcMessage{IpcPlayContextChangedMessage{
+            .correlationId = 0, .playContextId = playContextId}});
+    } catch (...) {
+        //  Best-effort; see SendBestEffortReject's own documentation for why
+        //  a failed or throwing send here must never propagate.
+    }
+}
+
 AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage& request) {
     std::uint64_t correlationId = request.correlationId;

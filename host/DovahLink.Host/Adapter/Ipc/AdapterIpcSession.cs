@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
 
 namespace DovahLink.Host.Adapter.Ipc;
@@ -119,6 +120,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The reusable authority this session forwards adapter-originated trust-administration requests to.</summary>
     private readonly IAdapterTrustAdminRequestHandler trustAdminRequestHandler;
 
+    /// <summary>The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</summary>
+    private readonly IPlayContextTracker playContextTracker;
+
     /// <summary>
     /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
     /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
@@ -162,6 +166,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <param name="lifecycle">The sole gateway for this session's connection-lifecycle mutations.</param>
     /// <param name="peerProofVerifier">The verifier this session checks a connecting adapter's peer-ownership proof against.</param>
     /// <param name="trustAdminRequestHandler">The reusable authority this session forwards adapter-originated trust-administration requests to.</param>
+    /// <param name="playContextTracker">The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</param>
     /// <param name="expectedOwnerLifetimeId">
     /// The owning Skyrim process's lifetime identity this host process was launched with, or
     /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
@@ -171,11 +176,13 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         IAdapterConnectionLifecycle lifecycle,
         IAdapterPeerProofVerifier peerProofVerifier,
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
+        IPlayContextTracker playContextTracker,
         OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
         this.lifecycle = lifecycle;
         this.peerProofVerifier = peerProofVerifier;
         this.trustAdminRequestHandler = trustAdminRequestHandler;
+        this.playContextTracker = playContextTracker;
         this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
@@ -257,6 +264,10 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
                 //  frame is accepted and discarded so the adapter's real reply
                 //  path can already be proved end to end before a scheduler
                 //  needs to correlate it against a pending request.
+                return AdapterIpcOutcome.None;
+
+            case IpcPlayContextChangedMessage playContextChanged:
+                playContextTracker.NotifyTransition(playContextChanged.PlayContextId);
                 return AdapterIpcOutcome.None;
 
             default:

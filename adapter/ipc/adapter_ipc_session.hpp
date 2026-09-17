@@ -156,6 +156,14 @@ class IAdapterIpcSession {
     ///  @param item The drained capture to report.
     virtual void SendCaptureResult(const capture::AdapterCaptureWorkItem& item) = 0;
 
+    ///  Best-effort sends a play-context-changed notification carrying
+    ///  `playContextId` through the currently attached, authenticated
+    ///  connection; a silent no-op when unauthenticated or disconnected.
+    ///  @param playContextId The adapter-generated play-context identity, as
+    ///  16 opaque bytes.
+    virtual void
+    SendPlayContextChanged(std::array<std::byte, 16> playContextId) = 0;
+
     ///  Handles serving having irreversibly ended for the current generation,
     ///  reached strictly before `HandleDisconnected` (see
     ///  `AdapterIpcConnectionCallbacks::onClosing`). Invalidates this
@@ -245,6 +253,9 @@ class AdapterIpcSession final : public IAdapterIpcSession {
 
     ///  @copydoc IAdapterIpcSession::SendCaptureResult
     void SendCaptureResult(const capture::AdapterCaptureWorkItem& item) override;
+
+    ///  @copydoc IAdapterIpcSession::SendPlayContextChanged
+    void SendPlayContextChanged(std::array<std::byte, 16> playContextId) override;
 
   private:
     ///  The lifecycle phase that controls which inbound messages are legal.

@@ -19,7 +19,12 @@ public interface IPlayContextTracker
     /// <summary>Reads the current play context and transition generation together.</summary>
     PlayContextSnapshot GetSnapshot();
 
-    /// <summary>Records a play-context transition notified by the adapter.</summary>
+    /// <summary>
+    /// Records a play-context transition notified by the adapter. Idempotent: a notification
+    /// repeating the already-current play context (for example a reconnect announcing the context
+    /// it already established) is a no-op -- it does not advance the transition generation or raise
+    /// <see cref="Transitioned"/>, so it can never be mistaken for a genuine new context.
+    /// </summary>
     /// <param name="newPlayContextId">The play context now active.</param>
     void NotifyTransition(PlayContextId newPlayContextId);
 }
@@ -71,6 +76,11 @@ public sealed class PlayContextTracker : IPlayContextTracker
             PlayContextTransition transition;
             lock (gate)
             {
+                if (current == newPlayContextId)
+                {
+                    return;
+                }
+
                 transition = new PlayContextTransition(current, newPlayContextId);
                 current = newPlayContextId;
                 transitionGeneration++;

@@ -12,6 +12,7 @@
 #include "ipc/ipc_pairing_attempts_exhausted_message.hpp"
 #include "ipc/ipc_pairing_display_ack_message.hpp"
 #include "ipc/ipc_pairing_display_message.hpp"
+#include "ipc/ipc_play_context_changed_message.hpp"
 #include "ipc/ipc_read_sample_message.hpp"
 #include "ipc/ipc_reject_message.hpp"
 #include "ipc/ipc_resynchronize_request_message.hpp"
@@ -32,6 +33,7 @@ using IpcMessage =
                  IpcPairingDisplayMessage, IpcPairingDisplayAckMessage,
                  IpcPairingAttemptsExhaustedMessage,
                  IpcTrustAdminRequestMessage, IpcTrustAdminResultMessage,
-                 IpcCaptureResultMessage, IpcListenEventResultMessage>;
+                 IpcCaptureResultMessage, IpcListenEventResultMessage,
+                 IpcPlayContextChangedMessage>;
 
 } //  namespace dovahlink::adapter::ipc

@@ -77,6 +77,9 @@ enum class IpcMessageKind : std::uint8_t {
     ///  Sent by the adapter in response to a listen-event request. See
     ///  `IpcListenEventResultMessage`.
     kListenEventResult = 16,
+    ///  Sent by the adapter to notify the host of a new play context. See
+    ///  `IpcPlayContextChangedMessage`.
+    kPlayContextChanged = 17,
 };
 
 ///  Why a private IPC channel is being closed.
