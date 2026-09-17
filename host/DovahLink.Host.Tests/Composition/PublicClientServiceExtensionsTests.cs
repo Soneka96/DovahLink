@@ -37,6 +37,7 @@ public class PublicClientServiceExtensionsTests
         using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
 
         Assert.NotNull(provider.GetRequiredService<IRegisteredStateAreaPolicy>());
+        Assert.NotNull(provider.GetRequiredService<LiveStateCatalog>());
         Assert.NotNull(provider.GetRequiredService<IStatePublicationFeed>());
         Assert.NotNull(provider.GetRequiredService<IPublicWebSocketTransportDiagnostics>());
         Assert.NotNull(provider.GetRequiredService<ILocalConnectionTokenAuthenticator>());
@@ -45,6 +46,22 @@ public class PublicClientServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IPublicConnectionFactory>());
         Assert.NotNull(provider.GetRequiredService<PublicListenerOptions>());
         Assert.NotNull(provider.GetRequiredService<IPublicWebSocketListener>());
+    }
+
+    /// <summary>Verifies that every state area the default live-state catalog defines is registered at composition.</summary>
+    [Fact]
+    public async Task AddPublicClientServices_RegistersEveryDefaultCatalogStateArea()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+        var registeredAreaPolicy = provider.GetRequiredService<IRegisteredStateAreaPolicy>();
+
+        foreach (StateAreaDefinition area in LiveStateCatalog.Default.StateAreas)
+        {
+            Assert.True(registeredAreaPolicy.IsRegistered(area.Id));
+        }
+
+        Assert.Equal(LiveStateCatalog.Default.StateAreas.Count, registeredAreaPolicy.Count);
     }
 
     /// <summary>

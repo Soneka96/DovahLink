@@ -518,4 +518,19 @@ public static class Constants
 
     /// <summary>The <c>stateArea</c> id for the current level value.</summary>
     public const string CharacterLevelStateArea = "character_level";
+
+    /// <summary>
+    /// The maximum sampling frequency for a <see cref="RateClass.Fast"/> capture unit, per
+    /// <c>roadmap/04-live-state-synchronization-foundation.md</c>'s initial profiling hypothesis (5
+    /// Hz). Controls how often the host directs the adapter to sample, not revision or message
+    /// frequency; not itself a wire field.
+    /// </summary>
+    public static readonly TimeSpan LiveStateFastSampleInterval = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// The maximum sampling frequency for a <see cref="RateClass.Medium"/> capture unit, per
+    /// <c>roadmap/04-live-state-synchronization-foundation.md</c>'s initial profiling hypothesis (1
+    /// Hz).
+    /// </summary>
+    public static readonly TimeSpan LiveStateMediumSampleInterval = TimeSpan.FromSeconds(1);
 }

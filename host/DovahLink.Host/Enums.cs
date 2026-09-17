@@ -354,6 +354,33 @@ public enum CharacterEventKey : uint
     CharacterLevelChanged = 1,
 }
 
+/// <summary>
+/// The maximum frequency at which the host directs the adapter to sample a
+/// <see cref="State.CaptureUnitDefinition"/>, not the frequency of resulting revisions or network
+/// messages. Not itself a wire field; see <c>Constants</c>'s matching interval for each value.
+/// </summary>
+public enum RateClass
+{
+    /// <summary>Sampled at most once every <see cref="Constants.LiveStateFastSampleInterval"/>.</summary>
+    Fast,
+
+    /// <summary>Sampled at most once every <see cref="Constants.LiveStateMediumSampleInterval"/>.</summary>
+    Medium,
+}
+
+/// <summary>
+/// The canonical live-delivery mode a <see cref="State.StateAreaDefinition"/> declares. A consumer
+/// does not choose between them per subscription; the state area's own definition fixes it.
+/// </summary>
+public enum UpdateMode
+{
+    /// <summary>Replaceable latest state: every update is complete current state.</summary>
+    Snapshot,
+
+    /// <summary>An ordered complete post-change state, reliable within one authenticated session.</summary>
+    Event,
+}
+
 /// <summary>Why a private IPC channel is being closed.</summary>
 public enum IpcCloseReason : byte
 {

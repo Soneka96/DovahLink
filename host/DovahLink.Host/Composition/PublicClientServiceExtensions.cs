@@ -38,9 +38,19 @@ public static class PublicClientServiceExtensions
     /// <returns><paramref name="services"/>, for chaining.</returns>
     public static IServiceCollection AddPublicClientServices(this IServiceCollection services, int? publicListenerPort)
     {
-        // No state area is registered and no real domain feed exists, so both placeholders below
-        // reflect this composition root's actual current behavior.
-        services.AddSingleton<IRegisteredStateAreaPolicy, RegisteredStateAreaPolicy>();
+        services.AddSingleton(LiveStateCatalog.Default);
+        services.AddSingleton<IRegisteredStateAreaPolicy>(_ =>
+        {
+            var policy = new RegisteredStateAreaPolicy();
+            foreach (StateAreaDefinition area in LiveStateCatalog.Default.StateAreas)
+            {
+                policy.TryRegister(area.Id);
+            }
+
+            return policy;
+        });
+        // No real domain feed exists yet, so this placeholder reflects this composition root's
+        // actual current behavior.
         services.AddSingleton<IStatePublicationFeed>(NullStatePublicationFeed.Instance);
         services.AddSingleton<IPublicWebSocketTransportDiagnostics>(NullPublicWebSocketTransportDiagnostics.Instance);
 
