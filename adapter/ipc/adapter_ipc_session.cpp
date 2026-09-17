@@ -73,12 +73,14 @@ AdapterIpcSession::AdapterIpcSession(
     dispatch::IAdapterNativeCaptureRouter& captureRouter,
     capture::IAdapterCaptureHandoffQueue& captureQueue,
     IAdapterPairingNotificationSink& pairingNotificationSink,
+    identity::IAdapterPlayContextState& playContextState,
     std::function<void()> onGameThreadDispatchRejected,
     std::chrono::milliseconds trustAdminRequestTimeout)
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
       taskMarshaller_(taskMarshaller), captureRouter_(captureRouter),
       captureQueue_(captureQueue),
       pairingNotificationSink_(pairingNotificationSink),
+      playContextState_(playContextState),
       onGameThreadDispatchRejected_(std::move(onGameThreadDispatchRejected)),
       trustAdminRequestTimeout_(trustAdminRequestTimeout) {}
 
@@ -398,6 +400,9 @@ AdapterIpcSession::HandleMessage(const IpcMessage& message) {
                                                ? AuthenticationState::kAuthenticated
                                                : AuthenticationState::kClosed;
                 }
+                if (authenticated) {
+                    ReplayCurrentPlayContext();
+                }
                 return authenticated ? AdapterIpcMessageDisposition::kAuthenticated
                                      : AdapterIpcMessageDisposition::kClose;
             } else if constexpr (std::is_same_v<T,
@@ -497,8 +502,8 @@ void AdapterIpcSession::SendCaptureResult(
 
 void AdapterIpcSession::SendPlayContextChanged(
     std::array<std::byte, 16> playContextId) {
+    playContextState_.SetCurrentPlayContext(playContextId);
     std::lock_guard<std::mutex> lock(availableMutex_);
-    currentPlayContextId_ = playContextId;
     if (authenticationState_ != AuthenticationState::kAuthenticated ||
         connection_ == nullptr) {
         return;
@@ -510,6 +515,14 @@ void AdapterIpcSession::SendPlayContextChanged(
         //  Best-effort; see SendBestEffortReject's own documentation for why
         //  a failed or throwing send here must never propagate.
     }
+}
+
+void AdapterIpcSession::ReplayCurrentPlayContext() {
+    std::array<std::byte, 16> current = playContextState_.CurrentPlayContext();
+    if (current == std::array<std::byte, 16>{}) {
+        return;
+    }
+    SendPlayContextChanged(current);
 }
 
 AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
@@ -559,15 +572,12 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                         return;
                     }
                 }
-                //  Read the play context under the same lock as the guard
-                //  above, immediately before the Skyrim reads below, rather
-                //  than later on a different thread; see HandleReadSample's
-                //  identical guard for why.
-                std::array<std::byte, 16> playContextId{};
-                {
-                    std::lock_guard<std::mutex> lock(availableMutex_);
-                    playContextId = currentPlayContextId_;
-                }
+                //  Read the play context immediately before the Skyrim reads
+                //  below, rather than caching it earlier or reading it later
+                //  on a different thread; see HandleReadSample's identical
+                //  guard for why.
+                std::array<std::byte, 16> playContextId =
+                    playContextState_.CurrentPlayContext();
                 //  Register the level-changed event before reading the level
                 //  baseline below, in this same game-thread task, so there is
                 //  no window between registration and the baseline read in
@@ -732,7 +742,6 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                 return;
             }
             try {
-                std::array<std::byte, 16> playContextId{};
                 {
                     std::lock_guard<std::mutex> lock(availableMutex_);
                     //  Read from this dispatch's own captured object; see
@@ -748,14 +757,14 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                         cancelled) {
                         return;
                     }
-                    //  Read the play context under the same lock as the guard
-                    //  above, immediately before the Skyrim read below, rather
-                    //  than later on a different thread: this is the tightest
-                    //  window this session's existing lock scoping allows
-                    //  between observing "this context is current" and
-                    //  actually capturing the value under it.
-                    playContextId = currentPlayContextId_;
                 }
+                //  Read the play context immediately before the Skyrim read
+                //  below, rather than caching it earlier or reading it later
+                //  on a different thread: this is the tightest window
+                //  between observing "this context is current" and actually
+                //  capturing the value under it.
+                std::array<std::byte, 16> playContextId =
+                    playContextState_.CurrentPlayContext();
                 std::optional<std::vector<std::byte>> captured =
                     captureRouter_.CaptureSample(sampleToken);
                 captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{

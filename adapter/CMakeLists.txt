@@ -37,6 +37,7 @@ add_library(dovahlink_adapter_core STATIC
     dispatch/adapter_native_capture_router.cpp
     identity/adapter_instance_id_generator.cpp
     identity/adapter_play_context_generator.cpp
+    identity/adapter_play_context_state.cpp
     process/adapter_owner_lifetime_id.cpp
     process/adapter_host_endpoint_report.cpp
     process/adapter_host_rendezvous_reader.cpp
@@ -171,6 +172,7 @@ add_executable(dovahlink_adapter_tests
     tests/dispatch/adapter_native_capture_router_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
     tests/identity/adapter_play_context_generator_test.cpp
+    tests/identity/adapter_play_context_state_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
     tests/runtime/commonlib_adapter_character_capture_test.cpp
     tests/runtime/commonlib_adapter_native_capture_router_test.cpp

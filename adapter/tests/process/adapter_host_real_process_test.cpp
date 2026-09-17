@@ -55,6 +55,7 @@ using dovahlink::adapter::capture::CaptureSourceKind;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::AdapterInstanceIdGenerator;
+using dovahlink::adapter::identity::AdapterPlayContextState;
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcSession;
 using dovahlink::adapter::ipc::AdapterIpcTarget;
@@ -924,10 +925,12 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
     AdapterNativeCaptureRouter captureRouter;
     NoopCaptureQueue captureQueue;
     NoopPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     std::unique_ptr<AdapterHostSupervisor> supervisor;
     AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
                               ownerLifetimeId, taskMarshaller, captureRouter,
-                              captureQueue, pairingNotificationSink);
+                              captureQueue, pairingNotificationSink,
+                              playContextState);
     std::atomic<int> connectedCount = 0;
     std::mutex targetMutex;
     std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> connectedTarget;
@@ -1045,7 +1048,8 @@ class RealHostFixture {
                        ? *pairingSink
                        : static_cast<dovahlink::adapter::ipc::
                                          IAdapterPairingNotificationSink&>(
-                             noopPairingNotificationSink_)),
+                             noopPairingNotificationSink_),
+                   playContextState_),
           connection_(
               connectionSocket_, codec_,
               dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
@@ -1121,6 +1125,7 @@ class RealHostFixture {
     AdapterNativeCaptureRouter captureRouter_;
     NoopCaptureQueue captureQueue_;
     NoopPairingNotificationSink noopPairingNotificationSink_;
+    AdapterPlayContextState playContextState_;
     AdapterIpcSession session_;
     AdapterIpcConnection connection_;
 };

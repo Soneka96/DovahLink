@@ -21,6 +21,7 @@ using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
+using dovahlink::adapter::identity::IAdapterPlayContextState;
 using dovahlink::adapter::ipc::IAdapterPairingNotificationSink;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::test_support::FakeAdapterTaskMarshaller;
@@ -54,7 +55,7 @@ class RecordingPairingNotificationSink final
 ///  not real native capture behavior, which requires CommonLib and is
 ///  covered separately by the runtime/ structural tests.
 std::unique_ptr<IAdapterNativeCaptureRouter>
-MakeStubCaptureRouter(IAdapterCaptureHandoffQueue&) {
+MakeStubCaptureRouter(IAdapterCaptureHandoffQueue&, IAdapterPlayContextState&) {
     return std::make_unique<AdapterNativeCaptureRouter>();
 }
 

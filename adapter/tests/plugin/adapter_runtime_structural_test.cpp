@@ -150,6 +150,27 @@ TEST_CASE("AdapterRuntime attaches the connection to the session only after "
     CHECK(supervisorConstruction < attachConnection);
 }
 
+TEST_CASE("AdapterRuntime constructs playContextState_ before the "
+          "capture-router factory call and the session, both of which "
+          "require it",
+          "[plugin][structural]") {
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_RUNTIME_SOURCE_FILE);
+
+    std::size_t playContextStateConstruction = source.find(
+        "playContextState_ = std::make_unique<identity::AdapterPlayContextState>();");
+    std::size_t routerFactoryCall =
+        source.find("captureRouter_ = captureRouterFactory(*captureQueue_, "
+                    "*playContextState_);");
+    std::size_t sessionConstruction = source.find(
+        "session_ = std::make_unique<ipc::AdapterIpcSession>");
+
+    REQUIRE(playContextStateConstruction != std::string::npos);
+    REQUIRE(routerFactoryCall != std::string::npos);
+    REQUIRE(sessionConstruction != std::string::npos);
+    CHECK(playContextStateConstruction < routerFactoryCall);
+    CHECK(playContextStateConstruction < sessionConstruction);
+}
+
 TEST_CASE("AdapterRuntime owns every collaborator in its graph through a "
           "unique_ptr member",
           "[plugin][structural]") {
@@ -193,8 +214,8 @@ TEST_CASE("AdapterRuntime calls the capture-router factory only after "
 
     std::size_t queueConstruction = source.find(
         "captureQueue_ = std::make_unique<capture::AdapterCaptureHandoffQueue>");
-    std::size_t routerFactoryCall =
-        source.find("captureRouter_ = captureRouterFactory(*captureQueue_);");
+    std::size_t routerFactoryCall = source.find(
+        "captureRouter_ = captureRouterFactory(*captureQueue_, *playContextState_);");
 
     REQUIRE(queueConstruction != std::string::npos);
     REQUIRE(routerFactoryCall != std::string::npos);

@@ -17,12 +17,14 @@ namespace dovahlink::adapter::runtime {
 class CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink final
     : public RE::BSTEventSink<RE::LevelIncrease::Event> {
   public:
-    explicit LevelChangedEventSink(capture::IAdapterCaptureHandoffQueue& captureQueue)
-        : captureQueue_(captureQueue) {}
+    LevelChangedEventSink(capture::IAdapterCaptureHandoffQueue& captureQueue,
+                          identity::IAdapterPlayContextState& playContextState)
+        : captureQueue_(captureQueue), playContextState_(playContextState) {}
 
-    ///  Copies the new level and enqueues it. The queue may reject an item
-    ///  at capacity; reliable-Event loss under sustained capture-queue
-    ///  pressure is a known, documented open risk (see
+    ///  Copies the new level and enqueues it, stamped with the current play
+    ///  context. The queue may reject an item at capacity; reliable-Event
+    ///  loss under sustained capture-queue pressure is a known, documented
+    ///  open risk (see
     ///  `roadmap/04-live-state-synchronization-foundation.md`'s "Real
     ///  capture and host integration"), not silently handled here.
     RE::BSEventNotifyControl
@@ -40,19 +42,22 @@ class CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink final
             .correlationId = 0,
             .source = capture::CaptureSourceKind::kEvent,
             .availability = capture::CaptureAvailability::kAvailable,
-            .playContextId = {},
+            .playContextId = playContextState_.CurrentPlayContext(),
         });
         return RE::BSEventNotifyControl::kContinue;
     }
 
   private:
     capture::IAdapterCaptureHandoffQueue& captureQueue_;
+    identity::IAdapterPlayContextState& playContextState_;
 };
 
 CommonLibAdapterNativeCaptureRouter::CommonLibAdapterNativeCaptureRouter(
-    capture::IAdapterCaptureHandoffQueue& captureQueue)
-    : captureQueue_(captureQueue),
-      levelChangedEventSink_(std::make_unique<LevelChangedEventSink>(captureQueue)) {}
+    capture::IAdapterCaptureHandoffQueue& captureQueue,
+    identity::IAdapterPlayContextState& playContextState)
+    : captureQueue_(captureQueue), playContextState_(playContextState),
+      levelChangedEventSink_(std::make_unique<LevelChangedEventSink>(
+          captureQueue, playContextState)) {}
 
 CommonLibAdapterNativeCaptureRouter::~CommonLibAdapterNativeCaptureRouter() = default;
 
@@ -100,7 +105,11 @@ bool CommonLibAdapterNativeCaptureRouter::RegisterEvent(std::uint32_t eventKey) 
         capture::CharacterEventKey::kCharacterLevelChanged) {
         return false;
     }
-    RE::LevelIncrease::GetEventSource()->AddEventSink(levelChangedEventSink_.get());
+    auto* source = RE::LevelIncrease::GetEventSource();
+    if (source == nullptr) {
+        return false;
+    }
+    source->AddEventSink(levelChangedEventSink_.get());
     return true;
 }
 

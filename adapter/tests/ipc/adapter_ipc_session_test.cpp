@@ -32,6 +32,7 @@ using dovahlink::adapter::capture::CharacterSampleToken;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::AdapterInstanceId;
+using dovahlink::adapter::identity::AdapterPlayContextState;
 using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
 using dovahlink::adapter::ipc::AdapterIpcSession;
 using dovahlink::adapter::ipc::AdapterIpcTarget;
@@ -376,6 +377,7 @@ struct SessionFixture {
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     ///  The number of times `session` reported a rejected game-thread dispatch.
     std::size_t rejectedDispatchCount = 0;
     ///  When true, the rejection callback throws instead of just counting, so
@@ -387,6 +389,7 @@ struct SessionFixture {
                               dispatcher,
                               captureQueue,
                               pairingNotificationSink,
+                              playContextState,
                               [this] {
                                   ++rejectedDispatchCount;
                                   if (throwOnRejectedDispatch) {
@@ -826,12 +829,13 @@ TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
 
     {
         AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
-                                  marshaller, dispatcher,
-                                  captureQueue, pairingNotificationSink};
+                                  marshaller, dispatcher, captureQueue,
+                                  pairingNotificationSink, playContextState};
         session.AttachConnection(connection);
         Authenticate(session, connection, target);
         session.HandleMessage(
@@ -1022,6 +1026,79 @@ TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
     Authenticate(fixture.session, connection, fixture.target);
 
     CHECK(fixture.session.IsHostAvailable());
+}
+
+TEST_CASE("AdapterIpcSession replays the currently held play context to a "
+          "newly authenticated generation, so a host that starts a fresh "
+          "generation while the same save stays loaded still learns the "
+          "current context") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    std::array<std::byte, 16> playContextId{};
+    playContextId[0] = std::byte{42};
+    fixture.session.SendPlayContextChanged(playContextId);
+    REQUIRE(fixture.playContextState.CurrentPlayContext() == playContextId);
+    connection.Clear();
+
+    //  Reconnect without a new kNewGame/kPostLoadGame: the save stays loaded,
+    //  so nothing else would ever re-announce this context to the new
+    //  generation's host.
+    fixture.session.HandleDisconnected();
+    fixture.session.HandleConnected(fixture.target);
+    REQUIRE(connection.Sent().size() == 1);
+    auto* hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
+    REQUIRE(hello != nullptr);
+    auto expectedProof = ComputeIpcHmacSha256(
+        fixture.target.hostProofKey,
+        BuildHostProofMessage(hello->challenge, hello->correlationId,
+                              hello->adapterInstanceId, hello->ownerLifetimeId));
+    connection.Clear();
+
+    AdapterIpcMessageDisposition disposition =
+        fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
+            .correlationId = hello->correlationId,
+            .accepted = true,
+            .rejectReason = IpcHelloRejectReason::kNone,
+            .hostProof = expectedProof,
+        }});
+    REQUIRE(disposition == AdapterIpcMessageDisposition::kAuthenticated);
+
+    REQUIRE(connection.Sent().size() == 1);
+    auto* notification =
+        std::get_if<IpcPlayContextChangedMessage>(&connection.Sent().front());
+    REQUIRE(notification != nullptr);
+    CHECK(notification->correlationId == 0);
+    CHECK(notification->playContextId == playContextId);
+}
+
+TEST_CASE("AdapterIpcSession does not replay an all-zero play context: "
+          "nothing genuine has ever been announced yet") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    fixture.session.HandleConnected(fixture.target);
+    REQUIRE(connection.Sent().size() == 1);
+    auto* hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
+    REQUIRE(hello != nullptr);
+    auto expectedProof = ComputeIpcHmacSha256(
+        fixture.target.hostProofKey,
+        BuildHostProofMessage(hello->challenge, hello->correlationId,
+                              hello->adapterInstanceId, hello->ownerLifetimeId));
+    connection.Clear();
+
+    AdapterIpcMessageDisposition disposition =
+        fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
+            .correlationId = hello->correlationId,
+            .accepted = true,
+            .rejectReason = IpcHelloRejectReason::kNone,
+            .hostProof = expectedProof,
+        }});
+    REQUIRE(disposition == AdapterIpcMessageDisposition::kAuthenticated);
+
+    CHECK(fixture.playContextState.CurrentPlayContext() == std::array<std::byte, 16>{});
+    CHECK(connection.Sent().empty());
 }
 
 TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
@@ -1439,10 +1516,11 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
     BlockingAdapterNativeCaptureRouter dispatcher{enteredPromise, releaseFuture};
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     auto session = std::make_unique<AdapterIpcSession>(
         SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-        captureQueue, pairingNotificationSink);
+        captureQueue, pairingNotificationSink, playContextState);
     session->AttachConnection(connection);
     Authenticate(*session, connection, target);
     session->HandleMessage(
@@ -1496,10 +1574,11 @@ TEST_CASE("AdapterIpcSession's queued game-thread dispatch stays safe to run "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     auto session = std::make_unique<AdapterIpcSession>(
         SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-        captureQueue, pairingNotificationSink);
+        captureQueue, pairingNotificationSink, playContextState);
     session->AttachConnection(connection);
     Authenticate(*session, connection, target);
 
@@ -1811,6 +1890,24 @@ TEST_CASE("AdapterIpcSession::SendCaptureResult contains an exception "
 
     REQUIRE_NOTHROW(fixture.session.SendCaptureResult(
         AdapterCaptureWorkItem{.intentKey = 5, .correlationId = 3}));
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged writes through to the "
+          "shared play-context state even before authentication") {
+    //  AdapterPlayContextState's own get/set behavior is covered directly by
+    //  adapter_play_context_state_test.cpp; this proves the session actually
+    //  writes through to it, including while unauthenticated.
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+
+    CHECK(fixture.playContextState.CurrentPlayContext() == std::array<std::byte, 16>{});
+
+    std::array<std::byte, 16> playContextId{};
+    playContextId[0] = std::byte{9};
+    fixture.session.SendPlayContextChanged(playContextId);
+
+    CHECK(fixture.playContextState.CurrentPlayContext() == playContextId);
 }
 
 TEST_CASE("AdapterIpcSession::SendPlayContextChanged sends a notification "
@@ -2653,10 +2750,11 @@ TEST_CASE("AdapterIpcSession contains an exception thrown by the pairing "
     FakeAdapterTaskMarshaller marshaller;
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
                               marshaller, dispatcher,
-                              captureQueue, throwingSink};
+                              captureQueue, throwingSink, playContextState};
     session.AttachConnection(connection);
     Authenticate(session, connection, target);
 
@@ -2971,6 +3069,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     AdapterIpcSession session{SampleInstanceId(),
                               SampleOwnerLifetimeId(),
@@ -2978,6 +3077,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
                               dispatcher,
                               captureQueue,
                               pairingNotificationSink,
+                              playContextState,
                               [] {},
                               std::chrono::milliseconds(200)};
     session.AttachConnection(connection);
@@ -3034,11 +3134,12 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker sends "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     {
         auto session = std::make_unique<AdapterIpcSession>(
             SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-            captureQueue, pairingNotificationSink, [] {},
+            captureQueue, pairingNotificationSink, playContextState, [] {},
             std::chrono::milliseconds(30));
         session->AttachConnection(connection);
         Authenticate(*session, connection, target);
@@ -3084,6 +3185,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     AdapterIpcSession session{SampleInstanceId(),
                               SampleOwnerLifetimeId(),
@@ -3091,6 +3193,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker "
                               dispatcher,
                               captureQueue,
                               pairingNotificationSink,
+                              playContextState,
                               [] {},
                               std::chrono::milliseconds(100)};
     session.AttachConnection(connection);
@@ -3208,12 +3311,13 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's onResult callback is "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     auto invocationCount = std::make_shared<std::atomic<int>>(0);
     {
         auto session = std::make_unique<AdapterIpcSession>(
             SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-            captureQueue, pairingNotificationSink, [] {},
+            captureQueue, pairingNotificationSink, playContextState, [] {},
             std::chrono::milliseconds(30));
         session->AttachConnection(connection);
         Authenticate(*session, connection, target);
@@ -3500,12 +3604,13 @@ TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     std::future<TrustAdminRequestResult> resultFuture;
     {
         auto session = std::make_unique<AdapterIpcSession>(
             SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-            captureQueue, pairingNotificationSink, [] {},
+            captureQueue, pairingNotificationSink, playContextState, [] {},
             std::chrono::milliseconds(50));
         session->AttachConnection(connection);
         Authenticate(*session, connection, target);
@@ -3551,10 +3656,11 @@ TEST_CASE("AdapterIpcSession's destructor safely waits for a "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     auto session = std::make_unique<AdapterIpcSession>(
         SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-        captureQueue, pairingNotificationSink, [] {},
+        captureQueue, pairingNotificationSink, playContextState, [] {},
         std::chrono::milliseconds(50));
     session->AttachConnection(connection);
     Authenticate(*session, connection, target);
@@ -3671,6 +3777,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's requests admitted "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     //  Deliberately much longer than this test's own short assertion wait
     //  below: if abandonment were ever delivered by the timeout worker instead
@@ -3679,7 +3786,8 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's requests admitted "
     //  path actually resolved it.
     AdapterIpcSession session(
         SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-        captureQueue, pairingNotificationSink, [] {}, std::chrono::minutes(10));
+        captureQueue, pairingNotificationSink, playContextState, [] {},
+        std::chrono::minutes(10));
     session.AttachConnection(connection);
     Authenticate(session, connection, target);
 
@@ -3846,12 +3954,13 @@ TEST_CASE("AdapterIpcSession releases a timed-out trust-admin request's "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     //  Short enough to keep this test fast: every request below is resolved by
     //  its own timeout firing, not by HandleMessage.
     AdapterIpcSession session(
         SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-        captureQueue, pairingNotificationSink, [] {},
+        captureQueue, pairingNotificationSink, playContextState, [] {},
         std::chrono::milliseconds(30));
     session.AttachConnection(connection);
     Authenticate(session, connection, target);
@@ -3913,10 +4022,11 @@ TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "
     FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     FakeAdapterIpcConnection connection;
     auto session = std::make_unique<AdapterIpcSession>(
         SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
-        captureQueue, pairingNotificationSink, [] {},
+        captureQueue, pairingNotificationSink, playContextState, [] {},
         std::chrono::milliseconds(50));
     session->AttachConnection(connection);
     Authenticate(*session, connection, target);

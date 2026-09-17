@@ -8,6 +8,7 @@
 
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "dispatch/adapter_native_capture_router.hpp"
+#include "identity/adapter_play_context_state.hpp"
 
 namespace dovahlink::adapter::runtime {
 
@@ -29,17 +30,21 @@ namespace dovahlink::adapter::runtime {
 ///  `CharacterEventKey::kCharacterLevelChanged`: a spontaneous native event
 ///  has no session-driven caller to hand a captured value back to the way a
 ///  sampled `CaptureSample` result does, so this router enqueues the event's
-///  own capture directly onto `captureQueue` (given at construction) instead.
-///  `LevelChangedEventSink` stays forward-declared here, defined only in the
-///  `.cpp`, so this header stays free of Skyrim/SKSE runtime types, matching
-///  every other `adapter/runtime` header.
+///  own capture directly onto `captureQueue` (given at construction) instead,
+///  stamped with `playContextState`'s current value at the moment the event
+///  fires. `LevelChangedEventSink` stays forward-declared here, defined only
+///  in the `.cpp`, so this header stays free of Skyrim/SKSE runtime types,
+///  matching every other `adapter/runtime` header.
 class CommonLibAdapterNativeCaptureRouter final
     : public dispatch::IAdapterNativeCaptureRouter {
   public:
     ///  Creates a router that enqueues level-changed event captures onto
-    ///  `captureQueue`.
+    ///  `captureQueue`, stamped with `playContextState`'s current value.
     ///  @param captureQueue Must outlive this router.
-    explicit CommonLibAdapterNativeCaptureRouter(capture::IAdapterCaptureHandoffQueue& captureQueue);
+    ///  @param playContextState Must outlive this router.
+    CommonLibAdapterNativeCaptureRouter(
+        capture::IAdapterCaptureHandoffQueue& captureQueue,
+        identity::IAdapterPlayContextState& playContextState);
 
     ///  Declared out-of-line so `LevelChangedEventSink` need not be complete here.
     ~CommonLibAdapterNativeCaptureRouter() override;
@@ -62,6 +67,7 @@ class CommonLibAdapterNativeCaptureRouter final
     class LevelChangedEventSink;
 
     capture::IAdapterCaptureHandoffQueue& captureQueue_;
+    identity::IAdapterPlayContextState& playContextState_;
     std::unique_ptr<LevelChangedEventSink> levelChangedEventSink_;
 };
 

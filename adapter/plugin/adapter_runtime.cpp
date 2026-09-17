@@ -11,7 +11,8 @@ AdapterRuntime::AdapterRuntime(
     runtime::IAdapterTaskMarshaller& taskMarshaller,
     ipc::IAdapterPairingNotificationSink& pairingNotificationSink,
     std::function<std::unique_ptr<dispatch::IAdapterNativeCaptureRouter>(
-        capture::IAdapterCaptureHandoffQueue&)>
+        capture::IAdapterCaptureHandoffQueue&,
+        identity::IAdapterPlayContextState&)>
         captureRouterFactory,
     std::function<void(const capture::AdapterCaptureWorkItem&)>
         onCaptureDrained,
@@ -27,6 +28,8 @@ AdapterRuntime::AdapterRuntime(
     //  queue's worker thread actually drains an enqueued item, which cannot
     //  happen before Start() is called, well after this constructor and
     //  `session_` have both finished.
+    playContextState_ = std::make_unique<identity::AdapterPlayContextState>();
+
     captureQueue_ = std::make_unique<capture::AdapterCaptureHandoffQueue>(
         [this, onCaptureDrained = std::move(onCaptureDrained)](
             const capture::AdapterCaptureWorkItem& item) {
@@ -36,12 +39,12 @@ AdapterRuntime::AdapterRuntime(
             }
         },
         std::move(onCaptureQueueRejected));
-    captureRouter_ = captureRouterFactory(*captureQueue_);
+    captureRouter_ = captureRouterFactory(*captureQueue_, *playContextState_);
 
     session_ = std::make_unique<ipc::AdapterIpcSession>(
         startupContext.instanceId, startupContext.ownerLifetimeId,
         taskMarshaller_, *captureRouter_, *captureQueue_, pairingNotificationSink_,
-        std::move(onGameThreadDispatchRejected));
+        *playContextState_, std::move(onGameThreadDispatchRejected));
 
     socket_ = std::make_unique<ipc::WinsockAdapterIpcSocket>(0);
     codec_ = std::make_unique<ipc::IpcFrameCodec>();

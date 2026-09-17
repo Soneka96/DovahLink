@@ -3,6 +3,7 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "capture/adapter_capture_work_item.hpp"
 #include "dispatch/adapter_native_capture_router.hpp"
+#include "identity/adapter_play_context_state.hpp"
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_session.hpp"
 #include "ipc/adapter_pairing_notification_sink.hpp"
@@ -48,7 +49,8 @@ class AdapterRuntime final {
     ///  @param pairingNotificationSink Presents pairing codes at the
     ///  Skyrim-facing display seam.
     ///  @param captureRouterFactory Builds the native capture router given
-    ///  the capture queue it enqueues spontaneous native-event captures onto.
+    ///  the capture queue it enqueues spontaneous native-event captures onto
+    ///  and the shared play-context state it stamps those captures with.
     ///  @param onCaptureDrained Invoked for each capture item the handoff
     ///  queue's worker thread drains.
     ///  @param onCaptureQueueRejected Invoked when the handoff queue rejects a
@@ -60,7 +62,8 @@ class AdapterRuntime final {
         runtime::IAdapterTaskMarshaller& taskMarshaller,
         ipc::IAdapterPairingNotificationSink& pairingNotificationSink,
         std::function<std::unique_ptr<dispatch::IAdapterNativeCaptureRouter>(
-            capture::IAdapterCaptureHandoffQueue&)>
+            capture::IAdapterCaptureHandoffQueue&,
+            identity::IAdapterPlayContextState&)>
             captureRouterFactory,
         std::function<void(const capture::AdapterCaptureWorkItem&)>
             onCaptureDrained,
@@ -105,6 +108,7 @@ class AdapterRuntime final {
     ///  member destructor runs; declaration order alone does not make their
     ///  teardown safe, since `connection_` owns a background thread
     ///  independent of `supervisor_`'s own.
+    std::unique_ptr<identity::AdapterPlayContextState> playContextState_;
     std::unique_ptr<capture::AdapterCaptureHandoffQueue> captureQueue_;
     std::unique_ptr<dispatch::IAdapterNativeCaptureRouter> captureRouter_;
     std::unique_ptr<ipc::AdapterIpcSession> session_;

@@ -5,6 +5,7 @@
 #include "dispatch/adapter_native_capture_router.hpp"
 #include "enums.hpp"
 #include "identity/adapter_instance_id.hpp"
+#include "identity/adapter_play_context_state.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 #include "ipc/adapter_ipc_target.hpp"
 #include "ipc/adapter_pairing_notification_sink.hpp"
@@ -41,12 +42,13 @@ class IAdapterIpcConnection;
 ///  through a separate capture path, not from this dispatch's own result. A
 ///  resynchronization request is just another marshaled game-thread task
 ///  that reports unavailable, since no approved baseline domain exists yet
-///  (see `IpcResynchronizeResultMessage`'s own documentation). Also tracks the
-///  play context most recently announced through `SendPlayContextChanged` and
-///  stamps it onto every capture enqueued afterward, so a value captured just
-///  before a later transition is never misattributed to the context that
-///  follows it. Owns no transport I/O of its own; every lifecycle event
-///  reaches this session through `AdapterIpcConnection`'s callbacks.
+///  (see `IpcResynchronizeResultMessage`'s own documentation). Also writes the
+///  play context most recently announced through `SendPlayContextChanged` into
+///  the shared `IAdapterPlayContextState`, and reads it back to stamp every
+///  capture enqueued afterward, so a value captured just before a later
+///  transition is never misattributed to the context that follows it. Owns no
+///  transport I/O of its own; every lifecycle event reaches this session
+///  through `AdapterIpcConnection`'s callbacks.
 class IAdapterIpcSession {
   public:
     virtual ~IAdapterIpcSession() = default;
@@ -196,6 +198,9 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  @param captureQueue Receives owned captured values for handoff.
     ///  @param pairingNotificationSink Presents host-decided pairing-display
     ///  and attempts-exhausted notifications at the Skyrim-facing display seam.
+    ///  @param playContextState The shared play-context state this session
+    ///  writes on every `SendPlayContextChanged` call and reads when stamping
+    ///  a captured sample or replaying to a newly authenticated connection.
     ///  @param onGameThreadDispatchRejected Invoked when a resynchronization,
     ///  listen-event, or read-sample request is rejected at the
     ///  `kMaxPendingGameThreadDispatches` bound instead of being marshaled onto
@@ -212,6 +217,7 @@ class AdapterIpcSession final : public IAdapterIpcSession {
         dispatch::IAdapterNativeCaptureRouter& captureRouter,
         capture::IAdapterCaptureHandoffQueue& captureQueue,
         IAdapterPairingNotificationSink& pairingNotificationSink,
+        identity::IAdapterPlayContextState& playContextState,
         std::function<void()> onGameThreadDispatchRejected = [] {},
         std::chrono::milliseconds trustAdminRequestTimeout =
             kTrustAdminRequestTimeout);
@@ -389,6 +395,18 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  Issues the next monotonic outbound correlation id, starting at 1.
     std::uint64_t NextCorrelationId();
 
+    ///  Re-sends the currently held play context through the newly
+    ///  authenticated connection, so a host that starts a fresh generation
+    ///  while Skyrim keeps the same save loaded still learns the current
+    ///  context instead of waiting for the next `kNewGame`/`kPostLoadGame`.
+    ///  Called once, immediately after this generation reaches
+    ///  `AuthenticationState::kAuthenticated`. A no-op if no real
+    ///  play-context transition has ever occurred yet (`playContextState_`
+    ///  still reports all-zero): there is nothing genuine to announce, and
+    ///  sending the all-zero sentinel would announce a false transition to a
+    ///  host that has not seen any context yet.
+    void ReplayCurrentPlayContext();
+
     ///  Invalidates the current generation for deferred work exactly once: a
     ///  no-op (returning an empty vector) if `authenticationState_` is already
     ///  `kClosed`, so the generation counter advances only once per logical
@@ -459,6 +477,10 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  Presents host-decided pairing-display and attempts-exhausted
     ///  notifications at the Skyrim-facing display seam.
     IAdapterPairingNotificationSink& pairingNotificationSink_;
+    ///  The shared play-context state this session writes on every
+    ///  `SendPlayContextChanged` call and reads when stamping a captured
+    ///  sample or replaying to a newly authenticated connection.
+    identity::IAdapterPlayContextState& playContextState_;
     ///  Invoked when a deferred game-thread dispatch is rejected at the
     ///  `kMaxPendingGameThreadDispatches` bound.
     std::function<void()> onGameThreadDispatchRejected_;
@@ -500,12 +522,6 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     mutable std::mutex availableMutex_;
     ///  The current transport's authentication lifecycle phase.
     AuthenticationState authenticationState_ = AuthenticationState::kClosed;
-    ///  The play context this process considers current, set by
-    ///  `SendPlayContextChanged` and stamped onto every `AdapterCaptureWorkItem`
-    ///  enqueued afterward. Guarded by `availableMutex_`, the same lock the
-    ///  capture-enqueueing game-thread tasks already hold while reading it.
-    ///  All-zero until the first real play-context transition.
-    std::array<std::byte, 16> currentPlayContextId_{};
     ///  The number of deferred game-thread dispatches currently admitted but
     ///  not yet run, bounded by `kMaxPendingGameThreadDispatches`. Incremented
     ///  when a request is admitted and decremented when its marshaled task

@@ -243,10 +243,11 @@ SKSEPluginInfo(
     //  documented on AdapterRuntime itself.
     static auto* runtime = new dovahlink::adapter::plugin::AdapterRuntime(
         startupContext, *taskMarshaller, *pairingNotificationSink,
-        [](dovahlink::adapter::capture::IAdapterCaptureHandoffQueue& queue) {
+        [](dovahlink::adapter::capture::IAdapterCaptureHandoffQueue& queue,
+           dovahlink::adapter::identity::IAdapterPlayContextState& playContextState) {
             return std::make_unique<
                 dovahlink::adapter::runtime::CommonLibAdapterNativeCaptureRouter>(
-                queue);
+                queue, playContextState);
         },
         [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
             SKSE::log::info("Adapter capture drained for intent key {}.",

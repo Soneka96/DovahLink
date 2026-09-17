@@ -110,8 +110,18 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter::RegisterEvent registers the "
     std::string source = NormalizeWhitespace(RouterSource());
 
     CHECK(source.find(NormalizeWhitespace(
-              "RE::LevelIncrease::GetEventSource()->AddEventSink("
-              "levelChangedEventSink_.get());")) != std::string::npos);
+              "source->AddEventSink(levelChangedEventSink_.get());")) != std::string::npos);
+}
+
+TEST_CASE("CommonLibAdapterNativeCaptureRouter::RegisterEvent fails closed "
+          "when RE::LevelIncrease's event source is unavailable",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    std::string source = NormalizeWhitespace(RouterSource());
+
+    CHECK(source.find(NormalizeWhitespace(
+              "auto* source = RE::LevelIncrease::GetEventSource();")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("if (source == nullptr) {\nreturn false;")) !=
+          std::string::npos);
 }
 
 TEST_CASE("LevelChangedEventSink::ProcessEvent guards a null event and "
@@ -134,23 +144,32 @@ TEST_CASE("LevelChangedEventSink::ProcessEvent guards a null event and "
     CHECK(source.find(NormalizeWhitespace(
               ".capturedValue = std::vector<std::byte>(encoded.begin(), encoded.end()),")) !=
           std::string::npos);
-    //  Both stay their captured/no-context defaults until a following step
-    //  adds real resynchronization correlation and play-context tracking on
-    //  the adapter side; guards against either silently changing here first.
+    //  correlationId stays its captured/no-request default until a following
+    //  step adds real resynchronization correlation; guards against it
+    //  silently changing here first.
     CHECK(source.find(NormalizeWhitespace(".correlationId = 0,")) != std::string::npos);
-    CHECK(source.find(NormalizeWhitespace(".playContextId = {},")) != std::string::npos);
     CHECK(source.find(NormalizeWhitespace("captureQueue_.TryEnqueue(")) != std::string::npos);
 }
 
-TEST_CASE("CommonLibAdapterNativeCaptureRouter constructs its owned sink "
-          "with the same captureQueue reference it was given",
+TEST_CASE("LevelChangedEventSink stamps its capture with the injected "
+          "play-context state's current value",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
-    //  Guards against a refactor that constructs the sink with a different
-    //  or default-constructed queue, silently disconnecting event captures
-    //  from the real handoff queue.
     std::string source = NormalizeWhitespace(RouterSource());
 
     CHECK(source.find(NormalizeWhitespace(
-              "levelChangedEventSink_(std::make_unique<LevelChangedEventSink>(captureQueue))")) !=
+              ".playContextId = playContextState_.CurrentPlayContext(),")) !=
           std::string::npos);
+}
+
+TEST_CASE("CommonLibAdapterNativeCaptureRouter constructs its owned sink "
+          "with the same captureQueue and playContextState it was given",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    //  Guards against a refactor that constructs the sink with a different
+    //  or default-constructed collaborator, silently disconnecting event
+    //  captures from the real handoff queue or play-context state.
+    std::string source = NormalizeWhitespace(RouterSource());
+
+    CHECK(source.find(NormalizeWhitespace(
+              "levelChangedEventSink_(std::make_unique<LevelChangedEventSink>(\n"
+              "captureQueue, playContextState))")) != std::string::npos);
 }
