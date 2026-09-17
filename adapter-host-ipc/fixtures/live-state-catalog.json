@@ -1,0 +1,10 @@
+{
+  "sampleTokens": {
+    "characterVitals": 1,
+    "characterXp": 2,
+    "characterLevelBaseline": 3
+  },
+  "eventKeys": {
+    "characterLevelChanged": 1
+  }
+}

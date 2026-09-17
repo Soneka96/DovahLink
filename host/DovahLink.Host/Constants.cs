@@ -501,4 +501,21 @@ public static class Constants
     /// shows otherwise.
     /// </summary>
     public const int MaxHeldRecoveryEventsPerArea = 8;
+
+    // ---- Live state ----
+
+    /// <summary>The <c>stateArea</c> id for the current health value.</summary>
+    public const string CharacterHealthStateArea = "character_health";
+
+    /// <summary>The <c>stateArea</c> id for the current magicka value.</summary>
+    public const string CharacterMagickaStateArea = "character_magicka";
+
+    /// <summary>The <c>stateArea</c> id for the current stamina value.</summary>
+    public const string CharacterStaminaStateArea = "character_stamina";
+
+    /// <summary>The <c>stateArea</c> id for the current experience value.</summary>
+    public const string CharacterXpStateArea = "character_xp";
+
+    /// <summary>The <c>stateArea</c> id for the current level value.</summary>
+    public const string CharacterLevelStateArea = "character_level";
 }

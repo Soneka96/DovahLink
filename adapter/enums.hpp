@@ -24,6 +24,34 @@ enum class CaptureAvailability : std::uint8_t {
     kUnavailable = 1,
 };
 
+//  ---- Live state capture ----
+//
+//  Host-owned identifiers, opaque to `IAdapterNativeCaptureRouter`'s own
+//  interface beyond mapping each one to its one approved native operation --
+//  only the CommonLib-backed router implementation switches on their names.
+//  Shared with the host's own hardcoded enum members through
+//  `adapter-host-ipc/fixtures/live-state-catalog.json`, per
+//  `roadmap/04-live-state-synchronization-foundation.md`'s "Real capture and
+//  host integration".
+
+///  A host-owned `IAdapterNativeCaptureRouter::CaptureSample` token.
+enum class CharacterSampleToken : std::uint32_t {
+    ///  One coherent health/magicka/stamina read.
+    kCharacterVitals = 1,
+    ///  An experience read.
+    kCharacterXp = 2,
+    ///  The current-level baseline read used to establish a
+    ///  resynchronization baseline; the live value is otherwise delivered by
+    ///  `CharacterEventKey::kCharacterLevelChanged`.
+    kCharacterLevelBaseline = 3,
+};
+
+///  A host-owned `IAdapterNativeCaptureRouter::RegisterEvent` key.
+enum class CharacterEventKey : std::uint32_t {
+    ///  The native level-increase event.
+    kCharacterLevelChanged = 1,
+};
+
 } //  namespace dovahlink::adapter::capture
 
 namespace dovahlink::adapter::ipc {

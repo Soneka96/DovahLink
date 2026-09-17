@@ -163,6 +163,7 @@ add_executable(dovahlink_adapter_tests
     tests/process/adapter_host_supervisor_test.cpp
     tests/process/adapter_shutdown_orchestrator_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
+    tests/capture/live_state_catalog_fixture_test.cpp
     tests/dispatch/adapter_native_capture_router_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
@@ -189,6 +190,7 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_TASK_MARSHALLER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_task_marshaller.cpp"
     DOVAHLINK_ADAPTER_PAPYRUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/papyrus"
     DOVAHLINK_PRIVATE_IPC_LIMIT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../adapter-host-ipc/fixtures/private-ipc-limits.json"
+    DOVAHLINK_LIVE_STATE_CATALOG_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../adapter-host-ipc/fixtures/live-state-catalog.json"
     DOVAHLINK_ADAPTER_STATUS_PAPYRUS_ADAPTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/papyrus/commonlib_adapter_status_papyrus_adapter.cpp"
     DOVAHLINK_ADAPTER_TRUST_ADMIN_PAPYRUS_ADAPTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp"
     DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_adapter_plugin.cpp"

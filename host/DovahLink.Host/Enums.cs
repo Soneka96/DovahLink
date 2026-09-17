@@ -328,6 +328,32 @@ public enum CaptureAvailability : byte
     Unavailable = 1,
 }
 
+/// <summary>
+/// A host-owned <see cref="Adapter.Ipc.IpcReadSampleMessage.SampleToken"/>, shared with the
+/// adapter's own hardcoded enum through <c>adapter-host-ipc/fixtures/live-state-catalog.json</c>.
+/// </summary>
+public enum CharacterSampleToken : uint
+{
+    /// <summary>One coherent health/magicka/stamina read.</summary>
+    CharacterVitals = 1,
+
+    /// <summary>An experience read.</summary>
+    CharacterXp = 2,
+
+    /// <summary>
+    /// The current-level baseline read used to establish a resynchronization baseline; the live
+    /// value is otherwise delivered by <see cref="CharacterEventKey.CharacterLevelChanged"/>.
+    /// </summary>
+    CharacterLevelBaseline = 3,
+}
+
+/// <summary>A host-owned <see cref="Adapter.Ipc.IpcListenEventMessage.EventKey"/>.</summary>
+public enum CharacterEventKey : uint
+{
+    /// <summary>The native level-increase event.</summary>
+    CharacterLevelChanged = 1,
+}
+
 /// <summary>Why a private IPC channel is being closed.</summary>
 public enum IpcCloseReason : byte
 {
