@@ -17,8 +17,22 @@ AdapterRuntime::AdapterRuntime(
     std::function<void()> onGameThreadDispatchRejected)
     : taskMarshaller_(taskMarshaller),
       pairingNotificationSink_(pairingNotificationSink) {
+    //  Captures the diagnostic callback by value into a wrapper that also
+    //  reports the drained item to the host over IPC. The wrapper captures
+    //  `this` rather than `*session_` directly -- `session_` is constructed
+    //  below, after this queue -- but the wrapper only ever runs once the
+    //  queue's worker thread actually drains an enqueued item, which cannot
+    //  happen before Start() is called, well after this constructor and
+    //  `session_` have both finished.
     captureQueue_ = std::make_unique<capture::AdapterCaptureHandoffQueue>(
-        std::move(onCaptureDrained), std::move(onCaptureQueueRejected));
+        [this, onCaptureDrained = std::move(onCaptureDrained)](
+            const capture::AdapterCaptureWorkItem& item) {
+            session_->SendCaptureResult(item);
+            if (onCaptureDrained) {
+                onCaptureDrained(item);
+            }
+        },
+        std::move(onCaptureQueueRejected));
     captureRouter_ = std::make_unique<dispatch::AdapterNativeCaptureRouter>();
 
     session_ = std::make_unique<ipc::AdapterIpcSession>(

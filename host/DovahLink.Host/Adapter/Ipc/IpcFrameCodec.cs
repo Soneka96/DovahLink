@@ -59,6 +59,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
                 (IpcMessageKind.PairingAttemptsExhausted, EncodePairingAttemptsExhausted(pairingAttemptsExhausted)),
             IpcTrustAdminRequestMessage trustAdminRequest => (IpcMessageKind.TrustAdminRequest, EncodeTrustAdminRequest(trustAdminRequest)),
             IpcTrustAdminResultMessage trustAdminResult => (IpcMessageKind.TrustAdminResult, EncodeTrustAdminResult(trustAdminResult)),
+            IpcCaptureResultMessage captureResult => (IpcMessageKind.CaptureResult, EncodeCaptureResult(captureResult)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -128,6 +129,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcMessageKind.PairingAttemptsExhausted => DecodePairingAttemptsExhausted(correlationId, payload),
             IpcMessageKind.TrustAdminRequest => DecodeTrustAdminRequest(correlationId, payload),
             IpcMessageKind.TrustAdminResult => DecodeTrustAdminResult(correlationId, payload),
+            IpcMessageKind.CaptureResult => DecodeCaptureResult(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -704,5 +706,55 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         }
 
         return IpcDecodeResult.Success(new IpcTrustAdminResultMessage(correlationId, Encoding.UTF8.GetString(payload)));
+    }
+
+    /// <summary>Encodes a capture result: source byte, four-byte capture key, availability byte, then the captured payload bytes.</summary>
+    /// <param name="captureResult">The result to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the capture key is zero, or an unavailable result carries a nonempty payload.</exception>
+    private static byte[] EncodeCaptureResult(IpcCaptureResultMessage captureResult)
+    {
+        if (captureResult.CaptureKey == 0)
+        {
+            throw new ArgumentException("A capture result must identify a nonzero capture key.", nameof(captureResult));
+        }
+
+        if (captureResult.Availability == CaptureAvailability.Unavailable && captureResult.Payload.Length != 0)
+        {
+            throw new ArgumentException("An unavailable capture result must carry an empty payload.", nameof(captureResult));
+        }
+
+        var payload = new byte[6 + captureResult.Payload.Length];
+        payload[0] = (byte)captureResult.Source;
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1, 4), captureResult.CaptureKey);
+        payload[5] = (byte)captureResult.Availability;
+        captureResult.Payload.CopyTo(payload.AsSpan(6));
+        return payload;
+    }
+
+    /// <summary>Decodes a capture result, validating its source and availability enums and minimum payload length.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The source byte, four-byte capture key, availability byte, then captured payload bytes.</param>
+    private static IpcDecodeResult DecodeCaptureResult(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 6 || !Enum.IsDefined((CaptureSourceKind)payload[0]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        uint captureKey = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(1, 4));
+        if (captureKey == 0 || !Enum.IsDefined((CaptureAvailability)payload[5]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        var availability = (CaptureAvailability)payload[5];
+        ReadOnlySpan<byte> valueBytes = payload[6..];
+        if (availability == CaptureAvailability.Unavailable && !valueBytes.IsEmpty)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(
+            new IpcCaptureResultMessage(correlationId, (CaptureSourceKind)payload[0], captureKey, availability, valueBytes.ToArray()));
     }
 }

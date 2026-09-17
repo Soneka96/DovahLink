@@ -21,8 +21,11 @@
 #include <variant>
 #include <vector>
 
+using dovahlink::adapter::capture::CaptureAvailability;
+using dovahlink::adapter::capture::CaptureSourceKind;
 using dovahlink::adapter::ipc::IIpcFrameCodec;
 using dovahlink::adapter::ipc::IpcCancelMessage;
+using dovahlink::adapter::ipc::IpcCaptureResultMessage;
 using dovahlink::adapter::ipc::IpcCloseMessage;
 using dovahlink::adapter::ipc::IpcCloseReason;
 using dovahlink::adapter::ipc::IpcFrameCodec;
@@ -392,6 +395,151 @@ TEST_CASE("read-sample intent round-trips its opaque token",
         REQUIRE(result.has_value());
         CHECK(*result == IpcMessage{original});
     }
+}
+
+TEST_CASE("an available capture result round-trips its source, key, and "
+          "payload",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcCaptureResultMessage original{
+        .correlationId = 7,
+        .source = CaptureSourceKind::kSample,
+        .captureKey = 42,
+        .availability = CaptureAvailability::kAvailable,
+        .payload = {std::byte{1}, std::byte{2}, std::byte{3}},
+    };
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("an available capture result round-trips with correlation id "
+          "zero, matching a future spontaneous native-event capture",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcCaptureResultMessage original{
+        .correlationId = 0,
+        .source = CaptureSourceKind::kEvent,
+        .captureKey = 1,
+        .availability = CaptureAvailability::kAvailable,
+        .payload = {std::byte{9}},
+    };
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("an unavailable capture result round-trips with an empty payload, "
+          "for either source kind, and correlation id zero",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (CaptureSourceKind source :
+         {CaptureSourceKind::kSample, CaptureSourceKind::kEvent}) {
+        IpcCaptureResultMessage original{
+            .correlationId = 0,
+            .source = source,
+            .captureKey = 1,
+            .availability = CaptureAvailability::kUnavailable,
+            .payload = {},
+        };
+
+        auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+        REQUIRE(result.has_value());
+        CHECK(*result == IpcMessage{original});
+    }
+}
+
+TEST_CASE("encoding a capture result with a zero capture key throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcCaptureResultMessage{
+                        .correlationId = 1, .captureKey = 0}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("encoding an unavailable capture result with a nonempty payload "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(
+        codec.Encode(IpcMessage{IpcCaptureResultMessage{
+            .correlationId = 1,
+            .captureKey = 1,
+            .availability = CaptureAvailability::kUnavailable,
+            .payload = {std::byte{1}},
+        }}),
+        std::invalid_argument);
+}
+
+TEST_CASE("a capture result payload shorter than the fixed header fails "
+          "closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kCaptureResult, 1,
+                   std::vector<std::byte>(5));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a capture result with a zero capture key fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> payload(6);
+    payload[0] = std::byte{0};
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kCaptureResult, 1, payload);
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a capture result with an out-of-range source or availability "
+          "byte fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    std::vector<std::byte> badSource(6);
+    badSource[0] = std::byte{2};
+    badSource[1] = std::byte{1};
+    CHECK(codec.Decode(BuildFrame(IpcMessageKind::kCaptureResult, 1, badSource))
+              .error() == IpcRejectReason::kMalformedPayload);
+
+    std::vector<std::byte> badAvailability(6);
+    badAvailability[1] = std::byte{1};
+    badAvailability[5] = std::byte{2};
+    CHECK(codec.Decode(BuildFrame(IpcMessageKind::kCaptureResult, 1,
+                                  badAvailability))
+              .error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a capture result marked unavailable with a nonempty payload "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> payload(7);
+    payload[1] = std::byte{1};
+    payload[5] = std::byte{1};
+    payload[6] = std::byte{9};
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kCaptureResult, 1, payload);
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
 }
 
 TEST_CASE("encoding capture intents with zero identifiers throws",
@@ -814,10 +962,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    //  15 is the value immediately past the currently highest defined kind
-    //  (kTrustAdminResult = 14); update this alongside any future kind
+    //  16 is the value immediately past the currently highest defined kind
+    //  (kCaptureResult = 15); update this alongside any future kind
     //  addition so it keeps testing the actual boundary.
-    for (std::byte kindByte : {std::byte{0}, std::byte{15}, std::byte{250}}) {
+    for (std::byte kindByte : {std::byte{0}, std::byte{16}, std::byte{250}}) {
         std::vector<std::byte> frame =
             codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
         frame[4] = kindByte;
@@ -1596,6 +1744,17 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
              IpcTrustAdminResultMessage{.correlationId = 11, .resultText = "ok"}},
          Bytes({0x0B, 0x00, 0x00, 0x00, 0x0E, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x6F, 0x6B})},
+        //  8-byte payload: source (kSample=0) + 4-byte captureKey (13) +
+        //  availability (kAvailable=0) + the UTF-8 bytes of "OK".
+        {IpcMessage{IpcCaptureResultMessage{.correlationId = 12,
+                                            .source = CaptureSourceKind::kSample,
+                                            .captureKey = 13,
+                                            .availability =
+                                                CaptureAvailability::kAvailable,
+                                            .payload = {std::byte{0x4F},
+                                                        std::byte{0x4B}}}},
+         Bytes({0x11, 0x00, 0x00, 0x00, 0x0F, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x4F, 0x4B})},
     };
 
     for (const auto& [message, expected] : vectors) {

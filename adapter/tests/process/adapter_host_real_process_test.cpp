@@ -50,6 +50,8 @@
 #include <vector>
 
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
+using dovahlink::adapter::capture::CaptureAvailability;
+using dovahlink::adapter::capture::CaptureSourceKind;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::AdapterInstanceIdGenerator;
@@ -1681,4 +1683,39 @@ TEST_CASE("a real native adapter completes Hello/HelloAck against a real "
         std::filesystem::path(DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED));
 
     CHECK(fixture.Session().IsHostAvailable());
+}
+
+TEST_CASE("a real native adapter's capture result is accepted by a real "
+          "launched Host without closing the connection",
+          "[process][integration]") {
+    //  Proves the real adapter-to-host wire encoding for
+    //  IpcCaptureResultMessage and that a real Host accepts it and keeps
+    //  serving the connection, even though no live capture sink is wired in
+    //  yet on the Host side (see AdapterIpcSession::HandleFrame's own
+    //  documentation there).
+    RealHostFixture fixture(std::byte{0xF1});
+
+    fixture.Session().SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 1,
+        .capturedValue = {},
+        .correlationId = 0,
+        .source = CaptureSourceKind::kSample,
+        .availability = CaptureAvailability::kUnavailable,
+    });
+
+    //  The connection stays open and authenticated: a follow-up trust-admin
+    //  request still completes normally.
+    auto resultPromise =
+        std::make_shared<std::promise<TrustAdminRequestResult>>();
+    std::future<TrustAdminRequestResult> resultFuture =
+        resultPromise->get_future();
+    fixture.Session().SendTrustAdminRequest(
+        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+        [resultPromise](TrustAdminRequestResult result) {
+            resultPromise->set_value(std::move(result));
+        });
+
+    REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kCompleted);
 }

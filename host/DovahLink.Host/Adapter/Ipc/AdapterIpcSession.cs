@@ -246,6 +246,12 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             case IpcCancelMessage:
                 return AdapterIpcOutcome.None;
 
+            case IpcCaptureResultMessage:
+                //  No live capture sink is wired in yet; the frame is accepted
+                //  and discarded so the adapter's real send path can already
+                //  be proved end to end before the host applies it.
+                return AdapterIpcOutcome.None;
+
             default:
                 return AdapterIpcOutcome.SendAndClose(new IpcRejectMessage(message.CorrelationId, IpcRejectReason.UnknownMessageKind));
         }

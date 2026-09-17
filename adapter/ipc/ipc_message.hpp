@@ -3,6 +3,7 @@
 #include <variant>
 
 #include "ipc/ipc_cancel_message.hpp"
+#include "ipc/ipc_capture_result_message.hpp"
 #include "ipc/ipc_close_message.hpp"
 #include "ipc/ipc_hello_ack_message.hpp"
 #include "ipc/ipc_hello_message.hpp"
@@ -29,6 +30,7 @@ using IpcMessage =
                  IpcListenEventMessage, IpcReadSampleMessage,
                  IpcPairingDisplayMessage, IpcPairingDisplayAckMessage,
                  IpcPairingAttemptsExhaustedMessage,
-                 IpcTrustAdminRequestMessage, IpcTrustAdminResultMessage>;
+                 IpcTrustAdminRequestMessage, IpcTrustAdminResultMessage,
+                 IpcCaptureResultMessage>;
 
 } //  namespace dovahlink::adapter::ipc

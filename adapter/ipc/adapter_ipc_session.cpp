@@ -473,6 +473,27 @@ void AdapterIpcSession::HandleClosing() {
     InvokeAbandonedTrustAdminCallbacks(std::move(abandonedCallbacks));
 }
 
+void AdapterIpcSession::SendCaptureResult(
+    const capture::AdapterCaptureWorkItem& item) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    if (authenticationState_ != AuthenticationState::kAuthenticated ||
+        connection_ == nullptr) {
+        return;
+    }
+    try {
+        connection_->TrySend(IpcMessage{IpcCaptureResultMessage{
+            .correlationId = item.correlationId,
+            .source = item.source,
+            .captureKey = item.intentKey,
+            .availability = item.availability,
+            .payload = item.capturedValue,
+        }});
+    } catch (...) {
+        //  Best-effort; see SendBestEffortReject's own documentation for why
+        //  a failed or throwing send here must never propagate.
+    }
+}
+
 AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage& request) {
     std::uint64_t correlationId = request.correlationId;
@@ -663,10 +684,15 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                 }
                 std::optional<std::vector<std::byte>> captured =
                     captureRouter_.CaptureSample(sampleToken);
-                if (captured.has_value()) {
-                    captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                        .intentKey = sampleToken, .capturedValue = *captured});
-                }
+                captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                    .intentKey = sampleToken,
+                    .capturedValue = captured.value_or(std::vector<std::byte>{}),
+                    .correlationId = correlationId,
+                    .source = capture::CaptureSourceKind::kSample,
+                    .availability = captured.has_value()
+                                        ? capture::CaptureAvailability::kAvailable
+                                        : capture::CaptureAvailability::kUnavailable,
+                });
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.
             }

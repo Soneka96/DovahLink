@@ -57,7 +57,7 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-    return value >= 1 && value <= 14;
+    return value >= 1 && value <= 15;
 }
 
 ///  Whether `value` is one of `TrustAdminOperation`'s contiguous defined
@@ -384,6 +384,63 @@ std::vector<std::byte> IpcFrameCodec::EncodeTrustAdminResult(
     return payload;
 }
 
+std::vector<std::byte> IpcFrameCodec::EncodeCaptureResult(
+    const IpcCaptureResultMessage& captureResult) {
+    if (captureResult.captureKey == 0) {
+        throw std::invalid_argument(
+            "A capture result must identify a nonzero capture key.");
+    }
+    if (captureResult.availability ==
+            capture::CaptureAvailability::kUnavailable &&
+        !captureResult.payload.empty()) {
+        throw std::invalid_argument(
+            "An unavailable capture result must carry an empty payload.");
+    }
+
+    std::vector<std::byte> payload(6 + captureResult.payload.size());
+    payload[0] =
+        static_cast<std::byte>(std::to_underlying(captureResult.source));
+    WriteUInt32LittleEndian(std::span<std::byte, 4>(payload.data() + 1, 4),
+                            captureResult.captureKey);
+    payload[5] = static_cast<std::byte>(
+        std::to_underlying(captureResult.availability));
+    std::ranges::copy(captureResult.payload, payload.begin() + 6);
+    return payload;
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeCaptureResult(std::uint64_t correlationId,
+                                   std::span<const std::byte> payload) {
+    if (payload.size() < 6) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const auto sourceByte = std::to_integer<std::uint8_t>(payload[0]);
+    const auto captureKey = ReadUInt32LittleEndian(
+        std::span<const std::byte, 4>(payload.data() + 1, 4));
+    const auto availabilityByte = std::to_integer<std::uint8_t>(payload[5]);
+    if (sourceByte > 1 || captureKey == 0 || availabilityByte > 1) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const auto availability =
+        static_cast<capture::CaptureAvailability>(availabilityByte);
+    const std::span<const std::byte> valueBytes = payload.subspan(6);
+    if (availability == capture::CaptureAvailability::kUnavailable &&
+        !valueBytes.empty()) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    return IpcMessage{IpcCaptureResultMessage{
+        .correlationId = correlationId,
+        .source = static_cast<capture::CaptureSourceKind>(sourceByte),
+        .captureKey = captureKey,
+        .availability = availability,
+        .payload =
+            std::vector<std::byte>(valueBytes.begin(), valueBytes.end()),
+    }};
+}
+
 std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeTrustAdminRequest(std::uint64_t correlationId,
                                        std::span<const std::byte> payload) {
@@ -535,6 +592,9 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage& message) const {
             } else if constexpr (std::is_same_v<T, IpcTrustAdminResultMessage>) {
                 kind = IpcMessageKind::kTrustAdminResult;
                 payload = EncodeTrustAdminResult(value);
+            } else if constexpr (std::is_same_v<T, IpcCaptureResultMessage>) {
+                kind = IpcMessageKind::kCaptureResult;
+                payload = EncodeCaptureResult(value);
             }
         },
         message);
@@ -816,6 +876,8 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
         return DecodeTrustAdminRequest(correlationId, payload);
     case IpcMessageKind::kTrustAdminResult:
         return DecodeTrustAdminResult(correlationId, payload);
+    case IpcMessageKind::kCaptureResult:
+        return DecodeCaptureResult(correlationId, payload);
     }
 
     return std::unexpected(IpcRejectReason::kUnknownMessageKind);

@@ -2,6 +2,30 @@
 
 #include <cstdint>
 
+namespace dovahlink::adapter::capture {
+
+//  ---- Capture ----
+
+///  Which host-owned key namespace a captured value's key belongs to.
+enum class CaptureSourceKind : std::uint8_t {
+    ///  A host-owned sample token, read synchronously via
+    ///  `IAdapterNativeCaptureRouter::CaptureSample`.
+    kSample = 0,
+    ///  A host-owned event key, captured asynchronously once a registered
+    ///  native event fires.
+    kEvent = 1,
+};
+
+///  Whether a captured value was actually produced.
+enum class CaptureAvailability : std::uint8_t {
+    ///  The captured value is present and valid.
+    kAvailable = 0,
+    ///  No value could be captured; the payload is empty.
+    kUnavailable = 1,
+};
+
+} //  namespace dovahlink::adapter::capture
+
 namespace dovahlink::adapter::ipc {
 
 //  ---- IPC ----
@@ -47,6 +71,9 @@ enum class IpcMessageKind : std::uint8_t {
     ///  Sent by the host in response to a trust-administration request. See
     ///  `IpcTrustAdminResultMessage`.
     kTrustAdminResult = 14,
+    ///  Sent by the adapter to report one captured value, or its
+    ///  unavailability, to the host. See `IpcCaptureResultMessage`.
+    kCaptureResult = 15,
 };
 
 ///  Why a private IPC channel is being closed.

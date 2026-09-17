@@ -397,6 +397,21 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
+    /// <summary>
+    /// Verifies that a CaptureResult is accepted without closing the connection, even though no live capture
+    /// sink is wired in yet.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_ReturnsNoneOutcome()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        AdapterIpcOutcome outcome = session.HandleFrame(
+            new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, []));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+    }
+
     /// <summary>Verifies that a message kind the host never expects to receive is rejected and closes the connection.</summary>
     [Theory]
     [InlineData(typeof(IpcListenEventMessage))]

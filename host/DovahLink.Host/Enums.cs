@@ -297,6 +297,29 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the host in response to a trust-administration command. See <see cref="Adapter.Ipc.IpcTrustAdminResultMessage"/>.</summary>
     TrustAdminResult = 14,
+
+    /// <summary>Sent by the adapter to report one captured value, or its unavailability. See <see cref="Adapter.Ipc.IpcCaptureResultMessage"/>.</summary>
+    CaptureResult = 15,
+}
+
+/// <summary>Which host-owned key namespace a captured value's key belongs to.</summary>
+public enum CaptureSourceKind : byte
+{
+    /// <summary>A host-owned sample token, read synchronously in response to a <see cref="Adapter.Ipc.IpcReadSampleMessage"/>.</summary>
+    Sample = 0,
+
+    /// <summary>A host-owned event key, captured asynchronously once a registered native event fires.</summary>
+    Event = 1,
+}
+
+/// <summary>Whether a captured value was actually produced.</summary>
+public enum CaptureAvailability : byte
+{
+    /// <summary>The captured value is present and valid.</summary>
+    Available = 0,
+
+    /// <summary>No value could be captured; the payload is empty.</summary>
+    Unavailable = 1,
 }
 
 /// <summary>Why a private IPC channel is being closed.</summary>

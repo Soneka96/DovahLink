@@ -25,6 +25,8 @@
 #include <vector>
 
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
+using dovahlink::adapter::capture::CaptureAvailability;
+using dovahlink::adapter::capture::CaptureSourceKind;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::AdapterInstanceId;
@@ -37,6 +39,7 @@ using dovahlink::adapter::ipc::FixedAdapterIpcPeerProofProvider;
 using dovahlink::adapter::ipc::IAdapterIpcConnection;
 using dovahlink::adapter::ipc::IAdapterPairingNotificationSink;
 using dovahlink::adapter::ipc::IpcCancelMessage;
+using dovahlink::adapter::ipc::IpcCaptureResultMessage;
 using dovahlink::adapter::ipc::IpcCloseMessage;
 using dovahlink::adapter::ipc::IpcCloseReason;
 using dovahlink::adapter::ipc::IpcHelloAckMessage;
@@ -1422,8 +1425,8 @@ TEST_CASE("AdapterIpcSession enqueues nothing for a listen-event key with "
     CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
-TEST_CASE("AdapterIpcSession enqueues nothing for a read-sample token with "
-          "no registered translation") {
+TEST_CASE("AdapterIpcSession enqueues an unavailable capture for a "
+          "read-sample token with no registered translation") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
@@ -1434,7 +1437,12 @@ TEST_CASE("AdapterIpcSession enqueues nothing for a read-sample token with "
     fixture.marshaller.RunAllPending();
 
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{99});
-    CHECK(fixture.captureQueue.Enqueued().empty());
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    const auto& item = fixture.captureQueue.Enqueued().front();
+    CHECK(item.intentKey == 99);
+    CHECK(item.correlationId == 1);
+    CHECK(item.availability == CaptureAvailability::kUnavailable);
+    CHECK(item.capturedValue.empty());
 }
 
 TEST_CASE("AdapterIpcSession contains an exception thrown by the "
@@ -1490,6 +1498,71 @@ TEST_CASE("AdapterIpcSession handles a read-sample request by dispatching "
 
     REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
     CHECK(fixture.captureQueue.Enqueued().front().intentKey == 3);
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult sends a capture result "
+          "through the authenticated connection") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 5,
+        .capturedValue = {std::byte{1}, std::byte{2}},
+        .correlationId = 3,
+        .source = CaptureSourceKind::kSample,
+        .availability = CaptureAvailability::kAvailable,
+    });
+
+    REQUIRE(connection.Sent().size() == 1);
+    auto* captureResult =
+        std::get_if<IpcCaptureResultMessage>(&connection.Sent().front());
+    REQUIRE(captureResult != nullptr);
+    CHECK(captureResult->correlationId == 3);
+    CHECK(captureResult->source == CaptureSourceKind::kSample);
+    CHECK(captureResult->captureKey == 5);
+    CHECK(captureResult->availability == CaptureAvailability::kAvailable);
+    CHECK(captureResult->payload ==
+          std::vector<std::byte>{std::byte{1}, std::byte{2}});
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult does nothing before "
+          "authentication") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+
+    fixture.session.SendCaptureResult(
+        AdapterCaptureWorkItem{.intentKey = 5, .correlationId = 3});
+
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult does nothing after "
+          "disconnection") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.session.HandleDisconnected();
+
+    fixture.session.SendCaptureResult(
+        AdapterCaptureWorkItem{.intentKey = 5, .correlationId = 3});
+
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult contains an exception "
+          "thrown by TrySend") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.ThrowOnNextSend();
+
+    REQUIRE_NOTHROW(fixture.session.SendCaptureResult(
+        AdapterCaptureWorkItem{.intentKey = 5, .correlationId = 3}));
 }
 
 TEST_CASE("AdapterIpcSession never dispatches a listen-event or read-sample "

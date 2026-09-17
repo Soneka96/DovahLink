@@ -386,6 +386,149 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that an available capture result round-trips its source, key, and payload.</summary>
+    [Fact]
+    public void RoundTrip_CaptureResult_Available()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcCaptureResultMessage(7, CaptureSourceKind.Sample, 42, CaptureAvailability.Available, [1, 2, 3]);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcCaptureResultMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Source, decoded.Source);
+        Assert.Equal(original.CaptureKey, decoded.CaptureKey);
+        Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.Payload, decoded.Payload);
+    }
+
+    /// <summary>Verifies that an available capture result round-trips with correlation id zero, matching a future spontaneous native-event capture.</summary>
+    [Fact]
+    public void RoundTrip_CaptureResult_Available_ZeroCorrelationId()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, 1, CaptureAvailability.Available, [9]);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcCaptureResultMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Source, decoded.Source);
+        Assert.Equal(original.CaptureKey, decoded.CaptureKey);
+        Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.Payload, decoded.Payload);
+    }
+
+    /// <summary>Verifies that an unavailable capture result round-trips with an empty payload, for either source kind, and correlation id zero.</summary>
+    [Theory]
+    [InlineData(CaptureSourceKind.Sample)]
+    [InlineData(CaptureSourceKind.Event)]
+    public void RoundTrip_CaptureResult_Unavailable(CaptureSourceKind source)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcCaptureResultMessage(0, source, 1, CaptureAvailability.Unavailable, []);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcCaptureResultMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Source, decoded.Source);
+        Assert.Equal(original.CaptureKey, decoded.CaptureKey);
+        Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.Payload, decoded.Payload);
+    }
+
+    /// <summary>Verifies that encoding a capture result with a zero capture key throws.</summary>
+    [Fact]
+    public void Encode_CaptureResult_ZeroCaptureKey_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 0, CaptureAvailability.Available, []);
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
+    }
+
+    /// <summary>Verifies that encoding an unavailable capture result with a nonempty payload throws.</summary>
+    [Fact]
+    public void Encode_CaptureResult_UnavailableWithPayload_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, [1]);
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
+    }
+
+    /// <summary>Verifies that a capture result payload shorter than the fixed header fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_TooShort_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[5]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result with a zero capture key fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_ZeroCaptureKey_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[6]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result marked unavailable with a nonempty payload fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_UnavailableWithPayload_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[7];
+        payload[1] = 1;
+        payload[5] = 1;
+        payload[6] = 9;
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result with an out-of-range source byte fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_OutOfRangeSource_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[6];
+        payload[0] = 2;
+        payload[1] = 1;
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result with an out-of-range availability byte fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_OutOfRangeAvailability_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[6];
+        payload[1] = 1;
+        payload[5] = 2;
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that capture intents preserve the maximum correlation id.</summary>
     [Theory]
     [InlineData(IpcMessageKind.ListenEvent)]
@@ -1542,6 +1685,10 @@ public class IpcFrameCodecTests
             (new IpcTrustAdminRequestMessage(10, TrustAdminOperation.Revoke, ShortId: "12345"),
                 "0F0000000D0A00000000000000023132333435"),
             (new IpcTrustAdminResultMessage(11, "OK"), "0B0000000E0B000000000000004F4B"),
+            // 8-byte CaptureResult payload: source (Sample=0) + 4-byte captureKey (13) +
+            // availability (Available=0) + the UTF-8 bytes of "OK".
+            (new IpcCaptureResultMessage(12, CaptureSourceKind.Sample, 13, CaptureAvailability.Available, [0x4F, 0x4B]),
+                "110000000F0C00000000000000000D000000004F4B"),
         };
 
         foreach ((IpcMessage message, string hex) in vectors)
@@ -1592,6 +1739,12 @@ public class IpcFrameCodecTests
                     break;
                 case (IpcTrustAdminResultMessage expectedMessage, IpcTrustAdminResultMessage actualMessage):
                     Assert.Equal(expectedMessage.ResultText, actualMessage.ResultText);
+                    break;
+                case (IpcCaptureResultMessage expectedMessage, IpcCaptureResultMessage actualMessage):
+                    Assert.Equal(expectedMessage.Source, actualMessage.Source);
+                    Assert.Equal(expectedMessage.CaptureKey, actualMessage.CaptureKey);
+                    Assert.Equal(expectedMessage.Availability, actualMessage.Availability);
+                    Assert.Equal(expectedMessage.Payload, actualMessage.Payload);
                     break;
                 case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
                 case (IpcCancelMessage, IpcCancelMessage):

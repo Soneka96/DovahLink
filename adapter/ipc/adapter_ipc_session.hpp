@@ -147,6 +147,15 @@ class IAdapterIpcSession {
     ///  accepted and the connection has not since ended.
     [[nodiscard]] virtual bool IsHostAvailable() const = 0;
 
+    ///  Best-effort sends a capture result built from `item` through the
+    ///  currently attached, authenticated connection; a silent no-op when
+    ///  unauthenticated or disconnected. Runs on the capture handoff queue's
+    ///  own worker thread, independent of any specific request's game-thread
+    ///  dispatch -- there is no pending request to reject or fail when this
+    ///  cannot send.
+    ///  @param item The drained capture to report.
+    virtual void SendCaptureResult(const capture::AdapterCaptureWorkItem& item) = 0;
+
     ///  Handles serving having irreversibly ended for the current generation,
     ///  reached strictly before `HandleDisconnected` (see
     ///  `AdapterIpcConnectionCallbacks::onClosing`). Invalidates this
@@ -233,6 +242,9 @@ class AdapterIpcSession final : public IAdapterIpcSession {
 
     ///  @copydoc IAdapterIpcSession::HandleClosing
     void HandleClosing() override;
+
+    ///  @copydoc IAdapterIpcSession::SendCaptureResult
+    void SendCaptureResult(const capture::AdapterCaptureWorkItem& item) override;
 
   private:
     ///  The lifecycle phase that controls which inbound messages are legal.

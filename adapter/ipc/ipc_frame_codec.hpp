@@ -155,6 +155,17 @@ class IpcFrameCodec final : public IIpcFrameCodec {
     static std::expected<IpcMessage, IpcRejectReason>
     DecodeTrustAdminResult(std::uint64_t correlationId,
                            std::span<const std::byte> payload);
+
+    ///  Encodes a capture result: source byte, four-byte capture key,
+    ///  availability byte, then the captured payload bytes.
+    static std::vector<std::byte>
+    EncodeCaptureResult(const IpcCaptureResultMessage& captureResult);
+
+    ///  Decodes a capture result, validating its source and availability
+    ///  enums and minimum payload length.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeCaptureResult(std::uint64_t correlationId,
+                        std::span<const std::byte> payload);
 };
 
 } //  namespace dovahlink::adapter::ipc
