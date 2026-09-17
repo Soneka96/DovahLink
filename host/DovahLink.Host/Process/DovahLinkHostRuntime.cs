@@ -5,20 +5,22 @@ namespace DovahLink.Host.Process;
 
 /// <summary>
 /// Owns one composed Host lifetime's explicit startup and shutdown ordering: publishes the
-/// adapter-IPC rendezvous endpoint, runs the adapter-IPC and (when composed) public listeners until
-/// the host lifetime ends or shutdown is requested, then tears both down in a proven-safe order.
+/// adapter-IPC rendezvous endpoint, runs the adapter-IPC and (when composed) public listeners and the
+/// live-state sampling scheduler until the host lifetime ends or shutdown is requested, then tears
+/// them all down in a proven-safe order.
 /// </summary>
 public interface IHostRuntime
 {
     /// <summary>
-    /// Publishes the rendezvous endpoint, starts both listeners, runs until <paramref name="shutdown"/>
-    /// is cancelled, then tears down in order: cancels shutdown, awaits the adapter-IPC listener, then
-    /// the public listener, then the shutdown-signal watcher.
+    /// Publishes the rendezvous endpoint, starts both listeners and the live-state scheduler, runs
+    /// until <paramref name="shutdown"/> is cancelled, then tears down in order: cancels shutdown,
+    /// awaits the adapter-IPC listener, then the public listener, then the live-state scheduler, then
+    /// the shutdown-signal watcher.
     /// </summary>
     /// <param name="shutdown">
     /// The shared shutdown source; cancelled by the caller on process exit, and internally by this
-    /// runtime's own named shutdown-signal watcher. Both listeners stop admitting new connections and
-    /// tear down through this one shared token.
+    /// runtime's own named shutdown-signal watcher. Both listeners and the live-state scheduler stop
+    /// and tear down through this one shared token.
     /// </param>
     /// <returns>A successful process exit code once shutdown completes and teardown finishes.</returns>
     Task<int> RunAsync(CancellationTokenSource shutdown);
@@ -34,6 +36,9 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
 {
     /// <summary>Accepts the private adapter-IPC connection.</summary>
     private readonly IAdapterIpcListener adapterListener;
+
+    /// <summary>Drives the host's own sampling cadence for rate-classed capture units.</summary>
+    private readonly LiveStateScheduler liveStateScheduler;
 
     /// <summary>Accepts public client connections, or <see langword="null"/> when not composed.</summary>
     private readonly IPublicWebSocketListener? publicListener;
@@ -60,6 +65,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
     /// <param name="rendezvousPublisher">Publishes the adapter-IPC rendezvous endpoint to its discovery file.</param>
     /// <param name="rendezvousOutput">Reports the rendezvous endpoint to a launching adapter reading this process's standard output.</param>
     /// <param name="peerProofVerifier">Supplies this host process's own peer-ownership proof token and HostProof HMAC key.</param>
+    /// <param name="liveStateScheduler">Drives the host's own sampling cadence for rate-classed capture units.</param>
     /// <param name="publicListener">
     /// Accepts public client connections, or <see langword="null"/> to run without one. Defaults to
     /// <see langword="null"/> so automatic constructor resolution supplies it without throwing when
@@ -72,6 +78,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         IHostRendezvousPublisher rendezvousPublisher,
         TextWriter rendezvousOutput,
         IAdapterPeerProofVerifier peerProofVerifier,
+        LiveStateScheduler liveStateScheduler,
         IPublicWebSocketListener? publicListener = null)
     {
         this.adapterListener = adapterListener;
@@ -81,6 +88,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         this.rendezvousPublisher = rendezvousPublisher;
         this.rendezvousOutput = rendezvousOutput;
         this.peerProofVerifier = peerProofVerifier;
+        this.liveStateScheduler = liveStateScheduler;
     }
 
     /// <inheritdoc/>
@@ -107,12 +115,14 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
 
         Task adapterListenerTask = adapterListener.RunAsync(shutdown.Token);
         Task publicListenerTask = publicListener?.RunAsync(shutdown.Token) ?? Task.CompletedTask;
+        Task liveStateSchedulerTask = liveStateScheduler.RunAsync(shutdown.Token);
 
         await lifetime.RunAsync(shutdown.Token);
 
         shutdown.Cancel();
         await adapterListenerTask;
         await publicListenerTask;
+        await liveStateSchedulerTask;
         await shutdownWatchTask;
         return 0;
     }

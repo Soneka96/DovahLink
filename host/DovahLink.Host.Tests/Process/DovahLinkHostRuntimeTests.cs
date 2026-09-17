@@ -1,4 +1,6 @@
+using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Process;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Process;
@@ -22,7 +24,8 @@ public class DovahLinkHostRuntimeTests
         var output = new SynchronizedTextCapture();
         var runtime = new DovahLinkHostRuntime(
             adapterListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
-            new FakeAdapterPeerProofVerifier { ExpectedToken = [1, 2, 3], HostProofKey = [4, 5, 6] }, publicListener);
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1, 2, 3], HostProofKey = [4, 5, 6] },
+            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default), publicListener);
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
@@ -63,9 +66,11 @@ public class DovahLinkHostRuntimeTests
     public async Task RunAsync_NoPublicListener_NeverWritesPublicPortLine()
     {
         var output = new SynchronizedTextCapture();
+        var noPublicListenerAdapterListener = new FakeAdapterIpcListener { BoundPort = 111 };
         var runtime = new DovahLinkHostRuntime(
-            new FakeAdapterIpcListener { BoundPort = 111 }, new FakeHostShutdownSignal(), new HostProcessLifetime(),
-            new FakeHostRendezvousPublisher(), output, new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] });
+            noPublicListenerAdapterListener, new FakeHostShutdownSignal(), new HostProcessLifetime(),
+            new FakeHostRendezvousPublisher(), output, new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
+            new LiveStateScheduler(noPublicListenerAdapterListener, LiveStateCatalog.Default));
         using var shutdown = new CancellationTokenSource();
         shutdown.Cancel();
 
@@ -90,7 +95,8 @@ public class DovahLinkHostRuntimeTests
         var output = new SynchronizedTextCapture();
         var runtime = new DovahLinkHostRuntime(
             adapterListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
-            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, publicListener);
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
+            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default), publicListener);
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
@@ -110,10 +116,12 @@ public class DovahLinkHostRuntimeTests
     [Fact]
     public async Task RunAsync_LifetimeCompletes_ReturnsSuccessExitCode()
     {
+        var lifetimeCompletesAdapterListener = new FakeAdapterIpcListener();
         var runtime = new DovahLinkHostRuntime(
-            new FakeAdapterIpcListener(), new FakeHostShutdownSignal(), new HostProcessLifetime(),
+            lifetimeCompletesAdapterListener, new FakeHostShutdownSignal(), new HostProcessLifetime(),
             new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
-            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, new FakePublicWebSocketListener());
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
+            new LiveStateScheduler(lifetimeCompletesAdapterListener, LiveStateCatalog.Default), new FakePublicWebSocketListener());
         using var shutdown = new CancellationTokenSource();
         shutdown.Cancel();
 
@@ -127,10 +135,12 @@ public class DovahLinkHostRuntimeTests
     public async Task RunAsync_ShutdownSignalSet_Ends()
     {
         var shutdownSignal = new FakeHostShutdownSignal();
+        var shutdownSignalSetAdapterListener = new FakeAdapterIpcListener();
         var runtime = new DovahLinkHostRuntime(
-            new FakeAdapterIpcListener(), shutdownSignal, new HostProcessLifetime(),
+            shutdownSignalSetAdapterListener, shutdownSignal, new HostProcessLifetime(),
             new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
-            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, new FakePublicWebSocketListener());
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
+            new LiveStateScheduler(shutdownSignalSetAdapterListener, LiveStateCatalog.Default), new FakePublicWebSocketListener());
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
@@ -159,7 +169,8 @@ public class DovahLinkHostRuntimeTests
             var runtime = new DovahLinkHostRuntime(
                 adapterListener, shutdownSignal, new HostProcessLifetime(),
                 new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
-                new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] }, publicListener);
+                new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
+                new LiveStateScheduler(adapterListener, LiveStateCatalog.Default), publicListener);
             using var shutdown = new CancellationTokenSource();
 
             Task<int> runTask = runtime.RunAsync(shutdown);
@@ -176,6 +187,33 @@ public class DovahLinkHostRuntimeTests
             Assert.Null(Record.Exception(() => shutdown.Cancel()));
             Assert.Null(Record.Exception(shutdownSignal.Set));
         }
+    }
+
+    /// <summary>
+    /// Verifies that the composed live-state scheduler actually runs as part of
+    /// <see cref="DovahLinkHostRuntime.RunAsync"/> -- not merely constructed and left unused -- by
+    /// observing a real sample send reach the adapter connection, and that shutdown still completes
+    /// cleanly once the scheduler's own loop is cancelled alongside the others.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_BeforeShutdownRequested_LiveStateSchedulerSendsSamplesOnTheAdapterConnection()
+    {
+        var adapterListener = new FakeAdapterIpcListener();
+        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendReadSampleResult = true };
+        adapterListener.CurrentConnection = connection;
+        var tinyIntervals = new Dictionary<RateClass, TimeSpan> { [RateClass.Fast] = TimeSpan.FromMilliseconds(5), [RateClass.Medium] = TimeSpan.FromMilliseconds(5) };
+        var runtime = new DovahLinkHostRuntime(
+            adapterListener, new FakeHostShutdownSignal(), new HostProcessLifetime(),
+            new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
+            new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
+            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, tinyIntervals));
+        using var shutdown = new CancellationTokenSource();
+
+        Task<int> runTask = runtime.RunAsync(shutdown);
+        await WaitUntilAsync(() => connection.ReadSampleCalls.Count > 0, runTask);
+
+        shutdown.Cancel();
+        Assert.Equal(0, await runTask.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     /// <summary>Polls <paramref name="condition"/> until it is true, failing if <paramref name="runTask"/> ends first or the bound elapses.</summary>
