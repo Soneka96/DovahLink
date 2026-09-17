@@ -9,12 +9,14 @@ namespace DovahLink.Host.Tests.State;
 /// </summary>
 public class LiveStateCatalogFixtureTests
 {
+    /// <summary>Reads the shared native/host live-state capture catalog fixture.</summary>
     private static JsonElement ReadFixture()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "adapter-host-ipc", "fixtures", "live-state-catalog.json");
         return JsonDocument.Parse(File.ReadAllText(path)).RootElement;
     }
 
+    /// <summary>Verifies that the host's hardcoded sample-token enum values remain synchronized with the shared contract fixture.</summary>
     [Fact]
     public void SampleTokens_MatchSharedCatalogFixture()
     {
@@ -25,6 +27,7 @@ public class LiveStateCatalogFixtureTests
         Assert.Equal((uint)CharacterSampleToken.CharacterLevelBaseline, sampleTokens.GetProperty("characterLevelBaseline").GetUInt32());
     }
 
+    /// <summary>Verifies that the host's hardcoded event-key enum values remain synchronized with the shared contract fixture.</summary>
     [Fact]
     public void EventKeys_MatchSharedCatalogFixture()
     {
