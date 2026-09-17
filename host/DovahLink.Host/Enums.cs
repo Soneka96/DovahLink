@@ -300,6 +300,9 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the adapter to report one captured value, or its unavailability. See <see cref="Adapter.Ipc.IpcCaptureResultMessage"/>.</summary>
     CaptureResult = 15,
+
+    /// <summary>Sent by the adapter in response to a listen-event request. See <see cref="Adapter.Ipc.IpcListenEventResultMessage"/>.</summary>
+    ListenEventResult = 16,
 }
 
 /// <summary>Which host-owned key namespace a captured value's key belongs to.</summary>

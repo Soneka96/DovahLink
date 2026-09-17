@@ -268,10 +268,11 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     HandleResynchronizeRequest(const IpcResynchronizeRequestMessage& request);
 
     ///  Marshals a persistent registration for `listenEvent.eventKey` onto
-    ///  the game thread. Registration itself produces no captured value to
-    ///  hand to the capture queue; any later captured value for this event
-    ///  arrives through a separate capture path once the registered native
-    ///  event actually fires.
+    ///  the game thread and replies with an `IpcListenEventResultMessage`
+    ///  carrying the router's accepted value. Registration itself produces no
+    ///  captured value to hand to the capture queue; any later captured value
+    ///  for this event arrives through a separate capture path once the
+    ///  registered native event actually fires.
     ///  @return `kClose` if `listenEvent.correlationId` is already admitted and
     ///  still outstanding on the current generation, after sending
     ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`

@@ -60,6 +60,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcTrustAdminRequestMessage trustAdminRequest => (IpcMessageKind.TrustAdminRequest, EncodeTrustAdminRequest(trustAdminRequest)),
             IpcTrustAdminResultMessage trustAdminResult => (IpcMessageKind.TrustAdminResult, EncodeTrustAdminResult(trustAdminResult)),
             IpcCaptureResultMessage captureResult => (IpcMessageKind.CaptureResult, EncodeCaptureResult(captureResult)),
+            IpcListenEventResultMessage listenEventResult => (IpcMessageKind.ListenEventResult, EncodeListenEventResult(listenEventResult)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -130,6 +131,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcMessageKind.TrustAdminRequest => DecodeTrustAdminRequest(correlationId, payload),
             IpcMessageKind.TrustAdminResult => DecodeTrustAdminResult(correlationId, payload),
             IpcMessageKind.CaptureResult => DecodeCaptureResult(correlationId, payload),
+            IpcMessageKind.ListenEventResult => DecodeListenEventResult(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -756,5 +758,32 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
 
         return IpcDecodeResult.Success(
             new IpcCaptureResultMessage(correlationId, (CaptureSourceKind)payload[0], captureKey, availability, valueBytes.ToArray()));
+    }
+
+    /// <summary>Encodes a listen-event result after enforcing its required request correlation.</summary>
+    /// <param name="listenEventResult">The result to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the result has correlation id zero.</exception>
+    private static byte[] EncodeListenEventResult(IpcListenEventResultMessage listenEventResult)
+    {
+        if (listenEventResult.CorrelationId == 0)
+        {
+            throw new ArgumentException(
+                "A listen-event result must identify a nonzero request correlation id.", nameof(listenEventResult));
+        }
+
+        return [listenEventResult.Accepted ? (byte)1 : (byte)0];
+    }
+
+    /// <summary>Decodes a listen-event result, validating its required nonzero correlation id and boolean field.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed one-byte accepted-flag payload.</param>
+    private static IpcDecodeResult DecodeListenEventResult(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length != 1 || payload[0] > 1)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcListenEventResultMessage(correlationId, payload[0] == 1));
     }
 }

@@ -57,7 +57,7 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-    return value >= 1 && value <= 15;
+    return value >= 1 && value <= 16;
 }
 
 ///  Whether `value` is one of `TrustAdminOperation`'s contiguous defined
@@ -442,6 +442,22 @@ IpcFrameCodec::DecodeCaptureResult(std::uint64_t correlationId,
 }
 
 std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeListenEventResult(std::uint64_t correlationId,
+                                       std::span<const std::byte> payload) {
+    if (correlationId == 0 || payload.size() != 1) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const auto acceptedByte = std::to_integer<std::uint8_t>(payload[0]);
+    if (acceptedByte > 1) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    return IpcMessage{IpcListenEventResultMessage{
+        .correlationId = correlationId, .accepted = acceptedByte == 1}};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeTrustAdminRequest(std::uint64_t correlationId,
                                        std::span<const std::byte> payload) {
     if (correlationId == 0 || payload.empty()) {
@@ -595,6 +611,15 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage& message) const {
             } else if constexpr (std::is_same_v<T, IpcCaptureResultMessage>) {
                 kind = IpcMessageKind::kCaptureResult;
                 payload = EncodeCaptureResult(value);
+            } else if constexpr (std::is_same_v<T,
+                                                IpcListenEventResultMessage>) {
+                if (value.correlationId == 0) {
+                    throw std::invalid_argument(
+                        "A listen-event result must identify a nonzero "
+                        "request correlation id.");
+                }
+                kind = IpcMessageKind::kListenEventResult;
+                payload = {static_cast<std::byte>(value.accepted ? 1 : 0)};
             }
         },
         message);
@@ -878,6 +903,8 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
         return DecodeTrustAdminResult(correlationId, payload);
     case IpcMessageKind::kCaptureResult:
         return DecodeCaptureResult(correlationId, payload);
+    case IpcMessageKind::kListenEventResult:
+        return DecodeListenEventResult(correlationId, payload);
     }
 
     return std::unexpected(IpcRejectReason::kUnknownMessageKind);

@@ -33,6 +33,7 @@ using dovahlink::adapter::ipc::IpcHelloAckMessage;
 using dovahlink::adapter::ipc::IpcHelloMessage;
 using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcListenEventMessage;
+using dovahlink::adapter::ipc::IpcListenEventResultMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcMessageKind;
 using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
@@ -962,10 +963,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    //  16 is the value immediately past the currently highest defined kind
-    //  (kCaptureResult = 15); update this alongside any future kind
+    //  17 is the value immediately past the currently highest defined kind
+    //  (kListenEventResult = 16); update this alongside any future kind
     //  addition so it keeps testing the actual boundary.
-    for (std::byte kindByte : {std::byte{0}, std::byte{16}, std::byte{250}}) {
+    for (std::byte kindByte : {std::byte{0}, std::byte{17}, std::byte{250}}) {
         std::vector<std::byte> frame =
             codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
         frame[4] = kindByte;
@@ -1431,6 +1432,70 @@ TEST_CASE("a pairing-display acknowledgement payload of the wrong length "
     }
 }
 
+TEST_CASE("a listen-event result round-trips its accepted value",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (bool accepted : {true, false}) {
+        IpcListenEventResultMessage original{.correlationId = 7,
+                                             .accepted = accepted};
+
+        auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+        REQUIRE(result.has_value());
+        CHECK(*result == IpcMessage{original});
+    }
+}
+
+TEST_CASE("encoding a listen-event result with a zero correlation id "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcListenEventResultMessage{
+                        .correlationId = 0, .accepted = true}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("a listen-event result with a zero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kListenEventResult, 0, {std::byte{1}});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a listen-event result with an out-of-range accepted byte fails "
+          "closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kListenEventResult, 1, {std::byte{2}});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a listen-event result payload of the wrong length fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (std::size_t payloadSize : {std::size_t{0}, std::size_t{2}}) {
+        std::vector<std::byte> frame =
+            BuildFrame(IpcMessageKind::kListenEventResult, 1,
+                       std::vector<std::byte>(payloadSize));
+
+        auto result = codec.Decode(frame);
+
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+    }
+}
+
 TEST_CASE("an attempts-exhausted notification with a nonzero correlation id "
           "fails closed",
           "[ipc][ipc_frame_codec]") {
@@ -1755,6 +1820,10 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
                                                         std::byte{0x4B}}}},
          Bytes({0x11, 0x00, 0x00, 0x00, 0x0F, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x4F, 0x4B})},
+        {IpcMessage{
+             IpcListenEventResultMessage{.correlationId = 13, .accepted = true}},
+         Bytes({0x0A, 0x00, 0x00, 0x00, 0x10, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x01})},
     };
 
     for (const auto& [message, expected] : vectors) {

@@ -74,6 +74,9 @@ enum class IpcMessageKind : std::uint8_t {
     ///  Sent by the adapter to report one captured value, or its
     ///  unavailability, to the host. See `IpcCaptureResultMessage`.
     kCaptureResult = 15,
+    ///  Sent by the adapter in response to a listen-event request. See
+    ///  `IpcListenEventResultMessage`.
+    kListenEventResult = 16,
 };
 
 ///  Why a private IPC channel is being closed.

@@ -412,6 +412,20 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
+    /// <summary>
+    /// Verifies that a ListenEventResult is accepted without closing the connection, even though no production
+    /// caller of PrepareListenEvent exists yet.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_ListenEventResult_ReturnsNoneOutcome()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcListenEventResultMessage(3, true));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+    }
+
     /// <summary>Verifies that a message kind the host never expects to receive is rejected and closes the connection.</summary>
     [Theory]
     [InlineData(typeof(IpcListenEventMessage))]

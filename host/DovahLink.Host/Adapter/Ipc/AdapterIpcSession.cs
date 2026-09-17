@@ -252,6 +252,13 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
                 //  be proved end to end before the host applies it.
                 return AdapterIpcOutcome.None;
 
+            case IpcListenEventResultMessage:
+                //  No production caller of PrepareListenEvent exists yet; the
+                //  frame is accepted and discarded so the adapter's real reply
+                //  path can already be proved end to end before a scheduler
+                //  needs to correlate it against a pending request.
+                return AdapterIpcOutcome.None;
+
             default:
                 return AdapterIpcOutcome.SendAndClose(new IpcRejectMessage(message.CorrelationId, IpcRejectReason.UnknownMessageKind));
         }

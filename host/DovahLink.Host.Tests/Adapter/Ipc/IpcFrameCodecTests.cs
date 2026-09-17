@@ -630,6 +630,29 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that a listen-event result round-trips for both outcomes.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RoundTrip_ListenEventResult(bool accepted)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcListenEventResultMessage(7, accepted);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that encoding a listen-event result with a zero correlation id throws.</summary>
+    [Fact]
+    public void Encode_ListenEventResult_ZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcListenEventResultMessage(0, true)));
+    }
+
     /// <summary>Verifies that an attempts-exhausted notification round-trips.</summary>
     [Fact]
     public void RoundTrip_PairingAttemptsExhausted()
@@ -1450,6 +1473,44 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a listen-event result with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Decode_ListenEventResult_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEventResult, correlationId: 0, [1]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a listen-event result with an out-of-range accepted byte fails closed.</summary>
+    [Fact]
+    public void Decode_ListenEventResult_InvalidAcceptedByte_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEventResult, correlationId: 1, [2]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a listen-event result payload of the wrong length fails closed, both shorter and longer than the fixed 1-byte shape.</summary>
+    [Theory]
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 1, 0 })]
+    public void Decode_ListenEventResult_WrongPayloadLength_FailsClosed(byte[] payload)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEventResult, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that an attempts-exhausted notification carrying a correlation id fails closed because it is unsolicited.</summary>
     [Fact]
     public void Decode_PairingAttemptsExhausted_NonZeroCorrelationId_FailsClosed()
@@ -1689,6 +1750,7 @@ public class IpcFrameCodecTests
             // availability (Available=0) + the UTF-8 bytes of "OK".
             (new IpcCaptureResultMessage(12, CaptureSourceKind.Sample, 13, CaptureAvailability.Available, [0x4F, 0x4B]),
                 "110000000F0C00000000000000000D000000004F4B"),
+            (new IpcListenEventResultMessage(13, Accepted: true), "0A000000100D0000000000000001"),
         };
 
         foreach ((IpcMessage message, string hex) in vectors)
@@ -1745,6 +1807,9 @@ public class IpcFrameCodecTests
                     Assert.Equal(expectedMessage.CaptureKey, actualMessage.CaptureKey);
                     Assert.Equal(expectedMessage.Availability, actualMessage.Availability);
                     Assert.Equal(expectedMessage.Payload, actualMessage.Payload);
+                    break;
+                case (IpcListenEventResultMessage expectedMessage, IpcListenEventResultMessage actualMessage):
+                    Assert.Equal(expectedMessage.Accepted, actualMessage.Accepted);
                     break;
                 case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
                 case (IpcCancelMessage, IpcCancelMessage):

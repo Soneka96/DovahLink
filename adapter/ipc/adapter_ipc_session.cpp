@@ -618,7 +618,11 @@ AdapterIpcSession::HandleListenEvent(const IpcListenEventMessage& listenEvent) {
                 //  capture for this event arrives through a separate capture
                 //  path once the registered native event actually fires, not
                 //  from this dispatch's own result.
-                captureRouter_.RegisterEvent(eventKey);
+                bool accepted = captureRouter_.RegisterEvent(eventKey);
+                if (connection_ != nullptr) {
+                    connection_->TrySend(IpcMessage{IpcListenEventResultMessage{
+                        .correlationId = correlationId, .accepted = accepted}});
+                }
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.
             }

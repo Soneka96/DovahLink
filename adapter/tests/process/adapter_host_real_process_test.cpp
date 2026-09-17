@@ -59,6 +59,7 @@ using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcSession;
 using dovahlink::adapter::ipc::AdapterIpcTarget;
 using dovahlink::adapter::ipc::IpcFrameCodec;
+using dovahlink::adapter::ipc::IpcListenEventMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider;
 using dovahlink::adapter::ipc::TrustAdminListScope;
@@ -1702,6 +1703,36 @@ TEST_CASE("a real native adapter's capture result is accepted by a real "
         .source = CaptureSourceKind::kSample,
         .availability = CaptureAvailability::kUnavailable,
     });
+
+    //  The connection stays open and authenticated: a follow-up trust-admin
+    //  request still completes normally.
+    auto resultPromise =
+        std::make_shared<std::promise<TrustAdminRequestResult>>();
+    std::future<TrustAdminRequestResult> resultFuture =
+        resultPromise->get_future();
+    fixture.Session().SendTrustAdminRequest(
+        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+        [resultPromise](TrustAdminRequestResult result) {
+            resultPromise->set_value(std::move(result));
+        });
+
+    REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kCompleted);
+}
+
+TEST_CASE("a real native adapter's listen-event registration reply is "
+          "accepted by a real launched Host without closing the connection",
+          "[process][integration]") {
+    //  Proves the real adapter-to-host wire encoding for
+    //  IpcListenEventResultMessage and that a real Host accepts it and keeps
+    //  serving the connection, even though no production caller of
+    //  PrepareListenEvent exists yet on the Host side (see
+    //  AdapterIpcSession::HandleFrame's own documentation there).
+    RealHostFixture fixture(std::byte{0xF2});
+
+    fixture.Session().HandleMessage(
+        IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 1}});
 
     //  The connection stays open and authenticated: a follow-up trust-admin
     //  request still completes normally.

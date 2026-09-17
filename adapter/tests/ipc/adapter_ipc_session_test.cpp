@@ -46,6 +46,7 @@ using dovahlink::adapter::ipc::IpcHelloAckMessage;
 using dovahlink::adapter::ipc::IpcHelloMessage;
 using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcListenEventMessage;
+using dovahlink::adapter::ipc::IpcListenEventResultMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
@@ -1208,7 +1209,14 @@ TEST_CASE("AdapterIpcSession admits a new listen-event request that reuses a "
     CHECK(fixture.dispatcher.DispatchedKeys() ==
           std::vector<std::uint32_t>{7, 8});
     CHECK(fixture.captureQueue.Enqueued().empty());
-    CHECK(connection.Sent().empty());
+    //  Both dispatches replied with their own accepted listen-event result.
+    REQUIRE(connection.Sent().size() == 2);
+    for (const auto& sent : connection.Sent()) {
+        auto* result = std::get_if<IpcListenEventResultMessage>(&sent);
+        REQUIRE(result != nullptr);
+        CHECK(result->correlationId == 1);
+        CHECK(result->accepted);
+    }
 }
 
 TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
@@ -1389,7 +1397,8 @@ TEST_CASE("AdapterIpcSession closes on a pre-authentication "
 }
 
 TEST_CASE("AdapterIpcSession handles a listen-event request by registering "
-          "the key on the game thread, without enqueuing a captured value") {
+          "the key on the game thread and replying with the accepted "
+          "result, without enqueuing a captured value") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
@@ -1408,10 +1417,16 @@ TEST_CASE("AdapterIpcSession handles a listen-event request by registering "
     //  registered native event actually fires.
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
     CHECK(fixture.captureQueue.Enqueued().empty());
+    REQUIRE(connection.Sent().size() == 1);
+    auto* result =
+        std::get_if<IpcListenEventResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK(result->correlationId == 1);
+    CHECK(result->accepted);
 }
 
-TEST_CASE("AdapterIpcSession enqueues nothing for a listen-event key with "
-          "no registered translation") {
+TEST_CASE("AdapterIpcSession replies with a rejected result for a "
+          "listen-event key with no registered translation") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
@@ -1420,6 +1435,13 @@ TEST_CASE("AdapterIpcSession enqueues nothing for a listen-event key with "
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 99}});
     fixture.marshaller.RunAllPending();
+
+    REQUIRE(connection.Sent().size() == 1);
+    auto* result =
+        std::get_if<IpcListenEventResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK(result->correlationId == 1);
+    CHECK_FALSE(result->accepted);
 
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{99});
     CHECK(fixture.captureQueue.Enqueued().empty());

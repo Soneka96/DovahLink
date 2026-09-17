@@ -166,6 +166,12 @@ class IpcFrameCodec final : public IIpcFrameCodec {
     static std::expected<IpcMessage, IpcRejectReason>
     DecodeCaptureResult(std::uint64_t correlationId,
                         std::span<const std::byte> payload);
+
+    ///  Decodes a listen-event result, validating its required nonzero
+    ///  correlation id and boolean field.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeListenEventResult(std::uint64_t correlationId,
+                            std::span<const std::byte> payload);
 };
 
 } //  namespace dovahlink::adapter::ipc
