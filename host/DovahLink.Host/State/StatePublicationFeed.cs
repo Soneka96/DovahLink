@@ -165,6 +165,16 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     /// separate lock scope earlier -- so a publish can never reach a subscriber after the world has
     /// already moved on. Must be called with <see cref="gate"/> already held.
     /// </summary>
+    /// <remarks>
+    /// Deliberately does not require <see cref="AdapterAvailabilitySnapshot.NeedsResynchronization"/>
+    /// to be <see langword="false"/>: a resynchronization baseline is only ever accepted by
+    /// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/> while that flag is
+    /// <see langword="true"/>, so requiring it clear here would make a legitimate baseline publish
+    /// impossible to ever satisfy. The caller's own <c>Apply</c>/<c>ApplyResynchronizationBaseline</c>
+    /// result already proves the operation matched the adapter's state at that moment; this re-check
+    /// exists only to catch the adapter dropping again, or the play context moving on, in the gap
+    /// between that call and this one.
+    /// </remarks>
     private bool IsStillFreshLocked(StateAreaId areaId, PlayContextId capturedPlayContextId, long capturedPlayContextGeneration)
     {
         if (!registeredStateAreaPolicy.IsRegistered(areaId))
@@ -173,7 +183,7 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         }
 
         AdapterAvailabilitySnapshot adapterSnapshot = adapterAvailabilityTracker.GetSnapshot();
-        if (adapterSnapshot.Current != AdapterAvailability.Available || adapterSnapshot.NeedsResynchronization)
+        if (adapterSnapshot.Current != AdapterAvailability.Available)
         {
             return false;
         }

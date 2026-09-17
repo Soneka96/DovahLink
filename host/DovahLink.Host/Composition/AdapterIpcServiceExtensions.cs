@@ -2,6 +2,7 @@ using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Process;
+using DovahLink.Host.State;
 using DovahLink.Host.Time;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,7 +18,11 @@ public static class AdapterIpcServiceExtensions
     /// shared across two accepted connections. Requires
     /// <see cref="CoreServiceExtensions.AddCoreServices"/> and
     /// <see cref="TrustServiceExtensions.AddTrustServices"/> to already be registered on
-    /// <paramref name="services"/>.
+    /// <paramref name="services"/>. <see cref="LiveCaptureSink"/> also resolves
+    /// <see cref="LiveStateCatalog"/> and <see cref="IStatePublicationSink"/>, so
+    /// <see cref="PublicClientServiceExtensions.AddPublicClientServices"/> must be registered too
+    /// before the composed provider is built -- registration order across these methods does not
+    /// otherwise matter, since every dependency here resolves lazily at first use.
     /// </summary>
     /// <param name="services">The service collection to register into.</param>
     /// <param name="listenerPort">The private adapter-IPC loopback port to bind, or zero to let the operating system assign one.</param>
@@ -34,26 +39,11 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IAdapterConnectionFactory, AdapterConnectionFactory>();
         services.AddSingleton<IAdapterIpcListener, AdapterIpcListener>();
         services.AddSingleton<IPairingAdapterNotifier, AdapterPairingNotifier>();
-        // No real state-area decoder exists yet; this placeholder reflects this composition
-        // root's actual current behavior until a later phase registers the real sink.
-        services.AddSingleton<ILiveCaptureSink>(NullLiveCaptureSink.Instance);
+        services.AddSingleton<IRevisionTracker, RevisionTracker>();
+        services.AddSingleton<IStatePublisher<float?>, StatePublisher<float?>>();
+        services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
+        services.AddSingleton<ILiveCaptureSink, LiveCaptureSink>();
 
         return services;
-    }
-
-    /// <summary>
-    /// A composition-time placeholder for <see cref="ILiveCaptureSink"/> that discards every
-    /// capture result. Correct today's composition root's production behavior, since no
-    /// state-area decoder or authoritative-state application exists yet.
-    /// </summary>
-    private sealed class NullLiveCaptureSink : ILiveCaptureSink
-    {
-        /// <summary>The shared, stateless instance every connection routes through.</summary>
-        public static readonly NullLiveCaptureSink Instance = new();
-
-        /// <inheritdoc/>
-        public void ApplyCaptureResult(IpcCaptureResultMessage captureResult)
-        {
-        }
     }
 }

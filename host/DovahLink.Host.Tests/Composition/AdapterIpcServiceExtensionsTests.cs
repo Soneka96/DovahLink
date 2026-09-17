@@ -147,7 +147,14 @@ public class AdapterIpcServiceExtensionsTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Builds a real Core/Trust/AdapterIpc container -- the same registrations production composes it with.</summary>
+    /// <summary>
+    /// Builds a real Core/Trust/AdapterIpc/PublicClient container -- the same registrations
+    /// production composes it with. PublicClient is included with no bound listener port because
+    /// <see cref="ILiveCaptureSink"/>'s real composed implementation resolves
+    /// <see cref="DovahLink.Host.State.LiveStateCatalog"/> and
+    /// <see cref="DovahLink.Host.State.IStatePublicationSink"/> from that graph; these tests exercise
+    /// only the AdapterIpc-specific services listed above.
+    /// </summary>
     private static async Task<ServiceProvider> BuildProviderAsync(
         CancellationTokenSource shutdown, ITrustStorePersistence persistence, int listenerPort, OwnerLifetimeId ownerLifetimeId)
     {
@@ -159,6 +166,7 @@ public class AdapterIpcServiceExtensionsTests
         services.AddCoreServices(clock, securityGate, shutdown, new FakeHostSettingsProvider());
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
+        services.AddPublicClientServices(publicListenerPort: null);
 
         return services.BuildServiceProvider();
     }

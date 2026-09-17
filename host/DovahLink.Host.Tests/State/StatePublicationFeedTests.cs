@@ -94,8 +94,12 @@ public class StatePublicationFeedTests
 
     /// <summary>Verifies that publishing while the adapter still needs resynchronization is a silent no-op, even though it reports available.</summary>
     [Fact]
-    public void PublishSnapshot_AdapterNeedsResynchronization_DoesNothing()
+    public void PublishSnapshot_AdapterNeedsResynchronization_StillPublishes()
     {
+        // A resynchronization baseline is only ever accepted by
+        // IStatePublisher<TState>.ApplyResynchronizationBaseline while NeedsResynchronization is
+        // true, so this feed must not require it clear before publishing -- otherwise a legitimate
+        // baseline could never be published at all.
         (StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, _, _, PlayContextId context) = CreateReadyFeed();
         adapterTracker.NeedsResynchronization = true;
         bool raised = false;
@@ -103,8 +107,8 @@ public class StatePublicationFeedTests
 
         feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
 
-        Assert.False(raised);
-        Assert.False(feed.TryGetSnapshot(AreaId, out _));
+        Assert.True(raised);
+        Assert.True(feed.TryGetSnapshot(AreaId, out _));
     }
 
     /// <summary>Verifies that a publish stamped with a play context other than the current one is a silent no-op, isolating one side of the freshness check's OR condition.</summary>
