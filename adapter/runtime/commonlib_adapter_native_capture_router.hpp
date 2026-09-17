@@ -3,8 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <optional>
-#include <vector>
 
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "dispatch/adapter_native_capture_router.hpp"
@@ -20,11 +18,10 @@ namespace dovahlink::adapter::runtime {
 ///  into the little-endian wire payload the host's own `LiveCaptureSink`
 ///  decodes: 12 bytes (three float32: health, magicka, stamina) for vitals,
 ///  4 bytes (one float32) for XP, 2 bytes (one uint16) for the level
-///  baseline. An unknown token, or a known token whose underlying read is
-///  currently unavailable, both return `std::nullopt` --
-///  `IAdapterNativeCaptureRouter::CaptureSample`'s own contract does not
-///  distinguish the two; the host applies the same "unavailable" treatment
-///  to either.
+///  baseline. An unknown token reports `SampleCaptureStatus::kUnsupported`; a
+///  known token whose underlying read is currently unavailable reports
+///  `kUnavailable` -- distinct outcomes, per
+///  `IAdapterNativeCaptureRouter::CaptureSample`'s own contract.
 ///
 ///  Also registers and owns the `RE::LevelIncrease::Event` sink for
 ///  `CharacterEventKey::kCharacterLevelChanged`: a spontaneous native event
@@ -53,8 +50,7 @@ class CommonLibAdapterNativeCaptureRouter final
     CommonLibAdapterNativeCaptureRouter& operator=(const CommonLibAdapterNativeCaptureRouter&) = delete;
 
     ///  @copydoc IAdapterNativeCaptureRouter::CaptureSample
-    std::optional<std::vector<std::byte>>
-    CaptureSample(std::uint32_t sampleToken) override;
+    dispatch::SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override;
 
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
     ///  Only `CharacterEventKey::kCharacterLevelChanged` is approved; any

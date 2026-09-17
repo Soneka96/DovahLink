@@ -32,24 +32,48 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter maps each known sample token "
     CHECK(source.find(NormalizeWhitespace("CaptureCharacterLevel()")) != std::string::npos);
 }
 
-TEST_CASE("CommonLibAdapterNativeCaptureRouter fails closed for an unknown "
-          "sample token",
+TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kUnsupported for an "
+          "unknown sample token",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
     std::string source = NormalizeWhitespace(RouterSource());
 
-    CHECK(source.find(NormalizeWhitespace("default:\nreturn std::nullopt;")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "default:\nreturn dispatch::SampleCaptureResult{\n"
+              ".status = dispatch::SampleCaptureStatus::kUnsupported};")) !=
+          std::string::npos);
 }
 
-TEST_CASE("CommonLibAdapterNativeCaptureRouter never returns a fabricated "
-          "default when the underlying capture is unavailable",
+TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kUnavailable, never a "
+          "fabricated default, when the underlying capture is unavailable",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
-    //  Every arm must return std::nullopt on its own capture's failure,
-    //  never fall through to an empty/zeroed payload construction.
+    //  Every arm must report kUnavailable on its own capture's failure, never
+    //  fall through to an empty/zeroed payload construction or the
+    //  kUnsupported outcome reserved for an unrecognized token.
     std::string source = NormalizeWhitespace(RouterSource());
 
-    CHECK(source.find(NormalizeWhitespace("if (!vitals) {\nreturn std::nullopt;")) != std::string::npos);
-    CHECK(source.find(NormalizeWhitespace("if (!xp) {\nreturn std::nullopt;")) != std::string::npos);
-    CHECK(source.find(NormalizeWhitespace("if (!level) {\nreturn std::nullopt;")) != std::string::npos);
+    for (const char* needle :
+         {"if (!vitals) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!xp) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!level) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};"}) {
+        CHECK(source.find(NormalizeWhitespace(needle)) != std::string::npos);
+    }
+}
+
+TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kAvailable with the "
+          "encoded payload for each known token's successful read",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    std::string source = NormalizeWhitespace(RouterSource());
+
+    CHECK(source.find(NormalizeWhitespace(
+              ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
+              ".payload = std::move(payload)};")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
+              ".payload = std::vector<std::byte>(encoded.begin(), encoded.end())};")) !=
+          std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes each token's payload "

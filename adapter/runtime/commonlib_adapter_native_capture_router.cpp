@@ -61,13 +61,14 @@ CommonLibAdapterNativeCaptureRouter::CommonLibAdapterNativeCaptureRouter(
 
 CommonLibAdapterNativeCaptureRouter::~CommonLibAdapterNativeCaptureRouter() = default;
 
-std::optional<std::vector<std::byte>>
+dispatch::SampleCaptureResult
 CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
     switch (static_cast<capture::CharacterSampleToken>(sampleToken)) {
     case capture::CharacterSampleToken::kCharacterVitals: {
         std::optional<CharacterVitalsCapture> vitals = CaptureCharacterVitals();
         if (!vitals) {
-            return std::nullopt;
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
         }
         std::vector<std::byte> payload;
         payload.reserve(12);
@@ -77,26 +78,35 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
         std::ranges::copy(health, std::back_inserter(payload));
         std::ranges::copy(magicka, std::back_inserter(payload));
         std::ranges::copy(stamina, std::back_inserter(payload));
-        return payload;
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kAvailable,
+            .payload = std::move(payload)};
     }
     case capture::CharacterSampleToken::kCharacterXp: {
         std::optional<float> xp = CaptureCharacterXp();
         if (!xp) {
-            return std::nullopt;
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
         }
         std::array<std::byte, 4> encoded = capture::EncodeFloatLittleEndian(*xp);
-        return std::vector<std::byte>(encoded.begin(), encoded.end());
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kAvailable,
+            .payload = std::vector<std::byte>(encoded.begin(), encoded.end())};
     }
     case capture::CharacterSampleToken::kCharacterLevelBaseline: {
         std::optional<std::uint16_t> level = CaptureCharacterLevel();
         if (!level) {
-            return std::nullopt;
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
         }
         std::array<std::byte, 2> encoded = capture::EncodeUInt16LittleEndian(*level);
-        return std::vector<std::byte>(encoded.begin(), encoded.end());
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kAvailable,
+            .payload = std::vector<std::byte>(encoded.begin(), encoded.end())};
     }
     default:
-        return std::nullopt;
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kUnsupported};
     }
 }
 

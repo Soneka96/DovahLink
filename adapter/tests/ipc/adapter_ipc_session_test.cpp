@@ -31,6 +31,8 @@ using dovahlink::adapter::capture::CharacterEventKey;
 using dovahlink::adapter::capture::CharacterSampleToken;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
+using dovahlink::adapter::dispatch::SampleCaptureResult;
+using dovahlink::adapter::dispatch::SampleCaptureStatus;
 using dovahlink::adapter::identity::AdapterInstanceId;
 using dovahlink::adapter::identity::AdapterPlayContextState;
 using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
@@ -79,12 +81,22 @@ namespace {
 ///  results and event registration outcomes. `DispatchedKeys()` logs both
 ///  `CaptureSample` and `RegisterEvent` calls, in call order, since most
 ///  tests only care whether -- and in what order -- a key reached the
-///  router at all, not which of the two operations carried it.
+///  router at all, not which of the two operations carried it. A sample
+///  token with no configured result reports `kUnavailable` -- a known,
+///  approved token whose underlying value just is not ready -- matching this
+///  fake's role as a stand-in for a real router whose supported tokens all
+///  fail closed rather than as a stand-in for a version-mismatched one; use
+///  `SetSampleUnsupported` for a test that specifically needs that case.
 class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter {
   public:
-    ///  Configures `CaptureSample(sampleToken)` to return `value`.
+    ///  Configures `CaptureSample(sampleToken)` to return `value` as available.
     void SetSampleResult(std::uint32_t sampleToken, std::vector<std::byte> value) {
         sampleResults_[sampleToken] = std::move(value);
+    }
+
+    ///  Configures `CaptureSample(sampleToken)` to report `kUnsupported`.
+    void SetSampleUnsupported(std::uint32_t sampleToken) {
+        unsupportedSampleTokens_.insert(sampleToken);
     }
 
     ///  Makes `CaptureSample(sampleToken)` throw instead of returning.
@@ -102,17 +114,23 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
         throwingEventKeys_.insert(eventKey);
     }
 
-    std::optional<std::vector<std::byte>>
-    CaptureSample(std::uint32_t sampleToken) override {
+    SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override {
         dispatchedKeys_.push_back(sampleToken);
         if (throwingSampleTokens_.contains(sampleToken)) {
             throw std::runtime_error("CaptureSample failed");
         }
+        if (unsupportedSampleTokens_.contains(sampleToken)) {
+            return SampleCaptureResult{
+                .status = SampleCaptureStatus::kUnsupported};
+        }
         auto it = sampleResults_.find(sampleToken);
         if (it == sampleResults_.end()) {
-            return std::nullopt;
+            return SampleCaptureResult{
+                .status = SampleCaptureStatus::kUnavailable};
         }
-        return it->second;
+        return SampleCaptureResult{
+            .status = SampleCaptureStatus::kAvailable,
+            .payload = it->second};
     }
 
     bool RegisterEvent(std::uint32_t eventKey) override {
@@ -130,6 +148,7 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
 
   private:
     std::unordered_map<std::uint32_t, std::vector<std::byte>> sampleResults_;
+    std::unordered_set<std::uint32_t> unsupportedSampleTokens_;
     std::unordered_set<std::uint32_t> throwingSampleTokens_;
     std::unordered_map<std::uint32_t, bool> eventResults_;
     std::unordered_set<std::uint32_t> throwingEventKeys_;
@@ -148,10 +167,10 @@ class BlockingAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRou
 
     ///  Signals that the callback entered, then waits for the test to release
     ///  it before reporting that no translation exists.
-    std::optional<std::vector<std::byte>>
-    CaptureSample(std::uint32_t /*sampleToken*/) override {
+    SampleCaptureResult CaptureSample(std::uint32_t /*sampleToken*/) override {
         Block();
-        return std::nullopt;
+        return SampleCaptureResult{
+            .status = SampleCaptureStatus::kUnsupported};
     }
 
     ///  Signals that the callback entered, then waits for the test to release
@@ -699,11 +718,15 @@ TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
     //  Unavailable is a legitimate per-value state communicated through each
     //  capture's own availability field, not a reason to reject the whole
     //  resync: the game-thread capture path still ran using the approved
-    //  native operations.
+    //  native operations. Registration is configured to succeed so this test
+    //  isolates per-value unavailability as the only variable; accepted's own
+    //  dependence on registration is covered separately.
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetEventRegistered(
+        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
@@ -719,6 +742,73 @@ TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
         std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
     REQUIRE(result != nullptr);
     CHECK(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted "
+          "when the level-changed event registration itself fails, even "
+          "though every baseline sample is recognized and available") {
+    //  accepted now truthfully reports admission -- registering the event and
+    //  recognizing every requested sample token -- not merely that a capture
+    //  attempt ran.
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetEventRegistered(
+        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), false);
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
+        {std::byte{9}});
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals),
+        {std::byte{1}, std::byte{2}, std::byte{3}});
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp), {std::byte{7}});
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(connection.Sent().size() == 1);
+    auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK_FALSE(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted, "
+          "and does not enqueue a fabricated capture, when a baseline "
+          "sample token is unsupported") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetEventRegistered(
+        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
+    fixture.dispatcher.SetSampleUnsupported(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
+        {std::byte{9}});
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp), {std::byte{7}});
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+    fixture.marshaller.RunAllPending();
+
+    //  Only the two recognized tokens enqueue; the unsupported one never
+    //  fabricates a capture.
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
+    for (const auto& item : fixture.captureQueue.Enqueued()) {
+        CHECK(item.intentKey !=
+              static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
+    }
+    REQUIRE(connection.Sent().size() == 1);
+    auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK_FALSE(result->accepted);
 }
 
 TEST_CASE("AdapterIpcSession contains an exception thrown by the router's "
@@ -1731,6 +1821,24 @@ TEST_CASE("AdapterIpcSession handles a read-sample request by dispatching "
 
     REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
     CHECK(fixture.captureQueue.Enqueued().front().intentKey == 3);
+}
+
+TEST_CASE("AdapterIpcSession sends nothing back for a read-sample request "
+          "whose token is unsupported, rather than fabricating an "
+          "unavailable capture") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetSampleUnsupported(3);
+
+    CHECK(fixture.session.HandleMessage(IpcMessage{
+              IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}}) ==
+          AdapterIpcMessageDisposition::kContinue);
+    fixture.marshaller.RunAllPending();
+
+    CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{3});
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession stamps an enqueued sample capture with the "

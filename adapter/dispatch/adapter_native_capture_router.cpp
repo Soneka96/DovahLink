@@ -2,10 +2,10 @@
 
 namespace dovahlink::adapter::dispatch {
 
-std::optional<std::vector<std::byte>>
+SampleCaptureResult
 AdapterNativeCaptureRouter::CaptureSample(std::uint32_t /*sampleToken*/) {
     //  No production sample token is registered yet.
-    return std::nullopt;
+    return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
 }
 
 bool AdapterNativeCaptureRouter::RegisterEvent(std::uint32_t /*eventKey*/) {

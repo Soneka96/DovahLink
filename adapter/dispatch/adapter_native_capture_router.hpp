@@ -1,9 +1,8 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <vector>
+
+#include "dispatch/sample_capture_result.hpp"
 
 namespace dovahlink::adapter::dispatch {
 
@@ -26,10 +25,10 @@ class IAdapterNativeCaptureRouter {
     ///  responsible for calling this only from the Skyrim game thread once a
     ///  real translation is registered for a token.
     ///  @param sampleToken The host-owned sample token.
-    ///  @return The captured value, or `std::nullopt` for a sample token
-    ///  with no approved translation.
-    virtual std::optional<std::vector<std::byte>>
-    CaptureSample(std::uint32_t sampleToken) = 0;
+    ///  @return The result, distinguishing a known token's currently
+    ///  unavailable Skyrim value from a sample token with no approved
+    ///  translation at all; see `SampleCaptureResult`'s own documentation.
+    virtual SampleCaptureResult CaptureSample(std::uint32_t sampleToken) = 0;
 
     ///  Registers persistent interest in a host-directed event key's native
     ///  event, synchronously on the calling thread. Idempotent: registering
@@ -47,8 +46,7 @@ class IAdapterNativeCaptureRouter {
 class AdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter {
   public:
     ///  @copydoc IAdapterNativeCaptureRouter::CaptureSample
-    std::optional<std::vector<std::byte>>
-    CaptureSample(std::uint32_t sampleToken) override;
+    SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override;
 
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
     bool RegisterEvent(std::uint32_t eventKey) override;

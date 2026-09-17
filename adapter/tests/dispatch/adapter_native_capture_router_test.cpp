@@ -6,6 +6,7 @@
 #include <limits>
 
 using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
+using dovahlink::adapter::dispatch::SampleCaptureStatus;
 
 TEST_CASE("AdapterNativeCaptureRouter has no registered sample translation "
           "yet, for any sample token",
@@ -15,7 +16,8 @@ TEST_CASE("AdapterNativeCaptureRouter has no registered sample translation "
     for (std::uint32_t sampleToken :
          {std::uint32_t{0}, std::uint32_t{1}, std::uint32_t{42},
           std::numeric_limits<std::uint32_t>::max()}) {
-        CHECK_FALSE(router.CaptureSample(sampleToken).has_value());
+        CHECK(router.CaptureSample(sampleToken).status ==
+              SampleCaptureStatus::kUnsupported);
     }
 }
 

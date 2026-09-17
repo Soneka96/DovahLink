@@ -582,43 +582,61 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                 //  baseline below, in this same game-thread task, so there is
                 //  no window between registration and the baseline read in
                 //  which a level-up could occur and be missed entirely.
-                captureRouter_.RegisterEvent(static_cast<std::uint32_t>(
-                    capture::CharacterEventKey::kCharacterLevelChanged));
-                //  Each baseline sample is queued the same way a host-directed
+                bool eventRegistered = captureRouter_.RegisterEvent(
+                    static_cast<std::uint32_t>(
+                        capture::CharacterEventKey::kCharacterLevelChanged));
+                //  A recognized sample is queued the same way a host-directed
                 //  ReadSample's own result is, per HandleReadSample -- through
                 //  the capture queue's worker thread, not a direct send from
                 //  this game-thread task. correlationId stays zero: none of
-                //  these originates from an IpcReadSampleMessage.
+                //  these originates from an IpcReadSampleMessage. An
+                //  unsupported token enqueues nothing at all -- fabricating an
+                //  "unavailable" capture for a token this router does not even
+                //  recognize would hide a protocol/version mismatch as normal
+                //  Skyrim state.
+                //  @return Whether sampleToken was recognized at all, distinct
+                //  from whether its underlying Skyrim read was itself
+                //  available -- only recognition bears on this resync's own
+                //  admission below.
                 auto enqueueBaselineSample = [this, &playContextId](
                                                  std::uint32_t sampleToken) {
-                    std::optional<std::vector<std::byte>> captured =
+                    dispatch::SampleCaptureResult captured =
                         captureRouter_.CaptureSample(sampleToken);
+                    if (captured.status ==
+                        dispatch::SampleCaptureStatus::kUnsupported) {
+                        return false;
+                    }
                     captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
                         .intentKey = sampleToken,
-                        .capturedValue = captured.value_or(std::vector<std::byte>{}),
+                        .capturedValue = std::move(captured.payload),
                         .correlationId = 0,
                         .source = capture::CaptureSourceKind::kSample,
-                        .availability = captured.has_value()
-                                            ? capture::CaptureAvailability::kAvailable
-                                            : capture::CaptureAvailability::kUnavailable,
+                        .availability =
+                            captured.status == dispatch::SampleCaptureStatus::kAvailable
+                                ? capture::CaptureAvailability::kAvailable
+                                : capture::CaptureAvailability::kUnavailable,
                         .playContextId = playContextId,
                     });
+                    return true;
                 };
-                enqueueBaselineSample(static_cast<std::uint32_t>(
-                    capture::CharacterSampleToken::kCharacterLevelBaseline));
-                enqueueBaselineSample(static_cast<std::uint32_t>(
+                bool levelBaselineRecognized = enqueueBaselineSample(
+                    static_cast<std::uint32_t>(
+                        capture::CharacterSampleToken::kCharacterLevelBaseline));
+                bool vitalsRecognized = enqueueBaselineSample(static_cast<std::uint32_t>(
                     capture::CharacterSampleToken::kCharacterVitals));
-                enqueueBaselineSample(static_cast<std::uint32_t>(
+                bool xpRecognized = enqueueBaselineSample(static_cast<std::uint32_t>(
                     capture::CharacterSampleToken::kCharacterXp));
-                //  The approved baseline domains are registered now (unlike
-                //  when this always reported false): a real game-thread
-                //  capture attempt just ran above, so accepting here is no
-                //  longer treating an empty capture as a fresh authoritative
-                //  baseline. An individual sample's own unavailability is
-                //  reported through its own capture result, not this flag.
+                //  Truthfully reports whether every requested event
+                //  registration succeeded and every requested sample token
+                //  was recognized -- not merely that a capture attempt ran.
+                //  An individual recognized sample's own Skyrim-side
+                //  unavailability is reported through its own capture
+                //  result, not this flag.
+                bool accepted = eventRegistered && levelBaselineRecognized &&
+                                vitalsRecognized && xpRecognized;
                 if (connection_ != nullptr) {
                     connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
-                        .correlationId = correlationId, .accepted = true}});
+                        .correlationId = correlationId, .accepted = accepted}});
                 }
             } catch (...) {
                 //  Contained, per ai/context/skse/cpp-style.md's worker-thread
@@ -765,18 +783,24 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                 //  capturing the value under it.
                 std::array<std::byte, 16> playContextId =
                     playContextState_.CurrentPlayContext();
-                std::optional<std::vector<std::byte>> captured =
+                dispatch::SampleCaptureResult captured =
                     captureRouter_.CaptureSample(sampleToken);
-                captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                    .intentKey = sampleToken,
-                    .capturedValue = captured.value_or(std::vector<std::byte>{}),
-                    .correlationId = correlationId,
-                    .source = capture::CaptureSourceKind::kSample,
-                    .availability = captured.has_value()
-                                        ? capture::CaptureAvailability::kAvailable
-                                        : capture::CaptureAvailability::kUnavailable,
-                    .playContextId = playContextId,
-                });
+                //  An unsupported token sends nothing back at all; see
+                //  HandleResynchronizeRequest's identical enqueue guard for
+                //  why fabricating "unavailable" here would be wrong.
+                if (captured.status != dispatch::SampleCaptureStatus::kUnsupported) {
+                    captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                        .intentKey = sampleToken,
+                        .capturedValue = std::move(captured.payload),
+                        .correlationId = correlationId,
+                        .source = capture::CaptureSourceKind::kSample,
+                        .availability =
+                            captured.status == dispatch::SampleCaptureStatus::kAvailable
+                                ? capture::CaptureAvailability::kAvailable
+                                : capture::CaptureAvailability::kUnavailable,
+                        .playContextId = playContextId,
+                    });
+                }
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.
             }

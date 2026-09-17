@@ -54,6 +54,28 @@ enum class CharacterEventKey : std::uint32_t {
 
 } //  namespace dovahlink::adapter::capture
 
+namespace dovahlink::adapter::dispatch {
+
+//  ---- Dispatch ----
+
+///  The outcome of one `IAdapterNativeCaptureRouter::CaptureSample` call.
+///  Keeps a known-but-currently-unreadable Skyrim value distinct from a
+///  sample token this router has no approved translation for at all: the
+///  first is normal, expected Skyrim state; the second is a protocol/version
+///  mismatch a caller must never silently treat as authoritative unavailable
+///  state.
+enum class SampleCaptureStatus : std::uint8_t {
+    ///  The value was read and `SampleCaptureResult::payload` holds it.
+    kAvailable = 0,
+    ///  `sampleToken` is a known, approved translation, but the underlying
+    ///  Skyrim read is not currently available.
+    kUnavailable = 1,
+    ///  `sampleToken` has no approved translation in this router.
+    kUnsupported = 2,
+};
+
+} //  namespace dovahlink::adapter::dispatch
+
 namespace dovahlink::adapter::ipc {
 
 //  ---- IPC ----
