@@ -36,6 +36,9 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     /// <summary>The Host-lifetime tracker every connection's session notifies of adapter-reported play-context transitions.</summary>
     private readonly IPlayContextTracker playContextTracker;
 
+    /// <summary>The Host-lifetime sink every connection's session routes decoded capture results into.</summary>
+    private readonly ILiveCaptureSink liveCaptureSink;
+
     /// <summary>This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</summary>
     private readonly HostInstanceOptions hostInstance;
 
@@ -48,6 +51,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     /// <param name="peerProofVerifier">Verifies a connecting adapter's peer-ownership proof.</param>
     /// <param name="trustAdminRequestHandler">Answers adapter-originated trust-admin IPC requests.</param>
     /// <param name="playContextTracker">The Host-lifetime tracker every connection's session notifies of adapter-reported play-context transitions.</param>
+    /// <param name="liveCaptureSink">The Host-lifetime sink every connection's session routes decoded capture results into.</param>
     /// <param name="hostInstance">This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</param>
     /// <param name="clock">The time source every connection reports through.</param>
     public AdapterConnectionFactory(
@@ -56,6 +60,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
         IAdapterPeerProofVerifier peerProofVerifier,
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
         IPlayContextTracker playContextTracker,
+        ILiveCaptureSink liveCaptureSink,
         HostInstanceOptions hostInstance,
         IClock clock)
     {
@@ -64,6 +69,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
         this.peerProofVerifier = peerProofVerifier;
         this.trustAdminRequestHandler = trustAdminRequestHandler;
         this.playContextTracker = playContextTracker;
+        this.liveCaptureSink = liveCaptureSink;
         this.hostInstance = hostInstance;
         this.clock = clock;
     }
@@ -73,6 +79,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
         new AdapterIpcConnection(
             stream,
             codec,
-            new AdapterIpcSession(lifecycle, peerProofVerifier, trustAdminRequestHandler, playContextTracker, hostInstance.OwnerLifetimeId),
+            new AdapterIpcSession(
+                lifecycle, peerProofVerifier, trustAdminRequestHandler, playContextTracker, liveCaptureSink, hostInstance.OwnerLifetimeId),
             clock);
 }

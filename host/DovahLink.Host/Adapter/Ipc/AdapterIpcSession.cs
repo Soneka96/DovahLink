@@ -123,6 +123,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</summary>
     private readonly IPlayContextTracker playContextTracker;
 
+    /// <summary>The domain-facing sink this session routes decoded capture results into.</summary>
+    private readonly ILiveCaptureSink liveCaptureSink;
+
     /// <summary>
     /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
     /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
@@ -167,6 +170,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <param name="peerProofVerifier">The verifier this session checks a connecting adapter's peer-ownership proof against.</param>
     /// <param name="trustAdminRequestHandler">The reusable authority this session forwards adapter-originated trust-administration requests to.</param>
     /// <param name="playContextTracker">The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</param>
+    /// <param name="liveCaptureSink">The domain-facing sink this session routes decoded capture results into.</param>
     /// <param name="expectedOwnerLifetimeId">
     /// The owning Skyrim process's lifetime identity this host process was launched with, or
     /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
@@ -177,12 +181,14 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         IAdapterPeerProofVerifier peerProofVerifier,
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
         IPlayContextTracker playContextTracker,
+        ILiveCaptureSink liveCaptureSink,
         OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
         this.lifecycle = lifecycle;
         this.peerProofVerifier = peerProofVerifier;
         this.trustAdminRequestHandler = trustAdminRequestHandler;
         this.playContextTracker = playContextTracker;
+        this.liveCaptureSink = liveCaptureSink;
         this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
@@ -253,10 +259,8 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             case IpcCancelMessage:
                 return AdapterIpcOutcome.None;
 
-            case IpcCaptureResultMessage:
-                //  No live capture sink is wired in yet; the frame is accepted
-                //  and discarded so the adapter's real send path can already
-                //  be proved end to end before the host applies it.
+            case IpcCaptureResultMessage captureResult:
+                liveCaptureSink.ApplyCaptureResult(captureResult);
                 return AdapterIpcOutcome.None;
 
             case IpcListenEventResultMessage:

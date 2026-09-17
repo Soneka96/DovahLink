@@ -19,7 +19,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         var hello = new IpcHelloMessage(7, instanceId, verifier.ExpectedToken);
 
@@ -45,7 +45,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         session.Handshake(new IpcHelloMessage(7, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
@@ -67,7 +67,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), ownerLifetimeId);
         byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
@@ -91,7 +91,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), ownerLifetimeId);
         byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
@@ -108,7 +108,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -126,7 +126,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new OwnerLifetimeId(1, 2));
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new OwnerLifetimeId(1, 2));
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: new OwnerLifetimeId(3, 4).ToBytes());
 
@@ -147,7 +147,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), ownerLifetimeId);
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3], ownerLifetimeId: ownerLifetimeId.ToBytes());
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -163,7 +163,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -181,7 +181,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         var hello = new IpcHelloMessage(7, new AdapterInstanceId(Guid.Empty), verifier.ExpectedToken);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -201,7 +201,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         byte[] token = validProof ? verifier.ExpectedToken : [9, 9, 9];
         var hello = new IpcHelloMessage(42, AdapterInstanceId.NewId(), token);
 
@@ -337,7 +337,7 @@ public class AdapterIpcSessionTests
     public void HandleFrame_ResynchronizeResult_BeforeHandshake_IsIgnoredSafely()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(1, Accepted: true));
 
@@ -397,19 +397,47 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
-    /// <summary>
-    /// Verifies that a CaptureResult is accepted without closing the connection, even though no live capture
-    /// sink is wired in yet.
-    /// </summary>
+    /// <summary>Verifies that a CaptureResult is routed to the live capture sink and does not close the connection.</summary>
     [Fact]
-    public void HandleFrame_CaptureResult_ReturnsNoneOutcome()
+    public void HandleFrame_CaptureResult_RoutesToLiveCaptureSinkAndReturnsNoneOutcome()
     {
-        (AdapterIpcSession session, _, _) = HandshakenSession();
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = new AdapterIpcSession(
+            lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, []);
 
-        AdapterIpcOutcome outcome = session.HandleFrame(
-            new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, []));
+        AdapterIpcOutcome outcome = session.HandleFrame(captureResult);
 
         Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Equal([captureResult], liveCaptureSink.Applied);
+    }
+
+    /// <summary>Verifies that several sequential CaptureResult frames reach the sink in the same order they were handled.</summary>
+    [Fact]
+    public void HandleFrame_SeveralCaptureResults_RoutesToLiveCaptureSinkInOrder()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = new AdapterIpcSession(
+            lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        var first = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Available, [1]);
+        var second = new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, 2, CaptureAvailability.Available, [2]);
+        var third = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 3, CaptureAvailability.Unavailable, []);
+
+        session.HandleFrame(first);
+        session.HandleFrame(second);
+        session.HandleFrame(third);
+
+        Assert.Equal([first, second, third], liveCaptureSink.Applied);
     }
 
     /// <summary>
@@ -434,7 +462,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
         var verifier = new AdapterPeerProofVerifier();
         var playContextTracker = new FakePlayContextTracker();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink());
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
         PlayContextId playContextId = PlayContextId.NewId();
@@ -497,7 +525,7 @@ public class AdapterIpcSessionTests
     public void PrepareListenEvent_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         Assert.Null(session.PrepareListenEvent(1));
     }
@@ -509,7 +537,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
 
         Assert.Null(session.PrepareListenEvent(1));
@@ -536,7 +564,7 @@ public class AdapterIpcSessionTests
     public void PrepareReadSample_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         Assert.Null(session.PrepareReadSample(1));
     }
@@ -571,7 +599,7 @@ public class AdapterIpcSessionTests
     public void PrepareCancel_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         Assert.Null(session.PrepareCancel(1));
     }
@@ -628,7 +656,7 @@ public class AdapterIpcSessionTests
     {
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         session.HandleDisconnected();
 
@@ -643,13 +671,13 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
         IpcResynchronizeRequestMessage request = firstSession.PrepareResynchronizeRequest();
         firstSession.HandleDisconnected();
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -665,7 +693,7 @@ public class AdapterIpcSessionTests
     public void PreparePairingDisplay_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         Assert.Null(session.PreparePairingDisplay("123456", PairingDisplayMode.Initial));
     }
@@ -701,7 +729,7 @@ public class AdapterIpcSessionTests
     public void PreparePairingAttemptsExhausted_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         Assert.Null(session.PreparePairingAttemptsExhausted());
     }
@@ -726,11 +754,11 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -782,7 +810,7 @@ public class AdapterIpcSessionTests
     public void HandlePairingDisplayAck_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         Assert.Null(session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(1, true)));
     }
@@ -799,12 +827,12 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
         IpcPairingDisplayMessage request = firstSession.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -849,7 +877,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var handler = new FakeAdapterTrustAdminRequestHandler { Result = "Revoked client 12345 (My PC)." };
-        var session = new AdapterIpcSession(lifecycle, verifier, handler, new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, handler, new FakePlayContextTracker(), new FakeLiveCaptureSink());
         var request = new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Revoke, ShortId: "12345");
 
         string result = await session.HandleTrustAdminRequestAsync(request);
@@ -867,7 +895,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var handler = new FakeAdapterTrustAdminRequestHandler();
-        var session = new AdapterIpcSession(lifecycle, verifier, handler, new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, handler, new FakePlayContextTracker(), new FakeLiveCaptureSink());
         using var cancellation = new CancellationTokenSource();
 
         await session.HandleTrustAdminRequestAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help), cancellation.Token);
@@ -884,7 +912,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var handler = new FakeAdapterTrustAdminRequestHandler { Result = "host not ready" };
-        var session = new AdapterIpcSession(lifecycle, verifier, handler, new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, handler, new FakePlayContextTracker(), new FakeLiveCaptureSink());
 
         string result = await session.HandleTrustAdminRequestAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help));
 
@@ -898,7 +926,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker());
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink());
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
         return (session, tracker, lifecycle);

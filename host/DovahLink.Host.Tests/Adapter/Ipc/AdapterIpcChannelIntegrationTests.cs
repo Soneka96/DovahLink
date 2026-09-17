@@ -556,7 +556,7 @@ public class AdapterIpcChannelIntegrationTests
         var codec = new IpcFrameCodec();
         var trustAdminRequestHandler = new FakeAdapterTrustAdminRequestHandler();
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, new FakePlayContextTracker()), new SystemClock()));
+            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, new FakePlayContextTracker(), new FakeLiveCaptureSink()), new SystemClock()));
         return (listener, tracker, verifier, trustAdminRequestHandler);
     }
 

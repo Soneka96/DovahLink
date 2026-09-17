@@ -34,7 +34,26 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IAdapterConnectionFactory, AdapterConnectionFactory>();
         services.AddSingleton<IAdapterIpcListener, AdapterIpcListener>();
         services.AddSingleton<IPairingAdapterNotifier, AdapterPairingNotifier>();
+        // No real state-area decoder exists yet; this placeholder reflects this composition
+        // root's actual current behavior until a later phase registers the real sink.
+        services.AddSingleton<ILiveCaptureSink>(NullLiveCaptureSink.Instance);
 
         return services;
+    }
+
+    /// <summary>
+    /// A composition-time placeholder for <see cref="ILiveCaptureSink"/> that discards every
+    /// capture result. Correct today's composition root's production behavior, since no
+    /// state-area decoder or authoritative-state application exists yet.
+    /// </summary>
+    private sealed class NullLiveCaptureSink : ILiveCaptureSink
+    {
+        /// <summary>The shared, stateless instance every connection routes through.</summary>
+        public static readonly NullLiveCaptureSink Instance = new();
+
+        /// <inheritdoc/>
+        public void ApplyCaptureResult(IpcCaptureResultMessage captureResult)
+        {
+        }
     }
 }

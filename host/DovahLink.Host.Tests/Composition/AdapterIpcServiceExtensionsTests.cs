@@ -40,6 +40,7 @@ public class AdapterIpcServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IAdapterConnectionFactory>());
         Assert.NotNull(provider.GetRequiredService<IAdapterIpcListener>());
         Assert.NotNull(provider.GetRequiredService<IPairingAdapterNotifier>());
+        Assert.NotNull(provider.GetRequiredService<ILiveCaptureSink>());
     }
 
     /// <summary>
