@@ -22,7 +22,8 @@ public class AdapterConnectionFactoryTests
         var factory = new AdapterConnectionFactory(
             new IpcFrameCodec(), new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker()),
             new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(),
-            new FakeLiveCaptureSink(), new HostInstanceOptions(default), new SystemClock());
+            new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator(),
+            new HostInstanceOptions(default), new SystemClock());
 
         IAdapterIpcConnection first = factory.Create(new MemoryStream());
         IAdapterIpcConnection second = factory.Create(new MemoryStream());

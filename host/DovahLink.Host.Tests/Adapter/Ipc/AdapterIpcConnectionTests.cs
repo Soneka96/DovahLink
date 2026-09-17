@@ -387,6 +387,60 @@ public class AdapterIpcConnectionTests
         Assert.Equal(42u, readSample.SampleToken);
     }
 
+    /// <summary>
+    /// Verifies that a fresh resynchronize request -- one requested after the automatic first one
+    /// RunAsync itself already sent right after handshake -- is actually written to the peer once the
+    /// connection has committed.
+    /// </summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Committed_DeliversFrameToPeer()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { ConnectionGeneration = 1, ResynchronizeRequest = new IpcResynchronizeRequestMessage(9) };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // the automatic first resynchronize request
+        bool enqueued = connection.TrySendResynchronizeRequest();
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        var request = Assert.IsType<IpcResynchronizeRequestMessage>(delivered);
+        Assert.Equal(9UL, request.CorrelationId);
+    }
+
+    /// <summary>Verifies that a resynchronize request is refused before this connection's handshake has committed.</summary>
+    [Fact]
+    public void TrySendResynchronizeRequest_NotCommitted_ReturnsFalse()
+    {
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        bool enqueued = connection.TrySendResynchronizeRequest();
+
+        Assert.False(enqueued);
+    }
+
+    /// <summary>Verifies that a full outbound queue refuses a resynchronize request, rather than growing without limit.</summary>
+    [Fact]
+    public void TrySendResynchronizeRequest_QueueFull_ReturnsFalse()
+    {
+        var fakeSession = new FakeAdapterIpcSession { ConnectionGeneration = 1, ListenEventResult = new IpcListenEventMessage(1, 1) };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        bool enqueued = connection.TrySendResynchronizeRequest();
+
+        Assert.False(enqueued);
+    }
+
     /// <summary>Verifies that a queued cancellation is actually written to the peer once connected.</summary>
     [Fact]
     public async Task TryCancel_Connected_DeliversFrameToPeer()

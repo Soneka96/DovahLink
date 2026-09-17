@@ -79,6 +79,18 @@ public interface IAdapterAvailabilityTracker
     void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration);
 
     /// <summary>
+    /// Re-arms resynchronization for a play-context transition while the current connection stays
+    /// connected: mints a fresh claimable token and marks resynchronization needed again, without
+    /// touching <see cref="Current"/>, <see cref="CurrentInstanceId"/>, or
+    /// <see cref="CurrentConnectionGeneration"/> -- a play-context transition is a new-context
+    /// baseline requirement, not an adapter connection/availability change, so it never publishes an
+    /// <see cref="AvailabilityChanged"/> transition. A no-op while no adapter is currently connected:
+    /// there is no live connection generation for a play-context trigger to arm a fresh baseline
+    /// requirement against.
+    /// </summary>
+    void RearmResynchronizationForPlayContextTransition();
+
+    /// <summary>
     /// Reads all availability, identity, and generation fields together as one
     /// internally consistent snapshot. Use this instead of reading separate properties when a
     /// decision needs a coherent combined view.
@@ -253,6 +265,22 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
         if (resynchronized)
         {
             Resynchronized?.Invoke(instanceId, connectionGeneration);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RearmResynchronizationForPlayContextTransition()
+    {
+        lock (gate)
+        {
+            if (current != AdapterAvailability.Available)
+            {
+                return;
+            }
+
+            needsResynchronization = true;
+            currentResynchronizationToken = new AdapterResynchronizationToken();
+            resynchronizationTokenClaimed = false;
         }
     }
 

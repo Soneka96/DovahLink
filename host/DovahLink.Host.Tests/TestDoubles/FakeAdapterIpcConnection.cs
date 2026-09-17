@@ -70,6 +70,19 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         return TrySendReadSampleResult;
     }
 
+    /// <summary>The result <see cref="TrySendResynchronizeRequest"/> returns.</summary>
+    public bool TrySendResynchronizeRequestResult { get; set; }
+
+    /// <summary>The number of times <see cref="TrySendResynchronizeRequest"/> was called.</summary>
+    public int ResynchronizeRequestCalls { get; private set; }
+
+    /// <inheritdoc/>
+    public bool TrySendResynchronizeRequest()
+    {
+        ResynchronizeRequestCalls++;
+        return TrySendResynchronizeRequestResult;
+    }
+
     /// <inheritdoc/>
     public bool TryCancel(ulong correlationId) => false;
 

@@ -126,6 +126,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The domain-facing sink this session routes decoded capture results into.</summary>
     private readonly ILiveCaptureSink liveCaptureSink;
 
+    /// <summary>The coordinator this session reports its own resynchronize request's wire-level admission result to.</summary>
+    private readonly IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator;
+
     /// <summary>
     /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
     /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
@@ -171,6 +174,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <param name="trustAdminRequestHandler">The reusable authority this session forwards adapter-originated trust-administration requests to.</param>
     /// <param name="playContextTracker">The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</param>
     /// <param name="liveCaptureSink">The domain-facing sink this session routes decoded capture results into.</param>
+    /// <param name="resynchronizationTransactionCoordinator">The coordinator this session reports its own resynchronize request's wire-level admission result to.</param>
     /// <param name="expectedOwnerLifetimeId">
     /// The owning Skyrim process's lifetime identity this host process was launched with, or
     /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
@@ -182,6 +186,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
         IPlayContextTracker playContextTracker,
         ILiveCaptureSink liveCaptureSink,
+        IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
         OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
         this.lifecycle = lifecycle;
@@ -189,6 +194,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         this.trustAdminRequestHandler = trustAdminRequestHandler;
         this.playContextTracker = playContextTracker;
         this.liveCaptureSink = liveCaptureSink;
+        this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
         this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
@@ -393,7 +399,12 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         return message;
     }
 
-    /// <summary>Validates and applies a resynchronization result against the pending request and current generation.</summary>
+    /// <summary>
+    /// Validates a resynchronization result against the pending request and current generation, then
+    /// reports its wire-level admission to <see cref="resynchronizationTransactionCoordinator"/>. This
+    /// alone never completes resynchronization -- the coordinator also requires every required
+    /// baseline area to have been separately accepted; see its own documentation.
+    /// </summary>
     /// <param name="resynchronizeResult">The received resynchronization result.</param>
     private void HandleResynchronizeResult(IpcResynchronizeResultMessage resynchronizeResult)
     {
@@ -403,10 +414,19 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         }
 
         pendingResynchronizeCorrelationId = null;
-        if (resynchronizeResult.Accepted && lease is not null)
+        if (lease is null || instanceId is null)
         {
-            lifecycle.TryCompleteResynchronization(lease);
+            return;
         }
+
+        PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
+        if (contextSnapshot.Current is not PlayContextId currentContext)
+        {
+            return;
+        }
+
+        resynchronizationTransactionCoordinator.RecordAdapterPlanAccepted(
+            resynchronizeResult.Accepted, instanceId.Value, lease.Generation, currentContext, contextSnapshot.TransitionGeneration);
     }
 
     /// <summary>Issues the next monotonic outbound correlation id, starting at 1.</summary>

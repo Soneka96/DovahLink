@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 
@@ -38,6 +40,9 @@ public class AdapterIpcChannelIntegrationTests
         Assert.Equal(instanceId, tracker.CurrentInstanceId);
         Assert.True(tracker.NeedsResynchronization);
 
+        // The coordinator's required-area set is empty (see CreateRealStack), so establishing any
+        // play context is enough provenance for the accepted plan alone to complete resynchronization.
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(0, PlayContextId.NewId())));
         await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true)));
         await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
 
@@ -109,6 +114,7 @@ public class AdapterIpcChannelIntegrationTests
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
         var request = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(0, PlayContextId.NewId())));
         await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true)));
         await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
 
@@ -138,6 +144,7 @@ public class AdapterIpcChannelIntegrationTests
             await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken)));
             await ReadOneFrameAsync(firstStream, codec); // acknowledgement
             var firstRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(firstStream, codec));
+            await firstStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(0, PlayContextId.NewId())));
             await firstStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(firstRequest.CorrelationId, Accepted: true)));
             await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
         }
@@ -555,8 +562,13 @@ public class AdapterIpcChannelIntegrationTests
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
         var trustAdminRequestHandler = new FakeAdapterTrustAdminRequestHandler();
+        // An empty catalog's required-area set is trivially satisfied, so the real coordinator
+        // completes resynchronization from the wire-level accept alone -- this class proves
+        // handshake/connection-level wiring, not the catalog-specific baseline-transaction semantics
+        // LiveCaptureSinkTests and ResynchronizationTransactionCoordinatorTests already cover.
+        var coordinator = new ResynchronizationTransactionCoordinator(new LiveStateCatalog([], []), tracker);
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, new FakePlayContextTracker(), new FakeLiveCaptureSink()), new SystemClock()));
+            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, new FakePlayContextTracker(), new FakeLiveCaptureSink(), coordinator), new SystemClock()));
         return (listener, tracker, verifier, trustAdminRequestHandler);
     }
 

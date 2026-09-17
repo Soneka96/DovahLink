@@ -43,7 +43,8 @@ public class LiveCaptureSinkTests
         var revisionTracker = new RevisionTracker();
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
-        var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, feed, adapterTracker, playContextTracker, new FakeClock());
+        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, adapterTracker);
+        var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, feed, adapterTracker, playContextTracker, coordinator, new FakeClock());
         return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context);
     }
 

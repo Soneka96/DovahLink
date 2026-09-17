@@ -408,6 +408,64 @@ public class AdapterAvailabilityTrackerTests
         Assert.Null(tracker.TryClaimResynchronizationToken());
     }
 
+    // ---- Play-context re-arm ----
+
+    /// <summary>
+    /// Verifies that re-arming for a play-context transition marks resynchronization needed again
+    /// and mints a fresh token, without touching Current, CurrentInstanceId, or
+    /// CurrentConnectionGeneration -- a context transition is a new-context baseline requirement,
+    /// not an adapter connection/availability change.
+    /// </summary>
+    [Fact]
+    public void RearmResynchronizationForPlayContextTransition_WhileConnected_RearmsWithoutChangingConnectionIdentity()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PublishConnected(tracker, instanceId, 1);
+        IAdapterResynchronizationToken firstToken = tracker.TryClaimResynchronizationToken()!;
+        tracker.NotifyResynchronized(instanceId, 1);
+        Assert.False(tracker.NeedsResynchronization);
+
+        tracker.RearmResynchronizationForPlayContextTransition();
+
+        Assert.Equal(AdapterAvailability.Available, tracker.Current);
+        Assert.Equal(instanceId, tracker.CurrentInstanceId);
+        Assert.Equal(1, tracker.CurrentConnectionGeneration);
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.False(tracker.IsCurrentResynchronizationToken(firstToken));
+        IAdapterResynchronizationToken? secondToken = tracker.TryClaimResynchronizationToken();
+        Assert.NotNull(secondToken);
+        Assert.NotSame(firstToken, secondToken);
+    }
+
+    /// <summary>Verifies that re-arming while no adapter is connected is a no-op: there is no live connection generation to arm a fresh baseline requirement against.</summary>
+    [Fact]
+    public void RearmResynchronizationForPlayContextTransition_WhileDisconnected_IsNoOp()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+
+        tracker.RearmResynchronizationForPlayContextTransition();
+
+        Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
+        Assert.False(tracker.NeedsResynchronization);
+        Assert.Null(tracker.TryClaimResynchronizationToken());
+    }
+
+    /// <summary>Verifies that re-arming after a genuine disconnect (not merely a play-context transition while connected) also stays a no-op, matching the disconnected case exactly.</summary>
+    [Fact]
+    public void RearmResynchronizationForPlayContextTransition_AfterDisconnect_IsNoOp()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PublishConnected(tracker, instanceId, 1);
+        PublishDisconnected(tracker, instanceId, 1);
+
+        tracker.RearmResynchronizationForPlayContextTransition();
+
+        Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
+        Assert.Null(tracker.TryClaimResynchronizationToken());
+    }
+
     /// <summary>Verifies that mixed concurrent connection notifications preserve one coherent current connection.</summary>
     [Fact]
     public async Task MixedConcurrentConnectionNotifications_PreserveCoherentState()

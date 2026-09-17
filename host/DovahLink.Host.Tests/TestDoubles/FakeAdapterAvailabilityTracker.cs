@@ -99,6 +99,19 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
+    public void RearmResynchronizationForPlayContextTransition()
+    {
+        if (Current != AdapterAvailability.Available)
+        {
+            return;
+        }
+
+        NeedsResynchronization = true;
+        currentResynchronizationToken = new FakeAdapterResynchronizationToken();
+        resynchronizationTokenClaimed = false;
+    }
+
+    /// <inheritdoc/>
     public IAdapterResynchronizationToken? TryClaimResynchronizationToken()
     {
         if (Current != AdapterAvailability.Available || !NeedsResynchronization || resynchronizationTokenClaimed)

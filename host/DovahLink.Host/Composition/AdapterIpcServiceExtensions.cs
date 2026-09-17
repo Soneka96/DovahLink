@@ -43,8 +43,10 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IRevisionTracker, RevisionTracker>();
         services.AddSingleton<IStatePublisher<float?>, StatePublisher<float?>>();
         services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
+        services.AddSingleton<IResynchronizationTransactionCoordinator, ResynchronizationTransactionCoordinator>();
         services.AddSingleton<ILiveCaptureSink, LiveCaptureSink>();
         services.AddSingleton<LiveStateScheduler>();
+        services.AddSingleton<IPlayContextResynchronizationTrigger, PlayContextResynchronizationTrigger>();
 
         return services;
     }

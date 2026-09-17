@@ -32,6 +32,16 @@ public interface IAdapterIpcConnection
     /// <returns><see langword="true"/> when the intent was accepted onto the outbound queue.</returns>
     bool TrySendReadSample(uint sampleToken, out ulong correlationId);
 
+    /// <summary>
+    /// Attempts to enqueue a fresh resynchronize request on this already-authenticated connection --
+    /// unlike the automatic first request <see cref="RunAsync"/> itself sends right after handshake,
+    /// this is for a later trigger (for example a mid-session play-context transition) that needs a
+    /// new baseline without the connection itself having dropped. A no-op, returning
+    /// <see langword="false"/>, before this connection's handshake has committed.
+    /// </summary>
+    /// <returns><see langword="true"/> when the request was accepted onto the outbound queue.</returns>
+    bool TrySendResynchronizeRequest();
+
     /// <summary>Attempts to enqueue a cancellation for a previously issued correlation id.</summary>
     /// <param name="correlationId">The nonzero correlation id of the request to cancel.</param>
     /// <returns><see langword="true"/> when the cancellation was accepted onto the outbound queue.</returns>
@@ -237,6 +247,19 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
         correlationId = message.CorrelationId;
         return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendResynchronizeRequest()
+    {
+        if (session.ConnectionGeneration is null)
+        {
+            return false;
+        }
+
+        IpcResynchronizeRequestMessage message = session.PrepareResynchronizeRequest();
+        byte[] frame = codec.Encode(message);
+        return outbound.Writer.TryWrite(frame);
     }
 
     /// <inheritdoc/>

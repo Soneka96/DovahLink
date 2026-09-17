@@ -59,6 +59,9 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <inheritdoc/>
+    public bool TrySendResynchronizeRequest() => false;
+
+    /// <inheritdoc/>
     public bool TryCancel(ulong correlationId) => false;
 
     /// <inheritdoc/>

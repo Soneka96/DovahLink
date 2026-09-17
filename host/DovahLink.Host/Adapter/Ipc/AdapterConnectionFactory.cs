@@ -39,6 +39,9 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     /// <summary>The Host-lifetime sink every connection's session routes decoded capture results into.</summary>
     private readonly ILiveCaptureSink liveCaptureSink;
 
+    /// <summary>The Host-lifetime coordinator every connection's session reports its own resynchronize request's wire-level admission result to.</summary>
+    private readonly IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator;
+
     /// <summary>This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</summary>
     private readonly HostInstanceOptions hostInstance;
 
@@ -52,6 +55,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     /// <param name="trustAdminRequestHandler">Answers adapter-originated trust-admin IPC requests.</param>
     /// <param name="playContextTracker">The Host-lifetime tracker every connection's session notifies of adapter-reported play-context transitions.</param>
     /// <param name="liveCaptureSink">The Host-lifetime sink every connection's session routes decoded capture results into.</param>
+    /// <param name="resynchronizationTransactionCoordinator">The Host-lifetime coordinator every connection's session reports its own resynchronize request's wire-level admission result to.</param>
     /// <param name="hostInstance">This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</param>
     /// <param name="clock">The time source every connection reports through.</param>
     public AdapterConnectionFactory(
@@ -61,6 +65,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
         IPlayContextTracker playContextTracker,
         ILiveCaptureSink liveCaptureSink,
+        IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
         HostInstanceOptions hostInstance,
         IClock clock)
     {
@@ -70,6 +75,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
         this.trustAdminRequestHandler = trustAdminRequestHandler;
         this.playContextTracker = playContextTracker;
         this.liveCaptureSink = liveCaptureSink;
+        this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
         this.hostInstance = hostInstance;
         this.clock = clock;
     }
@@ -80,6 +86,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
             stream,
             codec,
             new AdapterIpcSession(
-                lifecycle, peerProofVerifier, trustAdminRequestHandler, playContextTracker, liveCaptureSink, hostInstance.OwnerLifetimeId),
+                lifecycle, peerProofVerifier, trustAdminRequestHandler, playContextTracker, liveCaptureSink,
+                resynchronizationTransactionCoordinator, hostInstance.OwnerLifetimeId),
             clock);
 }

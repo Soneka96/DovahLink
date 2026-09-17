@@ -58,6 +58,13 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
     /// <summary>Supplies this host process's own peer-ownership proof token and HostProof HMAC key.</summary>
     private readonly IAdapterPeerProofVerifier peerProofVerifier;
 
+    /// <summary>
+    /// Never read again after construction: held only so dependency injection resolves and
+    /// constructs this singleton at startup, which is what registers its play-context-transition
+    /// subscription for the host process's own lifetime. Nothing else in the graph depends on it.
+    /// </summary>
+    private readonly IPlayContextResynchronizationTrigger playContextResynchronizationTrigger;
+
     /// <summary>Creates a runtime over an already-composed listener/lifecycle graph.</summary>
     /// <param name="adapterListener">Accepts the private adapter-IPC connection.</param>
     /// <param name="shutdownSignal">Watched for the adapter's own named shutdown-request signal.</param>
@@ -66,6 +73,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
     /// <param name="rendezvousOutput">Reports the rendezvous endpoint to a launching adapter reading this process's standard output.</param>
     /// <param name="peerProofVerifier">Supplies this host process's own peer-ownership proof token and HostProof HMAC key.</param>
     /// <param name="liveStateScheduler">Drives the host's own sampling cadence for rate-classed capture units.</param>
+    /// <param name="playContextResynchronizationTrigger">Resolved purely to force its construction; see the field's own doc comment.</param>
     /// <param name="publicListener">
     /// Accepts public client connections, or <see langword="null"/> to run without one. Defaults to
     /// <see langword="null"/> so automatic constructor resolution supplies it without throwing when
@@ -79,6 +87,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         TextWriter rendezvousOutput,
         IAdapterPeerProofVerifier peerProofVerifier,
         LiveStateScheduler liveStateScheduler,
+        IPlayContextResynchronizationTrigger playContextResynchronizationTrigger,
         IPublicWebSocketListener? publicListener = null)
     {
         this.adapterListener = adapterListener;
@@ -89,6 +98,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         this.rendezvousOutput = rendezvousOutput;
         this.peerProofVerifier = peerProofVerifier;
         this.liveStateScheduler = liveStateScheduler;
+        this.playContextResynchronizationTrigger = playContextResynchronizationTrigger;
     }
 
     /// <inheritdoc/>

@@ -29,11 +29,14 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     /// <summary>Where an accepted, changed value becomes a publication.</summary>
     private readonly IStatePublicationSink publicationSink;
 
-    /// <summary>Consulted for source identity, resynchronization gating, and token claims.</summary>
+    /// <summary>Consulted for source identity and resynchronization gating.</summary>
     private readonly IAdapterAvailabilityTracker adapterAvailabilityTracker;
 
     /// <summary>Consulted to reject a capture whose stamped play context has already gone stale.</summary>
     private readonly IPlayContextTracker playContextTracker;
+
+    /// <summary>Claims each baseline area's resynchronization token and records its own transaction's progress.</summary>
+    private readonly IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator;
 
     /// <summary>Stamps every publication's <c>occurredAt</c> display timestamp.</summary>
     private readonly IClock clock;
@@ -43,8 +46,9 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     /// <param name="floatPublisher">Backs every float-valued area.</param>
     /// <param name="levelPublisher">Backs the level area.</param>
     /// <param name="publicationSink">Where an accepted, changed value becomes a publication.</param>
-    /// <param name="adapterAvailabilityTracker">Consulted for source identity, resynchronization gating, and token claims.</param>
+    /// <param name="adapterAvailabilityTracker">Consulted for source identity and resynchronization gating.</param>
     /// <param name="playContextTracker">Consulted to reject a capture whose stamped play context has already gone stale.</param>
+    /// <param name="resynchronizationTransactionCoordinator">Claims each baseline area's resynchronization token and records its own transaction's progress.</param>
     /// <param name="clock">Stamps every publication's display timestamp.</param>
     public LiveCaptureSink(
         LiveStateCatalog catalog,
@@ -53,6 +57,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         IStatePublicationSink publicationSink,
         IAdapterAvailabilityTracker adapterAvailabilityTracker,
         IPlayContextTracker playContextTracker,
+        IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
         IClock clock)
     {
         this.catalog = catalog;
@@ -61,6 +66,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         this.publicationSink = publicationSink;
         this.adapterAvailabilityTracker = adapterAvailabilityTracker;
         this.playContextTracker = playContextTracker;
+        this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
         this.clock = clock;
     }
 
@@ -199,7 +205,10 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     /// Applies one area's value through <paramref name="publisher"/> -- routing through
     /// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/> while the adapter needs
     /// resynchronization, or <see cref="IStatePublisher{TState}.Apply"/> otherwise -- then publishes
-    /// only when the result is both accepted and actually changed.
+    /// only when the result is both accepted and actually changed. An accepted resynchronization
+    /// baseline is also reported to <see cref="resynchronizationTransactionCoordinator"/> regardless
+    /// of whether it changed anything, since "this area's baseline landed" is what the transaction
+    /// tracks, not "this area's value differs from before."
     /// </summary>
     private void ApplyAndPublish<TState>(
         IStatePublisher<TState> publisher,
@@ -214,13 +223,24 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         StateApplyResult result;
         if (adapterSnapshot.NeedsResynchronization)
         {
-            IAdapterResynchronizationToken? token = adapterAvailabilityTracker.TryClaimResynchronizationToken();
+            if (adapterSnapshot.CurrentInstanceId is not AdapterInstanceId resyncInstanceId)
+            {
+                return;
+            }
+
+            IAdapterResynchronizationToken? token = resynchronizationTransactionCoordinator.AcquireToken(
+                resyncInstanceId, adapterSnapshot.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
             if (token is null)
             {
                 return;
             }
 
             result = publisher.ApplyResynchronizationBaseline(token, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
+            if (result.Accepted)
+            {
+                resynchronizationTransactionCoordinator.RecordAreaAccepted(
+                    areaId, resyncInstanceId, adapterSnapshot.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
+            }
         }
         else
         {

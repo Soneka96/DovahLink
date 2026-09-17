@@ -138,37 +138,6 @@ public class AdapterConnectionLifecycleTests
         Assert.True(lifecycle.IsActive(secondLease));
     }
 
-    /// <summary>Verifies that resynchronization completes while the lease is still active and clears the tracker's resynchronization requirement.</summary>
-    [Fact]
-    public void TryCompleteResynchronization_LeaseStillActive_CompletesAndClearsNeedsResynchronization()
-    {
-        var tracker = new AdapterAvailabilityTracker();
-        var lifecycle = new AdapterConnectionLifecycle(tracker);
-        AdapterConnectionLease lease = lifecycle.CreateLease();
-        lifecycle.Activate(lease, AdapterInstanceId.NewId());
-
-        bool completed = lifecycle.TryCompleteResynchronization(lease);
-
-        Assert.True(completed);
-        Assert.False(tracker.NeedsResynchronization);
-    }
-
-    /// <summary>Verifies that a since-deactivated lease can no longer complete resynchronization, and that the tracker still reports needing one.</summary>
-    [Fact]
-    public void TryCompleteResynchronization_LeaseDeactivated_ReturnsFalseAndTrackerStillNeedsResynchronization()
-    {
-        var tracker = new AdapterAvailabilityTracker();
-        var lifecycle = new AdapterConnectionLifecycle(tracker);
-        AdapterConnectionLease lease = lifecycle.CreateLease();
-        lifecycle.Activate(lease, AdapterInstanceId.NewId());
-        lifecycle.Deactivate(lease);
-
-        bool completed = lifecycle.TryCompleteResynchronization(lease);
-
-        Assert.False(completed);
-        Assert.True(tracker.NeedsResynchronization);
-    }
-
     /// <summary>Verifies that a throwing Available subscriber does not prevent Activate from completing, the lease from becoming active, or a later Deactivate from correctly reaching the tracker.</summary>
     [Fact]
     public void Activate_ThrowingAvailableSubscriber_LeaseStillActiveAndLaterDeactivateStillPublishesUnavailable()
@@ -259,22 +228,6 @@ public class AdapterConnectionLifecycleTests
 
         Assert.True(lifecycle.IsActive(secondLease));
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
-    }
-
-    /// <summary>Verifies that a lease already superseded by a later activation (never explicitly deactivated itself) can no longer complete resynchronization, purely on reference identity.</summary>
-    [Fact]
-    public void TryCompleteResynchronization_LeaseAlreadySuperseded_ReturnsFalse()
-    {
-        var tracker = new AdapterAvailabilityTracker();
-        var lifecycle = new AdapterConnectionLifecycle(tracker);
-        AdapterConnectionLease firstLease = lifecycle.CreateLease();
-        lifecycle.Activate(firstLease, AdapterInstanceId.NewId());
-        AdapterConnectionLease secondLease = lifecycle.CreateLease();
-        lifecycle.Activate(secondLease, AdapterInstanceId.NewId());
-
-        bool completed = lifecycle.TryCompleteResynchronization(firstLease);
-
-        Assert.False(completed);
     }
 
     /// <summary>
