@@ -559,12 +559,56 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                         return;
                     }
                 }
-                //  No approved baseline domain is registered yet. The game-thread
-                //  path is still exercised, but reporting failure prevents the host
-                //  from treating an empty capture as a fresh authoritative baseline.
+                //  Read the play context under the same lock as the guard
+                //  above, immediately before the Skyrim reads below, rather
+                //  than later on a different thread; see HandleReadSample's
+                //  identical guard for why.
+                std::array<std::byte, 16> playContextId{};
+                {
+                    std::lock_guard<std::mutex> lock(availableMutex_);
+                    playContextId = currentPlayContextId_;
+                }
+                //  Register the level-changed event before reading the level
+                //  baseline below, in this same game-thread task, so there is
+                //  no window between registration and the baseline read in
+                //  which a level-up could occur and be missed entirely.
+                captureRouter_.RegisterEvent(static_cast<std::uint32_t>(
+                    capture::CharacterEventKey::kCharacterLevelChanged));
+                //  Each baseline sample is queued the same way a host-directed
+                //  ReadSample's own result is, per HandleReadSample -- through
+                //  the capture queue's worker thread, not a direct send from
+                //  this game-thread task. correlationId stays zero: none of
+                //  these originates from an IpcReadSampleMessage.
+                auto enqueueBaselineSample = [this, &playContextId](
+                                                 std::uint32_t sampleToken) {
+                    std::optional<std::vector<std::byte>> captured =
+                        captureRouter_.CaptureSample(sampleToken);
+                    captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                        .intentKey = sampleToken,
+                        .capturedValue = captured.value_or(std::vector<std::byte>{}),
+                        .correlationId = 0,
+                        .source = capture::CaptureSourceKind::kSample,
+                        .availability = captured.has_value()
+                                            ? capture::CaptureAvailability::kAvailable
+                                            : capture::CaptureAvailability::kUnavailable,
+                        .playContextId = playContextId,
+                    });
+                };
+                enqueueBaselineSample(static_cast<std::uint32_t>(
+                    capture::CharacterSampleToken::kCharacterLevelBaseline));
+                enqueueBaselineSample(static_cast<std::uint32_t>(
+                    capture::CharacterSampleToken::kCharacterVitals));
+                enqueueBaselineSample(static_cast<std::uint32_t>(
+                    capture::CharacterSampleToken::kCharacterXp));
+                //  The approved baseline domains are registered now (unlike
+                //  when this always reported false): a real game-thread
+                //  capture attempt just ran above, so accepting here is no
+                //  longer treating an empty capture as a fresh authoritative
+                //  baseline. An individual sample's own unavailability is
+                //  reported through its own capture result, not this flag.
                 if (connection_ != nullptr) {
                     connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
-                        .correlationId = correlationId, .accepted = false}});
+                        .correlationId = correlationId, .accepted = true}});
                 }
             } catch (...) {
                 //  Contained, per ai/context/skse/cpp-style.md's worker-thread

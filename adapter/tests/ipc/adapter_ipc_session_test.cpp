@@ -27,6 +27,8 @@
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::CaptureAvailability;
 using dovahlink::adapter::capture::CaptureSourceKind;
+using dovahlink::adapter::capture::CharacterEventKey;
+using dovahlink::adapter::capture::CharacterSampleToken;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::AdapterInstanceId;
@@ -631,12 +633,25 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected marks the host "
     CHECK_FALSE(fixture.session.IsHostAvailable());
 }
 
-TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
-          "a task that reports no baseline is available") {
+TEST_CASE("AdapterIpcSession handles a resynchronize request by registering "
+          "the level-changed event, enqueueing level/vitals/XP baseline "
+          "samples, and reporting the resync accepted") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
+    std::uint32_t levelChangedKey =
+        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged);
+    std::uint32_t levelBaselineToken =
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline);
+    std::uint32_t vitalsToken =
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals);
+    std::uint32_t xpToken = static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp);
+    fixture.dispatcher.SetEventRegistered(levelChangedKey, true);
+    fixture.dispatcher.SetSampleResult(levelBaselineToken, {std::byte{9}});
+    fixture.dispatcher.SetSampleResult(
+        vitalsToken, {std::byte{1}, std::byte{2}, std::byte{3}});
+    fixture.dispatcher.SetSampleResult(xpToken, {std::byte{7}});
 
     CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
               .correlationId = 42}}) == AdapterIpcMessageDisposition::kContinue);
@@ -647,14 +662,130 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
 
     fixture.marshaller.RunAllPending();
 
+    //  Registration reaches the router before any baseline sample -- in this
+    //  same game-thread task -- so a level-up cannot land in the gap between
+    //  them.
+    REQUIRE(fixture.dispatcher.DispatchedKeys().size() == 4);
+    CHECK(fixture.dispatcher.DispatchedKeys()[0] == levelChangedKey);
+    CHECK(fixture.dispatcher.DispatchedKeys()[1] == levelBaselineToken);
+    CHECK(fixture.dispatcher.DispatchedKeys()[2] == vitalsToken);
+    CHECK(fixture.dispatcher.DispatchedKeys()[3] == xpToken);
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
+    CHECK(fixture.captureQueue.Enqueued()[0].intentKey == levelBaselineToken);
+    CHECK(fixture.captureQueue.Enqueued()[0].capturedValue ==
+          std::vector<std::byte>{std::byte{9}});
+    CHECK(fixture.captureQueue.Enqueued()[0].availability ==
+          CaptureAvailability::kAvailable);
+    CHECK(fixture.captureQueue.Enqueued()[0].source == CaptureSourceKind::kSample);
+    CHECK(fixture.captureQueue.Enqueued()[0].correlationId == 0);
+    CHECK(fixture.captureQueue.Enqueued()[1].intentKey == vitalsToken);
+    CHECK(fixture.captureQueue.Enqueued()[2].intentKey == xpToken);
+
     REQUIRE(connection.Sent().size() == 1);
     auto* result =
         std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
     REQUIRE(result != nullptr);
     CHECK(result->correlationId == 42);
-    CHECK_FALSE(result->accepted);
-    CHECK(fixture.dispatcher.DispatchedKeys().empty());
+    CHECK(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
+          "and still enqueues each baseline sample, when every underlying "
+          "capture is unavailable") {
+    //  Unavailable is a legitimate per-value state communicated through each
+    //  capture's own availability field, not a reason to reject the whole
+    //  resync: the game-thread capture path still ran using the approved
+    //  native operations.
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
+    for (const auto& item : fixture.captureQueue.Enqueued()) {
+        CHECK(item.availability == CaptureAvailability::kUnavailable);
+        CHECK(item.capturedValue.empty());
+    }
+    REQUIRE(connection.Sent().size() == 1);
+    auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession contains an exception thrown by the router's "
+          "level-changed event registration inside a marshaled "
+          "resynchronize task, sending no result") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetEventThrows(
+        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged));
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+
+    //  If the exception escaped, it would propagate out of RunAllPending() --
+    //  the fake marshaller's stand-in for SKSE's own game-thread task queue --
+    //  and fail this test.
+    fixture.marshaller.RunAllPending();
+
     CHECK(fixture.captureQueue.Enqueued().empty());
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession contains an exception thrown mid-sequence by "
+          "one baseline sample capture, leaving only the samples captured "
+          "before it enqueued and sending no result") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    //  Level baseline is captured first; vitals throws before it or XP ever
+    //  enqueue.
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
+        {std::byte{9}});
+    fixture.dispatcher.SetSampleThrows(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().intentKey ==
+          static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline));
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession stamps every resynchronize baseline sample with "
+          "the play context most recently sent by SendPlayContextChanged") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    std::array<std::byte, 16> playContextId{
+        std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+        std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8},
+        std::byte{9}, std::byte{10}, std::byte{11}, std::byte{12},
+        std::byte{13}, std::byte{14}, std::byte{15}, std::byte{16}};
+    fixture.session.SendPlayContextChanged(playContextId);
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
+    for (const auto& item : fixture.captureQueue.Enqueued()) {
+        CHECK(item.playContextId == playContextId);
+    }
 }
 
 TEST_CASE("AdapterIpcSession closes for a pre-authentication resynchronize "
