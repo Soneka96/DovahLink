@@ -19,11 +19,11 @@ AdapterRuntime::AdapterRuntime(
       pairingNotificationSink_(pairingNotificationSink) {
     captureQueue_ = std::make_unique<capture::AdapterCaptureHandoffQueue>(
         std::move(onCaptureDrained), std::move(onCaptureQueueRejected));
-    dispatcher_ = std::make_unique<dispatch::AdapterNativeDispatcher>();
+    captureRouter_ = std::make_unique<dispatch::AdapterNativeCaptureRouter>();
 
     session_ = std::make_unique<ipc::AdapterIpcSession>(
         startupContext.instanceId, startupContext.ownerLifetimeId,
-        taskMarshaller_, *dispatcher_, *captureQueue_, pairingNotificationSink_,
+        taskMarshaller_, *captureRouter_, *captureQueue_, pairingNotificationSink_,
         std::move(onGameThreadDispatchRejected));
 
     socket_ = std::make_unique<ipc::WinsockAdapterIpcSocket>(0);

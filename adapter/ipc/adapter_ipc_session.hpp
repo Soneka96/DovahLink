@@ -2,7 +2,7 @@
 
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "constants.hpp"
-#include "dispatch/adapter_native_dispatcher.hpp"
+#include "dispatch/adapter_native_capture_router.hpp"
 #include "enums.hpp"
 #include "identity/adapter_instance_id.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
@@ -33,10 +33,12 @@ namespace dovahlink::adapter::ipc {
 class IAdapterIpcConnection;
 
 ///  The adapter-side private IPC protocol decisions: builds Hello, tracks
-///  handshake acceptance, and routes every host-directed request through the
-///  same generic pipe -- marshal onto the game thread, translate via
-///  `IAdapterNativeDispatcher`, hand the owned result to
-///  `IAdapterCaptureHandoffQueue`. No per-message-kind service exists; a
+///  handshake acceptance, and marshals every host-directed request onto the
+///  game thread through `IAdapterNativeCaptureRouter`. A read-sample request
+///  captures one value synchronously and hands the owned result to
+///  `IAdapterCaptureHandoffQueue`; a listen-event request only registers
+///  persistent interest in the event -- any later captured value arrives
+///  through a separate capture path, not from this dispatch's own result. A
 ///  resynchronization request is just another marshaled game-thread task
 ///  that reports unavailable, since no approved baseline domain exists yet
 ///  (see `IpcResynchronizeResultMessage`'s own documentation). Owns no
@@ -169,7 +171,8 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  cryptographic ownership proof.
     ///  @param taskMarshaller Marshals capture work onto the Skyrim game
     ///  thread.
-    ///  @param dispatcher Performs the one generic key-to-Skyrim translation.
+    ///  @param captureRouter Performs the approved sample reads and event
+    ///  registrations.
     ///  @param captureQueue Receives owned captured values for handoff.
     ///  @param pairingNotificationSink Presents host-decided pairing-display
     ///  and attempts-exhausted notifications at the Skyrim-facing display seam.
@@ -186,7 +189,7 @@ class AdapterIpcSession final : public IAdapterIpcSession {
         identity::AdapterInstanceId instanceId,
         std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
         runtime::IAdapterTaskMarshaller& taskMarshaller,
-        dispatch::IAdapterNativeDispatcher& dispatcher,
+        dispatch::IAdapterNativeCaptureRouter& captureRouter,
         capture::IAdapterCaptureHandoffQueue& captureQueue,
         IAdapterPairingNotificationSink& pairingNotificationSink,
         std::function<void()> onGameThreadDispatchRejected = [] {},
@@ -252,8 +255,11 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     AdapterIpcMessageDisposition
     HandleResynchronizeRequest(const IpcResynchronizeRequestMessage& request);
 
-    ///  Marshals the dispatcher's translation for `listenEvent.eventKey` onto
-    ///  the game thread and hands any captured value to the capture queue.
+    ///  Marshals a persistent registration for `listenEvent.eventKey` onto
+    ///  the game thread. Registration itself produces no captured value to
+    ///  hand to the capture queue; any later captured value for this event
+    ///  arrives through a separate capture path once the registered native
+    ///  event actually fires.
     ///  @return `kClose` if `listenEvent.correlationId` is already admitted and
     ///  still outstanding on the current generation, after sending
     ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
@@ -261,7 +267,7 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     AdapterIpcMessageDisposition
     HandleListenEvent(const IpcListenEventMessage& listenEvent);
 
-    ///  Marshals the dispatcher's translation for `readSample.sampleToken`
+    ///  Marshals the capture router's sample read for `readSample.sampleToken`
     ///  onto the game thread and hands any captured value to the capture
     ///  queue.
     ///  @return `kClose` if `readSample.correlationId` is already admitted and
@@ -419,8 +425,8 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId_;
     ///  Marshals capture work onto the Skyrim game thread.
     runtime::IAdapterTaskMarshaller& taskMarshaller_;
-    ///  Performs the one generic key-to-Skyrim translation.
-    dispatch::IAdapterNativeDispatcher& dispatcher_;
+    ///  Performs the approved sample reads and event registrations.
+    dispatch::IAdapterNativeCaptureRouter& captureRouter_;
     ///  Receives owned captured values for handoff.
     capture::IAdapterCaptureHandoffQueue& captureQueue_;
     ///  Presents host-decided pairing-display and attempts-exhausted

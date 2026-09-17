@@ -26,7 +26,7 @@
 
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
-using dovahlink::adapter::dispatch::IAdapterNativeDispatcher;
+using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::AdapterInstanceId;
 using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
 using dovahlink::adapter::ipc::AdapterIpcSession;
@@ -67,27 +67,53 @@ using dovahlink::adapter::runtime::IAdapterTaskMarshaller;
 
 namespace {
 
-///  A fake `IAdapterNativeDispatcher` with a configurable per-key result.
-class FakeAdapterNativeDispatcher final : public IAdapterNativeDispatcher {
+///  A fake `IAdapterNativeCaptureRouter` with configurable per-key sample
+///  results and event registration outcomes. `DispatchedKeys()` logs both
+///  `CaptureSample` and `RegisterEvent` calls, in call order, since most
+///  tests only care whether -- and in what order -- a key reached the
+///  router at all, not which of the two operations carried it.
+class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter {
   public:
-    void SetResult(std::uint32_t key, std::vector<std::byte> value) {
-        results_[key] = std::move(value);
+    ///  Configures `CaptureSample(sampleToken)` to return `value`.
+    void SetSampleResult(std::uint32_t sampleToken, std::vector<std::byte> value) {
+        sampleResults_[sampleToken] = std::move(value);
     }
 
-    ///  Makes `TryDispatch(key)` throw instead of returning.
-    void SetThrows(std::uint32_t key) { throwingKeys_.insert(key); }
+    ///  Makes `CaptureSample(sampleToken)` throw instead of returning.
+    void SetSampleThrows(std::uint32_t sampleToken) {
+        throwingSampleTokens_.insert(sampleToken);
+    }
+
+    ///  Configures `RegisterEvent(eventKey)` to return `registered`.
+    void SetEventRegistered(std::uint32_t eventKey, bool registered) {
+        eventResults_[eventKey] = registered;
+    }
+
+    ///  Makes `RegisterEvent(eventKey)` throw instead of returning.
+    void SetEventThrows(std::uint32_t eventKey) {
+        throwingEventKeys_.insert(eventKey);
+    }
 
     std::optional<std::vector<std::byte>>
-    TryDispatch(std::uint32_t intentKey) override {
-        dispatchedKeys_.push_back(intentKey);
-        if (throwingKeys_.contains(intentKey)) {
-            throw std::runtime_error("TryDispatch failed");
+    CaptureSample(std::uint32_t sampleToken) override {
+        dispatchedKeys_.push_back(sampleToken);
+        if (throwingSampleTokens_.contains(sampleToken)) {
+            throw std::runtime_error("CaptureSample failed");
         }
-        auto it = results_.find(intentKey);
-        if (it == results_.end()) {
+        auto it = sampleResults_.find(sampleToken);
+        if (it == sampleResults_.end()) {
             return std::nullopt;
         }
         return it->second;
+    }
+
+    bool RegisterEvent(std::uint32_t eventKey) override {
+        dispatchedKeys_.push_back(eventKey);
+        if (throwingEventKeys_.contains(eventKey)) {
+            throw std::runtime_error("RegisterEvent failed");
+        }
+        auto it = eventResults_.find(eventKey);
+        return it != eventResults_.end() && it->second;
     }
 
     const std::vector<std::uint32_t>& DispatchedKeys() const {
@@ -95,31 +121,46 @@ class FakeAdapterNativeDispatcher final : public IAdapterNativeDispatcher {
     }
 
   private:
-    std::unordered_map<std::uint32_t, std::vector<std::byte>> results_;
-    std::unordered_set<std::uint32_t> throwingKeys_;
+    std::unordered_map<std::uint32_t, std::vector<std::byte>> sampleResults_;
+    std::unordered_set<std::uint32_t> throwingSampleTokens_;
+    std::unordered_map<std::uint32_t, bool> eventResults_;
+    std::unordered_set<std::uint32_t> throwingEventKeys_;
     std::vector<std::uint32_t> dispatchedKeys_;
 };
 
-///  A dispatcher that holds a game-thread callback until the test releases it.
-class BlockingAdapterNativeDispatcher final : public IAdapterNativeDispatcher {
+///  A capture router that holds a game-thread callback until the test
+///  releases it, for either operation.
+class BlockingAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter {
   public:
-    ///  Creates a dispatcher synchronized by the supplied entry and release
+    ///  Creates a router synchronized by the supplied entry and release
     ///  signals.
-    BlockingAdapterNativeDispatcher(std::promise<void>& entered,
-                                    std::shared_future<void> release)
+    BlockingAdapterNativeCaptureRouter(std::promise<void>& entered,
+                                       std::shared_future<void> release)
         : entered_(entered), release_(std::move(release)) {}
 
     ///  Signals that the callback entered, then waits for the test to release
     ///  it before reporting that no translation exists.
     std::optional<std::vector<std::byte>>
-    TryDispatch(std::uint32_t /*intentKey*/) override {
-        entered_.set_value();
-        release_.wait();
+    CaptureSample(std::uint32_t /*sampleToken*/) override {
+        Block();
         return std::nullopt;
     }
 
+    ///  Signals that the callback entered, then waits for the test to release
+    ///  it before reporting that no translation exists.
+    bool RegisterEvent(std::uint32_t /*eventKey*/) override {
+        Block();
+        return false;
+    }
+
   private:
-    ///  Signals that the callback has entered the dispatcher.
+    ///  Signals entry and waits for release; shared by both operations.
+    void Block() {
+        entered_.set_value();
+        release_.wait();
+    }
+
+    ///  Signals that the callback has entered the router.
     std::promise<void>& entered_;
     ///  Keeps the callback blocked until the test releases it.
     std::shared_future<void> release_;
@@ -325,7 +366,7 @@ struct SessionFixture {
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     ///  The number of times `session` reported a rejected game-thread dispatch.
@@ -646,7 +687,7 @@ TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -693,7 +734,7 @@ TEST_CASE("AdapterIpcSession drops a pending listen-event request after "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
@@ -710,7 +751,7 @@ TEST_CASE("AdapterIpcSession drops a pending read-sample request after "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
 
     fixture.session.HandleMessage(
         IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 8}});
@@ -749,7 +790,7 @@ TEST_CASE("AdapterIpcSession drops a pending listen-event request after "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
@@ -767,7 +808,7 @@ TEST_CASE("AdapterIpcSession drops a pending read-sample request after "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
 
     fixture.session.HandleMessage(
         IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 8}});
@@ -785,7 +826,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing and HandleDisconnected "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
@@ -798,7 +839,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing and HandleDisconnected "
     REQUIRE_FALSE(fixture.session.IsHostAvailable());
 
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
     fixture.session.HandleMessage(
         IpcMessage{IpcReadSampleMessage{.correlationId = 2, .sampleToken = 8}});
     fixture.marshaller.RunAllPending();
@@ -815,8 +856,8 @@ TEST_CASE("AdapterIpcSession drops pending intent requests from an older "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
@@ -854,7 +895,7 @@ TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(9, {std::byte{9}});
+    fixture.dispatcher.SetEventRegistered(9, true);
 
     //  Genuinely admit and cancel correlation id 1 on the first generation --
     //  a real registration exists in gameThreadDispatchCancellation_, not
@@ -875,7 +916,7 @@ TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
     //  The new generation's host reuses correlation id 1 for an unrelated
     //  request; the old generation's registration -- cleared by
     //  CloseCurrentGenerationLocked -- must not apply to it.
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
           AdapterIpcMessageDisposition::kContinue);
@@ -885,8 +926,8 @@ TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
     //  marshaled task (still queued when it disconnected) self-rejected on its
     //  generation check when the marshaller drained it.
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+    //  A listen-event registration produces no captured value of its own.
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession does not let a stale generation's still-queued "
@@ -906,7 +947,7 @@ TEST_CASE("AdapterIpcSession does not let a stale generation's still-queued "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(9, {std::byte{9}});
+    fixture.dispatcher.SetEventRegistered(9, true);
 
     //  Gen1 admits corr=1 and queues its game-thread task; it never runs before
     //  disconnect.
@@ -922,7 +963,7 @@ TEST_CASE("AdapterIpcSession does not let a stale generation's still-queued "
 
     //  Gen2 reuses corr=1 for an unrelated request, queuing its own game-thread
     //  task behind the still-pending Gen1 task.
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
           AdapterIpcMessageDisposition::kContinue);
@@ -956,8 +997,8 @@ TEST_CASE("AdapterIpcSession draining several stale queued dispatches after "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(9, {std::byte{9}});
-    fixture.dispatcher.SetResult(10, {std::byte{10}});
+    fixture.dispatcher.SetEventRegistered(9, true);
+    fixture.dispatcher.SetEventRegistered(10, true);
 
     //  Gen1 admits two cancellable dispatches; neither runs before disconnect.
     //  One of them (corr=1) will have its correlation id reused by Gen2 below.
@@ -975,7 +1016,7 @@ TEST_CASE("AdapterIpcSession draining several stale queued dispatches after "
     Authenticate(fixture.session, connection, fixture.target);
 
     //  Gen2 reuses corr=1 for a new request, queued behind both stale tasks.
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
           AdapterIpcMessageDisposition::kContinue);
@@ -1004,8 +1045,8 @@ TEST_CASE("AdapterIpcSession rejects and closes a listen-event request that "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
+    fixture.dispatcher.SetEventRegistered(8, true);
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
@@ -1029,8 +1070,7 @@ TEST_CASE("AdapterIpcSession rejects and closes a listen-event request that "
     //  The first request's own registration survived the rejected duplicate
     //  and dispatched normally.
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession rejects and closes a read-sample request that "
@@ -1040,8 +1080,8 @@ TEST_CASE("AdapterIpcSession rejects and closes a read-sample request that "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetSampleResult(7, {std::byte{1}});
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcReadSampleMessage{.correlationId = 1, .sampleToken = 7}}) ==
@@ -1148,8 +1188,8 @@ TEST_CASE("AdapterIpcSession admits a new listen-event request that reuses a "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
+    fixture.dispatcher.SetEventRegistered(8, true);
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
@@ -1164,8 +1204,7 @@ TEST_CASE("AdapterIpcSession admits a new listen-event request that reuses a "
 
     CHECK(fixture.dispatcher.DispatchedKeys() ==
           std::vector<std::uint32_t>{7, 8});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
-    CHECK(fixture.captureQueue.Enqueued().back().intentKey == 8);
+    CHECK(fixture.captureQueue.Enqueued().empty());
     CHECK(connection.Sent().empty());
 }
 
@@ -1180,7 +1219,7 @@ TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
@@ -1204,8 +1243,7 @@ TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
     //  The original request's own registration survived and dispatched
     //  normally, proving the duplicate never replaced its cancellation state.
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
@@ -1217,7 +1255,7 @@ TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
@@ -1237,8 +1275,7 @@ TEST_CASE("AdapterIpcSession still returns kClose for a duplicate "
     fixture.marshaller.RunAllPending();
 
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
@@ -1256,7 +1293,7 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
     std::shared_future<void> enteredFuture = enteredPromise.get_future();
     std::promise<void> releasePromise;
     std::shared_future<void> releaseFuture = releasePromise.get_future().share();
-    BlockingAdapterNativeDispatcher dispatcher{enteredPromise, releaseFuture};
+    BlockingAdapterNativeCaptureRouter dispatcher{enteredPromise, releaseFuture};
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -1313,7 +1350,7 @@ TEST_CASE("AdapterIpcSession's queued game-thread dispatch stays safe to run "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -1323,7 +1360,7 @@ TEST_CASE("AdapterIpcSession's queued game-thread dispatch stays safe to run "
     session->AttachConnection(connection);
     Authenticate(*session, connection, target);
 
-    dispatcher.SetResult(7, {std::byte{1}});
+    dispatcher.SetEventRegistered(7, true);
     session->HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
     REQUIRE(marshaller.PendingCount() == 1);
@@ -1348,13 +1385,13 @@ TEST_CASE("AdapterIpcSession closes on a pre-authentication "
     CHECK(connection.Sent().empty());
 }
 
-TEST_CASE("AdapterIpcSession handles a listen-event request by dispatching "
-          "the key on the game thread and enqueuing a captured value") {
+TEST_CASE("AdapterIpcSession handles a listen-event request by registering "
+          "the key on the game thread, without enqueuing a captured value") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}, std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
@@ -1363,11 +1400,11 @@ TEST_CASE("AdapterIpcSession handles a listen-event request by dispatching "
     REQUIRE(fixture.captureQueue.Enqueued().empty());
     fixture.marshaller.RunAllPending();
 
+    //  Registration itself produces no captured value: any later capture for
+    //  this event arrives through a separate capture path once the
+    //  registered native event actually fires.
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
-    CHECK(fixture.captureQueue.Enqueued().front().capturedValue ==
-          std::vector<std::byte>{std::byte{1}, std::byte{2}});
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession enqueues nothing for a listen-event key with "
@@ -1381,6 +1418,7 @@ TEST_CASE("AdapterIpcSession enqueues nothing for a listen-event key with "
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 99}});
     fixture.marshaller.RunAllPending();
 
+    CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{99});
     CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
@@ -1405,7 +1443,7 @@ TEST_CASE("AdapterIpcSession contains an exception thrown by the "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetThrows(13);
+    fixture.dispatcher.SetEventThrows(13);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 13}});
@@ -1418,13 +1456,32 @@ TEST_CASE("AdapterIpcSession contains an exception thrown by the "
     CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
-TEST_CASE("AdapterIpcSession handles a read-sample request the same way as "
-          "a listen-event request") {
+TEST_CASE("AdapterIpcSession contains an exception thrown by the "
+          "dispatcher inside a marshaled read-sample task") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(3, {std::byte{5}});
+    fixture.dispatcher.SetSampleThrows(13);
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 13}});
+
+    //  If the exception escaped, it would propagate out of RunAllPending() --
+    //  the fake marshaller's stand-in for SKSE's own game-thread task queue --
+    //  and fail this test.
+    fixture.marshaller.RunAllPending();
+
+    CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession handles a read-sample request by dispatching "
+          "the token on the game thread and enqueuing a captured value") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetSampleResult(3, {std::byte{5}});
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}}) ==
@@ -1438,8 +1495,8 @@ TEST_CASE("AdapterIpcSession handles a read-sample request the same way as "
 TEST_CASE("AdapterIpcSession never dispatches a listen-event or read-sample "
           "request received before any accepted, matching-proof HelloAck") {
     SessionFixture fixture;
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
@@ -1458,7 +1515,7 @@ TEST_CASE("AdapterIpcSession never dispatches a listen-event marshaled "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     //  Enqueued while authenticated, so it passes the enqueue-time gate and is
     //  marshaled.
@@ -1487,8 +1544,8 @@ TEST_CASE("AdapterIpcSession never dispatches a listen-event marshaled "
 TEST_CASE("AdapterIpcSession never dispatches a listen-event or read-sample "
           "request received while the peer is rejected") {
     SessionFixture fixture;
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
     fixture.session.HandleMessage(IpcMessage{
         IpcHelloAckMessage{.correlationId = 1,
                            .accepted = false,
@@ -1839,7 +1896,7 @@ TEST_CASE("AdapterIpcSession cancels a listen-event dispatch received "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     CHECK(fixture.session.HandleMessage(IpcMessage{
               IpcListenEventMessage{.correlationId = 11, .eventKey = 7}}) ==
@@ -1861,14 +1918,14 @@ TEST_CASE("AdapterIpcSession cancelling a request after its marshaled task "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 11, .eventKey = 7}});
     fixture.marshaller.RunAllPending();
 
     REQUIRE(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    REQUIRE(fixture.captureQueue.Enqueued().empty());
 
     CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
               .correlationId = 11}}) == AdapterIpcMessageDisposition::kContinue);
@@ -1876,7 +1933,7 @@ TEST_CASE("AdapterIpcSession cancelling a request after its marshaled task "
     //  The already-produced result is unaffected: cancellation cannot undo
     //  work that already happened.
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    CHECK(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession cancels only the listen-event request whose "
@@ -1885,8 +1942,8 @@ TEST_CASE("AdapterIpcSession cancels only the listen-event request whose "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
+    fixture.dispatcher.SetEventRegistered(8, true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 11, .eventKey = 7}});
@@ -1898,8 +1955,7 @@ TEST_CASE("AdapterIpcSession cancels only the listen-event request whose "
     fixture.marshaller.RunAllPending();
 
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{8});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 8);
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession's cancellation state is tied to admitted "
@@ -1921,7 +1977,7 @@ TEST_CASE("AdapterIpcSession's cancellation state is tied to admitted "
          ++eventKey) {
         fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
             .correlationId = eventKey, .eventKey = eventKey}});
-        fixture.dispatcher.SetResult(eventKey, {std::byte{1}});
+        fixture.dispatcher.SetEventRegistered(eventKey, true);
     }
     REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
 
@@ -1947,7 +2003,7 @@ TEST_CASE("AdapterIpcSession's cancellation state is unaffected by a flood "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
@@ -1982,8 +2038,8 @@ TEST_CASE("AdapterIpcSession's cancellation state is unaffected by a flood "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetEventRegistered(7, true);
+    fixture.dispatcher.SetEventRegistered(8, true);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
@@ -2003,8 +2059,7 @@ TEST_CASE("AdapterIpcSession's cancellation state is unaffected by a flood "
     //  Correlation id 1 stayed cancelled; correlation id 2 was never touched
     //  and dispatched normally.
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{8});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 8);
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession's cancellation registration is not leaked when "
@@ -2018,7 +2073,7 @@ TEST_CASE("AdapterIpcSession's cancellation registration is not leaked when "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(7, {std::byte{1}});
+    fixture.dispatcher.SetEventRegistered(7, true);
 
     fixture.marshaller.ThrowOnNextSchedule();
     fixture.session.HandleMessage(
@@ -2038,8 +2093,7 @@ TEST_CASE("AdapterIpcSession's cancellation registration is not leaked when "
     fixture.marshaller.RunAllPending();
 
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{7});
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
-    CHECK(fixture.captureQueue.Enqueued().front().intentKey == 7);
+    CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession cancels a resynchronization request received "
@@ -2066,7 +2120,7 @@ TEST_CASE("AdapterIpcSession cancels a read-sample dispatch received before "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetResult(8, {std::byte{2}});
+    fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
 
     fixture.session.HandleMessage(
         IpcMessage{IpcReadSampleMessage{.correlationId = 21, .sampleToken = 8}});
@@ -2219,7 +2273,7 @@ TEST_CASE("AdapterIpcSession contains an exception thrown by the pairing "
     };
     ThrowingPairingNotificationSink throwingSink;
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterIpcConnection connection;
     AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
@@ -2536,7 +2590,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest returns immediately and "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -2599,7 +2653,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker sends "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -2649,7 +2703,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's timeout worker "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -2773,7 +2827,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's onResult callback is "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -3065,7 +3119,7 @@ TEST_CASE("AdapterIpcSession's destructor waits for an outstanding "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -3116,7 +3170,7 @@ TEST_CASE("AdapterIpcSession's destructor safely waits for a "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -3236,7 +3290,7 @@ TEST_CASE("AdapterIpcSession::SendTrustAdminRequest's requests admitted "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -3411,7 +3465,7 @@ TEST_CASE("AdapterIpcSession releases a timed-out trust-admin request's "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;
@@ -3478,7 +3532,7 @@ TEST_CASE("AdapterIpcSession's destructor completes safely and resolves "
         .targetGeneration = 1,
     };
     FakeAdapterTaskMarshaller marshaller;
-    FakeAdapterNativeDispatcher dispatcher;
+    FakeAdapterNativeCaptureRouter dispatcher;
     FakeAdapterCaptureHandoffQueue captureQueue;
     FakeAdapterPairingNotificationSink pairingNotificationSink;
     FakeAdapterIpcConnection connection;

@@ -2,7 +2,7 @@
 
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "capture/adapter_capture_work_item.hpp"
-#include "dispatch/adapter_native_dispatcher.hpp"
+#include "dispatch/adapter_native_capture_router.hpp"
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_session.hpp"
 #include "ipc/adapter_pairing_notification_sink.hpp"
@@ -95,7 +95,7 @@ class AdapterRuntime final {
     ///  teardown safe, since `connection_` owns a background thread
     ///  independent of `supervisor_`'s own.
     std::unique_ptr<capture::AdapterCaptureHandoffQueue> captureQueue_;
-    std::unique_ptr<dispatch::AdapterNativeDispatcher> dispatcher_;
+    std::unique_ptr<dispatch::AdapterNativeCaptureRouter> captureRouter_;
     std::unique_ptr<ipc::AdapterIpcSession> session_;
     std::unique_ptr<ipc::WinsockAdapterIpcSocket> socket_;
     std::unique_ptr<ipc::IpcFrameCodec> codec_;

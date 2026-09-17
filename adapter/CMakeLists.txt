@@ -34,7 +34,7 @@ add_library(dovahlink_adapter_core STATIC
     runtime/game_thread_completion.cpp
     runtime/adapter_game_behavior_config_file_reader.cpp
     capture/adapter_capture_handoff_queue.cpp
-    dispatch/adapter_native_dispatcher.cpp
+    dispatch/adapter_native_capture_router.cpp
     identity/adapter_instance_id_generator.cpp
     process/adapter_owner_lifetime_id.cpp
     process/adapter_host_endpoint_report.cpp
@@ -163,7 +163,7 @@ add_executable(dovahlink_adapter_tests
     tests/process/adapter_host_supervisor_test.cpp
     tests/process/adapter_shutdown_orchestrator_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
-    tests/dispatch/adapter_native_dispatcher_test.cpp
+    tests/dispatch/adapter_native_capture_router_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
     tests/runtime/game_thread_completion_test.cpp

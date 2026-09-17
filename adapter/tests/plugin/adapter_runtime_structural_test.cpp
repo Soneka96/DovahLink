@@ -166,7 +166,7 @@ TEST_CASE("AdapterRuntime owns every collaborator in its graph through a "
 
     for (const char* ownedMember :
          {"std::unique_ptr<capture::AdapterCaptureHandoffQueue> captureQueue_;",
-          "std::unique_ptr<dispatch::AdapterNativeDispatcher> dispatcher_;",
+          "std::unique_ptr<dispatch::AdapterNativeCaptureRouter> captureRouter_;",
           "std::unique_ptr<ipc::AdapterIpcSession> session_;",
           "std::unique_ptr<ipc::WinsockAdapterIpcSocket> socket_;",
           "std::unique_ptr<ipc::IpcFrameCodec> codec_;",

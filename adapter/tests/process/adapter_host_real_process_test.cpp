@@ -1,6 +1,6 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "constants.hpp"
-#include "dispatch/adapter_native_dispatcher.hpp"
+#include "dispatch/adapter_native_capture_router.hpp"
 #include "identity/adapter_instance_id_generator.hpp"
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_session.hpp"
@@ -51,7 +51,7 @@
 
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
-using dovahlink::adapter::dispatch::AdapterNativeDispatcher;
+using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::AdapterInstanceIdGenerator;
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcSession;
@@ -918,12 +918,12 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
     WinsockAdapterIpcSocket connectionSocket(0);
     IpcFrameCodec codec;
     ImmediateTaskMarshaller taskMarshaller;
-    AdapterNativeDispatcher dispatcher;
+    AdapterNativeCaptureRouter captureRouter;
     NoopCaptureQueue captureQueue;
     NoopPairingNotificationSink pairingNotificationSink;
     std::unique_ptr<AdapterHostSupervisor> supervisor;
     AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
-                              ownerLifetimeId, taskMarshaller, dispatcher,
+                              ownerLifetimeId, taskMarshaller, captureRouter,
                               captureQueue, pairingNotificationSink);
     std::atomic<int> connectedCount = 0;
     std::mutex targetMutex;
@@ -1037,7 +1037,7 @@ class RealHostFixture {
           ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
           launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
           session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
-                   taskMarshaller_, dispatcher_, captureQueue_,
+                   taskMarshaller_, captureRouter_, captureQueue_,
                    pairingSink != nullptr
                        ? *pairingSink
                        : static_cast<dovahlink::adapter::ipc::
@@ -1115,7 +1115,7 @@ class RealHostFixture {
     WinsockAdapterIpcSocket connectionSocket_{0};
     IpcFrameCodec codec_;
     ImmediateTaskMarshaller taskMarshaller_;
-    AdapterNativeDispatcher dispatcher_;
+    AdapterNativeCaptureRouter captureRouter_;
     NoopCaptureQueue captureQueue_;
     NoopPairingNotificationSink noopPairingNotificationSink_;
     AdapterIpcSession session_;

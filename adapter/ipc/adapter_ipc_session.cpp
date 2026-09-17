@@ -70,13 +70,13 @@ AdapterIpcSession::AdapterIpcSession(
     identity::AdapterInstanceId instanceId,
     std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
     runtime::IAdapterTaskMarshaller& taskMarshaller,
-    dispatch::IAdapterNativeDispatcher& dispatcher,
+    dispatch::IAdapterNativeCaptureRouter& captureRouter,
     capture::IAdapterCaptureHandoffQueue& captureQueue,
     IAdapterPairingNotificationSink& pairingNotificationSink,
     std::function<void()> onGameThreadDispatchRejected,
     std::chrono::milliseconds trustAdminRequestTimeout)
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
-      taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
+      taskMarshaller_(taskMarshaller), captureRouter_(captureRouter),
       captureQueue_(captureQueue),
       pairingNotificationSink_(pairingNotificationSink),
       onGameThreadDispatchRejected_(std::move(onGameThreadDispatchRejected)),
@@ -593,12 +593,11 @@ AdapterIpcSession::HandleListenEvent(const IpcListenEventMessage& listenEvent) {
                         return;
                     }
                 }
-                std::optional<std::vector<std::byte>> captured =
-                    dispatcher_.TryDispatch(eventKey);
-                if (captured.has_value()) {
-                    captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                        .intentKey = eventKey, .capturedValue = *captured});
-                }
+                //  Registration itself produces no captured value: any later
+                //  capture for this event arrives through a separate capture
+                //  path once the registered native event actually fires, not
+                //  from this dispatch's own result.
+                captureRouter_.RegisterEvent(eventKey);
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.
             }
@@ -663,7 +662,7 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                     }
                 }
                 std::optional<std::vector<std::byte>> captured =
-                    dispatcher_.TryDispatch(sampleToken);
+                    captureRouter_.CaptureSample(sampleToken);
                 if (captured.has_value()) {
                     captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
                         .intentKey = sampleToken, .capturedValue = *captured});
