@@ -511,6 +511,18 @@ public static class Constants
     /// </summary>
     public const int MaxHeldRecoveryEventsPerArea = 8;
 
+    /// <summary>
+    /// The bounded deadline a connection's <see cref="Client.Subscription.PublicStateSubscription"/>
+    /// keeps a <c>snapshot_request</c> or accepted <c>subscribe</c> baseline pending for one state
+    /// area while no authoritative value is available yet, before answering with an explicit
+    /// <see cref="PublicProtocolErrorCode.TemporarilyUnavailable"/> error instead of
+    /// leaving the client waiting forever. Matches <see cref="AdapterIpcResynchronizeTimeout"/>'s own
+    /// bound, for the same reason: a real recovery path (resynchronization) that this pending request
+    /// is most often waiting on already completes, or itself times out and resets, well inside this
+    /// window in the ordinary case.
+    /// </summary>
+    public static readonly TimeSpan PendingBaselineDeadline = TimeSpan.FromSeconds(5);
+
     // ---- Live state ----
 
     /// <summary>The <c>stateArea</c> id for the current health value.</summary>

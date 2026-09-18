@@ -21,9 +21,15 @@ public class PublicStateSubscriptionTests
     /// <param name="feed">The feed the subscription reads from; a fresh <see cref="FakeStatePublicationFeed"/> when omitted.</param>
     /// <param name="playContextTracker">The tracker the subscription reads and listens to; a fresh <see cref="FakePlayContextTracker"/> when omitted.</param>
     /// <param name="stateAuthorityLifecycle">The lifecycle the subscription listens to for rotation; a fresh <see cref="Fixtures.BuildStateAuthorityLifecycle"/> when omitted.</param>
+    /// <param name="pendingBaselineDeadline">
+    /// How long a pending baseline waits before timing out; a long, effectively-never-fires-during-a-
+    /// test value when omitted, so no test unrelated to that specific behavior can be made flaky by a
+    /// background timeout landing mid-run. Tests that specifically exercise the timeout pass a short,
+    /// explicit value instead.
+    /// </param>
     private (PublicStateSubscription Subscription, RegisteredStateAreaPolicy Policy, FakeStatePublicationFeed Feed) BuildSubscription(
         IEnumerable<string>? registeredAreas = null, FakeStatePublicationFeed? feed = null, IPlayContextTracker? playContextTracker = null,
-        IStateAuthorityLifecycle? stateAuthorityLifecycle = null)
+        IStateAuthorityLifecycle? stateAuthorityLifecycle = null, TimeSpan? pendingBaselineDeadline = null)
     {
         var policy = new RegisteredStateAreaPolicy();
         foreach (string area in registeredAreas ?? [])
@@ -33,7 +39,8 @@ public class PublicStateSubscriptionTests
 
         FakeStatePublicationFeed resolvedFeed = feed ?? new FakeStatePublicationFeed();
         var subscription = new PublicStateSubscription(
-            policy, resolvedFeed, codec, playContextTracker ?? new FakePlayContextTracker(), stateAuthorityLifecycle ?? Fixtures.BuildStateAuthorityLifecycle());
+            policy, resolvedFeed, codec, playContextTracker ?? new FakePlayContextTracker(), stateAuthorityLifecycle ?? Fixtures.BuildStateAuthorityLifecycle(),
+            pendingBaselineDeadline ?? TimeSpan.FromSeconds(30));
         return (subscription, policy, resolvedFeed);
     }
 
@@ -219,6 +226,80 @@ public class PublicStateSubscriptionTests
         Assert.Equal(sentAfterFirstBaseline, connectionContext.SentPayloads.Count);
     }
 
+    /// <summary>
+    /// Verifies that an accepted subscribe area with no value available at subscribe time reuses the
+    /// same bounded pending-baseline machinery as snapshot_request: the baseline is delivered
+    /// automatically once a value becomes available, without a second explicit client request.
+    /// </summary>
+    [Fact]
+    public void EstablishAcceptedBaselines_AcceptedAreaWithNoSnapshotAtSubscribeTime_LaterSnapshotAutomaticallyDelivers()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        (IReadOnlyList<string> accepted, _) = Subscribe(subscription, "sub-1", ["area_a"]);
+        Assert.Equal(["area_a"], accepted);
+        Assert.Empty(connectionContext.SentPayloads);
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 9));
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 9));
+
+        (byte[] bytes, _) = Assert.Single(connectionContext.SentPayloads);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal("sub-1", envelope!.CorrelationId);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(9UL, payload!.Revision);
+    }
+
+    /// <summary>
+    /// Verifies the subscribe-side symmetry of <see cref="HandleSnapshotRequest_SecondRequestForSameStillPendingArea_SupersedesFirstCorrelation"/>:
+    /// a second <c>subscribe</c> for the same still-pending area supersedes the first, so once a
+    /// value becomes available, only one baseline is delivered, correlated to the second (most
+    /// recent) subscribe message id.
+    /// </summary>
+    [Fact]
+    public void EstablishAcceptedBaselines_SecondSubscribeForSameStillPendingArea_SupersedesFirstCorrelation()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        Subscribe(subscription, "sub-2", ["area_a"]);
+        Assert.Empty(connectionContext.SentPayloads);
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a"));
+
+        (byte[] bytes, _) = Assert.Single(connectionContext.SentPayloads);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal("sub-2", envelope!.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that a bare <c>snapshot_request</c> for an area this connection never subscribed to
+    /// remains a one-time pull even after its pending baseline resolves: reaching
+    /// <see cref="AreaDeliveryPhase.Live"/> does not, by itself, start ongoing event forwarding, which
+    /// stays gated on <c>subscribe</c> acceptance regardless of phase.
+    /// </summary>
+    [Fact]
+    public void HandleSnapshotRequest_NeverSubscribed_ResolvedPendingBaselineDoesNotStartOngoingForwarding()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1));
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 1));
+        Assert.Single(connectionContext.SentPayloads); // the one resolved baseline only
+
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Single(connectionContext.SentPayloads); // unchanged: never subscribed, so the later event never forwards
+    }
+
     /// <summary>Verifies that an accepted area with no available snapshot sends nothing, without failing the subscribe call.</summary>
     [Fact]
     public void HandleSubscribe_RegisteredAreaWithNoSnapshotAvailable_AcceptsButSendsNothing()
@@ -293,6 +374,134 @@ public class PublicStateSubscriptionTests
         bool result = subscription.HandleSnapshotRequest("area_a", "req-1");
 
         Assert.True(result);
+        Assert.Empty(connectionContext.SentPayloads);
+    }
+
+    /// <summary>
+    /// Verifies that a snapshot_request for a registered area with no value available yet is not a
+    /// dead end: once the feed later publishes a matching value, it is delivered automatically, still
+    /// correlated to the original request's own message id, without requiring a second client request.
+    /// </summary>
+    [Fact]
+    public void HandleSnapshotRequest_RegisteredAreaNoSnapshotAvailable_LaterSnapshotAutomaticallyDelivers()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        bool result = subscription.HandleSnapshotRequest("area_a", "req-1");
+        Assert.True(result);
+        Assert.Empty(connectionContext.SentPayloads);
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 5));
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 5));
+
+        (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
+        Assert.Equal("req-1", envelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(5UL, payload!.Revision);
+    }
+
+    /// <summary>
+    /// Verifies that a snapshot_request for a registered area with no value ever becoming available
+    /// is answered with an explicit, retryable TemporarilyUnavailable error once its own bounded
+    /// deadline elapses, rather than leaving the client waiting forever.
+    /// </summary>
+    [Fact]
+    public async Task HandleSnapshotRequest_RegisteredAreaNoSnapshotAvailable_TimesOutWithRetryableError()
+    {
+        (PublicStateSubscription subscription, _, _) = BuildSubscription(["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(30));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        bool result = subscription.HandleSnapshotRequest("area_a", "req-1");
+        Assert.True(result);
+
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count > 0);
+
+        (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.Error, envelope!.MessageType);
+        Assert.Equal("req-1", envelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(envelope, out ErrorPayload? payload));
+        Assert.Equal(PublicProtocolErrorCode.TemporarilyUnavailable, payload!.Code);
+        Assert.True(payload.Retryable);
+    }
+
+    /// <summary>
+    /// Verifies that a second snapshot_request for the same still-pending area supersedes the first:
+    /// once a value becomes available, only one baseline is delivered, correlated to the second (most
+    /// recent) request's own message id, not the first.
+    /// </summary>
+    [Fact]
+    public void HandleSnapshotRequest_SecondRequestForSameStillPendingArea_SupersedesFirstCorrelation()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+        subscription.HandleSnapshotRequest("area_a", "req-2");
+        Assert.Empty(connectionContext.SentPayloads);
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a"));
+
+        (byte[] bytes, _) = Assert.Single(connectionContext.SentPayloads);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal("req-2", envelope!.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that a play-context transition while a request is still pending never lets a value
+    /// that belonged to the old context satisfy it: the pending request survives the transition, but
+    /// only a genuinely fresh value published under the new context resolves it.
+    /// </summary>
+    [Fact]
+    public void HandleSnapshotRequest_PlayContextTransitionsWhilePending_StaleValueNeverSatisfiesIt()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"], playContextTracker: playContextTracker);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        // A value belonging to the OLD context (generation 0), still sitting in the feed at the exact
+        // moment of transition -- must never be allowed to satisfy the pending request.
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", playContextGeneration: 0));
+        playContextTracker.NotifyTransition(new PlayContextId(Guid.NewGuid())); // generation becomes 1
+        Assert.Empty(connectionContext.SentPayloads);
+
+        // A genuinely fresh value published under the new context.
+        var freshSnapshot = BuildSnapshot("area_a", revision: 2, playContextGeneration: 1);
+        feed.SetSnapshot(new StateAreaId("area_a"), freshSnapshot);
+        feed.RaiseSnapshotChanged(freshSnapshot);
+
+        (byte[] bytes, _) = Assert.Single(connectionContext.SentPayloads);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal("req-1", envelope!.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that unsubscribing while a pending-baseline deadline is armed cancels it cleanly: no
+    /// TemporarilyUnavailable error is sent for it once its original deadline would have elapsed.
+    /// </summary>
+    [Fact]
+    public async Task Unsubscribe_WhilePendingBaselineDeadlineArmed_CancelsWithoutSendingError()
+    {
+        (PublicStateSubscription subscription, _, _) = BuildSubscription(["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(30));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        subscription.Unsubscribe();
+        await Task.Delay(TimeSpan.FromMilliseconds(60)); // past the original deadline
+
         Assert.Empty(connectionContext.SentPayloads);
     }
 
@@ -1268,5 +1477,17 @@ public class PublicStateSubscriptionTests
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.True(codec.TryDecodePayload(envelope!, out StateSnapshotPayload? payload));
         Assert.Equal(20UL, payload!.Revision);
+    }
+
+    /// <summary>Polls a condition until it becomes true, failing the test if it never does within a bounded time.</summary>
+    /// <param name="condition">The condition to poll.</param>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Condition was not met within the expected time.");
+            await Task.Delay(2);
+        }
     }
 }

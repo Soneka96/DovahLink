@@ -776,6 +776,16 @@ public enum PublicProtocolErrorCode
     /// <summary>The sender exceeded a rate or attempt limit.</summary>
     RateLimited,
 
+    /// <summary>
+    /// A registered state area's authoritative baseline is not currently available -- for example a
+    /// resynchronization is in progress, or no play context is active yet -- but the request itself
+    /// was valid. Always sent with <see cref="Client.Protocol.ErrorPayload.Retryable"/> <see langword="true"/>: this
+    /// is a temporary Host-side readiness gap, never a client-caused violation, and is also what a
+    /// pending <c>snapshot_request</c>/<c>subscribe</c> baseline receives if no authoritative value
+    /// becomes available before its own bounded deadline elapses.
+    /// </summary>
+    TemporarilyUnavailable,
+
     /// <summary>An unexpected internal failure occurred; no further detail is disclosed.</summary>
     InternalError,
 }

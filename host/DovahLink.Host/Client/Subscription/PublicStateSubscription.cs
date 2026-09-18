@@ -21,7 +21,10 @@ namespace DovahLink.Host.Client.Subscription;
 /// state-authority rotation, invalidates every area's live baseline and any Events held for it, so a
 /// later Event stops forwarding until this connection obtains a fresh baseline: incremental
 /// continuity from the previous <see cref="StateAuthorityId"/> is invalid until a fresh baseline is
-/// established under the new one.
+/// established under the new one. A registered area with no authoritative value available yet never
+/// hangs silently: the pending request is retried automatically the moment a value appears, restarted
+/// rather than abandoned across a play-context transition or state-authority rotation, and answered
+/// with an explicit, retryable <c>error</c> if none appears before its own bounded deadline.
 /// </summary>
 public interface IPublicStateSubscription
 {
@@ -61,7 +64,10 @@ public interface IPublicStateSubscription
     /// <paramref name="acceptedStateAreas"/> that does not already have a live baseline and has a
     /// current value available -- the send <see cref="HandleSubscribe"/> itself never performs, so a
     /// caller can guarantee its own <c>subscription_ack</c> is sent first. An area with no current
-    /// value available yet is skipped, never fabricated.
+    /// value available yet is never fabricated: instead, the baseline is retained as a bounded pending
+    /// request for that area, delivered automatically once a value becomes available, or answered
+    /// with an explicit, retryable <c>error</c> if none does before its own bounded deadline -- an
+    /// accepted subscription is never left silently waiting forever.
     /// </summary>
     /// <param name="acceptedStateAreas">The areas <see cref="HandleSubscribe"/> just reported accepted.</param>
     /// <param name="correlationMessageId">The originating <c>subscribe</c> message's own id.</param>
@@ -72,8 +78,11 @@ public interface IPublicStateSubscription
     /// correlated to <paramref name="correlationMessageId"/>, when it is registered and a current
     /// value is available, arming that area's event-forwarding gate only once the connection actually
     /// admits the baseline -- the same successful-admission requirement <see cref="HandleSubscribe"/>
-    /// applies. Sends nothing when the area is registered but no value is available yet -- that value
-    /// is deferred, never fabricated.
+    /// applies. Never silently hangs when the area is registered but no value is available yet: the
+    /// request is retained as a bounded pending baseline for that area (superseding a previous still-
+    /// pending one for the same area, if any) and delivered automatically once a value becomes
+    /// available, or answered with an explicit, retryable <c>error</c> if none does before its own
+    /// bounded deadline elapses.
     /// </summary>
     /// <param name="stateArea">The requested state area.</param>
     /// <param name="correlationMessageId">The <c>snapshot_request</c>'s own message id.</param>
@@ -101,6 +110,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
     /// <summary>Signals a state-authority rotation, which invalidates every area's live baseline the same way a play-context transition does.</summary>
     private readonly IStateAuthorityLifecycle stateAuthorityLifecycle;
+
+    /// <summary>How long a pending <c>snapshot_request</c>/<c>subscribe</c> baseline waits for an authoritative value before <see cref="FailPendingBaselineOnTimeoutAsync"/> answers it with an explicit error.</summary>
+    private readonly TimeSpan pendingBaselineDeadline;
 
     /// <summary>Guards every mutable field below against concurrent access from <see cref="OnEventOccurred"/> and the read loop's own thread.</summary>
     private readonly object gate = new();
@@ -133,7 +145,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// </summary>
     private bool subscribedToExternalEvents;
 
-    /// <summary>Creates a subscription bound to no connection yet; call <see cref="Bind"/> once admission completes.</summary>
+    /// <summary>Creates a subscription bound to no connection yet, using the production <see cref="Constants.PendingBaselineDeadline"/>; call <see cref="Bind"/> once admission completes.</summary>
     /// <param name="registeredStateAreaPolicy">The host-wide bounded set of state areas currently served.</param>
     /// <param name="feed">The host-wide, domain-agnostic push source snapshots and events are read from.</param>
     /// <param name="codec">Encodes every message this subscription sends.</param>
@@ -145,12 +157,31 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         IPublicEnvelopeCodec codec,
         IPlayContextTracker playContextTracker,
         IStateAuthorityLifecycle stateAuthorityLifecycle)
+        : this(registeredStateAreaPolicy, feed, codec, playContextTracker, stateAuthorityLifecycle, Constants.PendingBaselineDeadline)
+    {
+    }
+
+    /// <summary>Creates a subscription over an explicit pending-baseline deadline. Exposed for tests that need a faster-than-production bound.</summary>
+    /// <param name="registeredStateAreaPolicy">The host-wide bounded set of state areas currently served.</param>
+    /// <param name="feed">The host-wide, domain-agnostic push source snapshots and events are read from.</param>
+    /// <param name="codec">Encodes every message this subscription sends.</param>
+    /// <param name="playContextTracker">Supplies the <c>playContextId</c> stamped onto every message this subscription sends.</param>
+    /// <param name="stateAuthorityLifecycle">Signals a state-authority rotation, which invalidates every area's live baseline the same way a play-context transition does.</param>
+    /// <param name="pendingBaselineDeadline">How long a pending baseline waits for an authoritative value before it is answered with an explicit error.</param>
+    internal PublicStateSubscription(
+        IRegisteredStateAreaPolicy registeredStateAreaPolicy,
+        IStatePublicationFeed feed,
+        IPublicEnvelopeCodec codec,
+        IPlayContextTracker playContextTracker,
+        IStateAuthorityLifecycle stateAuthorityLifecycle,
+        TimeSpan pendingBaselineDeadline)
     {
         this.registeredStateAreaPolicy = registeredStateAreaPolicy;
         this.feed = feed;
         this.codec = codec;
         this.playContextTracker = playContextTracker;
         this.stateAuthorityLifecycle = stateAuthorityLifecycle;
+        this.pendingBaselineDeadline = pendingBaselineDeadline;
     }
 
     /// <inheritdoc/>
@@ -260,7 +291,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <inheritdoc/>
     /// <remarks>
     /// A no-op when <see cref="Bind"/> was never called (so no registration was ever made) or when
-    /// this has already been called once for this instance.
+    /// this has already been called once for this instance. Also cancels every area's own armed
+    /// pending-baseline deadline: this connection is going away, so nothing should still attempt to
+    /// answer it once this call returns.
     /// </remarks>
     public void Unsubscribe()
     {
@@ -276,6 +309,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             playContextTracker.Transitioned -= OnPlayContextTransitioned;
             stateAuthorityLifecycle.Rotated -= OnStateAuthorityRotated;
             subscribedToExternalEvents = false;
+
+            foreach (AreaState state in areaStates.Values)
+            {
+                CancelPendingBaselineDeadlineLocked(state);
+            }
         }
     }
 
@@ -322,17 +360,29 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// Resets every area's recovery-barrier bookkeeping to <see cref="AreaDeliveryPhase.AwaitingBaseline"/>,
     /// discarding any held Events or buffered pending Snapshot and bumping the recovery epoch so an
     /// in-flight <see cref="TryEstablishBaseline"/> attempt from before this call is ignored when it
-    /// completes. Must be called with <see cref="gate"/> already held by the calling thread.
+    /// completes. A genuinely pending request (a non-<see langword="null"/>
+    /// <see cref="AreaState.RecoveryCorrelationMessageId"/>) is restarted rather than abandoned: its
+    /// own bounded deadline is re-armed fresh under the new context/authority, but -- unlike
+    /// <see cref="OnSnapshotChanged"/>'s wake -- this never synchronously re-queries <see cref="feed"/>
+    /// for a value here, since a value already sitting in the feed at this exact instant belongs to
+    /// whatever just stopped being current and must not be allowed to satisfy this request; only a
+    /// value the feed genuinely publishes afterward, under the new context/authority, ever can. Must
+    /// be called with <see cref="gate"/> already held by the calling thread.
     /// </summary>
     private void InvalidateAllAreasUnderGate()
     {
-        foreach (AreaState state in areaStates.Values)
+        foreach ((StateAreaId areaId, AreaState state) in areaStates)
         {
+            CancelPendingBaselineDeadlineLocked(state);
             state.Phase = AreaDeliveryPhase.AwaitingBaseline;
             state.BarrierRevision = null;
             state.HeldEvents.Clear();
             state.PendingSnapshot = null;
-            state.RecoveryEpoch++;
+            long myEpoch = ++state.RecoveryEpoch;
+            if (state.RecoveryCorrelationMessageId is string correlationMessageId)
+            {
+                ArmPendingBaselineDeadlineLocked(areaId, state, myEpoch, correlationMessageId);
+            }
         }
     }
 
@@ -414,22 +464,35 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
     /// <summary>
     /// Routes <paramref name="snapshotPublication"/> for this connection according to its state
-    /// area's current recovery-barrier phase: discarded while
-    /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/>; while <see cref="AreaDeliveryPhase.Recovering"/>,
+    /// area's current recovery-barrier phase: while <see cref="AreaDeliveryPhase.AwaitingBaseline"/>,
+    /// wakes and retries a genuinely pending request (a non-<see langword="null"/>
+    /// <see cref="AreaState.RecoveryCorrelationMessageId"/>) via <see cref="TryEstablishBaseline"/>
+    /// rather than leaving it to wait out its own deadline for a value that has, in fact, just
+    /// arrived -- a no-op when no request is pending; while <see cref="AreaDeliveryPhase.Recovering"/>,
     /// replaces any previously buffered pending value for the area rather than queuing a second one --
     /// unlike an Event, a Snapshot is a complete replacement value, so only the newest one received
     /// during recovery is ever worth keeping; sent immediately, still under <see cref="gate"/>, while
     /// <see cref="AreaDeliveryPhase.Live"/>, on the Data lane's keyed-replaceable slot rather than the
     /// Control/Recovery lane baselines use. Also discarded outright, regardless of phase, when its own
     /// captured play-context generation does not match the tracker's current one, the same stale-value
-    /// rule <see cref="OnEventOccurred"/> applies.
+    /// rule <see cref="OnEventOccurred"/> applies. Processed even for an area this connection never
+    /// accepted via <see cref="HandleSubscribe"/> as long as it has a genuinely pending request -- a
+    /// bare <c>snapshot_request</c> must still be woken by this same mechanism -- but such an area can
+    /// only ever be waiting in <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, never actually reach
+    /// <see cref="AreaDeliveryPhase.Recovering"/> or <see cref="AreaDeliveryPhase.Live"/> ongoing
+    /// forwarding here, which remains exclusively gated on acceptance.
     /// </summary>
     /// <param name="snapshotPublication">The snapshot value the feed just published.</param>
     private void OnSnapshotChanged(StateSnapshotPublication snapshotPublication)
     {
+        string? pendingCorrelationMessageId = null;
+
         lock (gate)
         {
-            if (!acceptedAreas.Contains(snapshotPublication.StateArea))
+            bool hasPendingRequest = areaStates.TryGetValue(snapshotPublication.StateArea, out AreaState? existingState)
+                && existingState.Phase == AreaDeliveryPhase.AwaitingBaseline
+                && existingState.RecoveryCorrelationMessageId is not null;
+            if (!acceptedAreas.Contains(snapshotPublication.StateArea) && !hasPendingRequest)
             {
                 return;
             }
@@ -443,6 +506,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             switch (state.Phase)
             {
                 case AreaDeliveryPhase.AwaitingBaseline:
+                    pendingCorrelationMessageId = state.RecoveryCorrelationMessageId;
                     break;
 
                 case AreaDeliveryPhase.Recovering:
@@ -458,6 +522,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
                     break;
             }
+        }
+
+        if (pendingCorrelationMessageId is not null)
+        {
+            TryEstablishBaseline(snapshotPublication.StateArea, pendingCorrelationMessageId);
         }
     }
 
@@ -506,6 +575,8 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             }
 
             AreaState state = GetOrCreateAreaState(areaId);
+            // This fresh attempt supersedes anything a previous pending attempt was still waiting on.
+            CancelPendingBaselineDeadlineLocked(state);
             state.Phase = AreaDeliveryPhase.Recovering;
             state.BarrierRevision = null;
             state.RecoveryCorrelationMessageId = correlationMessageId;
@@ -524,10 +595,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
             if (!hasSnapshot || snapshot!.PlayContextGeneration != playContextTracker.GetSnapshot().TransitionGeneration)
             {
-                state.Phase = AreaDeliveryPhase.AwaitingBaseline;
-                state.BarrierRevision = null;
-                state.HeldEvents.Clear();
-                state.PendingSnapshot = null;
+                FallBackToAwaitingBaselineAndArmDeadlineLocked(areaId, state, myEpoch, correlationMessageId);
                 return;
             }
 
@@ -566,10 +634,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
             if (!currentConnectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery))
             {
-                state.Phase = AreaDeliveryPhase.AwaitingBaseline;
-                state.BarrierRevision = null;
-                state.HeldEvents.Clear();
-                state.PendingSnapshot = null;
+                FallBackToAwaitingBaselineAndArmDeadlineLocked(areaId, state, myEpoch, correlationMessageId);
                 return;
             }
 
@@ -600,6 +665,141 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Falls back <paramref name="state"/> to <see cref="AreaDeliveryPhase.AwaitingBaseline"/>,
+    /// discarding any held Events and any buffered pending Snapshot, then arms a fresh bounded
+    /// deadline for <paramref name="correlationMessageId"/>: <see cref="OnSnapshotChanged"/> wakes and
+    /// retries this same pending request the moment a matching authoritative value appears, but if
+    /// none does before the deadline elapses, an explicit
+    /// <see cref="PublicProtocolErrorCode.TemporarilyUnavailable"/> error answers it instead of
+    /// leaving the client waiting forever. Must be called with <see cref="gate"/> already held by the
+    /// calling thread.
+    /// </summary>
+    /// <param name="areaId">The state area falling back to <see cref="AreaDeliveryPhase.AwaitingBaseline"/>.</param>
+    /// <param name="state">That area's own recovery-barrier bookkeeping.</param>
+    /// <param name="myEpoch">The recovery attempt this fallback belongs to, so a later superseding attempt makes the armed deadline a no-op.</param>
+    /// <param name="correlationMessageId">The still-pending request's own message id.</param>
+    private void FallBackToAwaitingBaselineAndArmDeadlineLocked(StateAreaId areaId, AreaState state, long myEpoch, string correlationMessageId)
+    {
+        state.Phase = AreaDeliveryPhase.AwaitingBaseline;
+        state.BarrierRevision = null;
+        state.HeldEvents.Clear();
+        state.PendingSnapshot = null;
+        ArmPendingBaselineDeadlineLocked(areaId, state, myEpoch, correlationMessageId);
+    }
+
+    /// <summary>
+    /// Arms a fresh bounded deadline on <paramref name="state"/> for <paramref name="correlationMessageId"/>:
+    /// <see cref="OnSnapshotChanged"/> wakes and retries this same pending request the moment a
+    /// matching authoritative value appears, but if none does before the deadline elapses, an
+    /// explicit <see cref="PublicProtocolErrorCode.TemporarilyUnavailable"/> error answers it instead
+    /// of leaving the client waiting forever. Superseding any deadline this area already had armed is
+    /// the caller's own responsibility; this always installs a fresh one unconditionally. Must be
+    /// called with <see cref="gate"/> already held by the calling thread.
+    /// </summary>
+    /// <param name="areaId">The state area this deadline is armed for.</param>
+    /// <param name="state">That area's own recovery-barrier bookkeeping.</param>
+    /// <param name="myEpoch">The recovery attempt this deadline belongs to, so a later superseding attempt makes it a no-op.</param>
+    /// <param name="correlationMessageId">The still-pending request's own message id.</param>
+    private void ArmPendingBaselineDeadlineLocked(StateAreaId areaId, AreaState state, long myEpoch, string correlationMessageId)
+    {
+        var deadlineCancellation = new CancellationTokenSource();
+        state.PendingBaselineDeadlineCancellation = deadlineCancellation;
+        _ = FailPendingBaselineOnTimeoutAsync(areaId, myEpoch, correlationMessageId, deadlineCancellation.Token);
+    }
+
+    /// <summary>
+    /// Cancels and disposes <paramref name="state"/>'s own armed pending-baseline deadline, if any,
+    /// and clears the field. A harmless no-op when none is armed. Must be called with
+    /// <see cref="gate"/> already held by the calling thread.
+    /// </summary>
+    /// <param name="state">The area whose armed deadline, if any, is being superseded or resolved.</param>
+    private static void CancelPendingBaselineDeadlineLocked(AreaState state)
+    {
+        if (state.PendingBaselineDeadlineCancellation is CancellationTokenSource deadlineCancellation)
+        {
+            deadlineCancellation.Cancel();
+            deadlineCancellation.Dispose();
+            state.PendingBaselineDeadlineCancellation = null;
+        }
+    }
+
+    /// <summary>
+    /// Waits <see cref="pendingBaselineDeadline"/>, then, only if <paramref name="areaId"/>'s
+    /// recovery attempt is still exactly <paramref name="myEpoch"/> and still
+    /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/> -- meaning nothing has satisfied, superseded,
+    /// or otherwise resolved this specific pending request in the meantime -- answers it with an
+    /// explicit <see cref="PublicProtocolErrorCode.TemporarilyUnavailable"/> error and clears the
+    /// pending correlation, so a value that arrives afterward is not mistaken for still owing this
+    /// request a reply. A cancelled wait (superseded, resolved, or this subscription unsubscribed) is
+    /// a silent no-op.
+    /// </summary>
+    /// <param name="areaId">The state area this deadline was armed for.</param>
+    /// <param name="myEpoch">The recovery attempt this deadline belongs to.</param>
+    /// <param name="correlationMessageId">The still-pending request's own message id, sent as the error's own correlation.</param>
+    /// <param name="cancellationToken">Cancelled the moment this specific deadline is superseded or resolved.</param>
+    private async Task FailPendingBaselineOnTimeoutAsync(StateAreaId areaId, long myEpoch, string correlationMessageId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(pendingBaselineDeadline, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        IPublicConnectionContext? currentConnectionContext;
+        SessionId? currentSessionId;
+        lock (gate)
+        {
+            currentConnectionContext = connectionContext;
+            currentSessionId = sessionId;
+            if (currentConnectionContext is null || currentSessionId is null
+                || !areaStates.TryGetValue(areaId, out AreaState? state)
+                || state.RecoveryEpoch != myEpoch
+                || state.Phase != AreaDeliveryPhase.AwaitingBaseline)
+            {
+                return;
+            }
+
+            state.RecoveryCorrelationMessageId = null;
+            state.PendingBaselineDeadlineCancellation?.Dispose();
+            state.PendingBaselineDeadlineCancellation = null;
+        }
+
+        SendTemporarilyUnavailableError(currentConnectionContext, currentSessionId.Value, correlationMessageId);
+    }
+
+    /// <summary>
+    /// Encodes and sends an <c>error</c> message reporting <see cref="PublicProtocolErrorCode.TemporarilyUnavailable"/>,
+    /// correlated to <paramref name="correlationMessageId"/> and marked retryable: a pending
+    /// <c>snapshot_request</c> or <c>subscribe</c> baseline that never became available before its
+    /// own bounded deadline elapsed, per <see cref="FailPendingBaselineOnTimeoutAsync"/>.
+    /// </summary>
+    /// <param name="targetConnectionContext">The connection to send through.</param>
+    /// <param name="targetSessionId">The session identity to stamp onto the message.</param>
+    /// <param name="correlationMessageId">The originating request's own message id.</param>
+    private void SendTemporarilyUnavailableError(IPublicConnectionContext targetConnectionContext, SessionId targetSessionId, string correlationMessageId)
+    {
+        var payload = new ErrorPayload
+        {
+            Code = PublicProtocolErrorCode.TemporarilyUnavailable,
+            Message = "No authoritative baseline is available yet for this state area.",
+            Retryable = true,
+        };
+        PlayContextSnapshot snapshot = playContextTracker.GetSnapshot();
+        byte[] bytes = codec.Encode(
+            PublicMessageType.Error,
+            NewMessageId(),
+            targetSessionId.ToString(),
+            correlationMessageId,
+            snapshot.Current?.ToString(),
+            null,
+            payload);
+        targetConnectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
     }
 
     /// <summary>
@@ -734,14 +934,25 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         public StateSnapshotPublication? PendingSnapshot;
 
         /// <summary>
-        /// The message id the current or most recently establishing baseline correlates to -- the
-        /// originating <c>subscribe</c> or <c>snapshot_request</c>'s own id, recorded by
-        /// <see cref="TryEstablishBaseline"/>. Reused, rather than replaced with a fresh host-generated
-        /// id, when a held-Event buffer overflow abandons that attempt and starts a re-baseline: the
-        /// new attempt supersedes the old one but still answers the same client request. Meaningful
-        /// only while <see cref="Phase"/> is <see cref="AreaDeliveryPhase.Recovering"/> or
-        /// <see cref="AreaDeliveryPhase.Live"/>.
+        /// The message id the current, most recently establishing, or currently pending baseline
+        /// correlates to -- the originating <c>subscribe</c> or <c>snapshot_request</c>'s own id,
+        /// recorded by <see cref="TryEstablishBaseline"/>. Reused, rather than replaced with a fresh
+        /// host-generated id, when a held-Event buffer overflow or a newly available authoritative
+        /// value re-attempts the same still-pending request. Also meaningful while <see cref="Phase"/>
+        /// is <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, unlike every other field on this type:
+        /// a non-<see langword="null"/> value there means a request is genuinely pending -- bounded by
+        /// <see cref="PendingBaselineDeadlineCancellation"/> -- rather than that no request was ever
+        /// made for this area.
         /// </summary>
         public string? RecoveryCorrelationMessageId;
+
+        /// <summary>
+        /// The bounded deadline armed for the current <see cref="RecoveryCorrelationMessageId"/> while
+        /// no authoritative value has been available to satisfy it, or <see langword="null"/> when no
+        /// deadline is currently armed. Cancelled (and cleared) the moment the pending request is
+        /// either satisfied, superseded by a fresh attempt, or answered with an explicit timeout
+        /// error, so at most one deadline is ever outstanding per area.
+        /// </summary>
+        public CancellationTokenSource? PendingBaselineDeadlineCancellation;
     }
 }

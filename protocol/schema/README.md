@@ -417,7 +417,10 @@ Requests state areas after capabilities are negotiated.
 
 The host confirms the subscription and sends a `state_snapshot` before sending events only for a
 requested state area that is registered and accepted. When every requested area is rejected, the
-host sends only `subscription_ack` and no snapshot.
+host sends only `subscription_ack` and no snapshot. An accepted area with no authoritative value
+available yet is never a dead end: its baseline is delivered automatically, still correlated to the
+`subscribe` message, as soon as one becomes available, or answered with a `temporarily_unavailable`
+`error` if none does before a bounded deadline elapses.
 
 Required payload field: `stateAreas`. The host responds with `subscription_ack`. No state area is
 currently registered (see "Registered state areas" above), so every requested area is rejected into
@@ -452,9 +455,13 @@ responds with a `state_snapshot` at the current revision; an unregistered area i
 }
 ```
 
-Required payload field: `stateArea`. `knownRevision` is optional and advisory only. A
-`state_snapshot` is returned only when the requested state area is registered and accepted;
-otherwise the request is rejected as `unsupported_capability`.
+Required payload field: `stateArea`. `knownRevision` is optional and advisory only. An unregistered
+area is rejected as `unsupported_capability`. A registered area never silently receives no response:
+if an authoritative value is available, the `state_snapshot` is returned immediately; otherwise the
+request is retained and answered automatically, still correlated to this `snapshot_request`, as soon
+as a value becomes available, or with a `temporarily_unavailable` `error` if none does before a
+bounded deadline elapses. A later `snapshot_request` for the same still-pending area supersedes an
+earlier one rather than queuing a second reply.
 
 ### `state_snapshot`
 
@@ -489,17 +496,20 @@ Required payload fields: `code`, `message`, `retryable`. `details` is nullable a
 
 Canonical error codes are exactly `malformed_message`, `frame_too_large`, `unsupported_capability`,
 `unauthenticated`, `unauthorized`, `revoked`, `blocked`, `replayed_message`, `stale_session`,
-`rate_limited`, and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected
-because the presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never
-paired or wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust".
-`blocked` is an `unpaired` or `trusted_device_credential` hello rejected because the presented
-`clientId` is a currently blocked Known Device -- distinct from `revoked` (blocking prevents both
-authentication and re-pairing, while a revoked device may still re-pair) and never issued for
-`one_time_local_token` (developer-token) authentication, which stays a separate provider unaffected
-by Known Device blocking. Error codes are for branching; diagnostic messages are not. There is no
-Host-version-incompatibility wire error code: a client detects incompatibility itself from
-`hello_ack.hostVersion` and fails without completing the rest of the exchange, per
-`ai/context/protocol/compatibility.md`.
+`rate_limited`, `temporarily_unavailable`, and `internal_error`. `revoked` is a
+`trusted_device_credential` hello rejected because the presented `clientId` was explicitly revoked,
+distinct from `unauthenticated`'s "never paired or wrong credential" per
+`ai/context/protocol/security.md`'s "Persistent local trust". `blocked` is an `unpaired` or
+`trusted_device_credential` hello rejected because the presented `clientId` is a currently blocked
+Known Device -- distinct from `revoked` (blocking prevents both authentication and re-pairing, while
+a revoked device may still re-pair) and never issued for `one_time_local_token` (developer-token)
+authentication, which stays a separate provider unaffected by Known Device blocking.
+`temporarily_unavailable` is always `retryable: true`: a registered state area's authoritative
+baseline was not available before its own bounded deadline elapsed (see `snapshot_request` and
+`subscribe` above) -- a temporary Host-side readiness gap, never a client-caused violation. Error
+codes are for branching; diagnostic messages are not. There is no Host-version-incompatibility wire
+error code: a client detects incompatibility itself from `hello_ack.hostVersion` and fails without
+completing the rest of the exchange, per `ai/context/protocol/compatibility.md`.
 
 If no session has been established on a socket, an `error`'s `sessionId` is `null`; this includes
 authentication failures and violations detected before decoding completes. After a successful
