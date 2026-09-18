@@ -1,10 +1,27 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
-#include "dispatch/sample_capture_result.hpp"
+#include "enums.hpp"
 
 namespace dovahlink::adapter::dispatch {
+
+//  TODO(stage4-file-extraction): Move SampleCaptureResult to its own
+//  dispatch/sample_capture_result.hpp in the post-Stage-4 structural cleanup
+//  PR. Temporarily colocated here to hold this PR's changed-file count down;
+//  extraction only, no behavior change.
+///  The result of one `IAdapterNativeCaptureRouter::CaptureSample` call.
+struct SampleCaptureResult {
+    ///  Which of the three outcomes this call produced.
+    SampleCaptureStatus status = SampleCaptureStatus::kUnsupported;
+    ///  The captured value when `status` is `kAvailable`; empty otherwise.
+    std::vector<std::byte> payload;
+
+    ///  Structural equality over every field.
+    bool operator==(const SampleCaptureResult&) const = default;
+};
 
 ///  The adapter's native capture boundary: the last step before Skyrim, per
 ///  `ai/context/adapter/architecture.md`. A host-directed sample token or
