@@ -240,6 +240,97 @@ public class LiveCaptureSinkTests
         Assert.Equal([(captureResult, 7L)], raised);
     }
 
+    /// <summary>Verifies that a capture from the currently available adapter connection is accepted.</summary>
+    [Fact]
+    public void ApplyCaptureResult_CurrentExactSource_AppliesNormally()
+    {
+        Fixture fixture = CreateReady();
+        fixture.AdapterTracker.CurrentConnectionGeneration = 1;
+        AdapterCaptureSource currentSource = new(fixture.Source.InstanceId, 1);
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+
+        fixture.Sink.ApplyCaptureResult(captureResult, currentSource);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
+        Assert.Equal(50.0f, ReadValue(xp!.Data));
+    }
+
+    /// <summary>Verifies that a capture from an old connection generation is dropped without state or publication effects.</summary>
+    [Fact]
+    public void ApplyCaptureResult_OldConnectionGeneration_DropsWithoutMutation()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.CurrentConnectionGeneration = 2;
+        AdapterCaptureSource staleSource = new(fixture.Source.InstanceId, 1);
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+        int snapshotPublicationCount = 0;
+        int eventPublicationCount = 0;
+        fixture.Feed.SnapshotChanged += _ => snapshotPublicationCount++;
+        fixture.Feed.EventOccurred += _ => eventPublicationCount++;
+
+        fixture.Sink.ApplyCaptureResult(captureResult, staleSource);
+
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Equal(0, snapshotPublicationCount);
+        Assert.Equal(0, eventPublicationCount);
+        Assert.Empty(fakeCoordinator.AcquireTokenCalls);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+    }
+
+    /// <summary>Verifies that a capture from an old adapter instance is dropped without state or publication effects.</summary>
+    [Fact]
+    public void ApplyCaptureResult_OldAdapterInstance_DropsWithoutMutation()
+    {
+        Fixture fixture = CreateReady();
+        AdapterCaptureSource staleSource = new(AdapterInstanceId.NewId(), fixture.Source.ConnectionGeneration);
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+        int snapshotPublicationCount = 0;
+        fixture.Feed.SnapshotChanged += _ => snapshotPublicationCount++;
+
+        fixture.Sink.ApplyCaptureResult(captureResult, staleSource);
+
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Equal(0, snapshotPublicationCount);
+    }
+
+    /// <summary>Verifies that a delayed generation-one result is dropped after the same adapter reconnects as generation two.</summary>
+    [Fact]
+    public void ApplyCaptureResult_DelayedGenerationOneAfterReconnect_DropsWithoutMutation()
+    {
+        Fixture fixture = CreateReady();
+        AdapterInstanceId instanceId = fixture.Source.InstanceId;
+        fixture.AdapterTracker.CommitConnected(instanceId, 2);
+        AdapterCaptureSource delayedSource = new(instanceId, 1);
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+
+        fixture.Sink.ApplyCaptureResult(captureResult, delayedSource);
+
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+    }
+
+    /// <summary>Verifies that a delayed baseline cannot claim resynchronization progress for a newer connection generation.</summary>
+    [Fact]
+    public void ApplyCaptureResult_DelayedBaselineFromOldGeneration_DoesNotRecordNewGenerationProgress()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.CurrentConnectionGeneration = 2;
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        AdapterCaptureSource delayedSource = new(fixture.Source.InstanceId, 1);
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+
+        fixture.Sink.ApplyCaptureResult(captureResult, delayedSource);
+
+        Assert.Empty(fakeCoordinator.AcquireTokenCalls);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+    }
+
     /// <summary>
     /// Verifies that CaptureResultApplied still fires for an unrecognized capture key -- before this
     /// sink's own recognition check -- so a listener learns a reply arrived even when this sink itself

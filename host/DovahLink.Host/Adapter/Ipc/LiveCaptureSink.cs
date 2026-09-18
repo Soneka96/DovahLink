@@ -57,7 +57,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     /// <summary>Where an accepted, changed value becomes a publication.</summary>
     private readonly IStatePublicationSink publicationSink;
 
-    /// <summary>Consulted for source identity and resynchronization gating.</summary>
+    /// <summary>Consulted for source validation and resynchronization gating.</summary>
     private readonly IAdapterAvailabilityTracker adapterAvailabilityTracker;
 
     /// <summary>Consulted to reject a capture whose stamped play context has already gone stale.</summary>
@@ -74,7 +74,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     /// <param name="floatPublisher">Backs every float-valued area.</param>
     /// <param name="levelPublisher">Backs the level area.</param>
     /// <param name="publicationSink">Where an accepted, changed value becomes a publication.</param>
-    /// <param name="adapterAvailabilityTracker">Consulted for source identity and resynchronization gating.</param>
+    /// <param name="adapterAvailabilityTracker">Consulted for source validation and resynchronization gating.</param>
     /// <param name="playContextTracker">Consulted to reject a capture whose stamped play context has already gone stale.</param>
     /// <param name="resynchronizationTransactionCoordinator">Claims each baseline area's resynchronization token and records its own transaction's progress.</param>
     /// <param name="clock">Stamps every publication's display timestamp.</param>
@@ -106,6 +106,14 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     {
         CaptureResultApplied?.Invoke(captureResult, source.ConnectionGeneration);
 
+        AdapterAvailabilitySnapshot adapterSnapshot = adapterAvailabilityTracker.GetSnapshot();
+        if (adapterSnapshot.Current != AdapterAvailability.Available
+            || adapterSnapshot.CurrentInstanceId != source.InstanceId
+            || adapterSnapshot.ConnectionGeneration != source.ConnectionGeneration)
+        {
+            return;
+        }
+
         CaptureUnitDefinition? unit = catalog.CaptureUnits.FirstOrDefault(
             candidate => candidate.Source == captureResult.Source && candidate.CaptureKey == captureResult.CaptureKey);
         if (unit is null)
@@ -121,22 +129,21 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
             return;
         }
 
-        AdapterAvailabilitySnapshot adapterSnapshot = adapterAvailabilityTracker.GetSnapshot();
         DateTimeOffset occurredAt = clock.UtcNow;
 
         if (captureResult.Source == CaptureSourceKind.Sample && captureResult.CaptureKey == (uint)CharacterSampleToken.CharacterVitals)
         {
-            ApplyVitals(captureResult, unit, adapterSnapshot, currentContext, contextSnapshot.TransitionGeneration, occurredAt);
+            ApplyVitals(captureResult, unit, source, adapterSnapshot, currentContext, contextSnapshot.TransitionGeneration, occurredAt);
         }
         else if (captureResult.Source == CaptureSourceKind.Sample && captureResult.CaptureKey == (uint)CharacterSampleToken.CharacterXp)
         {
-            ApplyScalarFloat(captureResult, unit.StateAreas[0], adapterSnapshot, currentContext, contextSnapshot.TransitionGeneration, occurredAt);
+            ApplyScalarFloat(captureResult, unit.StateAreas[0], source, adapterSnapshot, currentContext, contextSnapshot.TransitionGeneration, occurredAt);
         }
         else
         {
             // The only remaining catalog entries are the level baseline sample and the
             // level-changed event, both sharing the same uint16 decode and the same area.
-            ApplyLevel(captureResult, unit.StateAreas[0], adapterSnapshot, currentContext, contextSnapshot.TransitionGeneration, occurredAt);
+            ApplyLevel(captureResult, unit.StateAreas[0], source, adapterSnapshot, currentContext, contextSnapshot.TransitionGeneration, occurredAt);
         }
     }
 
@@ -150,6 +157,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     private void ApplyVitals(
         IpcCaptureResultMessage captureResult,
         CaptureUnitDefinition unit,
+        AdapterCaptureSource source,
         AdapterAvailabilitySnapshot adapterSnapshot,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
@@ -179,15 +187,16 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         // ReadSample's own nonzero one -- see ApplyAndPublish's own documentation for why this, not
         // the adapter's global resynchronization flag, is what decides baseline-vs-live purpose here.
         bool isResynchronizationBaseline = captureResult.CorrelationId == 0;
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[0], health, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[1], magicka, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[2], stamina, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[0], health, isResynchronizationBaseline, source, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[1], magicka, isResynchronizationBaseline, source, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[2], stamina, isResynchronizationBaseline, source, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>Decodes and applies a single-float capture (experience) to its one area.</summary>
     private void ApplyScalarFloat(
         IpcCaptureResultMessage captureResult,
         StateAreaId areaId,
+        AdapterCaptureSource source,
         AdapterAvailabilitySnapshot adapterSnapshot,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
@@ -210,7 +219,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
 
         // See ApplyVitals's identical comment: a baseline sample's own correlation id, not the
         // adapter's global resynchronization flag, decides baseline-vs-live purpose here.
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, areaId, value, captureResult.CorrelationId == 0, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, areaId, value, captureResult.CorrelationId == 0, source, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>
@@ -224,6 +233,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     private void ApplyLevel(
         IpcCaptureResultMessage captureResult,
         StateAreaId areaId,
+        AdapterCaptureSource source,
         AdapterAvailabilitySnapshot adapterSnapshot,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
@@ -255,7 +265,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         bool isResynchronizationBaseline = captureResult.Source == CaptureSourceKind.Sample
             ? captureResult.CorrelationId == 0
             : adapterSnapshot.NeedsResynchronization;
-        ApplyAndPublish(levelPublisher, mode, areaId, value, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        ApplyAndPublish(levelPublisher, mode, areaId, value, isResynchronizationBaseline, source, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>
@@ -284,6 +294,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     /// <param name="areaId">The state area this value belongs to.</param>
     /// <param name="value">The decoded captured value.</param>
     /// <param name="isResynchronizationBaseline">Whether this specific capture is a resynchronization baseline, decided by the caller from the capture's own identity.</param>
+    /// <param name="source">The exact adapter connection that delivered the capture.</param>
     /// <param name="adapterSnapshot">The adapter availability snapshot read once for this whole capture result.</param>
     /// <param name="capturedPlayContextId">The play context that was current at the moment this value was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this value was captured.</param>
@@ -294,6 +305,7 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         StateAreaId areaId,
         TState value,
         bool isResynchronizationBaseline,
+        AdapterCaptureSource source,
         AdapterAvailabilitySnapshot adapterSnapshot,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
@@ -302,13 +314,8 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         StateApplyResult result;
         if (isResynchronizationBaseline)
         {
-            if (adapterSnapshot.CurrentInstanceId is not AdapterInstanceId resyncInstanceId)
-            {
-                return;
-            }
-
             IAdapterResynchronizationToken? token = resynchronizationTransactionCoordinator.AcquireToken(
-                resyncInstanceId, adapterSnapshot.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
+                source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
             if (token is null)
             {
                 return;
@@ -318,17 +325,12 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
             if (result.Accepted)
             {
                 resynchronizationTransactionCoordinator.RecordAreaAccepted(
-                    areaId, resyncInstanceId, adapterSnapshot.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
+                    areaId, source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
             }
         }
         else
         {
-            if (adapterSnapshot.CurrentInstanceId is not AdapterInstanceId instanceId)
-            {
-                return;
-            }
-
-            result = publisher.Apply(instanceId, adapterSnapshot.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
+            result = publisher.Apply(source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
         }
 
         if (!result.Accepted)
