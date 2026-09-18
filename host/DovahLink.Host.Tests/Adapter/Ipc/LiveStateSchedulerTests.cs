@@ -411,6 +411,153 @@ public class LiveStateSchedulerTests
     }
 
     /// <summary>
+    /// Verifies that a timed-out slot's best-effort cancel is never sent on a different connection
+    /// generation than the one the timed-out request was actually sent on: a reconnect between the
+    /// send and the timeout leaves the listener's current connection on a newer generation whose own
+    /// correlation ids restart from the same small integers, so cancelling on it with the stale id
+    /// could otherwise hit an unrelated request that connection genuinely has outstanding.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_NoReplyWithinTimeoutButConnectionGenerationChanged_NeverCancelsOnTheNewerGeneration()
+    {
+        FakeAdapterIpcConnection originalConnection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 42,
+            ConnectionGeneration = 1,
+        };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = originalConnection };
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await WaitUntilAsync(() => originalConnection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
+
+        // A reconnect: a new connection object reusing the same small correlation id, on a newer
+        // generation, before the original request's own timeout has elapsed.
+        FakeAdapterIpcConnection newConnection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 42,
+            ConnectionGeneration = 2,
+        };
+        listener.CurrentConnection = newConnection;
+
+        // Comfortably past the original request's five-tick (250ms) timeout, but short of a second one.
+        await Task.Delay(TimeSpan.FromMilliseconds(350));
+        cancellation.Cancel();
+        await run;
+
+        Assert.DoesNotContain(42UL, newConnection.CancelCalls);
+    }
+
+    /// <summary>
+    /// Verifies that a timed-out slot whose connection was cleared entirely -- not merely replaced by
+    /// a newer generation -- before the timeout elapsed never throws attempting its best-effort
+    /// cancel, and still resumes sending normally once a connection becomes available again.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_NoReplyWithinTimeoutAndConnectionClearedEntirely_DoesNotThrowAndResumesOnceReconnected()
+    {
+        FakeAdapterIpcConnection connection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 42,
+            ConnectionGeneration = 1,
+        };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
+
+        // Cleared entirely, not merely replaced, before the outstanding request's own timeout elapses.
+        listener.CurrentConnection = null;
+
+        Exception? exception = await Record.ExceptionAsync(() => Task.Delay(TimeSpan.FromMilliseconds(350)));
+        Assert.Null(exception);
+
+        // Reconnecting lets the released slot send again.
+        FakeAdapterIpcConnection newConnection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 99,
+            ConnectionGeneration = 2,
+        };
+        listener.CurrentConnection = newConnection;
+        await WaitUntilAsync(() => newConnection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
+
+        cancellation.Cancel();
+        await run;
+    }
+
+    /// <summary>
+    /// Verifies that an immediate reply racing the scheduler's own send cannot be missed. The reply is
+    /// applied from a genuinely different, already-started thread -- not a same-thread reentrant call,
+    /// which the scheduler's own lock is reentrant against and so would not exercise this at all --
+    /// deliberately given a full window to reach and attempt its own lock acquisition while the send
+    /// call itself is held open, mirroring the real inbound read-loop thread racing the outbound send.
+    /// Under the fix, that background attempt must block on the scheduler's own held lock for the
+    /// whole window and only then correctly release the slot; without it, the background thread finds
+    /// nothing holding the lock, observes the slot not yet marked outstanding, and misses it -- so this
+    /// deterministically distinguishes the two, rather than depending on raw thread-scheduling luck.
+    /// The slot must still end up released for the very next tick, rather than being silently dropped
+    /// and stranding it until its own five-tick (250ms) timeout.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ImmediateReplyRacesTrySendReadSampleOnAnotherThread_StillReleasesSlotForNextTick()
+    {
+        var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
+        FakeAdapterIpcConnection connection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 42,
+            ConnectionGeneration = 1,
+        };
+        using SemaphoreSlim backgroundReplyStarted = new(0, 1);
+        // Filtered to the Vitals token specifically: this fake's single hook fires for every
+        // TrySendReadSample call, including the catalog's independent Xp/Medium loop's own ticks, and
+        // must not race-release the Vitals slot for an unrelated unit's send.
+        connection.OnTrySendReadSample = () =>
+        {
+            if (connection.ReadSampleCalls[^1] != (uint)CharacterSampleToken.CharacterVitals)
+            {
+                return;
+            }
+
+            var backgroundReplyThread = new Thread(() =>
+            {
+                backgroundReplyStarted.Release();
+                liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
+                    42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []));
+            });
+            backgroundReplyThread.Start();
+            // Waits for the background thread to have at least started, then holds this call open for
+            // a further deliberate window: long enough that thread-scheduling jitter cannot explain
+            // either outcome -- under the fix, this call itself runs inside the scheduler's own held
+            // lock (see LiveStateScheduler.RunSampleLoopAsync), so the background thread spends this
+            // whole window genuinely blocked on it rather than racing to finish first.
+            backgroundReplyStarted.Wait(TimeSpan.FromMilliseconds(200));
+            Thread.Sleep(TimeSpan.FromMilliseconds(20));
+        };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        // Comfortably past the two ticks plus hook-sleep overhead a promptly-released slot needs to
+        // send a second time, but well short of the five-tick (250ms) timeout a stuck slot would
+        // instead need: a second send landing in this window is only possible if the raced reply
+        // actually released the slot promptly, not via the timeout.
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        cancellation.Cancel();
+        await run;
+
+        Assert.True(connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals) >= 2);
+    }
+
+    /// <summary>
     /// Verifies that an outstanding slot pauses rather than losing its state when the play context
     /// clears mid-request: no timeout/retry burst happens while cleared, and normal ticking (up to
     /// and including the timeout-driven retry) resumes once a play context is active again.

@@ -65,10 +65,21 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
     /// <summary>The sample tokens passed to <see cref="TrySendReadSample"/>, in call order.</summary>
     public List<uint> ReadSampleCalls { get; } = [];
 
+    /// <summary>
+    /// Invoked synchronously by every <see cref="TrySendReadSample"/> call, once this call's own
+    /// sample token is already recorded in <see cref="ReadSampleCalls"/> but before it resolves --
+    /// lets a test inject work (for example applying the matching capture result immediately, before
+    /// the caller has had a chance to record its own request as outstanding) to exercise a race the
+    /// caller's own locking is meant to close. Mirrors
+    /// <see cref="FakePublicConnectionContext.OnTrySend"/>'s identical purpose for the same kind of race.
+    /// </summary>
+    public Action? OnTrySendReadSample { get; set; }
+
     /// <inheritdoc/>
     public bool TrySendReadSample(uint sampleToken, out ulong correlationId)
     {
         ReadSampleCalls.Add(sampleToken);
+        OnTrySendReadSample?.Invoke();
         correlationId = TrySendReadSampleResult ? TrySendReadSampleCorrelationId : 0;
         return TrySendReadSampleResult;
     }

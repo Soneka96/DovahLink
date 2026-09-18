@@ -170,6 +170,7 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
             }
 
             ulong? timedOutCorrelationId = null;
+            long timedOutConnectionGeneration = 0;
             lock (slot.Gate)
             {
                 if (slot.Outstanding)
@@ -180,23 +181,37 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
                     }
 
                     timedOutCorrelationId = slot.CorrelationId;
+                    timedOutConnectionGeneration = slot.ConnectionGeneration;
                     slot.Outstanding = false;
                 }
             }
 
             if (timedOutCorrelationId is ulong staleCorrelationId)
             {
-                listener.CurrentConnection?.TryCancel(staleCorrelationId);
+                // Only cancel on the exact connection generation the timed-out request was sent on:
+                // the listener's current connection may already be a later generation whose own
+                // correlation ids started over from the same small integers, and cancelling on it with
+                // a stale id could hit an unrelated request that connection genuinely has outstanding.
+                IAdapterIpcConnection? cancelConnection = listener.CurrentConnection;
+                if (cancelConnection is not null && cancelConnection.ConnectionGeneration == timedOutConnectionGeneration)
+                {
+                    cancelConnection.TryCancel(staleCorrelationId);
+                }
             }
 
-            IAdapterIpcConnection? connection = listener.CurrentConnection;
-            if (connection is null || !connection.TrySendReadSample(sampleToken, out ulong correlationId) || connection.ConnectionGeneration is not long generation)
-            {
-                continue;
-            }
-
+            // The slot is marked outstanding under the same lock hold as the send itself, so it is
+            // atomic with HandleCaptureResultApplied's own lock: sending first and marking outstanding
+            // in a separate, later lock scope left a window where an immediate reply could arrive and
+            // be processed in between, find the slot not yet outstanding, and be silently dropped --
+            // stranding the slot until its own timeout despite the reply having actually arrived.
             lock (slot.Gate)
             {
+                IAdapterIpcConnection? connection = listener.CurrentConnection;
+                if (connection is null || !connection.TrySendReadSample(sampleToken, out ulong correlationId) || connection.ConnectionGeneration is not long generation)
+                {
+                    continue;
+                }
+
                 slot.Outstanding = true;
                 slot.CorrelationId = correlationId;
                 slot.ConnectionGeneration = generation;
