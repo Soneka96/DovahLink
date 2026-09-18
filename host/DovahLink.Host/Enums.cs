@@ -306,6 +306,9 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the adapter to notify the host of a new play context. See <see cref="Adapter.Ipc.IpcPlayContextChangedMessage"/>.</summary>
     PlayContextChanged = 17,
+
+    /// <summary>Sent by the adapter to notify the host the play context has ended. See <see cref="Adapter.Ipc.IpcPlayContextEndedMessage"/>.</summary>
+    PlayContextEnded = 18,
 }
 
 /// <summary>Which host-owned key namespace a captured value's key belongs to.</summary>

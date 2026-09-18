@@ -681,6 +681,18 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that a play-context-ended notification round-trips.</summary>
+    [Fact]
+    public void RoundTrip_PlayContextEnded()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcPlayContextEndedMessage(0);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
     /// <summary>Verifies that a trust-admin request round-trips for every no-argument operation.</summary>
     [Theory]
     [InlineData(TrustAdminOperation.Help)]
@@ -861,6 +873,15 @@ public class IpcFrameCodecTests
         var codec = new IpcFrameCodec();
 
         Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPlayContextChangedMessage(1, PlayContextId.NewId())));
+    }
+
+    /// <summary>Verifies that encoding a play-context-ended notification with a nonzero correlation id throws.</summary>
+    [Fact]
+    public void Encode_PlayContextEnded_NonZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPlayContextEndedMessage(1)));
     }
 
     /// <summary>Verifies that encoding a trust-admin request with a zero correlation id fails closed.</summary>
@@ -1562,6 +1583,30 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a play-context-ended notification carrying a correlation id fails closed because it is unsolicited.</summary>
+    [Fact]
+    public void Decode_PlayContextEnded_NonZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextEnded, correlationId: 1, Array.Empty<byte>());
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a play-context-ended notification carrying an unexpected payload fails closed.</summary>
+    [Fact]
+    public void Decode_PlayContextEnded_NonEmptyPayload_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextEnded, correlationId: 0, [0]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that an attempts-exhausted notification carrying a correlation id fails closed because it is unsolicited.</summary>
     [Fact]
     public void Decode_PairingAttemptsExhausted_NonZeroCorrelationId_FailsClosed()
@@ -1807,6 +1852,8 @@ public class IpcFrameCodecTests
             // 16-byte PlayContextChanged payload: the big-endian GUID identity bytes.
             (new IpcPlayContextChangedMessage(0, new PlayContextId(new Guid("00112233-4455-6677-8899-aabbccddeeff"))),
                 "1900000011000000000000000000112233445566778899AABBCCDDEEFF"),
+            // No payload.
+            (new IpcPlayContextEndedMessage(0), "09000000120000000000000000"),
         };
 
         foreach ((IpcMessage message, string hex) in vectors)
@@ -1874,6 +1921,7 @@ public class IpcFrameCodecTests
                 case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
                 case (IpcCancelMessage, IpcCancelMessage):
                 case (IpcPairingAttemptsExhaustedMessage, IpcPairingAttemptsExhaustedMessage):
+                case (IpcPlayContextEndedMessage, IpcPlayContextEndedMessage):
                     break;
                 default:
                     Assert.Fail("The decoded message shape did not match the golden vector.");

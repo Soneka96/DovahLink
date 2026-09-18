@@ -181,8 +181,8 @@ TEST_CASE("LevelChangedEventSink stamps its capture with the injected "
     std::string source = NormalizeWhitespace(RouterSource());
 
     CHECK(source.find(NormalizeWhitespace(
-              ".playContextId = playContextState_.CurrentPlayContext(),")) !=
-          std::string::npos);
+              ".playContextId = playContextState_.CurrentPlayContext().value_or("
+              "std::array<std::byte, 16>{}),")) != std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter constructs its owned sink "

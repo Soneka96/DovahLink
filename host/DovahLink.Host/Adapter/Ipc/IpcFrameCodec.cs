@@ -62,6 +62,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcCaptureResultMessage captureResult => (IpcMessageKind.CaptureResult, EncodeCaptureResult(captureResult)),
             IpcListenEventResultMessage listenEventResult => (IpcMessageKind.ListenEventResult, EncodeListenEventResult(listenEventResult)),
             IpcPlayContextChangedMessage playContextChanged => (IpcMessageKind.PlayContextChanged, EncodePlayContextChanged(playContextChanged)),
+            IpcPlayContextEndedMessage playContextEnded => (IpcMessageKind.PlayContextEnded, EncodePlayContextEnded(playContextEnded)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -134,6 +135,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcMessageKind.CaptureResult => DecodeCaptureResult(correlationId, payload),
             IpcMessageKind.ListenEventResult => DecodeListenEventResult(correlationId, payload),
             IpcMessageKind.PlayContextChanged => DecodePlayContextChanged(correlationId, payload),
+            IpcMessageKind.PlayContextEnded => DecodePlayContextEnded(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -819,6 +821,32 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         var playContextId = new PlayContextId(new Guid(payload, bigEndian: true));
         return IpcDecodeResult.Success(new IpcPlayContextChangedMessage(correlationId, playContextId));
     }
+
+    /// <summary>Encodes a play-context-ended notification after enforcing its unsolicited-message correlation rule.</summary>
+    /// <param name="playContextEnded">The notification to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the notification carries a nonzero correlation id.</exception>
+    private static byte[] EncodePlayContextEnded(IpcPlayContextEndedMessage playContextEnded)
+    {
+        if (playContextEnded.CorrelationId != 0)
+        {
+            throw new ArgumentException("A play-context-ended notification must have correlation id zero.", nameof(playContextEnded));
+        }
+
+        return Array.Empty<byte>();
+    }
+
+    /// <summary>Decodes a play-context-ended notification, validating its unsolicited-message correlation rule and empty payload.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The (required empty) payload.</param>
+    private static IpcDecodeResult DecodePlayContextEnded(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId != 0 || !payload.IsEmpty)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcPlayContextEndedMessage(correlationId));
+    }
 }
 
 // TODO(stage4-file-extraction): Move IpcCaptureResultMessage to its own
@@ -874,3 +902,16 @@ public sealed record IpcListenEventResultMessage(ulong CorrelationId, bool Accep
 /// <param name="CorrelationId">Always zero; this notification is unsolicited and expects no reply.</param>
 /// <param name="PlayContextId">The adapter-generated play-context identity.</param>
 public sealed record IpcPlayContextChangedMessage(ulong CorrelationId, PlayContextId PlayContextId) : IpcMessage(CorrelationId);
+
+// TODO(stage4-file-extraction): Move IpcPlayContextEndedMessage to its own
+// IpcPlayContextEndedMessage.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>
+/// Sent by the adapter to notify the host that the current play context has ended: loading has
+/// started (before the new context is established), or the player returned to the main menu. Best
+/// effort and unsolicited: the host sends no reply. No new context is established until a later
+/// <see cref="IpcPlayContextChangedMessage"/>.
+/// </summary>
+/// <param name="CorrelationId">Always zero; this notification is unsolicited and expects no reply.</param>
+public sealed record IpcPlayContextEndedMessage(ulong CorrelationId) : IpcMessage(CorrelationId);

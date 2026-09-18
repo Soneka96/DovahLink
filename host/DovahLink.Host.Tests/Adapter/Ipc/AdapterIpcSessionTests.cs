@@ -592,6 +592,25 @@ public class AdapterIpcSessionTests
         Assert.Equal(playContextId, playContextTracker.Current);
     }
 
+    /// <summary>Verifies that a PlayContextEnded notification clears the play-context tracker and does not close the connection.</summary>
+    [Fact]
+    public void HandleFrame_PlayContextEnded_ClearsPlayContextTrackerAndReturnsNoneOutcome()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcPlayContextEndedMessage(0));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Null(playContextTracker.Current);
+    }
+
     /// <summary>Verifies that a message kind the host never expects to receive is rejected and closes the connection.</summary>
     [Theory]
     [InlineData(typeof(IpcListenEventMessage))]

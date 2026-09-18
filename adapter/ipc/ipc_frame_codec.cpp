@@ -58,7 +58,7 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-    return value >= 1 && value <= 17;
+    return value >= 1 && value <= 18;
 }
 
 ///  Whether `value` is one of `TrustAdminOperation`'s contiguous defined
@@ -654,6 +654,13 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage& message) const {
                                                 IpcPlayContextChangedMessage>) {
                 kind = IpcMessageKind::kPlayContextChanged;
                 payload = EncodePlayContextChanged(value);
+            } else if constexpr (std::is_same_v<T, IpcPlayContextEndedMessage>) {
+                if (value.correlationId != 0) {
+                    throw std::invalid_argument(
+                        "A play-context-ended notification must have "
+                        "correlation id zero.");
+                }
+                kind = IpcMessageKind::kPlayContextEnded;
             }
         },
         message);
@@ -941,6 +948,12 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
         return DecodeListenEventResult(correlationId, payload);
     case IpcMessageKind::kPlayContextChanged:
         return DecodePlayContextChanged(correlationId, payload);
+    case IpcMessageKind::kPlayContextEnded:
+        if (correlationId != 0 || !payload.empty()) {
+            return std::unexpected(IpcRejectReason::kMalformedPayload);
+        }
+        return IpcMessage{
+            IpcPlayContextEndedMessage{.correlationId = correlationId}};
     }
 
     return std::unexpected(IpcRejectReason::kUnknownMessageKind);

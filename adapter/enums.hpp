@@ -130,6 +130,10 @@ enum class IpcMessageKind : std::uint8_t {
     ///  Sent by the adapter to notify the host of a new play context. See
     ///  `IpcPlayContextChangedMessage`.
     kPlayContextChanged = 17,
+
+    ///  Sent by the adapter to notify the host the play context has ended.
+    ///  See `IpcPlayContextEndedMessage`.
+    kPlayContextEnded = 18,
 };
 
 ///  Why a private IPC channel is being closed.

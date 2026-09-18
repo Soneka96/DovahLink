@@ -1,3 +1,4 @@
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.State;
 
 namespace DovahLink.Host.Adapter.Ipc;
@@ -40,7 +41,8 @@ public interface ILiveStateScheduler
 /// again immediately against whatever the adapter listener's current state is then. The first send
 /// for a unit happens only after its first interval elapses -- an immediate authoritative baseline is
 /// already established by the adapter's own resynchronization sequence, so this scheduler does not
-/// need to rush a first sample.
+/// need to rush a first sample. Every tick is also gated on an active play context: with none
+/// established, there is no baseline to keep current, so nothing is sent.
 /// </remarks>
 public sealed class LiveStateScheduler : ILiveStateScheduler
 {
@@ -53,6 +55,9 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
     /// <summary>Maps each <see cref="RateClass"/> to how often that class is sampled.</summary>
     private readonly IReadOnlyDictionary<RateClass, TimeSpan> intervals;
 
+    /// <summary>Gates every tick: no active play context means no baseline exists to keep current, so nothing is sent.</summary>
+    private readonly IPlayContextTracker playContextTracker;
+
     /// <summary>Every rate-classed capture unit's own outstanding-request slot, keyed by its sample token.</summary>
     private readonly Dictionary<uint, OutstandingSlot> slotsBySampleToken;
 
@@ -60,8 +65,9 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
     /// <param name="listener">Whichever adapter connection is currently active is where every sample send goes.</param>
     /// <param name="catalog">The catalog naming every capture unit and its rate class.</param>
     /// <param name="liveCaptureSink">Raises <see cref="ILiveCaptureSink.CaptureResultApplied"/> for every arriving capture result, releasing this scheduler's own outstanding-request slots.</param>
-    public LiveStateScheduler(IAdapterIpcListener listener, LiveStateCatalog catalog, ILiveCaptureSink liveCaptureSink)
-        : this(listener, catalog, liveCaptureSink, ProductionIntervals)
+    /// <param name="playContextTracker">Gates every tick: no active play context means no baseline exists to keep current, so nothing is sent.</param>
+    public LiveStateScheduler(IAdapterIpcListener listener, LiveStateCatalog catalog, ILiveCaptureSink liveCaptureSink, IPlayContextTracker playContextTracker)
+        : this(listener, catalog, liveCaptureSink, playContextTracker, ProductionIntervals)
     {
     }
 
@@ -69,12 +75,14 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
     /// <param name="listener">Whichever adapter connection is currently active is where every sample send goes.</param>
     /// <param name="catalog">The catalog naming every capture unit and its rate class.</param>
     /// <param name="liveCaptureSink">Raises <see cref="ILiveCaptureSink.CaptureResultApplied"/> for every arriving capture result, releasing this scheduler's own outstanding-request slots.</param>
+    /// <param name="playContextTracker">Gates every tick: no active play context means no baseline exists to keep current, so nothing is sent.</param>
     /// <param name="intervals">Maps each <see cref="RateClass"/> that appears in <paramref name="catalog"/> to how often that class is sampled.</param>
-    internal LiveStateScheduler(IAdapterIpcListener listener, LiveStateCatalog catalog, ILiveCaptureSink liveCaptureSink, IReadOnlyDictionary<RateClass, TimeSpan> intervals)
+    internal LiveStateScheduler(IAdapterIpcListener listener, LiveStateCatalog catalog, ILiveCaptureSink liveCaptureSink, IPlayContextTracker playContextTracker, IReadOnlyDictionary<RateClass, TimeSpan> intervals)
     {
         this.listener = listener;
         this.catalog = catalog;
         this.intervals = intervals;
+        this.playContextTracker = playContextTracker;
         slotsBySampleToken = catalog.CaptureUnits
             .Where(unit => unit.RateClass is not null)
             .ToDictionary(unit => unit.CaptureKey, _ => new OutstandingSlot());
@@ -152,6 +160,13 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 return;
+            }
+
+            if (playContextTracker.Current is null)
+            {
+                //  No baseline exists to keep current without an active play context; an
+                //  already-outstanding slot simply pauses here and resumes once one is established.
+                continue;
             }
 
             ulong? timedOutCorrelationId = null;

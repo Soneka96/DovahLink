@@ -27,6 +27,13 @@ public interface IPlayContextTracker
     /// </summary>
     /// <param name="newPlayContextId">The play context now active.</param>
     void NotifyTransition(PlayContextId newPlayContextId);
+
+    /// <summary>
+    /// Records that the play context has ended, notified by the adapter (loading has started, or
+    /// the player returned to the main menu). Idempotent: calling this while already clear is a
+    /// no-op -- it does not advance the transition generation or raise <see cref="Transitioned"/>.
+    /// </summary>
+    void ClearCurrent();
 }
 
 /// <inheritdoc cref="IPlayContextTracker"/>
@@ -83,6 +90,28 @@ public sealed class PlayContextTracker : IPlayContextTracker
 
                 transition = new PlayContextTransition(current, newPlayContextId);
                 current = newPlayContextId;
+                transitionGeneration++;
+            }
+
+            Transitioned?.Invoke(transition);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void ClearCurrent()
+    {
+        lock (publicationGate)
+        {
+            PlayContextTransition transition;
+            lock (gate)
+            {
+                if (current is null)
+                {
+                    return;
+                }
+
+                transition = new PlayContextTransition(current, null);
+                current = null;
                 transitionGeneration++;
             }
 

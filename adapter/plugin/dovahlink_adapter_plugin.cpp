@@ -4,6 +4,8 @@
 
 #include "SKSE/SKSE.h"
 
+#include "RE/Skyrim.h"
+
 #include "capture/adapter_capture_work_item.hpp"
 #include "constants.hpp"
 #include "identity/adapter_instance_id_generator.hpp"
@@ -57,6 +59,40 @@ void SetupLogging() {
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
 }
+
+//  TODO(stage4-file-extraction): Move MainMenuOpenedSink to its own
+//  plugin/commonlib_adapter_main_menu_sink.hpp/.cpp in the post-Stage-4
+//  structural cleanup PR. Temporarily colocated here to hold this PR's
+//  changed-file count down; extraction only, no behavior change.
+///  Detects a return to Skyrim's main menu via the standard CommonLib
+///  `RE::MenuOpenCloseEvent` signal: SKSE's own `MessagingInterface` has no
+///  dedicated message type for it (`kPreLoadGame` fires only for a save
+///  load/new game, not a return to the main menu). Registered once at
+///  `SKSEPluginLoad` and never destroyed, matching every other
+///  process-lifetime allocation there.
+class MainMenuOpenedSink final
+    : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
+  public:
+    ///  @param session Notified with `SendPlayContextEnded` every time the
+    ///  main menu opens.
+    explicit MainMenuOpenedSink(dovahlink::adapter::ipc::IAdapterIpcSession& session)
+        : session_(session) {}
+
+    ///  @copydoc RE::BSTEventSink::ProcessEvent
+    RE::BSEventNotifyControl
+    ProcessEvent(const RE::MenuOpenCloseEvent* event,
+                 RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override {
+        if (event != nullptr && event->opening &&
+            event->menuName == RE::MainMenu::MENU_NAME) {
+            session_.SendPlayContextEnded();
+        }
+        return RE::BSEventNotifyControl::kContinue;
+    }
+
+  private:
+    ///  Notified with `SendPlayContextEnded` every time the main menu opens.
+    dovahlink::adapter::ipc::IAdapterIpcSession& session_;
+};
 
 ///  Resolves the packaged host executable's path relative to this adapter
 ///  plugin DLL's own installed directory -- only the loaded plugin binary
@@ -267,6 +303,12 @@ SKSEPluginInfo(
     dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(
         runtime->Session(), *taskMarshaller);
 
+    //  Detects a return to the main menu; see MainMenuOpenedSink's own doc
+    //  comment for why SKSE's messaging interface cannot signal this itself.
+    static auto* mainMenuOpenedSink =
+        new MainMenuOpenedSink(runtime->Session());
+    RE::UI::GetSingleton()->AddEventSink(mainMenuOpenedSink);
+
     //  SKSE-QUIRK: see
     //  ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin
     //  SKSE allows exactly one MessagingInterface::RegisterListener call per
@@ -278,13 +320,19 @@ SKSEPluginInfo(
             SKSE::log::info(
                 "DovahLink Adapter connecting to the private host IPC channel.");
         }
+        //  Ends the current context the moment loading starts, before the new
+        //  state is actually loaded: no capture taken during the loading
+        //  window can be attributed to either the old or the not-yet-existing
+        //  new context. This never establishes a context itself -- only
+        //  kNewGame/kPostLoadGame below do that.
+        if (message->type == SKSE::MessagingInterface::kPreLoadGame) {
+            runtime->Session().SendPlayContextEnded();
+        }
         //  Every genuinely new game and every load -- including a reload of
         //  the same save file -- gets its own fresh play-context identity
         //  unconditionally: state captured before a load is not guaranteed
         //  continuous with state after it, so there is no case where
-        //  deduplicating against the previous identity would be correct
-        //  here. kPreLoadGame is deliberately not used: it fires before the
-        //  new state is actually loaded.
+        //  deduplicating against the previous identity would be correct here.
         if (message->type == SKSE::MessagingInterface::kNewGame ||
             message->type == SKSE::MessagingInterface::kPostLoadGame) {
             runtime->Session().SendPlayContextChanged(

@@ -118,6 +118,30 @@ public class PlayContextResynchronizationTriggerTests
         Assert.Equal(0, connection.RequestCloseCalls);
     }
 
+    /// <summary>
+    /// Verifies that a transition to a null play context (the play context ending) neither re-arms
+    /// resynchronization nor sends a request: no play context exists to resynchronize.
+    /// </summary>
+    [Fact]
+    public void HandleTransition_NewContextIsNull_DoesNotRearmOrSend()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(availabilityTracker, instanceId, 1);
+        Resynchronize(availabilityTracker, instanceId, 1);
+        var listener = new FakeAdapterIpcListener();
+        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
+        listener.CurrentConnection = connection;
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+
+        trigger.HandleTransition(new PlayContextTransition(PlayContextId.NewId(), null));
+
+        Assert.False(availabilityTracker.NeedsResynchronization);
+        Assert.Equal(0, connection.ResynchronizeRequestCalls);
+        Assert.Equal(0, connection.RequestCloseCalls);
+    }
+
     /// <summary>Commits and publishes a connected transition in one call.</summary>
     private static void Connect(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long generation)
     {

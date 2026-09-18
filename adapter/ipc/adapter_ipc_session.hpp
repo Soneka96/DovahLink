@@ -169,6 +169,13 @@ class IAdapterIpcSession {
     virtual void
     SendPlayContextChanged(std::array<std::byte, 16> playContextId) = 0;
 
+    ///  Best-effort sends a play-context-ended notification through the
+    ///  currently attached, authenticated connection, and always clears the
+    ///  shared play-context state first -- regardless of authentication or
+    ///  connection state -- so a value captured afterward is never
+    ///  misattributed to the context that just ended.
+    virtual void SendPlayContextEnded() = 0;
+
     ///  Handles serving having irreversibly ended for the current generation,
     ///  reached strictly before `HandleDisconnected` (see
     ///  `AdapterIpcConnectionCallbacks::onClosing`). Invalidates this
@@ -265,6 +272,9 @@ class AdapterIpcSession final : public IAdapterIpcSession {
 
     ///  @copydoc IAdapterIpcSession::SendPlayContextChanged
     void SendPlayContextChanged(std::array<std::byte, 16> playContextId) override;
+
+    ///  @copydoc IAdapterIpcSession::SendPlayContextEnded
+    void SendPlayContextEnded() override;
 
   private:
     ///  The lifecycle phase that controls which inbound messages are legal.

@@ -14,14 +14,15 @@ public interface IPlayContextResynchronizationTrigger
 {
     /// <summary>
     /// Reacts to one committed play-context transition by re-arming resynchronization and requesting
-    /// a fresh baseline on the currently active adapter connection, if any. Unconditional: every real
-    /// transition (already deduplicated for a repeated context by
-    /// <see cref="IPlayContextTracker.NotifyTransition"/> itself) re-arms and re-requests, superseding
-    /// whatever transaction the previous request may still be in flight for. An essential
-    /// resynchronize request must never silently disappear: when the send itself fails (for example a
-    /// full outbound queue), this forces the connection closed instead of leaving the re-armed
-    /// requirement with no request ever having gone out -- the adapter's normal reconnect then drives
-    /// a fresh initial resynchronization.
+    /// a fresh baseline on the currently active adapter connection, if any. A no-op when
+    /// <see cref="PlayContextTransition.NewPlayContextId"/> is <see langword="null"/>: no play
+    /// context exists to resynchronize. Otherwise unconditional: every real transition (already
+    /// deduplicated for a repeated context by <see cref="IPlayContextTracker.NotifyTransition"/>
+    /// itself) re-arms and re-requests, superseding whatever transaction the previous request may
+    /// still be in flight for. An essential resynchronize request must never silently disappear: when
+    /// the send itself fails (for example a full outbound queue), this forces the connection closed
+    /// instead of leaving the re-armed requirement with no request ever having gone out -- the
+    /// adapter's normal reconnect then drives a fresh initial resynchronization.
     /// </summary>
     /// <param name="transition">The transition that just committed.</param>
     void HandleTransition(PlayContextTransition transition);
@@ -54,6 +55,13 @@ public sealed class PlayContextResynchronizationTrigger : IPlayContextResynchron
     /// <inheritdoc/>
     public void HandleTransition(PlayContextTransition transition)
     {
+        if (transition.NewPlayContextId is null)
+        {
+            //  No play context exists to resynchronize; a baseline is requested only once a later
+            //  transition establishes a real one.
+            return;
+        }
+
         adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
         IAdapterIpcConnection? connection = listener.CurrentConnection;
         if (connection is not null && !connection.TrySendResynchronizeRequest())

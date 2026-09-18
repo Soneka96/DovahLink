@@ -44,7 +44,9 @@ class CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink final
             .correlationId = 0,
             .source = capture::CaptureSourceKind::kEvent,
             .availability = capture::CaptureAvailability::kAvailable,
-            .playContextId = playContextState_.CurrentPlayContext(),
+            .playContextId =
+                playContextState_.CurrentPlayContext().value_or(
+                    std::array<std::byte, 16>{}),
         });
         return RE::BSEventNotifyControl::kContinue;
     }

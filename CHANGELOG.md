@@ -50,6 +50,10 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   baseline or terminal result, or an unexpected exception mid-resynchronization now all reset the
   Adapter's current private IPC attempt and let the supervisor reconnect, instead of either
   permanently stopping the connection or silently leaving the Host waiting forever.
+- The Adapter now announces the play context ending -- loading a save has started, or the player
+  returned to the main menu -- instead of only ever announcing a new one; the Host clears its
+  tracked play context and stops live sampling until a fresh one is established, instead of
+  continuing to treat a stale context as current.
 
 ### Removed
 

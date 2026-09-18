@@ -57,6 +57,7 @@ using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
 using dovahlink::adapter::ipc::IpcPlayContextChangedMessage;
+using dovahlink::adapter::ipc::IpcPlayContextEndedMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
@@ -1291,8 +1292,8 @@ TEST_CASE("AdapterIpcSession replays the currently held play context to a "
     CHECK(notification->playContextId == playContextId);
 }
 
-TEST_CASE("AdapterIpcSession does not replay an all-zero play context: "
-          "nothing genuine has ever been announced yet") {
+TEST_CASE("AdapterIpcSession does not replay a play context when nothing "
+          "genuine has ever been announced yet") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
@@ -1315,7 +1316,7 @@ TEST_CASE("AdapterIpcSession does not replay an all-zero play context: "
         }});
     REQUIRE(disposition == AdapterIpcMessageDisposition::kAuthenticated);
 
-    CHECK(fixture.playContextState.CurrentPlayContext() == std::array<std::byte, 16>{});
+    CHECK(fixture.playContextState.CurrentPlayContext() == std::nullopt);
     CHECK(connection.Sent().empty());
 }
 
@@ -2056,6 +2057,25 @@ TEST_CASE("AdapterIpcSession::SendPlayContextChanged updates the tracked "
           playContextId);
 }
 
+TEST_CASE("AdapterIpcSession stamps a capture with an all-zero play context "
+          "when no play context is currently active, rather than crashing "
+          "or leaving it uninitialized") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetSampleResult(3, {std::byte{5}});
+    REQUIRE(fixture.playContextState.CurrentPlayContext() == std::nullopt);
+
+    fixture.session.HandleMessage(IpcMessage{
+        IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().playContextId ==
+          std::array<std::byte, 16>{});
+}
+
 TEST_CASE("AdapterIpcSession::SendCaptureResult sends a capture result "
           "through the authenticated connection") {
     SessionFixture fixture;
@@ -2217,7 +2237,7 @@ TEST_CASE("AdapterIpcSession::SendPlayContextChanged writes through to the "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
 
-    CHECK(fixture.playContextState.CurrentPlayContext() == std::array<std::byte, 16>{});
+    CHECK(fixture.playContextState.CurrentPlayContext() == std::nullopt);
 
     std::array<std::byte, 16> playContextId{};
     playContextId[0] = std::byte{9};
@@ -2309,6 +2329,100 @@ TEST_CASE("AdapterIpcSession::SendPlayContextChanged resets the connection "
     connection.ThrowOnNextSend();
 
     REQUIRE_NOTHROW(fixture.session.SendPlayContextChanged({}));
+
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextEnded clears the shared "
+          "play-context state even before authentication") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    std::array<std::byte, 16> playContextId{};
+    playContextId[0] = std::byte{9};
+    fixture.playContextState.SetCurrentPlayContext(playContextId);
+
+    fixture.session.SendPlayContextEnded();
+
+    CHECK(fixture.playContextState.CurrentPlayContext() == std::nullopt);
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextEnded sends a notification "
+          "through the authenticated connection") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    fixture.session.SendPlayContextEnded();
+
+    REQUIRE(connection.Sent().size() == 1);
+    auto* notification =
+        std::get_if<IpcPlayContextEndedMessage>(&connection.Sent().front());
+    REQUIRE(notification != nullptr);
+    CHECK(notification->correlationId == 0);
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextEnded does nothing before "
+          "authentication") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+
+    fixture.session.SendPlayContextEnded();
+
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextEnded does nothing after "
+          "disconnection") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.session.HandleDisconnected();
+
+    fixture.session.SendPlayContextEnded();
+
+    CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextEnded contains an exception "
+          "thrown by TrySend") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.ThrowOnNextSend();
+
+    REQUIRE_NOTHROW(fixture.session.SendPlayContextEnded());
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextEnded resets the connection "
+          "when TrySend rejects the notification, since the Host would "
+          "otherwise keep treating a since-ended context as current forever") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.RejectNextSend();
+
+    fixture.session.SendPlayContextEnded();
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextEnded resets the connection "
+          "when TrySend throws for the notification") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.ThrowOnNextSend();
+
+    REQUIRE_NOTHROW(fixture.session.SendPlayContextEnded());
 
     CHECK(connection.ReconnectRequests() == 1);
 }

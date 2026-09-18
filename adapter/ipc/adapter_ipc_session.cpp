@@ -535,12 +535,36 @@ void AdapterIpcSession::SendPlayContextChanged(
     }
 }
 
-void AdapterIpcSession::ReplayCurrentPlayContext() {
-    std::array<std::byte, 16> current = playContextState_.CurrentPlayContext();
-    if (current == std::array<std::byte, 16>{}) {
+void AdapterIpcSession::SendPlayContextEnded() {
+    playContextState_.ClearCurrentPlayContext();
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    if (authenticationState_ != AuthenticationState::kAuthenticated ||
+        connection_ == nullptr) {
         return;
     }
-    SendPlayContextChanged(current);
+    bool sent = false;
+    try {
+        sent = connection_->TrySend(
+            IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}});
+    } catch (...) {
+        //  Best-effort; see SendBestEffortReject's own documentation for why
+        //  a failed or throwing send here must never propagate.
+    }
+    if (!sent) {
+        //  A lost play-context-ended notification would leave the Host still
+        //  treating a since-ended context as authoritative; this is always
+        //  continuity-critical, matching SendPlayContextChanged's own policy.
+        connection_->RequestReconnect();
+    }
+}
+
+void AdapterIpcSession::ReplayCurrentPlayContext() {
+    std::optional<std::array<std::byte, 16>> current =
+        playContextState_.CurrentPlayContext();
+    if (!current.has_value()) {
+        return;
+    }
+    SendPlayContextChanged(*current);
 }
 
 AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
@@ -593,9 +617,13 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                 //  Read the play context immediately before the Skyrim reads
                 //  below, rather than caching it earlier or reading it later
                 //  on a different thread; see HandleReadSample's identical
-                //  guard for why.
+                //  guard for why. All-zero when no context is currently
+                //  active (resync only reaches this task while the Host
+                //  already has one, so this is a defensive fallback, not the
+                //  expected case).
                 std::array<std::byte, 16> playContextId =
-                    playContextState_.CurrentPlayContext();
+                    playContextState_.CurrentPlayContext().value_or(
+                        std::array<std::byte, 16>{});
                 //  Register the level-changed event before reading the level
                 //  baseline below, in this same game-thread task, so there is
                 //  no window between registration and the baseline read in
@@ -821,9 +849,11 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                 //  below, rather than caching it earlier or reading it later
                 //  on a different thread: this is the tightest window
                 //  between observing "this context is current" and actually
-                //  capturing the value under it.
+                //  capturing the value under it. All-zero when no context is
+                //  currently active.
                 std::array<std::byte, 16> playContextId =
-                    playContextState_.CurrentPlayContext();
+                    playContextState_.CurrentPlayContext().value_or(
+                        std::array<std::byte, 16>{});
                 dispatch::SampleCaptureResult captured =
                     captureRouter_.CaptureSample(sampleToken);
                 //  An unsupported token sends nothing back at all; see

@@ -40,6 +40,7 @@ using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
 using dovahlink::adapter::ipc::IpcPlayContextChangedMessage;
+using dovahlink::adapter::ipc::IpcPlayContextEndedMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
@@ -652,6 +653,17 @@ TEST_CASE("a play-context-changed notification round-trips its identity",
     CHECK(*result == IpcMessage{original});
 }
 
+TEST_CASE("a play-context-ended notification round-trips",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcPlayContextEndedMessage original{.correlationId = 0};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
 TEST_CASE("trust-admin request round-trips for every operation",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
@@ -809,6 +821,16 @@ TEST_CASE("encoding a play-context-changed notification with a nonzero "
 
     CHECK_THROWS_AS(codec.Encode(IpcMessage{
                         IpcPlayContextChangedMessage{.correlationId = 1}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("encoding a play-context-ended notification with a nonzero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{
+                        IpcPlayContextEndedMessage{.correlationId = 1}}),
                     std::invalid_argument);
 }
 
@@ -999,10 +1021,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    //  18 is the value immediately past the currently highest defined kind
-    //  (kPlayContextChanged = 17); update this alongside any future kind
+    //  19 is the value immediately past the currently highest defined kind
+    //  (kPlayContextEnded = 18); update this alongside any future kind
     //  addition so it keeps testing the actual boundary.
-    for (std::byte kindByte : {std::byte{0}, std::byte{18}, std::byte{250}}) {
+    for (std::byte kindByte : {std::byte{0}, std::byte{19}, std::byte{250}}) {
         std::vector<std::byte> frame =
             codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
         frame[4] = kindByte;
@@ -1587,6 +1609,32 @@ TEST_CASE("a play-context-changed notification payload of the wrong length "
     }
 }
 
+TEST_CASE("a play-context-ended notification with a nonzero correlation id "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPlayContextEnded, 1, {});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a play-context-ended notification carrying an unexpected payload "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPlayContextEnded, 0, {std::byte{0}});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
 TEST_CASE("a trust-admin request with a zero correlation id fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
@@ -1910,6 +1958,10 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
          Bytes({0x19, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
                 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF})},
+        //  No payload.
+        {IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}},
+         Bytes({0x09, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00})},
     };
 
     for (const auto& [message, expected] : vectors) {

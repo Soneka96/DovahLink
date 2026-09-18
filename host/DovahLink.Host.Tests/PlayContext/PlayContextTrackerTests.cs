@@ -170,6 +170,76 @@ public class PlayContextTrackerTests
         Assert.Equal(1, tracker.GetSnapshot().TransitionGeneration);
     }
 
+    /// <summary>Verifies that clearing an already-clear tracker is a no-op: it neither advances the transition generation nor raises <see cref="IPlayContextTracker.Transitioned"/>.</summary>
+    [Fact]
+    public void ClearCurrent_AlreadyClear_IsANoOp()
+    {
+        var tracker = new PlayContextTracker();
+        int transitionedCalls = 0;
+        tracker.Transitioned += _ => transitionedCalls++;
+
+        tracker.ClearCurrent();
+
+        Assert.Null(tracker.Current);
+        Assert.Equal(0, tracker.GetSnapshot().TransitionGeneration);
+        Assert.Equal(0, transitionedCalls);
+    }
+
+    /// <summary>Verifies that clearing an established play context sets <see cref="IPlayContextTracker.Current"/> back to null.</summary>
+    [Fact]
+    public void ClearCurrent_ContextEstablished_SetsCurrentToNull()
+    {
+        var tracker = new PlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId());
+
+        tracker.ClearCurrent();
+
+        Assert.Null(tracker.Current);
+    }
+
+    /// <summary>Verifies that clearing an established play context advances the transition generation and fires the event with the previous context and a null new context.</summary>
+    [Fact]
+    public void ClearCurrent_ContextEstablished_FiresEventWithNullNewContext()
+    {
+        var tracker = new PlayContextTracker();
+        PlayContextId context = PlayContextId.NewId();
+        tracker.NotifyTransition(context);
+        long generationAfterFirst = tracker.GetSnapshot().TransitionGeneration;
+        PlayContextTransition? observed = null;
+        tracker.Transitioned += transition => observed = transition;
+
+        tracker.ClearCurrent();
+
+        Assert.NotNull(observed);
+        Assert.Equal(context, observed!.PreviousPlayContextId);
+        Assert.Null(observed.NewPlayContextId);
+        Assert.True(tracker.GetSnapshot().TransitionGeneration > generationAfterFirst);
+    }
+
+    /// <summary>Verifies that a later transition still establishes normally after a clear.</summary>
+    [Fact]
+    public void NotifyTransition_AfterClearCurrent_EstablishesFreshContext()
+    {
+        var tracker = new PlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId());
+        tracker.ClearCurrent();
+        PlayContextId newContext = PlayContextId.NewId();
+
+        tracker.NotifyTransition(newContext);
+
+        Assert.Equal(newContext, tracker.Current);
+    }
+
+    /// <summary>Verifies that clearing with no subscribers does not throw.</summary>
+    [Fact]
+    public void ClearCurrent_NoSubscribers_DoesNotThrow()
+    {
+        var tracker = new PlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId());
+
+        tracker.ClearCurrent();
+    }
+
     /// <summary>Verifies that a delayed transition callback cannot be overtaken by a newer transition callback.</summary>
     [Fact]
     public async Task NotifyTransition_DelayedCallback_BlocksLaterTransitionPublication()

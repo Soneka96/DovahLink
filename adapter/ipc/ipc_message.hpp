@@ -89,6 +89,23 @@ struct IpcPlayContextChangedMessage {
     bool operator==(const IpcPlayContextChangedMessage&) const = default;
 };
 
+//  TODO(stage4-file-extraction): Move IpcPlayContextEndedMessage to its own
+//  ipc/ipc_play_context_ended_message.hpp in the post-Stage-4 structural
+//  cleanup PR. Temporarily colocated here to hold this PR's changed-file count
+//  down; extraction only, no behavior change.
+///  Sent by the adapter to notify the host that the current play context has
+///  ended: loading has started (before the new context is established), or
+///  the player returned to the main menu. Best effort and unsolicited: the
+///  host sends no reply. No new context is established until a later
+///  `IpcPlayContextChangedMessage`.
+struct IpcPlayContextEndedMessage {
+    ///  Always zero; this notification is unsolicited and expects no reply.
+    std::uint64_t correlationId = 0;
+
+    ///  Structural equality over every field.
+    bool operator==(const IpcPlayContextEndedMessage&) const = default;
+};
+
 ///  A decoded or to-be-encoded private host-to-adapter IPC message envelope
 ///  value. Every alternative is an owned plain value; none may retain a
 ///  Skyrim/CommonLib pointer, borrowed buffer, or public-protocol object.
@@ -101,6 +118,6 @@ using IpcMessage =
                  IpcPairingAttemptsExhaustedMessage,
                  IpcTrustAdminRequestMessage, IpcTrustAdminResultMessage,
                  IpcCaptureResultMessage, IpcListenEventResultMessage,
-                 IpcPlayContextChangedMessage>;
+                 IpcPlayContextChangedMessage, IpcPlayContextEndedMessage>;
 
 } //  namespace dovahlink::adapter::ipc

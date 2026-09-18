@@ -298,6 +298,10 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
                 playContextTracker.NotifyTransition(playContextChanged.PlayContextId);
                 return AdapterIpcOutcome.None;
 
+            case IpcPlayContextEndedMessage:
+                playContextTracker.ClearCurrent();
+                return AdapterIpcOutcome.None;
+
             default:
                 return AdapterIpcOutcome.SendAndClose(new IpcRejectMessage(message.CorrelationId, IpcRejectReason.UnknownMessageKind));
         }
