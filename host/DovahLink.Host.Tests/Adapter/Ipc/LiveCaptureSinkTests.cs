@@ -145,7 +145,8 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_LevelChangedEvent_PublishesThroughEventOccurredNotSnapshotChanged()
     {
-        Fixture fixture = CreateReady();
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
         StateEventPublication? raisedEvent = null;
         bool snapshotChangedRaised = false;
         fixture.Feed.EventOccurred += publication => raisedEvent = publication;
@@ -156,29 +157,178 @@ public class LiveCaptureSinkTests
 
         Assert.NotNull(raisedEvent);
         Assert.Equal(LevelArea, raisedEvent!.StateArea);
+        Assert.Equal(RevisionNumber.Initial, raisedEvent.BaseRevision);
+        Assert.Equal(RevisionNumber.Initial.Next(), raisedEvent.Revision);
         Assert.False(snapshotChangedRaised);
+        Assert.Empty(fakeCoordinator.AcquireTokenCalls);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
     }
 
     /// <summary>
-    /// Characterizes the level-changed event's currently preserved routing: while the adapter needs
-    /// resynchronization, a live level-up event is still routed through the resynchronization-baseline
-    /// path, exactly as before this change -- unlike an ordinary sample capture (see
-    /// <see cref="ApplyCaptureResult_OrdinarySampleWhileNeedsResynchronization_NeverRecordsAreaAccepted"/>),
-    /// whose identical situation this change does fix. Locks in today's behavior for this deliberately
-    /// out-of-scope branch so a later change to it is a conscious decision, not an accidental
-    /// regression.
+    /// Verifies that a level-changed Event arriving during resynchronization may be authorized and
+    /// applied without being recorded as an accepted baseline area.
     /// </summary>
     [Fact]
-    public void ApplyCaptureResult_LevelChangedEventWhileNeedsResynchronization_StillRoutesThroughBaselinePath()
+    public void ApplyCaptureResult_LevelChangedEventWhileNeedsResynchronization_DoesNotRecordAreaAccepted()
     {
         var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
         Fixture fixture = CreateReady(fakeCoordinator);
         fixture.AdapterTracker.NeedsResynchronization = true;
+        fakeCoordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.NotEmpty(fakeCoordinator.AcquireTokenCalls);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+    }
+
+    /// <summary>Verifies that a level-changed Event during resynchronization remains an Event publication with the expected revisions.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEventWhileNeedsResynchronization_PublishesEventNotSnapshot()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        fakeCoordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+        StateEventPublication? raisedEvent = null;
+        bool snapshotChangedRaised = false;
+        fixture.Feed.EventOccurred += publication => raisedEvent = publication;
+        fixture.Feed.SnapshotChanged += _ => snapshotChangedRaised = true;
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+
+        Assert.NotNull(raisedEvent);
+        Assert.Equal(LevelArea, raisedEvent!.StateArea);
+        Assert.Equal(RevisionNumber.Initial, raisedEvent.BaseRevision);
+        Assert.Equal(RevisionNumber.Initial.Next(), raisedEvent.Revision);
+        Assert.Equal(11, raisedEvent.Data.GetProperty("value").GetUInt16());
+        Assert.False(snapshotChangedRaised);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+    }
+
+    /// <summary>Verifies that successive resynchronization Events chain their base and resulting revisions.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEventsWhileNeedsResynchronization_ChainRevisions()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        fakeCoordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+        var raisedEvents = new List<StateEventPublication>();
+        fixture.Feed.EventOccurred += publication => raisedEvents.Add(publication);
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(12)), fixture.Source);
+
+        Assert.Equal(2, raisedEvents.Count);
+        Assert.Equal(RevisionNumber.Initial, raisedEvents[0].BaseRevision);
+        Assert.Equal(RevisionNumber.Initial.Next(), raisedEvents[0].Revision);
+        Assert.Equal(raisedEvents[0].Revision, raisedEvents[1].BaseRevision);
+        Assert.Equal(raisedEvents[0].Revision.Next(), raisedEvents[1].Revision);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+    }
+
+    /// <summary>Verifies that an Event without current resynchronization authorization is dropped safely.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEventWhileNeedsResynchronizationWithoutToken_DropsWithoutPublication()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        bool eventRaised = false;
+        fixture.Feed.EventOccurred += _ => eventRaised = true;
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+
+        Assert.NotEmpty(fakeCoordinator.AcquireTokenCalls);
+        Assert.False(eventRaised);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+    }
+
+    /// <summary>Verifies that the actual level baseline sample records the Level area after an Event arrived first.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEventBeforeLevelBaseline_OnlyBaselineRecordsAreaAccepted()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        fakeCoordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterLevelBaseline,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+
+        Assert.Single(fakeCoordinator.RecordAreaAcceptedCalls);
+        Assert.Equal(LevelArea, fakeCoordinator.RecordAreaAcceptedCalls[0].AreaId);
+    }
+
+    /// <summary>Verifies that an Event cannot complete a transaction when the Level baseline remains outstanding.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEventBeforeBaseline_CannotCompleteResynchronization()
+    {
+        Fixture fixture = CreateReady();
+        fixture.AdapterTracker.NeedsResynchronization = true;
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterVitals,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeVitals(90.0f, 80.0f, 70.0f)), fixture.Source);
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterXp,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeFloat(50.0f)), fixture.Source);
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+        fixture.Coordinator.RecordAdapterPlanAccepted(true, fixture.Source.InstanceId, fixture.Source.ConnectionGeneration, fixture.Context, fixture.PlayContextTracker.TransitionGeneration);
+
+        Assert.True(fixture.AdapterTracker.NeedsResynchronization);
     }
 
     /// <summary>

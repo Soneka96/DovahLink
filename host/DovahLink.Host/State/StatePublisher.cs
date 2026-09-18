@@ -74,6 +74,25 @@ public interface IStatePublisher<TState>
         long capturedPlayContextGeneration,
         StateAreaId areaId,
         TState value);
+
+    /// <summary>
+    /// Applies an Event from the current adapter while resynchronization is still required. Subject
+    /// to the same resynchronization-token and play-context provenance checks as
+    /// <see cref="ApplyResynchronizationBaseline"/>, but does not establish or count a baseline.
+    /// </summary>
+    /// <param name="resynchronizationToken">The opaque authorization issued for the current adapter connection.</param>
+    /// <param name="capturedPlayContextId">The play context that was current at the moment this Event was captured.</param>
+    /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this Event was captured.</param>
+    /// <param name="areaId">The state area the Event belongs to.</param>
+    /// <param name="value">The Event's resulting value.</param>
+    /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
+    /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
+    StateApplyResult ApplyResynchronizationEvent(
+        IAdapterResynchronizationToken resynchronizationToken,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        StateAreaId areaId,
+        TState value);
 }
 
 /// <inheritdoc cref="IStatePublisher{TState}"/>
@@ -201,20 +220,33 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
             resynchronizationToken, areaId, value, allowResynchronization: true);
     }
 
+    /// <inheritdoc/>
+    public StateApplyResult ApplyResynchronizationEvent(
+        IAdapterResynchronizationToken resynchronizationToken,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        StateAreaId areaId,
+        TState value)
+    {
+        return ApplyCore(
+            null, null, capturedPlayContextId, capturedPlayContextGeneration,
+            resynchronizationToken, areaId, value, allowResynchronization: true);
+    }
+
     /// <summary>
     /// Shared implementation behind <see cref="Apply"/> and <see cref="ApplyResynchronizationBaseline"/>:
     /// validates the caller's authority (an ordinary capture's source adapter instance/connection
-    /// generation, or a resynchronization baseline's claimed token) and captured play-context
+    /// generation, or a resynchronization baseline/Event's claimed token) and captured play-context
     /// provenance, then applies the value and advances the revision if it actually changed.
     /// </summary>
     /// <param name="sourceInstanceId">The adapter instance that produced the value; <see langword="null"/> for a resynchronization baseline.</param>
     /// <param name="sourceConnectionGeneration">The adapter connection generation that produced the value; <see langword="null"/> for a resynchronization baseline.</param>
     /// <param name="capturedPlayContextId">The play context that was current at the moment the value was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment the value was captured.</param>
-    /// <param name="resynchronizationToken">The claimed resynchronization authorization; <see langword="null"/> for an ordinary capture.</param>
+    /// <param name="resynchronizationToken">The claimed resynchronization authorization for a baseline or Event; <see langword="null"/> for an ordinary capture.</param>
     /// <param name="areaId">The state area the value belongs to.</param>
     /// <param name="value">The value to apply.</param>
-    /// <param name="allowResynchronization"><see langword="true"/> when validating a resynchronization baseline rather than an ordinary capture.</param>
+    /// <param name="allowResynchronization"><see langword="true"/> when validating a resynchronization baseline or Event rather than an ordinary capture.</param>
     /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
     /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
     private StateApplyResult ApplyCore(
@@ -340,8 +372,9 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
 // Temporarily colocated here to hold this PR's changed-file count down;
 // extraction only, no behavior change.
 /// <summary>
-/// The atomic outcome of one <see cref="IStatePublisher{TState}.Apply"/> or
-/// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/> call, computed inside the
+/// The atomic outcome of one <see cref="IStatePublisher{TState}.Apply"/>,
+/// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/>, or
+/// <see cref="IStatePublisher{TState}.ApplyResynchronizationEvent"/> call, computed inside the
 /// same lock that decides acceptance and assigns the revision -- so a caller deciding whether to
 /// push an unsolicited publication never needs to separately re-read <see cref="RevisionNumber"/>
 /// after the fact, which could otherwise race a concurrent capture for the same area.

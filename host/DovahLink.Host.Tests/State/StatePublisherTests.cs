@@ -127,6 +127,40 @@ public class StatePublisherTests
         Assert.Equal(RevisionNumber.Initial.Next(), result.Revision);
     }
 
+    /// <summary>Verifies that a token-authorized Event is accepted during resynchronization with normal Event revisions.</summary>
+    [Fact]
+    public void ApplyResynchronizationEvent_FirstValue_ReturnsAcceptedChangedWithExactRevisions()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available, NeedsResynchronization = true };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+
+        StateApplyResult result = publisher.ApplyResynchronizationEvent(
+            adapterTracker.TryClaimResynchronizationToken()!, context, playContextTracker.TransitionGeneration, AreaId, 42);
+
+        Assert.True(result.Accepted);
+        Assert.True(result.Changed);
+        Assert.Equal(RevisionNumber.Initial, result.BaseRevision);
+        Assert.Equal(RevisionNumber.Initial.Next(), result.Revision);
+        Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
+    }
+
+    /// <summary>Verifies that a resynchronization Event rejects a token that is not current for the adapter.</summary>
+    [Fact]
+    public void ApplyResynchronizationEvent_StaleToken_IsRejected()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available, NeedsResynchronization = true };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+
+        Assert.False(publisher.ApplyResynchronizationEvent(
+            new ForeignResynchronizationToken(), context, playContextTracker.TransitionGeneration, AreaId, 42).Accepted);
+    }
+
     /// <summary>Verifies that applying the same value again does not advance the revision a second time.</summary>
     [Fact]
     public void Apply_SameValueAgain_DoesNotAdvanceRevision()

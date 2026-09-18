@@ -255,30 +255,28 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         }
 
         UpdateMode mode = captureResult.Source == CaptureSourceKind.Sample ? UpdateMode.Snapshot : UpdateMode.Event;
-        // The baseline sample's own correlation id (zero, like every other baseline sample) decides
-        // baseline-vs-live purpose, matching ApplyVitals/ApplyScalarFloat -- see ApplyAndPublish's own
-        // documentation. The level-changed event branch deliberately still reads the adapter's global
-        // resynchronization flag, unchanged from before: a native event genuinely satisfying (or
-        // wrongly appearing to satisfy) a resynchronization while one is outstanding for some other
-        // area is a real, separate question this fix does not address, since a live level-up firing
-        // mid-resync must remain reliable, not simply be classified correctly.
+        // Only a baseline sample can satisfy resynchronization. A native level-changed Event remains
+        // an Event even when resynchronization is outstanding; ApplyAndPublish gives it a separate,
+        // token-authorized path that never records an accepted baseline area.
         bool isResynchronizationBaseline = captureResult.Source == CaptureSourceKind.Sample
-            ? captureResult.CorrelationId == 0
-            : adapterSnapshot.NeedsResynchronization;
+            && captureResult.CorrelationId == 0;
         ApplyAndPublish(levelPublisher, mode, areaId, value, isResynchronizationBaseline, source, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>
     /// Applies one area's value through <paramref name="publisher"/> -- routing through
     /// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/> when
-    /// <paramref name="isResynchronizationBaseline"/> is <see langword="true"/>, or
-    /// <see cref="IStatePublisher{TState}.Apply"/> otherwise. The caller decides
+    /// <paramref name="isResynchronizationBaseline"/> is <see langword="true"/>. An Event arriving
+    /// while resynchronization is required uses <see cref="IStatePublisher{TState}.ApplyResynchronizationEvent"/>
+    /// instead, while all other captures use <see cref="IStatePublisher{TState}.Apply"/>. The caller decides
     /// <paramref name="isResynchronizationBaseline"/> from the capture's own identity (its
     /// correlation id and source), never from the adapter's global
     /// <see cref="AdapterAvailabilitySnapshot.NeedsResynchronization"/> flag alone: an ordinary,
     /// scheduler-issued sample always carries a nonzero correlation id and must never be read as
     /// satisfying a resynchronization merely because one happens to be outstanding when its reply
-    /// arrives. An accepted, actually-changed result publishes through
+    /// arrives. A resync-authorized Event never calls
+    /// <see cref="IResynchronizationTransactionCoordinator.RecordAreaAccepted"/>. An accepted,
+    /// actually-changed result publishes through
     /// <see cref="IStatePublicationSink.PublishSnapshot"/> or <see cref="IStatePublicationSink.PublishEvent"/>;
     /// an accepted-but-unchanged Snapshot-mode resynchronization baseline still calls
     /// <see cref="IStatePublicationSink.EstablishBaseline"/> so the publication feed's pull-read
@@ -327,6 +325,17 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
                 resynchronizationTransactionCoordinator.RecordAreaAccepted(
                     areaId, source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
             }
+        }
+        else if (mode == UpdateMode.Event && adapterSnapshot.NeedsResynchronization)
+        {
+            IAdapterResynchronizationToken? token = resynchronizationTransactionCoordinator.AcquireToken(
+                source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
+            if (token is null)
+            {
+                return;
+            }
+
+            result = publisher.ApplyResynchronizationEvent(token, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
         }
         else
         {
