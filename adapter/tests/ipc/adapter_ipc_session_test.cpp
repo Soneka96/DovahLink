@@ -947,6 +947,42 @@ TEST_CASE("AdapterIpcSession closes for a pre-authentication resynchronize "
     CHECK(fixture.marshaller.PendingCount() == 0);
 }
 
+TEST_CASE("AdapterIpcSession closes the connection when a resynchronize "
+          "request's game-thread dispatch cannot be admitted because the "
+          "pending-dispatch bound is full") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    for (std::uint32_t eventKey = 1; eventKey <= kMaxPendingGameThreadDispatches;
+         ++eventKey) {
+        fixture.session.HandleMessage(IpcMessage{IpcListenEventMessage{
+            .correlationId = eventKey, .eventKey = eventKey}});
+    }
+    REQUIRE(fixture.marshaller.PendingCount() == kMaxPendingGameThreadDispatches);
+
+    CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+              .correlationId = kMaxPendingGameThreadDispatches + 1}}) ==
+          AdapterIpcMessageDisposition::kClose);
+    CHECK(fixture.rejectedDispatchCount == 1);
+}
+
+TEST_CASE("AdapterIpcSession closes the connection when RunOnGameThread "
+          "throws scheduling a resynchronize request's dispatch") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    fixture.marshaller.ThrowOnNextSchedule();
+
+    CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+              .correlationId = 1}}) == AdapterIpcMessageDisposition::kClose);
+    CHECK(fixture.rejectedDispatchCount == 1);
+    CHECK(fixture.marshaller.PendingCount() == 0);
+}
+
 TEST_CASE("AdapterIpcSession::HandleClosing is a harmless no-op on a session "
           "that never connected") {
     SessionFixture fixture;

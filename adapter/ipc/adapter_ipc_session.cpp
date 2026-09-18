@@ -653,6 +653,10 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     if (!admitted) {
         std::lock_guard<std::mutex> lock(availableMutex_);
         UnregisterCancellableDispatchLocked(correlationId, cancellation);
+        //  Unlike ListenEvent/ReadSample/PairingDisplay, nothing on the host
+        //  times out a resynchronize request once sent: a silently dropped
+        //  admission here would wedge it forever. Close instead.
+        return AdapterIpcMessageDisposition::kClose;
     }
     return AdapterIpcMessageDisposition::kContinue;
 }
