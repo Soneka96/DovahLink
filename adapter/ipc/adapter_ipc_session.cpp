@@ -594,10 +594,15 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                 //  "unavailable" capture for a token this router does not even
                 //  recognize would hide a protocol/version mismatch as normal
                 //  Skyrim state.
-                //  @return Whether sampleToken was recognized at all, distinct
-                //  from whether its underlying Skyrim read was itself
-                //  available -- only recognition bears on this resync's own
-                //  admission below.
+                //  @return Whether sampleToken was both recognized AND its
+                //  baseline result was actually admitted to the bounded
+                //  capture handoff queue -- distinct from whether its
+                //  underlying Skyrim read was itself available. The queue is
+                //  deliberately bounded and non-blocking, so admission is not
+                //  guaranteed by recognition alone: a recognized sample the
+                //  queue rejects must not be reported as accepted below, or
+                //  the host would wait forever for a baseline area that was
+                //  never actually handed off.
                 auto enqueueBaselineSample = [this, &playContextId](
                                                  std::uint32_t sampleToken) {
                     dispatch::SampleCaptureResult captured =
@@ -606,7 +611,7 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                         dispatch::SampleCaptureStatus::kUnsupported) {
                         return false;
                     }
-                    captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                    return captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
                         .intentKey = sampleToken,
                         .capturedValue = std::move(captured.payload),
                         .correlationId = 0,
@@ -617,23 +622,23 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                                 : capture::CaptureAvailability::kUnavailable,
                         .playContextId = playContextId,
                     });
-                    return true;
                 };
-                bool levelBaselineRecognized = enqueueBaselineSample(
+                bool levelBaselineAdmitted = enqueueBaselineSample(
                     static_cast<std::uint32_t>(
                         capture::CharacterSampleToken::kCharacterLevelBaseline));
-                bool vitalsRecognized = enqueueBaselineSample(static_cast<std::uint32_t>(
+                bool vitalsAdmitted = enqueueBaselineSample(static_cast<std::uint32_t>(
                     capture::CharacterSampleToken::kCharacterVitals));
-                bool xpRecognized = enqueueBaselineSample(static_cast<std::uint32_t>(
+                bool xpAdmitted = enqueueBaselineSample(static_cast<std::uint32_t>(
                     capture::CharacterSampleToken::kCharacterXp));
                 //  Truthfully reports whether every requested event
                 //  registration succeeded and every requested sample token
-                //  was recognized -- not merely that a capture attempt ran.
-                //  An individual recognized sample's own Skyrim-side
-                //  unavailability is reported through its own capture
-                //  result, not this flag.
-                bool accepted = eventRegistered && levelBaselineRecognized &&
-                                vitalsRecognized && xpRecognized;
+                //  was both recognized and admitted to the capture handoff
+                //  queue -- not merely that a capture attempt ran. An
+                //  individual recognized-and-admitted sample's own
+                //  Skyrim-side unavailability is reported through its own
+                //  capture result, not this flag.
+                bool accepted = eventRegistered && levelBaselineAdmitted &&
+                                vitalsAdmitted && xpAdmitted;
                 if (connection_ != nullptr) {
                     connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
                         .correlationId = correlationId, .accepted = accepted}});

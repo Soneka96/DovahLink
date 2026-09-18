@@ -193,11 +193,16 @@ class BlockingAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRou
     std::shared_future<void> release_;
 };
 
-///  A fake `IAdapterCaptureHandoffQueue` that records every enqueued item.
+///  A fake `IAdapterCaptureHandoffQueue` that records every enqueued item,
+///  and can be configured to reject a specific intent key -- simulating the
+///  real queue's own bounded, non-blocking rejection at capacity.
 class FakeAdapterCaptureHandoffQueue final
     : public IAdapterCaptureHandoffQueue {
   public:
     bool TryEnqueue(AdapterCaptureWorkItem item) override {
+        if (rejectIntentKey_.has_value() && item.intentKey == *rejectIntentKey_) {
+            return false;
+        }
         enqueued_.push_back(std::move(item));
         return true;
     }
@@ -208,8 +213,16 @@ class FakeAdapterCaptureHandoffQueue final
         return enqueued_;
     }
 
+    ///  Makes every subsequent `TryEnqueue` for `intentKey` reject the item
+    ///  instead of accepting it, the same as a real queue at capacity.
+    void SetRejectIntentKey(std::uint32_t intentKey) {
+        rejectIntentKey_ = intentKey;
+    }
+
   private:
     std::vector<AdapterCaptureWorkItem> enqueued_;
+    ///  The intent key `TryEnqueue` rejects, if configured.
+    std::optional<std::uint32_t> rejectIntentKey_;
 };
 
 ///  A fake `IAdapterPairingNotificationSink` that records every call and
@@ -799,6 +812,50 @@ TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted, "
 
     //  Only the two recognized tokens enqueue; the unsupported one never
     //  fabricates a capture.
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
+    for (const auto& item : fixture.captureQueue.Enqueued()) {
+        CHECK(item.intentKey !=
+              static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
+    }
+    REQUIRE(connection.Sent().size() == 1);
+    auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK_FALSE(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted "
+          "when a recognized, available baseline sample's capture queue "
+          "admission is rejected") {
+    //  A recognized sample token is not enough: the bounded, non-blocking
+    //  capture queue can still reject it at capacity, and that rejection
+    //  must gate accepted the same way an unrecognized token does -- the
+    //  host must never be told a baseline was admitted when it never
+    //  actually reached the capture handoff queue.
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetEventRegistered(
+        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
+        {std::byte{9}});
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals),
+        {std::byte{1}, std::byte{2}, std::byte{3}});
+    fixture.dispatcher.SetSampleResult(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp), {std::byte{7}});
+    fixture.captureQueue.SetRejectIntentKey(
+        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+    fixture.marshaller.RunAllPending();
+
+    //  The rejected sample never actually lands in the queue; the other two
+    //  still do, since a legitimate Skyrim-value queue rejection is a
+    //  per-sample admission failure, not a reason to withhold the rest.
     REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
     for (const auto& item : fixture.captureQueue.Enqueued()) {
         CHECK(item.intentKey !=
