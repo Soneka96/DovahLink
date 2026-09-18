@@ -174,9 +174,13 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
             return;
         }
 
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[0], health, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[1], magicka, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[2], stamina, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        // A baseline sample always carries correlation id zero, unlike a scheduler-issued ordinary
+        // ReadSample's own nonzero one -- see ApplyAndPublish's own documentation for why this, not
+        // the adapter's global resynchronization flag, is what decides baseline-vs-live purpose here.
+        bool isResynchronizationBaseline = captureResult.CorrelationId == 0;
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[0], health, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[1], magicka, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, unit.StateAreas[2], stamina, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>Decodes and applies a single-float capture (experience) to its one area.</summary>
@@ -203,7 +207,9 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
             return;
         }
 
-        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, areaId, value, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        // See ApplyVitals's identical comment: a baseline sample's own correlation id, not the
+        // adapter's global resynchronization flag, decides baseline-vs-live purpose here.
+        ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, areaId, value, captureResult.CorrelationId == 0, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>
@@ -238,35 +244,61 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         }
 
         UpdateMode mode = captureResult.Source == CaptureSourceKind.Sample ? UpdateMode.Snapshot : UpdateMode.Event;
-        ApplyAndPublish(levelPublisher, mode, areaId, value, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        // The baseline sample's own correlation id (zero, like every other baseline sample) decides
+        // baseline-vs-live purpose, matching ApplyVitals/ApplyScalarFloat -- see ApplyAndPublish's own
+        // documentation. The level-changed event branch deliberately still reads the adapter's global
+        // resynchronization flag, unchanged from before: a native event genuinely satisfying (or
+        // wrongly appearing to satisfy) a resynchronization while one is outstanding for some other
+        // area is a real, separate question this fix does not address, since a live level-up firing
+        // mid-resync must remain reliable, not simply be classified correctly.
+        bool isResynchronizationBaseline = captureResult.Source == CaptureSourceKind.Sample
+            ? captureResult.CorrelationId == 0
+            : adapterSnapshot.NeedsResynchronization;
+        ApplyAndPublish(levelPublisher, mode, areaId, value, isResynchronizationBaseline, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>
     /// Applies one area's value through <paramref name="publisher"/> -- routing through
-    /// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/> while the adapter needs
-    /// resynchronization, or <see cref="IStatePublisher{TState}.Apply"/> otherwise. An accepted,
-    /// actually-changed result publishes through <see cref="IStatePublicationSink.PublishSnapshot"/>
-    /// or <see cref="IStatePublicationSink.PublishEvent"/>; an accepted-but-unchanged Snapshot-mode
-    /// resynchronization baseline still calls <see cref="IStatePublicationSink.EstablishBaseline"/> so
-    /// the publication feed's pull-read cache -- unconditionally cleared by the continuity loss this
-    /// resynchronization is recovering from -- is restored even when nothing about the value actually
-    /// differs from before. An accepted resynchronization baseline is also reported to
+    /// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/> when
+    /// <paramref name="isResynchronizationBaseline"/> is <see langword="true"/>, or
+    /// <see cref="IStatePublisher{TState}.Apply"/> otherwise. The caller decides
+    /// <paramref name="isResynchronizationBaseline"/> from the capture's own identity (its
+    /// correlation id and source), never from the adapter's global
+    /// <see cref="AdapterAvailabilitySnapshot.NeedsResynchronization"/> flag alone: an ordinary,
+    /// scheduler-issued sample always carries a nonzero correlation id and must never be read as
+    /// satisfying a resynchronization merely because one happens to be outstanding when its reply
+    /// arrives. An accepted, actually-changed result publishes through
+    /// <see cref="IStatePublicationSink.PublishSnapshot"/> or <see cref="IStatePublicationSink.PublishEvent"/>;
+    /// an accepted-but-unchanged Snapshot-mode resynchronization baseline still calls
+    /// <see cref="IStatePublicationSink.EstablishBaseline"/> so the publication feed's pull-read
+    /// cache -- unconditionally cleared by the continuity loss this resynchronization is recovering
+    /// from -- is restored even when nothing about the value actually differs from before. An
+    /// accepted resynchronization baseline is also reported to
     /// <see cref="resynchronizationTransactionCoordinator"/> regardless of whether it changed
     /// anything, since "this area's baseline landed" is what the transaction tracks, not "this area's
     /// value differs from before."
     /// </summary>
+    /// <param name="publisher">The typed publisher this area's value is applied through.</param>
+    /// <param name="mode">Whether this area publishes as a replaceable Snapshot or an ordered Event.</param>
+    /// <param name="areaId">The state area this value belongs to.</param>
+    /// <param name="value">The decoded captured value.</param>
+    /// <param name="isResynchronizationBaseline">Whether this specific capture is a resynchronization baseline, decided by the caller from the capture's own identity.</param>
+    /// <param name="adapterSnapshot">The adapter availability snapshot read once for this whole capture result.</param>
+    /// <param name="capturedPlayContextId">The play context that was current at the moment this value was captured.</param>
+    /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this value was captured.</param>
+    /// <param name="occurredAt">When this value was captured, for display and diagnostics only.</param>
     private void ApplyAndPublish<TState>(
         IStatePublisher<TState> publisher,
         UpdateMode mode,
         StateAreaId areaId,
         TState value,
+        bool isResynchronizationBaseline,
         AdapterAvailabilitySnapshot adapterSnapshot,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
         DateTimeOffset occurredAt)
     {
         StateApplyResult result;
-        bool isResynchronizationBaseline = adapterSnapshot.NeedsResynchronization;
         if (isResynchronizationBaseline)
         {
             if (adapterSnapshot.CurrentInstanceId is not AdapterInstanceId resyncInstanceId)

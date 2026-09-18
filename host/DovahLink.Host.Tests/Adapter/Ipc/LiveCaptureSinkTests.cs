@@ -24,10 +24,22 @@ public class LiveCaptureSinkTests
         IStatePublisher<float?> FloatPublisher,
         FakeAdapterAvailabilityTracker AdapterTracker,
         FakePlayContextTracker PlayContextTracker,
-        PlayContextId Context);
+        PlayContextId Context,
+        IResynchronizationTransactionCoordinator Coordinator);
 
-    /// <summary>Builds a sink wired exactly like production composition, but with controllable adapter/play-context trackers and a real StatePublisher/StatePublicationFeed pair so applied values are actually observable.</summary>
-    private static Fixture CreateReady()
+    /// <summary>
+    /// Builds a sink wired exactly like production composition, but with controllable adapter/play-context
+    /// trackers and a real StatePublisher/StatePublicationFeed pair so applied values are actually
+    /// observable.
+    /// </summary>
+    /// <param name="coordinatorOverride">
+    /// The resynchronization transaction coordinator to wire in, or <see langword="null"/> for the
+    /// real <see cref="ResynchronizationTransactionCoordinator"/> -- override with a
+    /// <see cref="FakeResynchronizationTransactionCoordinator"/> when a test needs to observe whether
+    /// this sink ever claimed a token or recorded an area accepted, rather than only the resulting
+    /// state.
+    /// </param>
+    private static Fixture CreateReady(IResynchronizationTransactionCoordinator? coordinatorOverride = null)
     {
         var playContextTracker = new FakePlayContextTracker();
         PlayContextId context = PlayContextId.NewId();
@@ -43,9 +55,9 @@ public class LiveCaptureSinkTests
         var revisionTracker = new RevisionTracker();
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, adapterTracker);
+        IResynchronizationTransactionCoordinator coordinator = coordinatorOverride ?? new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, adapterTracker);
         var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, feed, adapterTracker, playContextTracker, coordinator, new FakeClock());
-        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context);
+        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator);
     }
 
     private static byte[] EncodeVitals(float health, float magicka, float stamina)
@@ -79,7 +91,9 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_Vitals_AppliesAllThreeAreasIndependently()
     {
         Fixture fixture = CreateReady();
-        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f));
+        // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
+        // resynchronization baseline (which always carries zero).
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult);
 
@@ -96,12 +110,12 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_VitalsSecondCaptureChangesOnlyHealth_OnlyHealthRevisionAdvances()
     {
         Fixture fixture = CreateReady();
-        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f)));
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f)));
         RevisionNumber healthRevisionBefore = fixture.FloatPublisher.CurrentRevision(HealthArea);
         RevisionNumber magickaRevisionBefore = fixture.FloatPublisher.CurrentRevision(MagickaArea);
         RevisionNumber staminaRevisionBefore = fixture.FloatPublisher.CurrentRevision(StaminaArea);
 
-        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f)));
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f)));
 
         Assert.NotEqual(healthRevisionBefore, fixture.FloatPublisher.CurrentRevision(HealthArea));
         Assert.Equal(magickaRevisionBefore, fixture.FloatPublisher.CurrentRevision(MagickaArea));
@@ -115,7 +129,9 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_XpUnavailable_AppliesExplicitNullNotZero()
     {
         Fixture fixture = CreateReady();
-        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Unavailable, fixture.Context, []);
+        // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
+        // resynchronization baseline (which always carries zero).
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Unavailable, fixture.Context, []);
 
         fixture.Sink.ApplyCaptureResult(captureResult);
 
@@ -142,6 +158,28 @@ public class LiveCaptureSinkTests
     }
 
     /// <summary>
+    /// Characterizes the level-changed event's currently preserved routing: while the adapter needs
+    /// resynchronization, a live level-up event is still routed through the resynchronization-baseline
+    /// path, exactly as before this change -- unlike an ordinary sample capture (see
+    /// <see cref="ApplyCaptureResult_OrdinarySampleWhileNeedsResynchronization_NeverRecordsAreaAccepted"/>),
+    /// whose identical situation this change does fix. Locks in today's behavior for this deliberately
+    /// out-of-scope branch so a later change to it is a conscious decision, not an accidental
+    /// regression.
+    /// </summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEventWhileNeedsResynchronization_StillRoutesThroughBaselinePath()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
+
+        fixture.Sink.ApplyCaptureResult(captureResult);
+
+        Assert.NotEmpty(fakeCoordinator.AcquireTokenCalls);
+    }
+
+    /// <summary>
     /// Verifies that a level baseline sample -- unlike the level-changed event above -- publishes
     /// through SnapshotChanged, not EventOccurred: the baseline establishes the current authoritative
     /// level as replaceable state, not an ordered change, even though it shares the same decode and
@@ -151,6 +189,9 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_LevelBaselineSample_PublishesThroughSnapshotChangedNotEventOccurred()
     {
         Fixture fixture = CreateReady();
+        // A baseline sample is only ever sent, and only ever a valid apply, while the adapter genuinely
+        // needs resynchronization -- matching real production sequencing.
+        fixture.AdapterTracker.NeedsResynchronization = true;
         StateSnapshotPublication? raisedSnapshot = null;
         bool eventOccurredRaised = false;
         fixture.Feed.SnapshotChanged += publication => raisedSnapshot = publication;
@@ -268,6 +309,33 @@ public class LiveCaptureSinkTests
         Assert.Equal(50.0f, ReadValue(xp!.Data));
     }
 
+    /// <summary>
+    /// Verifies that an ordinary, scheduler-issued sample reply arriving while the adapter needs
+    /// resynchronization never satisfies that resynchronization: capture purpose is decided from the
+    /// capture's own correlation id -- zero only for a baseline or a native event, nonzero only for an
+    /// ordinary ReadSample reply -- never inferred from the coincidence of a resynchronization
+    /// happening to be outstanding when the reply arrives. Proven directly against the
+    /// resynchronization coordinator rather than only the resulting state, since an ordinary apply's
+    /// own rejection (proven separately by every other "while NeedsResynchronization" test in this
+    /// file) would look identical from the outside whether or not it had also, incorrectly, claimed a
+    /// baseline token along the way.
+    /// </summary>
+    [Fact]
+    public void ApplyCaptureResult_OrdinarySampleWhileNeedsResynchronization_NeverRecordsAreaAccepted()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
+        // resynchronization baseline (which always carries zero).
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+
+        fixture.Sink.ApplyCaptureResult(captureResult);
+
+        Assert.Empty(fakeCoordinator.AcquireTokenCalls);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+    }
+
     /// <summary>Verifies that applying the same value twice publishes only once, since the second apply does not change anything.</summary>
     [Fact]
     public void ApplyCaptureResult_SameValueTwice_PublishesOnlyOnce()
@@ -281,7 +349,9 @@ public class LiveCaptureSinkTests
                 raised.Add(publication);
             }
         };
-        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+        // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
+        // resynchronization baseline (which always carries zero).
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult);
         fixture.Sink.ApplyCaptureResult(captureResult);
@@ -398,7 +468,9 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_ResynchronizationBaselineUnchangedAfterDisconnect_RestoresFeedSnapshot()
     {
         Fixture fixture = CreateReady();
-        var initialCapture = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(100.0f));
+        // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
+        // resynchronization baseline (which always carries zero).
+        var initialCapture = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(100.0f));
         fixture.Sink.ApplyCaptureResult(initialCapture);
         Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out _));
 
