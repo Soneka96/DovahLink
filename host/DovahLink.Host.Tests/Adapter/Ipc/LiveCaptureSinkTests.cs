@@ -224,7 +224,12 @@ public class LiveCaptureSinkTests
         Assert.False(fixture.Feed.TryGetSnapshot(HealthArea, out _));
     }
 
-    /// <summary>Verifies that while the adapter needs resynchronization, a capture is still applied -- routed through the baseline path instead of the ordinary one.</summary>
+    /// <summary>
+    /// Verifies that while the adapter needs resynchronization, a capture is still applied -- routed
+    /// through the baseline path instead of the ordinary one -- and its value is genuinely stored
+    /// (visible once resynchronization completes), even though StatePublicationFeed.TryGetSnapshot
+    /// withholds it as a pull read for as long as resynchronization stays outstanding.
+    /// </summary>
     [Fact]
     public void ApplyCaptureResult_WhileNeedsResynchronization_StillAppliesThroughBaselinePath()
     {
@@ -234,6 +239,8 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult);
 
+        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        fixture.AdapterTracker.NeedsResynchronization = false;
         Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
         Assert.Equal(50.0f, ReadValue(xp!.Data));
     }
@@ -308,7 +315,13 @@ public class LiveCaptureSinkTests
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
 
-    /// <summary>Verifies that the level baseline sample token -- not just the level-changed event -- decodes and applies to the same level area, including while resynchronizing, proving the generic apply-and-publish routing works for the ushort-valued publisher too.</summary>
+    /// <summary>
+    /// Verifies that the level baseline sample token -- not just the level-changed event -- decodes
+    /// and applies to the same level area, including while resynchronizing, proving the generic
+    /// apply-and-publish routing works for the ushort-valued publisher too. The applied value is
+    /// genuinely stored (visible once resynchronization completes), even though
+    /// StatePublicationFeed.TryGetSnapshot withholds it as a pull read until then.
+    /// </summary>
     [Fact]
     public void ApplyCaptureResult_LevelBaselineSampleWhileNeedsResynchronization_AppliesToLevelAreaThroughBaselinePath()
     {
@@ -318,6 +331,8 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult);
 
+        Assert.False(fixture.Feed.TryGetSnapshot(LevelArea, out _));
+        fixture.AdapterTracker.NeedsResynchronization = false;
         Assert.True(fixture.Feed.TryGetSnapshot(LevelArea, out StateSnapshotPublication? level));
         Assert.Equal(12, level!.Data.GetProperty("value").GetUInt16());
     }

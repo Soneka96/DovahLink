@@ -160,6 +160,19 @@ public class LiveStateSchedulerTests
 
     // ---- One-in-flight outstanding-request tracking ----
 
+    /// <summary>
+    /// A larger interval map for the outstanding-slot/timeout tests below, so their timing margins
+    /// comfortably tolerate scheduler jitter under a loaded test run instead of racing a tight window
+    /// against <see cref="Constants.LiveStateSampleTimeoutTicks"/> ticks of <see cref="FastIntervals"/>'
+    /// much shorter cadence. Unrelated cadence tests above keep using <see cref="FastIntervals"/>, since
+    /// they only need to prove a send happened at all, not race a fixed timeout window.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<RateClass, TimeSpan> SlotIntervals = new Dictionary<RateClass, TimeSpan>
+    {
+        [RateClass.Fast] = TimeSpan.FromMilliseconds(50),
+        [RateClass.Medium] = TimeSpan.FromMilliseconds(100),
+    };
+
     /// <summary>Verifies that a unit with an outstanding, unanswered request skips every subsequent tick rather than sending a second, overlapping request.</summary>
     [Fact]
     public async Task RunAsync_RequestOutstanding_SkipsSubsequentTicksUntilReleased()
@@ -171,14 +184,14 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
-        // Three Fast ticks' worth of time, well under the five-tick timeout budget: only the
-        // first tick's send should ever land, since every later tick finds the slot still
-        // outstanding with no reply ever reported.
-        await Task.Delay(TimeSpan.FromMilliseconds(35));
+        // About two Fast ticks' worth of time, comfortably under the five-tick (250ms) timeout
+        // budget: only the first tick's send should ever land, since every later tick finds the
+        // slot still outstanding with no reply ever reported.
+        await Task.Delay(TimeSpan.FromMilliseconds(120));
         cancellation.Cancel();
         await run;
 
@@ -197,7 +210,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -225,7 +238,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 }; // stale: the slot was sent under generation 2
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -233,7 +246,7 @@ public class LiveStateSchedulerTests
 
         liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
             42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []));
-        await Task.Delay(TimeSpan.FromMilliseconds(35)); // well under the timeout budget
+        await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
         cancellation.Cancel();
         await run;
@@ -256,7 +269,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -265,7 +278,7 @@ public class LiveStateSchedulerTests
         Exception? exception = Record.Exception(() => liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
             0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, default, [0, 1])));
         Assert.Null(exception);
-        await Task.Delay(TimeSpan.FromMilliseconds(35)); // well under the timeout budget
+        await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
         cancellation.Cancel();
         await run;
@@ -284,7 +297,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -292,7 +305,7 @@ public class LiveStateSchedulerTests
 
         liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
             999, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []));
-        await Task.Delay(TimeSpan.FromMilliseconds(35)); // well under the timeout budget
+        await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
         cancellation.Cancel();
         await run;
@@ -315,7 +328,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -323,7 +336,7 @@ public class LiveStateSchedulerTests
 
         liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
             42, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, default, [0, 1]));
-        await Task.Delay(TimeSpan.FromMilliseconds(35)); // well under the timeout budget
+        await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
         cancellation.Cancel();
         await run;
@@ -341,14 +354,14 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
         // Five ticks (the timeout budget) plus margin, with no reply ever reported.
         await WaitUntilAsync(() => connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals) >= 2, run);
         int countJustAfterRetry = connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals);
-        await Task.Delay(TimeSpan.FromMilliseconds(15)); // one more tick's worth: must not burst past the single retry
+        await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one more tick's worth: must not burst past the single retry
 
         cancellation.Cancel();
         await run;

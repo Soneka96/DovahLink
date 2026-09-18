@@ -34,7 +34,7 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     /// </summary>
     private readonly Dictionary<StateAreaId, StateSnapshotPublication> latestByArea = new();
 
-    /// <summary>Creates a publication feed.</summary>
+    /// <summary>Creates a publication feed, subscribed to <paramref name="adapterAvailabilityTracker"/> and <paramref name="playContextTracker"/> for the host process's own lifetime; never unsubscribed.</summary>
     /// <param name="adapterAvailabilityTracker">The adapter availability tracker this feed re-validates freshness against.</param>
     /// <param name="playContextTracker">The play-context tracker this feed re-validates freshness against.</param>
     /// <param name="registeredStateAreaPolicy">The registered-area policy this feed never publishes outside of.</param>
@@ -46,6 +46,9 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         this.adapterAvailabilityTracker = adapterAvailabilityTracker;
         this.playContextTracker = playContextTracker;
         this.registeredStateAreaPolicy = registeredStateAreaPolicy;
+
+        adapterAvailabilityTracker.AvailabilityChanged += HandleAdapterAvailabilityChanged;
+        playContextTracker.Transitioned += HandlePlayContextTransitioned;
     }
 
     /// <inheritdoc/>
@@ -59,7 +62,14 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     {
         lock (gate)
         {
-            return latestByArea.TryGetValue(areaId, out snapshot);
+            if (!latestByArea.TryGetValue(areaId, out StateSnapshotPublication? candidate) || !IsCurrentLocked(candidate))
+            {
+                snapshot = null;
+                return false;
+            }
+
+            snapshot = candidate;
+            return true;
         }
     }
 
@@ -190,5 +200,62 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
 
         PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
         return contextSnapshot.Current == capturedPlayContextId && contextSnapshot.TransitionGeneration == capturedPlayContextGeneration;
+    }
+
+    /// <summary>
+    /// Checks whether a previously stored snapshot is still trustworthy to hand out as current: its
+    /// area is still registered, the adapter is available and does not need resynchronization, and
+    /// the play context it was captured under still matches. Stricter than
+    /// <see cref="IsStillFreshLocked"/>'s own publish-time check, which deliberately allows
+    /// <see cref="AdapterAvailabilitySnapshot.NeedsResynchronization"/> to be <see langword="true"/>
+    /// so a legitimate baseline publish can still land -- a pull read must never hand out state while
+    /// a resynchronization is outstanding, since the value it would return could already be
+    /// superseded by whatever that resynchronization is about to establish. Defense in depth on top
+    /// of <see cref="HandleAdapterAvailabilityChanged"/> and <see cref="HandlePlayContextTransitioned"/>
+    /// proactively clearing <see cref="latestByArea"/> on the same triggers, not a substitute for
+    /// them. Must be called with <see cref="gate"/> already held.
+    /// </summary>
+    /// <param name="publication">The previously stored snapshot to check.</param>
+    private bool IsCurrentLocked(StateSnapshotPublication publication)
+    {
+        if (!registeredStateAreaPolicy.IsRegistered(publication.StateArea))
+        {
+            return false;
+        }
+
+        AdapterAvailabilitySnapshot adapterSnapshot = adapterAvailabilityTracker.GetSnapshot();
+        if (adapterSnapshot.Current != AdapterAvailability.Available || adapterSnapshot.NeedsResynchronization)
+        {
+            return false;
+        }
+
+        PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
+        return contextSnapshot.Current == publication.PlayContextId && contextSnapshot.TransitionGeneration == publication.PlayContextGeneration;
+    }
+
+    /// <summary>
+    /// Clears every stored snapshot on any adapter availability transition -- both a continuity loss
+    /// and a fresh reconnect, since a reconnect also requires a new resynchronization before any
+    /// cached value can be trusted again -- so a later <see cref="TryGetSnapshot"/> can never resurface
+    /// pre-loss data even before a fresh publish overwrites it. Proactive defense in depth alongside
+    /// <see cref="IsCurrentLocked"/>'s own re-check, not a substitute for it.
+    /// </summary>
+    /// <param name="transition">The committed availability transition. Unused: every transition clears unconditionally.</param>
+    private void HandleAdapterAvailabilityChanged(AdapterAvailabilityTransition transition)
+    {
+        lock (gate)
+        {
+            latestByArea.Clear();
+        }
+    }
+
+    /// <summary>Clears every stored snapshot on a play-context transition, for the same reason <see cref="HandleAdapterAvailabilityChanged"/> does.</summary>
+    /// <param name="transition">The committed play-context transition. Unused: every transition clears unconditionally.</param>
+    private void HandlePlayContextTransitioned(PlayContextTransition transition)
+    {
+        lock (gate)
+        {
+            latestByArea.Clear();
+        }
     }
 }

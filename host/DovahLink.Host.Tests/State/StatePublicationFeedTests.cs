@@ -92,9 +92,15 @@ public class StatePublicationFeedTests
         Assert.False(feed.TryGetSnapshot(AreaId, out _));
     }
 
-    /// <summary>Verifies that publishing while the adapter still needs resynchronization is a silent no-op, even though it reports available.</summary>
+    /// <summary>
+    /// Verifies that publishing while the adapter still needs resynchronization still raises
+    /// SnapshotChanged (a legitimate baseline must always be able to land), but a pull read through
+    /// TryGetSnapshot withholds that same value until resynchronization actually completes -- a pull
+    /// must never hand out state that could still be superseded by the rest of an in-progress
+    /// resynchronization transaction.
+    /// </summary>
     [Fact]
-    public void PublishSnapshot_AdapterNeedsResynchronization_StillPublishes()
+    public void PublishSnapshot_AdapterNeedsResynchronization_StillPublishesButTryGetSnapshotWithholdsIt()
     {
         // A resynchronization baseline is only ever accepted by
         // IStatePublisher<TState>.ApplyResynchronizationBaseline while NeedsResynchronization is
@@ -108,6 +114,9 @@ public class StatePublicationFeedTests
         feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
 
         Assert.True(raised);
+        Assert.False(feed.TryGetSnapshot(AreaId, out _));
+
+        adapterTracker.NeedsResynchronization = false;
         Assert.True(feed.TryGetSnapshot(AreaId, out _));
     }
 
@@ -231,5 +240,46 @@ public class StatePublicationFeedTests
         Assert.True(otherSubscriberRan);
         Assert.True(feed.TryGetSnapshot(AreaId, out StateSnapshotPublication? stored));
         Assert.Equal(Data, stored!.Data);
+    }
+
+    /// <summary>
+    /// Verifies that any adapter availability transition -- proactive defense in depth alongside
+    /// TryGetSnapshot's own re-check -- clears every previously stored snapshot across every area, so
+    /// a later TryGetSnapshot can never resurface pre-transition data even with no new publish
+    /// attempt in between.
+    /// </summary>
+    [Fact]
+    public void AvailabilityChanged_AfterSuccessfulPublish_ClearsStoredSnapshotsAcrossAllAreas()
+    {
+        (StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, _, RegisteredStateAreaPolicy registeredAreas, PlayContextId context) = CreateReadyFeed();
+        var otherAreaId = new StateAreaId("character_magicka");
+        registeredAreas.TryRegister(otherAreaId);
+        feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
+        feed.PublishSnapshot(otherAreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
+        Assert.True(feed.TryGetSnapshot(AreaId, out _));
+        Assert.True(feed.TryGetSnapshot(otherAreaId, out _));
+
+        adapterTracker.PublishTransition(new AdapterAvailabilityTransition(AdapterAvailability.Available, AdapterAvailability.Unavailable, null, 1));
+
+        Assert.False(feed.TryGetSnapshot(AreaId, out _));
+        Assert.False(feed.TryGetSnapshot(otherAreaId, out _));
+    }
+
+    /// <summary>
+    /// Verifies that a play-context transition -- proactive defense in depth alongside
+    /// TryGetSnapshot's own re-check -- clears a previously stored snapshot, so a later
+    /// TryGetSnapshot can never resurface pre-transition data even with no new publish attempt in
+    /// between.
+    /// </summary>
+    [Fact]
+    public void PlayContextTransitioned_AfterSuccessfulPublish_ClearsStoredSnapshot()
+    {
+        (StatePublicationFeed feed, _, FakePlayContextTracker playContextTracker, _, PlayContextId context) = CreateReadyFeed();
+        feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
+        Assert.True(feed.TryGetSnapshot(AreaId, out _));
+
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+
+        Assert.False(feed.TryGetSnapshot(AreaId, out _));
     }
 }
