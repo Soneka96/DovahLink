@@ -77,4 +77,9 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     /// <inheritdoc/>
     public Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken) =>
         Task.FromResult(false);
+
+    /// <inheritdoc/>
+    public void RequestClose()
+    {
+    }
 }

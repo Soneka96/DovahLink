@@ -441,6 +441,90 @@ public class AdapterIpcConnectionTests
         Assert.False(enqueued);
     }
 
+    /// <summary>
+    /// Verifies that a full outbound queue withdraws the pending resynchronize correlation it just
+    /// prepared, so a request that was never actually sent does not remain registered as pending --
+    /// otherwise a stray later result reusing that correlation id could be mistaken for a reply to a
+    /// request the adapter was never asked to answer.
+    /// </summary>
+    [Fact]
+    public void TrySendResynchronizeRequest_QueueFull_WithdrawsPendingCorrelation()
+    {
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(42),
+        };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        connection.TrySendResynchronizeRequest();
+
+        Assert.Equal([42UL], fakeSession.CancelledPendingResynchronizeCorrelationIds);
+    }
+
+    /// <summary>Verifies that a successfully enqueued resynchronize request never withdraws its own correlation.</summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Committed_DoesNotWithdrawItsOwnCorrelation()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { ConnectionGeneration = 1, ResynchronizeRequest = new IpcResynchronizeRequestMessage(9) };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // the automatic first resynchronize request
+        bool enqueued = connection.TrySendResynchronizeRequest();
+        await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        Assert.Empty(fakeSession.CancelledPendingResynchronizeCorrelationIds);
+    }
+
+    /// <summary>Verifies that RequestClose forces a running connection to end, the same as a transport fault or cancellation.</summary>
+    [Fact]
+    public async Task RunAsync_RequestClose_EndsWithoutHanging()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        connection.RequestClose();
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that RequestClose called before RunAsync starts still ends the connection promptly, rather than requiring it to be called only after the connection is already running.</summary>
+    [Fact]
+    public async Task RequestClose_CalledBeforeRunAsync_ConnectionEndsPromptly()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(server, new IpcFrameCodec(), fakeSession, new SystemClock());
+
+        connection.RequestClose();
+        Task runTask = connection.RunAsync(CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
     /// <summary>Verifies that a queued cancellation is actually written to the peer once connected.</summary>
     [Fact]
     public async Task TryCancel_Connected_DeliversFrameToPeer()

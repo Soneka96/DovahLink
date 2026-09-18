@@ -368,6 +368,49 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
+    /// <summary>Verifies that withdrawing a resynchronize request that was never actually sent makes a later result for its correlation id ignored -- reports nothing to the coordinator -- the same as any other mismatched correlation.</summary>
+    [Fact]
+    public void CancelPendingResynchronize_ThenResultArrives_ReportsNothingToCoordinator()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), coordinator);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
+
+        session.CancelPendingResynchronize(request.CorrelationId);
+        session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
+
+        Assert.Empty(coordinator.RecordAdapterPlanAcceptedCalls);
+    }
+
+    /// <summary>Verifies that withdrawing an unknown or already-superseded correlation id is a harmless no-op: the real pending request still resolves normally and reports to the coordinator.</summary>
+    [Fact]
+    public void CancelPendingResynchronize_UnknownCorrelationId_DoesNotAffectTheRealPendingRequest()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), coordinator);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
+
+        Exception? exception = Record.Exception(() => session.CancelPendingResynchronize(request.CorrelationId + 1));
+        Assert.Null(exception);
+        session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
+
+        Assert.Single(coordinator.RecordAdapterPlanAcceptedCalls);
+    }
+
     /// <summary>Verifies that a resynchronization result arriving before any handshake is ignored safely.</summary>
     [Fact]
     public void HandleFrame_ResynchronizeResult_BeforeHandshake_IsIgnoredSafely()

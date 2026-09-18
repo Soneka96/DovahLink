@@ -72,6 +72,16 @@ public interface IAdapterIpcConnection
     /// <param name="timeout">The maximum time to wait for the acknowledgement.</param>
     /// <param name="cancellationToken">The token used to stop waiting early.</param>
     Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Forces this connection to end, as if the peer had disconnected or a transport fault occurred --
+    /// for a caller (for example <see cref="PlayContextResynchronizationTrigger"/>) that could not
+    /// admit an essential control frame onto the outbound queue and needs a fresh connection to
+    /// establish a clean baseline instead of leaving this one silently stuck. Idempotent, and safe to
+    /// call at any point in this connection's lifecycle, including before <see cref="RunAsync"/>
+    /// starts or after it has already completed.
+    /// </summary>
+    void RequestClose();
 }
 
 /// <inheritdoc cref="IAdapterIpcConnection"/>
@@ -100,6 +110,13 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
     /// <summary>Whether the peer ended or faulted the inbound transport.</summary>
     private bool peerDisconnected;
+
+    /// <summary>
+    /// Cancelled by <see cref="RequestClose"/> and linked into every attempt's own cancellation in
+    /// <see cref="RunAsync"/>, so a forced close is observed and torn down exactly like a transport
+    /// fault.
+    /// </summary>
+    private readonly CancellationTokenSource closeRequested = new();
 
     /// <summary>The bounded outbound frame queue drained by <see cref="WriterLoopAsync"/>.</summary>
     private readonly Channel<byte[]> outbound = Channel.CreateBounded<byte[]>(
@@ -138,7 +155,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, closeRequested.Token);
         Task writerTask = WriterLoopAsync(ioCancellation);
         try
         {
@@ -259,7 +276,13 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
         IpcResynchronizeRequestMessage message = session.PrepareResynchronizeRequest();
         byte[] frame = codec.Encode(message);
-        return outbound.Writer.TryWrite(frame);
+        if (outbound.Writer.TryWrite(frame))
+        {
+            return true;
+        }
+
+        session.CancelPendingResynchronize(message.CorrelationId);
+        return false;
     }
 
     /// <inheritdoc/>
@@ -346,6 +369,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             session.CancelPendingPairingDisplay(correlationId);
         }
     }
+
+    /// <inheritdoc/>
+    public void RequestClose() => closeRequested.Cancel();
 
     /// <summary>
     /// Best-effort enqueues a remote cancellation for a pairing-display request whose acknowledgement

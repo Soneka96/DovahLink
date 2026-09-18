@@ -17,7 +17,11 @@ public interface IPlayContextResynchronizationTrigger
     /// a fresh baseline on the currently active adapter connection, if any. Unconditional: every real
     /// transition (already deduplicated for a repeated context by
     /// <see cref="IPlayContextTracker.NotifyTransition"/> itself) re-arms and re-requests, superseding
-    /// whatever transaction the previous request may still be in flight for.
+    /// whatever transaction the previous request may still be in flight for. An essential
+    /// resynchronize request must never silently disappear: when the send itself fails (for example a
+    /// full outbound queue), this forces the connection closed instead of leaving the re-armed
+    /// requirement with no request ever having gone out -- the adapter's normal reconnect then drives
+    /// a fresh initial resynchronization.
     /// </summary>
     /// <param name="transition">The transition that just committed.</param>
     void HandleTransition(PlayContextTransition transition);
@@ -51,6 +55,10 @@ public sealed class PlayContextResynchronizationTrigger : IPlayContextResynchron
     public void HandleTransition(PlayContextTransition transition)
     {
         adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
-        listener.CurrentConnection?.TrySendResynchronizeRequest();
+        IAdapterIpcConnection? connection = listener.CurrentConnection;
+        if (connection is not null && !connection.TrySendResynchronizeRequest())
+        {
+            connection.RequestClose();
+        }
     }
 }

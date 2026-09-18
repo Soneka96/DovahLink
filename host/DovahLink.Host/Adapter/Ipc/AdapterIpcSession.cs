@@ -30,6 +30,16 @@ public interface IAdapterIpcSession
     /// <summary>Builds the resynchronization request to send immediately after a successful handshake.</summary>
     IpcResynchronizeRequestMessage PrepareResynchronizeRequest();
 
+    /// <summary>
+    /// Withdraws a previously prepared resynchronization request that could not actually be sent (for
+    /// example a full outbound queue), so a stray later result carrying the same correlation id is
+    /// never mistaken for a reply to a request the adapter was never asked to answer. A no-op when
+    /// <paramref name="correlationId"/> no longer matches the currently pending request -- for
+    /// example because a later request has already replaced it.
+    /// </summary>
+    /// <param name="correlationId">The correlation id of the request to withdraw.</param>
+    void CancelPendingResynchronize(ulong correlationId);
+
     /// <summary>Processes one message received after a successful handshake and decides how to respond.</summary>
     /// <param name="message">The decoded message.</param>
     AdapterIpcOutcome HandleFrame(IpcMessage message);
@@ -245,6 +255,15 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         ulong correlationId = NextCorrelationId();
         pendingResynchronizeCorrelationId = correlationId;
         return new IpcResynchronizeRequestMessage(correlationId);
+    }
+
+    /// <inheritdoc/>
+    public void CancelPendingResynchronize(ulong correlationId)
+    {
+        if (pendingResynchronizeCorrelationId == correlationId)
+        {
+            pendingResynchronizeCorrelationId = null;
+        }
     }
 
     /// <inheritdoc/>

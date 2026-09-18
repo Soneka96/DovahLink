@@ -33,6 +33,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The message <see cref="PrepareResynchronizeRequest"/> returns.</summary>
     public IpcResynchronizeRequestMessage ResynchronizeRequest { get; set; } = new(1);
 
+    /// <summary>The correlation ids passed to <see cref="CancelPendingResynchronize"/>, in call order.</summary>
+    public List<ulong> CancelledPendingResynchronizeCorrelationIds { get; } = [];
+
     /// <summary>The outcome <see cref="HandleFrame"/> returns.</summary>
     public AdapterIpcOutcome FrameOutcome { get; set; } = AdapterIpcOutcome.None;
 
@@ -113,6 +116,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
         LifecycleCalls.Add(nameof(PrepareResynchronizeRequest));
         return ResynchronizeRequest;
     }
+
+    /// <inheritdoc/>
+    public void CancelPendingResynchronize(ulong correlationId) => CancelledPendingResynchronizeCorrelationIds.Add(correlationId);
 
     /// <inheritdoc/>
     public AdapterIpcOutcome HandleFrame(IpcMessage message)

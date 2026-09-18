@@ -108,6 +108,12 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         return AwaitPairingDisplayAckAsyncResult(correlationId, timeout, cancellationToken);
     }
 
+    /// <summary>The number of times <see cref="RequestClose"/> was called.</summary>
+    public int RequestCloseCalls { get; private set; }
+
+    /// <inheritdoc/>
+    public void RequestClose() => RequestCloseCalls++;
+
     /// <summary>Ends the pending <see cref="RunAsync"/> call as if the connection ended normally.</summary>
     public void Complete() => completionSource.TrySetResult();
 }

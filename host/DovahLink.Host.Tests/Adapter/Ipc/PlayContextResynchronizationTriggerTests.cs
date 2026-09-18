@@ -74,9 +74,14 @@ public class PlayContextResynchronizationTriggerTests
         Assert.True(availabilityTracker.NeedsResynchronization);
     }
 
-    /// <summary>Verifies that a failed send (for example a full outbound queue) never throws: this trigger is best-effort, matching every other host-directed send in this area.</summary>
+    /// <summary>
+    /// Verifies that a failed send (for example a full outbound queue) never throws -- this trigger
+    /// is best-effort, matching every other host-directed send in this area -- and forces the
+    /// connection closed instead of leaving the re-armed requirement with no request ever having gone
+    /// out: the adapter's normal reconnect then drives a fresh initial resynchronization.
+    /// </summary>
     [Fact]
-    public void HandleTransition_SendFails_DoesNotThrow()
+    public void HandleTransition_SendFails_ClosesConnectionAndDoesNotThrow()
     {
         var playContextTracker = new FakePlayContextTracker();
         var availabilityTracker = new AdapterAvailabilityTracker();
@@ -91,6 +96,26 @@ public class PlayContextResynchronizationTriggerTests
 
         Assert.Null(exception);
         Assert.Equal(1, connection.ResynchronizeRequestCalls);
+        Assert.Equal(1, connection.RequestCloseCalls);
+    }
+
+    /// <summary>Verifies that a successful send never forces the connection closed -- RequestClose is reserved for the failure path alone.</summary>
+    [Fact]
+    public void HandleTransition_SendSucceeds_DoesNotRequestClose()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(availabilityTracker, instanceId, 1);
+        var listener = new FakeAdapterIpcListener();
+        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
+        listener.CurrentConnection = connection;
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+
+        trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId()));
+
+        Assert.Equal(1, connection.ResynchronizeRequestCalls);
+        Assert.Equal(0, connection.RequestCloseCalls);
     }
 
     /// <summary>Commits and publishes a connected transition in one call.</summary>
