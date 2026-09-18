@@ -272,8 +272,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         switch (message)
         {
             case IpcResynchronizeResultMessage resynchronizeResult:
-                HandleResynchronizeResult(resynchronizeResult);
-                return AdapterIpcOutcome.None;
+                return HandleResynchronizeResult(resynchronizeResult);
 
             case IpcCloseMessage:
                 return AdapterIpcOutcome.Close;
@@ -422,30 +421,39 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// Validates a resynchronization result against the pending request and current generation, then
     /// reports its wire-level admission to <see cref="resynchronizationTransactionCoordinator"/>. This
     /// alone never completes resynchronization -- the coordinator also requires every required
-    /// baseline area to have been separately accepted; see its own documentation.
+    /// baseline area to have been separately accepted; see its own documentation. A declined result
+    /// must never leave the tracked transaction stuck forever with no retry, so it closes the
+    /// connection instead: the adapter's normal reconnect then drives a fresh initial
+    /// resynchronization. A result that does not match a genuinely pending, still-current request --
+    /// a stray, superseded, or repeated correlation, or one arriving before this connection has a
+    /// lease or an established play context -- is silently ignored instead, since it was never a
+    /// real answer to a request this session is still tracking.
     /// </summary>
     /// <param name="resynchronizeResult">The received resynchronization result.</param>
-    private void HandleResynchronizeResult(IpcResynchronizeResultMessage resynchronizeResult)
+    /// <returns><see cref="AdapterIpcOutcome.Close"/> for a genuinely declined result; otherwise <see cref="AdapterIpcOutcome.None"/>.</returns>
+    private AdapterIpcOutcome HandleResynchronizeResult(IpcResynchronizeResultMessage resynchronizeResult)
     {
         if (pendingResynchronizeCorrelationId != resynchronizeResult.CorrelationId)
         {
-            return;
+            return AdapterIpcOutcome.None;
         }
 
         pendingResynchronizeCorrelationId = null;
         if (lease is null || instanceId is null)
         {
-            return;
+            return AdapterIpcOutcome.None;
         }
 
         PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
         if (contextSnapshot.Current is not PlayContextId currentContext)
         {
-            return;
+            return AdapterIpcOutcome.None;
         }
 
         resynchronizationTransactionCoordinator.RecordAdapterPlanAccepted(
             resynchronizeResult.Accepted, instanceId.Value, lease.Generation, currentContext, contextSnapshot.TransitionGeneration);
+
+        return resynchronizeResult.Accepted ? AdapterIpcOutcome.None : AdapterIpcOutcome.Close;
     }
 
     /// <summary>Issues the next monotonic outbound correlation id, starting at 1.</summary>

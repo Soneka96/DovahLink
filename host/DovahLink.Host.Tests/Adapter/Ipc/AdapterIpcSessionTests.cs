@@ -244,6 +244,34 @@ public class AdapterIpcSessionTests
         Assert.False(outcome.ShouldClose);
     }
 
+    /// <summary>
+    /// Verifies that a genuinely declined resynchronization result -- one matching the pending
+    /// request, with a lease and an established play context -- closes the connection rather than
+    /// leaving the tracked transaction stuck forever with no retry: the adapter's normal reconnect
+    /// then drives a fresh initial resynchronization.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_ResynchronizeResult_MatchingCorrelationDeclined_ClosesConnection()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), coordinator);
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        session.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
+        session.CommitHandshake();
+        var context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
+
+        Assert.Equal([(false, instanceId, session.ConnectionGeneration!.Value, context, playContextTracker.GetSnapshot().TransitionGeneration)], coordinator.RecordAdapterPlanAcceptedCalls);
+        Assert.Equal(AdapterIpcOutcome.Close, outcome);
+    }
+
     /// <summary>Verifies that an accepted resynchronization result reaching the session before any play context has ever been established reports nothing to the coordinator: there is no provenance to attribute it to.</summary>
     [Fact]
     public void HandleFrame_ResynchronizeResult_MatchingCorrelationAcceptedNoPlayContextYet_ReportsNothing()
@@ -275,16 +303,22 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
-    /// <summary>Verifies that a declined resynchronization result does not clear the pending requirement.</summary>
+    /// <summary>
+    /// Verifies that a declined resynchronization result does not clear the pending requirement, and
+    /// -- since <see cref="HandshakenSession"/> establishes no play context -- does not close the
+    /// connection either: there is no provenance yet to attribute a genuine decline to, so this never
+    /// reaches the coordinator or the close decision at all.
+    /// </summary>
     [Fact]
     public void HandleFrame_ResynchronizeResult_NotAccepted_DoesNotResynchronize()
     {
         (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
 
-        session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
 
         Assert.True(tracker.NeedsResynchronization);
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
     /// <summary>Verifies that an accepted result is ignored when a newer connection has since superseded this session's own lease.</summary>
@@ -384,9 +418,13 @@ public class AdapterIpcSessionTests
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
 
         session.CancelPendingResynchronize(request.CorrelationId);
-        session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
+        //  Declined, not accepted: proves a withdrawn correlation's later result can never reach the
+        //  close decision either, not just the coordinator report -- the more dangerous failure mode
+        //  if the withdrawal were ever broken.
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
 
         Assert.Empty(coordinator.RecordAdapterPlanAcceptedCalls);
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
     /// <summary>Verifies that withdrawing an unknown or already-superseded correlation id is a harmless no-op: the real pending request still resolves normally and reports to the coordinator.</summary>

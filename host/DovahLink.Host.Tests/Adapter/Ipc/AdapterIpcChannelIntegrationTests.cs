@@ -52,7 +52,7 @@ public class AdapterIpcChannelIntegrationTests
 
     /// <summary>Verifies that a declined resynchronization result leaves the tracker still needing resynchronization rather than clearing it.</summary>
     [Fact]
-    public async Task Connect_ValidHelloThenDeclinedResync_TrackerStillNeedsResynchronization()
+    public async Task Connect_ValidHelloThenDeclinedResync_ClosesConnectionAndTrackerStillNeedsResynchronization()
     {
         (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
@@ -67,9 +67,15 @@ public class AdapterIpcChannelIntegrationTests
         var request = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
+        // A play context must be established first, the same as the accepted-counterpart test,
+        // or the result never reaches the coordinator/close logic at all.
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(0, PlayContextId.NewId())));
         await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false)));
-        await Task.Delay(TimeSpan.FromMilliseconds(200)); // give a wrongly-clearing implementation a chance to show itself
 
+        // A declined result must never leave the connection stuck forever with no retry: the host
+        // closes it, observed here as the tracker reporting the adapter unavailable again -- the
+        // adapter's own normal reconnect is what drives a fresh initial resynchronization from there.
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
         Assert.True(tracker.NeedsResynchronization);
 
         cancellation.Cancel();
