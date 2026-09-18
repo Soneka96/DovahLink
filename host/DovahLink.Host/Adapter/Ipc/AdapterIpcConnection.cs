@@ -12,13 +12,11 @@ namespace DovahLink.Host.Adapter.Ipc;
 public interface IAdapterIpcConnection
 {
     /// <summary>
-    /// Runs the connection to completion: performs the handshake, requests a fresh
-    /// resynchronization baseline on success, then serves inbound frames until the peer closes, the
-    /// transport fails, or <paramref name="cancellationToken"/> is cancelled. Always notifies the
-    /// availability tracker of disconnection and disposes the underlying stream before returning.
-    /// The initial resynchronize request is bounded by the same
-    /// <see cref="Constants.AdapterIpcResynchronizeTimeout"/> deadline <see cref="TrySendResynchronizeRequest"/>'s
-    /// own request is.
+    /// Runs the connection to completion: performs the handshake, then serves inbound frames until
+    /// the peer closes, the transport fails, or <paramref name="cancellationToken"/> is cancelled.
+    /// The Adapter's guaranteed first play-context report decides whether the connection needs an
+    /// initial resynchronization baseline. Always notifies the availability tracker of disconnection
+    /// and disposes the underlying stream before returning.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
@@ -45,10 +43,9 @@ public interface IAdapterIpcConnection
     bool TrySendReadSample(uint sampleToken, out ulong correlationId);
 
     /// <summary>
-    /// Attempts to enqueue a fresh resynchronize request on this already-authenticated connection --
-    /// unlike the automatic first request <see cref="RunAsync"/> itself sends right after handshake,
-    /// this is for a later trigger (for example a mid-session play-context transition) that needs a
-    /// new baseline without the connection itself having dropped. A no-op, returning
+    /// Attempts to enqueue a fresh resynchronize request on this already-authenticated connection
+    /// for a play-context transition that needs a new baseline without the connection itself having
+    /// dropped. A no-op, returning
     /// <see langword="false"/>, before this connection's handshake has committed. A successfully
     /// enqueued request arms a bounded <see cref="Constants.AdapterIpcResynchronizeTimeout"/> deadline
     /// that forces the connection closed if its matching result never arrives, superseding (and so
@@ -193,14 +190,6 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             bool handshakeAccepted = await HandshakeAsync(ioCancellation.Token).ConfigureAwait(false);
             if (handshakeAccepted)
             {
-                IpcResynchronizeRequestMessage resynchronizeRequest = session.PrepareResynchronizeRequest();
-                bool resynchronizeQueued = outbound.Writer.TryWrite(codec.Encode(resynchronizeRequest));
-                if (!resynchronizeQueued)
-                {
-                    return;
-                }
-
-                ArmResynchronizeDeadline(resynchronizeRequest.CorrelationId);
                 session.CommitHandshake();
                 await ReadLoopAsync(ioCancellation.Token).ConfigureAwait(false);
             }
@@ -313,14 +302,10 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
 
         IpcResynchronizeRequestMessage message = session.PrepareResynchronizeRequest();
-        byte[] frame = codec.Encode(message);
-        if (outbound.Writer.TryWrite(frame))
+        if (TryEnqueueResynchronizeRequest(message))
         {
-            ArmResynchronizeDeadline(message.CorrelationId);
             return true;
         }
-
-        session.CancelPendingResynchronize(message.CorrelationId);
         return false;
     }
 
@@ -650,6 +635,13 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
             AdapterIpcOutcome outcome = session.HandleFrame(decodeResult.Message!);
             EnqueueOutcome(outcome);
+            IpcResynchronizeRequestMessage? initialResynchronizeRequest = session.TryPrepareInitialResynchronizeRequest();
+            if (initialResynchronizeRequest is not null && !TryEnqueueResynchronizeRequest(initialResynchronizeRequest))
+            {
+                RequestClose();
+                return;
+            }
+
             if (outcome.ShouldClose)
             {
                 return;
@@ -968,6 +960,24 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         {
             outbound.Writer.TryWrite(codec.Encode(message));
         }
+    }
+
+    /// <summary>
+    /// Enqueues a resynchronization request and arms its bounded deadline, withdrawing the pending
+    /// correlation when the outbound queue cannot admit the request.
+    /// </summary>
+    /// <param name="request">The prepared resynchronization request.</param>
+    /// <returns><see langword="true"/> when the request was queued.</returns>
+    private bool TryEnqueueResynchronizeRequest(IpcResynchronizeRequestMessage request)
+    {
+        if (!outbound.Writer.TryWrite(codec.Encode(request)))
+        {
+            session.CancelPendingResynchronize(request.CorrelationId);
+            return false;
+        }
+
+        ArmResynchronizeDeadline(request.CorrelationId);
+        return true;
     }
 
     /// <summary>

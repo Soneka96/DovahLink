@@ -33,6 +33,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The message <see cref="PrepareResynchronizeRequest"/> returns.</summary>
     public IpcResynchronizeRequestMessage ResynchronizeRequest { get; set; } = new(1);
 
+    /// <summary>The one initial request returned by <see cref="TryPrepareInitialResynchronizeRequest"/>, when configured.</summary>
+    public IpcResynchronizeRequestMessage? InitialResynchronizeRequest { get; set; }
+
     /// <summary>The correlation ids passed to <see cref="CancelPendingResynchronize"/>, in call order.</summary>
     public List<ulong> CancelledPendingResynchronizeCorrelationIds { get; } = [];
 
@@ -115,6 +118,14 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     {
         LifecycleCalls.Add(nameof(PrepareResynchronizeRequest));
         return ResynchronizeRequest;
+    }
+
+    /// <inheritdoc/>
+    public IpcResynchronizeRequestMessage? TryPrepareInitialResynchronizeRequest()
+    {
+        IpcResynchronizeRequestMessage? request = InitialResynchronizeRequest;
+        InitialResynchronizeRequest = null;
+        return request;
     }
 
     /// <inheritdoc/>

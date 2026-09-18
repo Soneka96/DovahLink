@@ -27,8 +27,17 @@ public interface IAdapterIpcSession
     /// </summary>
     void CommitHandshake();
 
-    /// <summary>Builds the resynchronization request to send immediately after a successful handshake.</summary>
+    /// <summary>Builds a resynchronization request for the current connection and play context.</summary>
     IpcResynchronizeRequestMessage PrepareResynchronizeRequest();
+
+    /// <summary>
+    /// Takes the one initial resynchronization request required by the first active play-context
+    /// report on this connection, when the tracker treated that report as an idempotent replay.
+    /// Returns <see langword="null"/> for an inactive first report, a first report that already
+    /// raised the normal transition trigger, or any later report.
+    /// </summary>
+    /// <returns>The prepared initial request, or <see langword="null"/>.</returns>
+    IpcResynchronizeRequestMessage? TryPrepareInitialResynchronizeRequest();
 
     /// <summary>
     /// Withdraws a previously prepared resynchronization request that could not actually be sent (for
@@ -166,6 +175,12 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The correlation id of the resynchronization request currently awaiting a result, if any.</summary>
     private ulong? pendingResynchronizeCorrelationId;
 
+    /// <summary>Whether this connection has received its first Adapter play-context state report.</summary>
+    private bool initialPlayContextStateReported;
+
+    /// <summary>Whether the first active replay needs a request because it was tracker-idempotent.</summary>
+    private bool initialResynchronizePending;
+
     /// <summary>The most recently issued outbound correlation id.</summary>
     private long nextCorrelationId;
 
@@ -258,6 +273,18 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     }
 
     /// <inheritdoc/>
+    public IpcResynchronizeRequestMessage? TryPrepareInitialResynchronizeRequest()
+    {
+        if (!initialResynchronizePending)
+        {
+            return null;
+        }
+
+        initialResynchronizePending = false;
+        return PrepareResynchronizeRequest();
+    }
+
+    /// <inheritdoc/>
     public void CancelPendingResynchronize(ulong correlationId)
     {
         if (pendingResynchronizeCorrelationId == correlationId)
@@ -299,11 +326,26 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
                 return AdapterIpcOutcome.None;
 
             case IpcPlayContextChangedMessage playContextChanged:
+                PlayContextSnapshot beforeChanged = playContextTracker.GetSnapshot();
                 playContextTracker.NotifyTransition(playContextChanged.PlayContextId);
+                PlayContextSnapshot afterChanged = playContextTracker.GetSnapshot();
+                if (!initialPlayContextStateReported)
+                {
+                    initialPlayContextStateReported = true;
+                    initialResynchronizePending = afterChanged.Current is not null
+                        && afterChanged.TransitionGeneration == beforeChanged.TransitionGeneration;
+                }
+
                 return AdapterIpcOutcome.None;
 
             case IpcPlayContextEndedMessage:
                 playContextTracker.ClearCurrent();
+                if (!initialPlayContextStateReported)
+                {
+                    initialPlayContextStateReported = true;
+                    initialResynchronizePending = false;
+                }
+
                 return AdapterIpcOutcome.None;
 
             default:

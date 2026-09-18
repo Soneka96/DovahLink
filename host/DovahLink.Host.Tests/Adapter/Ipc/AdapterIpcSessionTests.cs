@@ -682,6 +682,64 @@ public class AdapterIpcSessionTests
         Assert.Null(playContextTracker.Current);
     }
 
+    /// <summary>Verifies that an idempotent first active replay prepares one initial resynchronization request.</summary>
+    [Fact]
+    public void HandleFrame_FirstActiveSameContextReplay_PreparesOneInitialResynchronizeRequest()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+
+        Assert.Equal(AdapterIpcOutcome.None, session.HandleFrame(new IpcPlayContextChangedMessage(0, context)));
+
+        Assert.NotNull(session.TryPrepareInitialResynchronizeRequest());
+        Assert.Null(session.TryPrepareInitialResynchronizeRequest());
+    }
+
+    /// <summary>Verifies that an inactive first replay never prepares an initial resynchronization request.</summary>
+    [Fact]
+    public void HandleFrame_FirstInactiveReplay_DoesNotPrepareInitialResynchronizeRequest()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+
+        Assert.Equal(AdapterIpcOutcome.None, session.HandleFrame(new IpcPlayContextEndedMessage(0)));
+
+        Assert.Null(session.TryPrepareInitialResynchronizeRequest());
+    }
+
+    /// <summary>Verifies that later same-context reports cannot create another initial request.</summary>
+    [Fact]
+    public void HandleFrame_LaterSameContextReplay_DoesNotPrepareAnotherInitialRequest()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+
+        session.HandleFrame(new IpcPlayContextChangedMessage(0, context));
+        Assert.NotNull(session.TryPrepareInitialResynchronizeRequest());
+        session.HandleFrame(new IpcPlayContextChangedMessage(0, context));
+
+        Assert.Null(session.TryPrepareInitialResynchronizeRequest());
+    }
+
     /// <summary>Verifies that a message kind the host never expects to receive is rejected and closes the connection.</summary>
     [Theory]
     [InlineData(typeof(IpcListenEventMessage))]
