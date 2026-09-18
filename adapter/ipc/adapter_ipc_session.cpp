@@ -401,7 +401,7 @@ AdapterIpcSession::HandleMessage(const IpcMessage& message) {
                                                : AuthenticationState::kClosed;
                 }
                 if (authenticated) {
-                    ReplayCurrentPlayContext();
+                    ReplayCurrentPlayContextState();
                 }
                 return authenticated ? AdapterIpcMessageDisposition::kAuthenticated
                                      : AdapterIpcMessageDisposition::kClose;
@@ -559,13 +559,14 @@ void AdapterIpcSession::SendPlayContextEnded() {
     }
 }
 
-void AdapterIpcSession::ReplayCurrentPlayContext() {
+void AdapterIpcSession::ReplayCurrentPlayContextState() {
     std::optional<std::array<std::byte, 16>> current =
         playContextState_.CurrentPlayContext();
-    if (!current.has_value()) {
-        return;
+    if (current.has_value()) {
+        SendPlayContextChanged(*current);
+    } else {
+        SendPlayContextEnded();
     }
-    SendPlayContextChanged(*current);
 }
 
 AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(

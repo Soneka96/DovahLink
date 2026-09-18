@@ -405,17 +405,15 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  Issues the next monotonic outbound correlation id, starting at 1.
     std::uint64_t NextCorrelationId();
 
-    ///  Re-sends the currently held play context through the newly
+    ///  Re-sends the complete current play-context state through the newly
     ///  authenticated connection, so a host that starts a fresh generation
-    ///  while Skyrim keeps the same save loaded still learns the current
-    ///  context instead of waiting for the next `kNewGame`/`kPostLoadGame`.
+    ///  while Skyrim keeps the same save loaded learns whether a context is
+    ///  active instead of waiting for the next transition.
     ///  Called once, immediately after this generation reaches
-    ///  `AuthenticationState::kAuthenticated`. A no-op if no real
-    ///  play-context transition has ever occurred yet (`playContextState_`
-    ///  still reports all-zero): there is nothing genuine to announce, and
-    ///  sending the all-zero sentinel would announce a false transition to a
-    ///  host that has not seen any context yet.
-    void ReplayCurrentPlayContext();
+    ///  `AuthenticationState::kAuthenticated`. Sends
+    ///  `PlayContextChanged` when a context exists and `PlayContextEnded`
+    ///  otherwise; it never fabricates an all-zero context identifier.
+    void ReplayCurrentPlayContextState();
 
     ///  Invalidates the current generation for deferred work exactly once: a
     ///  no-op (returning an empty vector) if `authenticationState_` is already

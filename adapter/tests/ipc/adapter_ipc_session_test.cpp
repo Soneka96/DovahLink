@@ -1248,7 +1248,7 @@ TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
     CHECK(fixture.session.IsHostAvailable());
 }
 
-TEST_CASE("AdapterIpcSession replays the currently held play context to a "
+TEST_CASE("AdapterIpcSession replays the active play context to a "
           "newly authenticated generation, so a host that starts a fresh "
           "generation while the same save stays loaded still learns the "
           "current context") {
@@ -1293,11 +1293,23 @@ TEST_CASE("AdapterIpcSession replays the currently held play context to a "
     CHECK(notification->playContextId == playContextId);
 }
 
-TEST_CASE("AdapterIpcSession does not replay a play context when nothing "
-          "genuine has ever been announced yet") {
+TEST_CASE("AdapterIpcSession replays the ended play-context state after "
+          "the context ends while disconnected") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    std::array<std::byte, 16> playContextId{};
+    playContextId[0] = std::byte{42};
+    fixture.session.SendPlayContextChanged(playContextId);
+    REQUIRE(fixture.playContextState.CurrentPlayContext() == playContextId);
+    connection.Clear();
+
+    fixture.session.HandleDisconnected();
+    fixture.session.SendPlayContextEnded();
+    REQUIRE(fixture.playContextState.CurrentPlayContext() == std::nullopt);
+
     fixture.session.HandleConnected(fixture.target);
     REQUIRE(connection.Sent().size() == 1);
     auto* hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
@@ -1308,17 +1320,52 @@ TEST_CASE("AdapterIpcSession does not replay a play context when nothing "
                               hello->adapterInstanceId, hello->ownerLifetimeId));
     connection.Clear();
 
-    AdapterIpcMessageDisposition disposition =
-        fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
-            .correlationId = hello->correlationId,
-            .accepted = true,
-            .rejectReason = IpcHelloRejectReason::kNone,
-            .hostProof = expectedProof,
-        }});
+    AdapterIpcMessageDisposition disposition = fixture.session.HandleMessage(
+        IpcMessage{IpcHelloAckMessage{.correlationId = hello->correlationId,
+                                      .accepted = true,
+                                      .rejectReason = IpcHelloRejectReason::kNone,
+                                      .hostProof = expectedProof}});
     REQUIRE(disposition == AdapterIpcMessageDisposition::kAuthenticated);
 
     CHECK(fixture.playContextState.CurrentPlayContext() == std::nullopt);
-    CHECK(connection.Sent().empty());
+    REQUIRE(connection.Sent().size() == 1);
+    auto* notification =
+        std::get_if<IpcPlayContextEndedMessage>(&connection.Sent().front());
+    REQUIRE(notification != nullptr);
+    CHECK(notification->correlationId == 0);
+}
+
+TEST_CASE("AdapterIpcSession replays the ended play-context state when no "
+          "context has ever been established") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.Clear();
+
+    fixture.session.HandleDisconnected();
+    fixture.session.HandleConnected(fixture.target);
+    REQUIRE(connection.Sent().size() == 1);
+    auto* hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
+    REQUIRE(hello != nullptr);
+    auto expectedProof = ComputeIpcHmacSha256(
+        fixture.target.hostProofKey,
+        BuildHostProofMessage(hello->challenge, hello->correlationId,
+                              hello->adapterInstanceId, hello->ownerLifetimeId));
+    connection.Clear();
+
+    AdapterIpcMessageDisposition disposition = fixture.session.HandleMessage(
+        IpcMessage{IpcHelloAckMessage{.correlationId = hello->correlationId,
+                                      .accepted = true,
+                                      .rejectReason = IpcHelloRejectReason::kNone,
+                                      .hostProof = expectedProof}});
+    REQUIRE(disposition == AdapterIpcMessageDisposition::kAuthenticated);
+
+    REQUIRE(connection.Sent().size() == 1);
+    auto* notification =
+        std::get_if<IpcPlayContextEndedMessage>(&connection.Sent().front());
+    REQUIRE(notification != nullptr);
+    CHECK(notification->correlationId == 0);
 }
 
 TEST_CASE("AdapterIpcSession does not let a cancellation from an earlier "
