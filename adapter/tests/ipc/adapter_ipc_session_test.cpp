@@ -295,7 +295,16 @@ class FakeAdapterIpcConnection final : public IAdapterIpcConnection {
         return accepted;
     }
 
+    ///  Records the call; this fake never actually resets a transport.
+    void RequestReconnect() override { ++reconnectRequests_; }
+
     void Stop() override {}
+
+    ///  The number of times `RequestReconnect` was called.
+    int ReconnectRequests() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return reconnectRequests_;
+    }
 
     const std::vector<IpcMessage>& Sent() const {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -365,6 +374,8 @@ class FakeAdapterIpcConnection final : public IAdapterIpcConnection {
     ///  Whether the next `TrySend` call should throw a non-`std::exception`
     ///  value instead of sending.
     bool throwNonStandardOnNextSend_ = false;
+    ///  The number of times `RequestReconnect` was called.
+    int reconnectRequests_ = 0;
     ///  Resolved the instant a blocked `TrySend` call actually enters.
     std::promise<void> blockedSendEntered_;
     ///  Resolved by `ReleaseBlockedSend` to let a blocked `TrySend` call proceed.

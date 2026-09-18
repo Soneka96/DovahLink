@@ -16,10 +16,7 @@
 #include "runtime/adapter_task_marshaller.hpp"
 
 #include <functional>
-#include <future>
 #include <memory>
-#include <mutex>
-#include <vector>
 
 namespace dovahlink::adapter::plugin {
 
@@ -121,21 +118,6 @@ class AdapterRuntime final {
     std::unique_ptr<process::Win32AdapterHostProcessLauncher> launcher_;
     std::unique_ptr<ipc::AdapterIpcConnection> connection_;
     std::unique_ptr<process::AdapterHostSupervisor> supervisor_;
-
-    ///  Guards `captureRejectionResetFutures_` against concurrent pushes: a
-    ///  rejected reliable Event can be reported from the Skyrim game thread
-    ///  at any time, including while another rejection's own reset is still
-    ///  being dispatched.
-    std::mutex captureRejectionResetFuturesMutex_;
-    ///  One entry per connection reset dispatched for a rejected reliable
-    ///  Event, via `std::async(std::launch::async, ...)` rather than a
-    ///  detached `std::thread`: a `std::future` obtained this way blocks in
-    ///  its own destructor until the dispatched `connection_->Stop()` call
-    ///  actually finishes. Declared after `connection_` so it is destroyed
-    ///  first (member destruction runs in reverse declaration order),
-    ///  guaranteeing every in-flight reset completes -- and can never touch
-    ///  a freed `connection_` -- before `connection_` itself is destroyed.
-    std::vector<std::future<void>> captureRejectionResetFutures_;
 };
 
 } //  namespace dovahlink::adapter::plugin

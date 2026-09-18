@@ -2,8 +2,6 @@
 
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 
-#include <future>
-#include <mutex>
 #include <utility>
 
 namespace dovahlink::adapter::plugin {
@@ -45,24 +43,18 @@ AdapterRuntime::AdapterRuntime(
             //  A rejected reliable Event (for example the level-changed
             //  event), unlike a rejected Snapshot sample that the next poll
             //  can simply recapture, can never be silently lost: continuity
-            //  is no longer trustworthy once one is dropped, so the
-            //  connection is reset and the adapter's normal reconnect drives
-            //  a fresh resynchronization. Dispatched via std::async rather
-            //  than called inline, both because this callback can run on the
-            //  Skyrim game thread (which must never block on Stop()'s own
-            //  wait for the connection's background thread to finish) and
-            //  ahead of the diagnostic callback below, so an exception from
-            //  a caller-supplied diagnostic can never suppress the reset.
-            //  The resulting future is kept in captureRejectionResetFutures_
-            //  rather than discarded: its destructor blocks until this
-            //  dispatched Stop() call actually finishes, and that member is
-            //  declared to be destroyed before connection_ is, so a reset
-            //  can never still be running against an already-freed
-            //  connection_ during teardown.
+            //  is no longer trustworthy once one is dropped, so the current
+            //  attempt is reset and the adapter's normal reconnect drives a
+            //  fresh resynchronization -- via `RequestReconnect()`, not the
+            //  process-lifetime `Stop()`, so a later `Start()` still runs.
+            //  Called inline rather than dispatched: `RequestReconnect()`
+            //  never blocks (it only publishes an atomic flag), so it is
+            //  always safe to call directly from this callback, including
+            //  when it runs on the Skyrim game thread. Called before the
+            //  diagnostic callback below so an exception from a
+            //  caller-supplied diagnostic can never suppress the reset.
             if (item.source == capture::CaptureSourceKind::kEvent) {
-                std::lock_guard<std::mutex> lock(captureRejectionResetFuturesMutex_);
-                captureRejectionResetFutures_.push_back(
-                    std::async(std::launch::async, [this] { connection_->Stop(); }));
+                connection_->RequestReconnect();
             }
             if (onCaptureQueueRejected) {
                 onCaptureQueueRejected(item);

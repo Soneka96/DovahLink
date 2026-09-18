@@ -704,6 +704,9 @@ class RecordingAdapterIpcConnection final
     ///  The fallback test never sends through this connection.
     bool TrySend(const IpcMessage&) override { return true; }
 
+    ///  The fallback test never resets this connection.
+    void RequestReconnect() override {}
+
     ///  The fallback test has no connection worker to stop.
     void Stop() override {}
 
@@ -1010,6 +1013,129 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
     connection.Stop();
     CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
     CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
+    supervisor.reset();
+}
+
+TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
+          "the supervisor re-establishes a fresh authenticated generation "
+          "against the same real host, with a fresh resync",
+          "[process][integration]") {
+    //  AdapterRuntime's own tests (adapter_runtime_test.cpp) already prove
+    //  that a rejected reliable Event's onRejected callback calls
+    //  RequestReconnect() (and that a rejected Snapshot sample does not);
+    //  this test proves the other half -- what RequestReconnect() itself
+    //  actually does end to end against a real host -- so it calls it
+    //  directly rather than re-deriving a queue rejection. Unlike a host
+    //  restart (the test above), this never kills the real host process: it
+    //  only resets this one connection's current attempt. Stopping the
+    //  connection permanently instead (as Stop() deliberately does) would
+    //  leave Start() unable to ever reconnect; this proves RequestReconnect()
+    //  instead lets the same still-running host be rediscovered and
+    //  re-authenticated, with a fresh resync.
+    const std::filesystem::path hostExecutable{DOVAHLINK_HOST_EXECUTABLE};
+    REQUIRE(std::filesystem::exists(hostExecutable));
+
+    const auto ownerLifetimeId = LifetimeIdWithMarker(std::byte{0xC4});
+    auto rendezvousPath = ResolveDefaultRendezvousFilePath(ownerLifetimeId);
+    REQUIRE(rendezvousPath.has_value());
+    ScopedRendezvousCleanup rendezvousCleanup(*rendezvousPath);
+    std::error_code removeError;
+    std::filesystem::remove(*rendezvousPath, removeError);
+
+    Win32AdapterHostProcessLauncher launcher(hostExecutable, ownerLifetimeId,
+                                             std::chrono::seconds(10));
+    auto endpoint = launcher.Launch();
+    REQUIRE(endpoint.has_value());
+
+    FileAdapterHostRendezvousReader reader(*rendezvousPath);
+    WinsockAdapterIpcSocket connectionSocket(0);
+    IpcFrameCodec codec;
+    ImmediateTaskMarshaller taskMarshaller;
+    AdapterNativeCaptureRouter captureRouter;
+    //  The generic core capture router recognizes no event key or sample
+    //  token (that mapping is CommonLib-only, deliberately outside this
+    //  process test), so a real capture queue would never actually drain
+    //  anything here; a no-op queue is the right stand-in, as every other
+    //  test in this file already uses.
+    NoopCaptureQueue captureQueue;
+    NoopPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
+    std::unique_ptr<AdapterHostSupervisor> supervisor;
+    AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
+                              ownerLifetimeId, taskMarshaller, captureRouter,
+                              captureQueue, pairingNotificationSink,
+                              playContextState);
+    std::atomic<int> connectedCount = 0;
+    //  Counts every IpcResynchronizeRequestMessage the real host sends --
+    //  proof of "with a fresh resync" independent of the stub capture
+    //  router's own unsupported-token behavior above.
+    std::atomic<int> resyncRequestsAfterReset = 0;
+    std::atomic<bool> countResyncRequests = false;
+    AdapterIpcConnection connection(
+        connectionSocket, codec,
+        dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
+            .onTargetConnected =
+                [&](const AdapterIpcTarget& target) {
+                    ++connectedCount;
+                    session.HandleConnected(target);
+                },
+            .onMessageReceived =
+                [&](const IpcMessage& message) {
+                    if (countResyncRequests.load() &&
+                        std::holds_alternative<
+                            dovahlink::adapter::ipc::IpcResynchronizeRequestMessage>(
+                            message)) {
+                        ++resyncRequestsAfterReset;
+                    }
+                    return session.HandleMessage(message);
+                },
+            .onDecodeFailure = [&] { session.HandleDecodeFailure(); },
+            .onDisconnected = [&] { session.HandleDisconnected(); },
+            .onAttemptFinished =
+                [&](std::uint64_t targetGeneration,
+                    dovahlink::adapter::ipc::AdapterIpcAttemptOutcome outcome) {
+                    supervisor->NotifyConnectionLost(targetGeneration, outcome);
+                },
+        });
+    session.AttachConnection(connection);
+    supervisor = std::make_unique<AdapterHostSupervisor>(
+        reader, launcher, connection, std::chrono::milliseconds(50));
+    supervisor->Start();
+
+    //  G1: authenticate against the real host.
+    REQUIRE(WaitUntil(
+        [&] { return connectedCount.load() >= 1 && session.IsHostAvailable(); },
+        std::chrono::seconds(10)));
+    REQUIRE(IsProcessStillRunning(launcher.ProcessId()));
+
+    //  From here on, count resync requests so the reset below is proven to
+    //  trigger a fresh one, not merely to reuse G1's own initial resync.
+    countResyncRequests.store(true);
+
+    //  Exactly what AdapterRuntime's onRejected callback does for a rejected
+    //  reliable Event -- proven to be reached from that callback separately
+    //  by adapter_runtime_test.cpp's own queue-rejection tests.
+    connection.RequestReconnect();
+
+    //  G2: the same still-running host is rediscovered (same rendezvous
+    //  port) and a fresh authenticated generation is established -- proving
+    //  RequestReconnect() does not permanently poison Start() the way Stop()
+    //  would.
+    REQUIRE(WaitUntil(
+        [&] { return connectedCount.load() >= 2 && session.IsHostAvailable(); },
+        std::chrono::seconds(10)));
+    CHECK(IsProcessStillRunning(launcher.ProcessId()));
+
+    //  The real host always requests a fresh resynchronization baseline right
+    //  after a connection authenticates; this is the "with a fresh resync"
+    //  half of this test's own name, not merely that the transport itself
+    //  reconnected.
+    CHECK(WaitUntil([&] { return resyncRequestsAfterReset.load() > 0; },
+                    std::chrono::seconds(10)));
+
+    supervisor->RequestStop();
+    connection.Stop();
+    launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0));
     supervisor.reset();
 }
 
