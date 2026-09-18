@@ -17,7 +17,7 @@ public class PlayContextResynchronizationTriggerTests
         var availabilityTracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(availabilityTracker, instanceId, 1);
-        availabilityTracker.NotifyResynchronized(instanceId, 1);
+        Resynchronize(availabilityTracker, instanceId, 1);
         Assert.False(availabilityTracker.NeedsResynchronization);
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
@@ -38,7 +38,7 @@ public class PlayContextResynchronizationTriggerTests
         var availabilityTracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(availabilityTracker, instanceId, 1);
-        availabilityTracker.NotifyResynchronized(instanceId, 1);
+        Resynchronize(availabilityTracker, instanceId, 1);
         var listener = new FakeAdapterIpcListener { CurrentConnection = null };
         var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
 
@@ -65,9 +65,9 @@ public class PlayContextResynchronizationTriggerTests
         var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
 
         trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId()));
-        availabilityTracker.NotifyResynchronized(instanceId, 1);
+        Resynchronize(availabilityTracker, instanceId, 1);
         trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId()));
-        availabilityTracker.NotifyResynchronized(instanceId, 1);
+        Resynchronize(availabilityTracker, instanceId, 1);
         trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId()));
 
         Assert.Equal(3, connection.ResynchronizeRequestCalls);
@@ -100,6 +100,16 @@ public class PlayContextResynchronizationTriggerTests
         if (transition is not null)
         {
             tracker.PublishTransition(transition);
+        }
+    }
+
+    /// <summary>Claims the current connection's resynchronization token and reports it resynchronized in one call.</summary>
+    private static void Resynchronize(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long connectionGeneration)
+    {
+        IAdapterResynchronizationToken? token = tracker.TryClaimResynchronizationToken();
+        if (token is not null)
+        {
+            tracker.NotifyResynchronized(instanceId, connectionGeneration, token);
         }
     }
 }

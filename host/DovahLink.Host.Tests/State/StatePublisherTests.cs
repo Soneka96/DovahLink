@@ -439,7 +439,7 @@ public class StatePublisherTests
         PublishConnected(adapterTracker, instanceId, firstGeneration);
         IAdapterResynchronizationToken staleToken = adapterTracker.TryClaimResynchronizationToken()!;
         Assert.True(publisher.ApplyResynchronizationBaseline(staleToken, context, generation, AreaId, 1).Accepted);
-        adapterTracker.NotifyResynchronized(instanceId, firstGeneration);
+        adapterTracker.NotifyResynchronized(instanceId, firstGeneration, staleToken);
         Assert.False(publisher.ApplyResynchronizationBaseline(staleToken, context, generation, AreaId, 2).Accepted);
 
         long secondGeneration = 2;
@@ -447,9 +447,9 @@ public class StatePublisherTests
 
         Assert.False(publisher.ApplyResynchronizationBaseline(staleToken, context, generation, AreaId, 2).Accepted);
         Assert.False(publisher.ApplyResynchronizationBaseline(new ForeignResynchronizationToken(), context, generation, AreaId, 2).Accepted);
-        Assert.True(publisher.ApplyResynchronizationBaseline(
-            adapterTracker.TryClaimResynchronizationToken()!, context, generation, AreaId, 2).Accepted);
-        adapterTracker.NotifyResynchronized(instanceId, secondGeneration);
+        IAdapterResynchronizationToken secondToken = adapterTracker.TryClaimResynchronizationToken()!;
+        Assert.True(publisher.ApplyResynchronizationBaseline(secondToken, context, generation, AreaId, 2).Accepted);
+        adapterTracker.NotifyResynchronized(instanceId, secondGeneration, secondToken);
         Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
         Assert.Equal(2, value);
     }
@@ -538,9 +538,10 @@ public class StatePublisherTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         long generation = 1;
         PublishConnected(adapterTracker, instanceId, generation);
+        IAdapterResynchronizationToken firstBaselineToken = adapterTracker.TryClaimResynchronizationToken()!;
         Assert.True(publisher.ApplyResynchronizationBaseline(
-            adapterTracker.TryClaimResynchronizationToken()!, firstContext, playContextTracker.TransitionGeneration, AreaId, 1).Accepted);
-        adapterTracker.NotifyResynchronized(instanceId, generation);
+            firstBaselineToken, firstContext, playContextTracker.TransitionGeneration, AreaId, 1).Accepted);
+        adapterTracker.NotifyResynchronized(instanceId, generation, firstBaselineToken);
 
         Task transitionTask = Task.Run(() => playContextTracker.NotifyTransition(secondContext));
         Assert.True(transitionEntered.Wait(TimeSpan.FromSeconds(5)));
@@ -565,9 +566,10 @@ public class StatePublisherTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         long firstGeneration = 1;
         PublishConnected(adapterTracker, instanceId, firstGeneration);
+        IAdapterResynchronizationToken firstToken = adapterTracker.TryClaimResynchronizationToken()!;
         Assert.True(publisher.ApplyResynchronizationBaseline(
-            adapterTracker.TryClaimResynchronizationToken()!, context, playContextTracker.TransitionGeneration, AreaId, 42).Accepted);
-        adapterTracker.NotifyResynchronized(instanceId, firstGeneration);
+            firstToken, context, playContextTracker.TransitionGeneration, AreaId, 42).Accepted);
+        adapterTracker.NotifyResynchronized(instanceId, firstGeneration, firstToken);
         RevisionNumber synchronizedRevision = publisher.CurrentRevision(AreaId);
 
         PublishDisconnected(adapterTracker, instanceId, firstGeneration);
@@ -578,9 +580,10 @@ public class StatePublisherTests
         PublishConnected(adapterTracker, instanceId, secondGeneration);
         Assert.Equal(synchronizedRevision.Next().Next(), publisher.CurrentRevision(AreaId));
         Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
+        IAdapterResynchronizationToken secondToken = adapterTracker.TryClaimResynchronizationToken()!;
         Assert.True(publisher.ApplyResynchronizationBaseline(
-            adapterTracker.TryClaimResynchronizationToken()!, context, playContextTracker.TransitionGeneration, AreaId, 42).Accepted);
-        adapterTracker.NotifyResynchronized(instanceId, secondGeneration);
+            secondToken, context, playContextTracker.TransitionGeneration, AreaId, 42).Accepted);
+        adapterTracker.NotifyResynchronized(instanceId, secondGeneration, secondToken);
 
         Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
         Assert.Equal(42, value);

@@ -73,10 +73,19 @@ public interface IAdapterAvailabilityTracker
     /// <param name="transition">The transition returned by <see cref="CommitConnected"/> or <see cref="CommitDisconnected"/>.</param>
     void PublishTransition(AdapterAvailabilityTransition transition);
 
-    /// <summary>Records that the specified adapter's resynchronization handshake has completed.</summary>
+    /// <summary>
+    /// Records that the specified adapter's resynchronization handshake has completed. Completion is
+    /// accepted only when <paramref name="token"/> is still this connection's own live, claimed
+    /// resynchronization token, validated atomically with clearing the requirement -- a token claimed
+    /// for an earlier transaction that a later play-context transition has since re-armed (minting a
+    /// fresh token) must never be able to clear that newer requirement. See
+    /// <see cref="RearmResynchronizationForPlayContextTransition"/> for the re-arming this guards
+    /// against.
+    /// </summary>
     /// <param name="instanceId">The adapter instance that completed resynchronization.</param>
     /// <param name="connectionGeneration">The connection generation that resynchronized.</param>
-    void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration);
+    /// <param name="token">The resynchronization token the completing transaction was claimed under.</param>
+    void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration, IAdapterResynchronizationToken token);
 
     /// <summary>
     /// Re-arms resynchronization for a play-context transition while the current connection stays
@@ -248,12 +257,17 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
-    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration)
+    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration, IAdapterResynchronizationToken token)
     {
         bool resynchronized;
         lock (gate)
         {
-            resynchronized = current == AdapterAvailability.Available && currentInstanceId == instanceId && currentConnectionGeneration == connectionGeneration;
+            resynchronized = current == AdapterAvailability.Available
+                && currentInstanceId == instanceId
+                && currentConnectionGeneration == connectionGeneration
+                && needsResynchronization
+                && resynchronizationTokenClaimed
+                && ReferenceEquals(currentResynchronizationToken, token);
             if (resynchronized)
             {
                 needsResynchronization = false;

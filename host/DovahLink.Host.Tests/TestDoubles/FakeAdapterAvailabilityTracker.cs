@@ -87,9 +87,15 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
-    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration)
+    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration, IAdapterResynchronizationToken token)
     {
-        if (Current == AdapterAvailability.Available && CurrentInstanceId == instanceId && CurrentConnectionGeneration == connectionGeneration)
+        bool resynchronized = Current == AdapterAvailability.Available
+            && CurrentInstanceId == instanceId
+            && CurrentConnectionGeneration == connectionGeneration
+            && NeedsResynchronization
+            && resynchronizationTokenClaimed
+            && ReferenceEquals(currentResynchronizationToken, token);
+        if (resynchronized)
         {
             NeedsResynchronization = false;
             currentResynchronizationToken = null;

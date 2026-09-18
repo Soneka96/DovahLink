@@ -123,7 +123,11 @@ public class ResynchronizationTransactionCoordinatorTests
         coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, contextA, 1);
         Assert.True(tracker.NeedsResynchronization);
 
-        // Context B supersedes A (generation 2 > 1) before A ever finished.
+        // Context B supersedes A (generation 2 > 1) before A ever finished. In production this
+        // re-arm is PlayContextResynchronizationTrigger's own real call, always made before any
+        // capture for the new context can reach this coordinator -- it is what actually mints the
+        // fresh token AcquireToken below claims for B.
+        tracker.RearmResynchronizationForPlayContextTransition();
         foreach (StateAreaId area in AllFiveAreas)
         {
             coordinator.AcquireToken(instanceId, 1, contextB, 2);
@@ -195,7 +199,9 @@ public class ResynchronizationTransactionCoordinatorTests
         coordinator.RecordAreaAccepted(HealthArea, instanceId, 1, contextA, 1);
 
         // Context transitions to B before Magicka/Stamina land; only Health, XP, and Level accept
-        // under B -- Magicka and Stamina remain outstanding.
+        // under B -- Magicka and Stamina remain outstanding. The re-arm mints B's fresh token, the
+        // same real call PlayContextResynchronizationTrigger makes on every play-context transition.
+        tracker.RearmResynchronizationForPlayContextTransition();
         foreach (StateAreaId area in new[] { HealthArea, XpArea, LevelArea })
         {
             coordinator.AcquireToken(instanceId, 1, contextB, 2);
@@ -335,6 +341,27 @@ public class ResynchronizationTransactionCoordinatorTests
         Assert.False(tracker.NeedsResynchronization);
     }
 
+    /// <summary>
+    /// Verifies that TryMarkCompletedLocked's own defensive token claim -- needed for an empty
+    /// required-area set, since no area's own AcquireToken call ever claimed one -- leaves the
+    /// transaction incomplete rather than throwing when the tracker has no claimable token to give,
+    /// for example because something else already consumed the connection's one-time token first.
+    /// </summary>
+    [Fact]
+    public void EmptyRequiredAreaSet_NoClaimableTokenAvailable_NeverCompletes()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        Assert.NotNull(tracker.TryClaimResynchronizationToken());
+        var coordinator = new ResynchronizationTransactionCoordinator(new LiveStateCatalog([], []), tracker);
+        PlayContextId context = PlayContextId.NewId();
+
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+
+        Assert.True(tracker.NeedsResynchronization);
+    }
+
     /// <summary>Verifies that concurrently recording every area and the plan-accepted result for one transaction completes it exactly once, never more.</summary>
     [Fact]
     public async Task ConcurrentAreaAndPlanRecording_CompletesExactlyOnce()
@@ -359,6 +386,60 @@ public class ResynchronizationTransactionCoordinatorTests
 
         Assert.False(tracker.NeedsResynchronization);
         Assert.Equal(1, resynchronizedCount);
+    }
+
+    /// <summary>
+    /// Reproduces BLOCKER 1: a transaction that reaches ready-to-complete (every required area
+    /// already accepted, only the adapter's own plan-accepted report still outstanding) must not be
+    /// able to complete a newer requirement that a play-context re-arm mints in the meantime, on the
+    /// same adapter instance and connection generation. A play-context transition re-arms the tracker
+    /// directly (<see cref="DovahLink.Host.Adapter.Ipc.PlayContextResynchronizationTrigger"/>'s real call), independently of
+    /// whatever tuple this coordinator is still tracking, so the coordinator's own captured token can
+    /// go stale without any newer tuple ever being tracked here at all -- the coordinator's own
+    /// newer-tuple replacement (see <see cref="NewerPlayContextGeneration_ReplacesTrackedTransactionAndDiscardsOldProgress"/>)
+    /// does not, by itself, protect against this: it only guards a later call for the newer tuple,
+    /// not an in-flight completion still carrying the older tuple's own already-claimed token.
+    /// </summary>
+    [Fact]
+    public void PlanAcceptedReport_ArrivesAfterPlayContextRearm_DoesNotCompleteWithStaleToken()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        PlayContextId contextA = PlayContextId.NewId();
+
+        // Context A's transaction reaches ready-to-complete: its token is claimed and every required
+        // area is accepted, leaving only the adapter's own plan-accepted report outstanding.
+        IAdapterResynchronizationToken? tokenA = coordinator.AcquireToken(instanceId, 1, contextA, 1);
+        Assert.NotNull(tokenA);
+        foreach (StateAreaId area in AllFiveAreas)
+        {
+            coordinator.RecordAreaAccepted(area, instanceId, 1, contextA, 1);
+        }
+
+        Assert.True(tracker.NeedsResynchronization);
+
+        // Before A's plan-accepted report arrives, a play-context transition commits on the same
+        // connection and re-arms the tracker directly, minting a fresh token -- A's own captured
+        // token is now stale even though the coordinator has not tracked any newer tuple yet.
+        tracker.RearmResynchronizationForPlayContextTransition();
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.False(tracker.IsCurrentResynchronizationToken(tokenA!));
+
+        // A's now-stale plan-accepted report finally arrives and completes the coordinator's
+        // still-A-tracked transaction, reporting A's own originally claimed token.
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, contextA, 1);
+
+        // A's completion must be ignored: the newer requirement minted by the re-arm survives, and
+        // A's stale token never becomes current again.
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.False(tracker.IsCurrentResynchronizationToken(tokenA!));
+
+        // The requirement the re-arm minted is still genuinely live and claimable, distinct from A's token.
+        IAdapterResynchronizationToken? tokenAfterRearm = tracker.TryClaimResynchronizationToken();
+        Assert.NotNull(tokenAfterRearm);
+        Assert.NotSame(tokenA, tokenAfterRearm);
     }
 
     /// <summary>Verifies that AcquireToken returns null, and records nothing, when the tracker has no claimable token to give (for example no adapter connected).</summary>

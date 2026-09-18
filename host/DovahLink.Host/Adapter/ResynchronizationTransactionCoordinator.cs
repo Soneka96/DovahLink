@@ -128,6 +128,7 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
         bool shouldComplete;
         AdapterInstanceId completingInstanceId;
         long completingConnectionGeneration;
+        IAdapterResynchronizationToken? completingToken;
         lock (gate)
         {
             if (!EnsureTrackingLocked(instanceId, connectionGeneration, playContextId, playContextGeneration))
@@ -136,12 +137,12 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
             }
 
             transactionAcceptedAreas.Add(areaId);
-            shouldComplete = TryMarkCompletedLocked(out completingInstanceId, out completingConnectionGeneration);
+            shouldComplete = TryMarkCompletedLocked(out completingInstanceId, out completingConnectionGeneration, out completingToken);
         }
 
-        if (shouldComplete)
+        if (shouldComplete && completingToken is not null)
         {
-            adapterAvailabilityTracker.NotifyResynchronized(completingInstanceId, completingConnectionGeneration);
+            adapterAvailabilityTracker.NotifyResynchronized(completingInstanceId, completingConnectionGeneration, completingToken);
         }
     }
 
@@ -151,6 +152,7 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
         bool shouldComplete;
         AdapterInstanceId completingInstanceId;
         long completingConnectionGeneration;
+        IAdapterResynchronizationToken? completingToken;
         lock (gate)
         {
             if (!EnsureTrackingLocked(instanceId, connectionGeneration, playContextId, playContextGeneration))
@@ -159,12 +161,12 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
             }
 
             transactionAdapterPlanAccepted = accepted;
-            shouldComplete = TryMarkCompletedLocked(out completingInstanceId, out completingConnectionGeneration);
+            shouldComplete = TryMarkCompletedLocked(out completingInstanceId, out completingConnectionGeneration, out completingToken);
         }
 
-        if (shouldComplete)
+        if (shouldComplete && completingToken is not null)
         {
-            adapterAvailabilityTracker.NotifyResynchronized(completingInstanceId, completingConnectionGeneration);
+            adapterAvailabilityTracker.NotifyResynchronized(completingInstanceId, completingConnectionGeneration, completingToken);
         }
     }
 
@@ -214,12 +216,26 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
     /// </summary>
     /// <param name="instanceId">The tracked transaction's adapter instance.</param>
     /// <param name="connectionGeneration">The tracked transaction's connection generation.</param>
+    /// <param name="token">
+    /// The token completion must be reported under, claimed here if <see cref="requiredAreas"/> is
+    /// empty and no area ever claimed one through <see cref="AcquireToken"/>; <see langword="null"/>
+    /// when this call does not complete the transaction, or when completion is otherwise satisfied
+    /// but no token could be claimed.
+    /// </param>
     /// <returns><see langword="true"/> exactly once, the call that completes the transaction.</returns>
-    private bool TryMarkCompletedLocked(out AdapterInstanceId instanceId, out long connectionGeneration)
+    private bool TryMarkCompletedLocked(out AdapterInstanceId instanceId, out long connectionGeneration, out IAdapterResynchronizationToken? token)
     {
         instanceId = transactionInstanceId;
         connectionGeneration = transactionConnectionGeneration;
+        token = null;
         if (transactionCompleted || transactionAdapterPlanAccepted != true || !requiredAreas.IsSubsetOf(transactionAcceptedAreas))
+        {
+            return false;
+        }
+
+        transactionToken ??= adapterAvailabilityTracker.TryClaimResynchronizationToken();
+        token = transactionToken;
+        if (token is null)
         {
             return false;
         }

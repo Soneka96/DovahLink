@@ -50,7 +50,7 @@ public class AdapterAvailabilityTrackerTests
         Assert.Equal(9, tracker.CurrentConnectionGeneration);
     }
 
-    /// <summary>Verifies that NotifyResynchronized clears the resynchronization requirement.</summary>
+    /// <summary>Verifies that NotifyResynchronized clears the resynchronization requirement when given the current claimed token.</summary>
     [Fact]
     public void NotifyResynchronized_ClearsNeedsResynchronization()
     {
@@ -58,9 +58,49 @@ public class AdapterAvailabilityTrackerTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, instanceId, 1);
 
-        tracker.NotifyResynchronized(instanceId, 1);
+        Resynchronize(tracker, instanceId, 1);
 
         Assert.False(tracker.NeedsResynchronization);
+    }
+
+    /// <summary>Verifies that calling NotifyResynchronized a second time with the same, already-consumed token is a harmless no-op rather than a double-clear or a thrown exception.</summary>
+    [Fact]
+    public void NotifyResynchronized_CalledTwiceWithSameToken_SecondCallIsNoOp()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PublishConnected(tracker, instanceId, 1);
+        IAdapterResynchronizationToken token = tracker.TryClaimResynchronizationToken()!;
+        tracker.NotifyResynchronized(instanceId, 1, token);
+        Assert.False(tracker.NeedsResynchronization);
+
+        Exception? exception = Record.Exception(() => tracker.NotifyResynchronized(instanceId, 1, token));
+
+        Assert.Null(exception);
+        Assert.False(tracker.NeedsResynchronization);
+    }
+
+    /// <summary>
+    /// Verifies that a resynchronization notification carrying a stale token -- one claimed for the
+    /// same instance and connection generation, but superseded by a later play-context re-arm --
+    /// cannot clear the newer requirement, even though the instance and generation both still match.
+    /// This is the exact token check that stops an old, already-superseded transaction from
+    /// completing a newer one; see <see cref="ResynchronizationTransactionCoordinatorTests"/> for the
+    /// same race reproduced at the coordinator level.
+    /// </summary>
+    [Fact]
+    public void NotifyResynchronized_StaleTokenSameInstanceAndGeneration_DoesNotClearResynchronization()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PublishConnected(tracker, instanceId, 1);
+        IAdapterResynchronizationToken staleToken = tracker.TryClaimResynchronizationToken()!;
+        tracker.RearmResynchronizationForPlayContextTransition();
+
+        tracker.NotifyResynchronized(instanceId, 1, staleToken);
+
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.False(tracker.IsCurrentResynchronizationToken(staleToken));
     }
 
     /// <summary>Verifies that disconnecting reports unavailable and requires resynchronization on the next connection.</summary>
@@ -70,7 +110,7 @@ public class AdapterAvailabilityTrackerTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, instanceId, 1);
-        tracker.NotifyResynchronized(instanceId, 1);
+        Resynchronize(tracker, instanceId, 1);
 
         PublishDisconnected(tracker, instanceId, 1);
 
@@ -98,7 +138,7 @@ public class AdapterAvailabilityTrackerTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId oldInstanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, oldInstanceId, 1);
-        tracker.NotifyResynchronized(oldInstanceId, 1);
+        Resynchronize(tracker, oldInstanceId, 1);
         PublishDisconnected(tracker, oldInstanceId, 1);
         AdapterInstanceId newInstanceId = AdapterInstanceId.NewId();
 
@@ -142,7 +182,7 @@ public class AdapterAvailabilityTrackerTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId firstInstanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, firstInstanceId, 1);
-        tracker.NotifyResynchronized(firstInstanceId, 1);
+        Resynchronize(tracker, firstInstanceId, 1);
         AdapterInstanceId secondInstanceId = AdapterInstanceId.NewId();
 
         PublishConnected(tracker, secondInstanceId, 2);
@@ -172,7 +212,7 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
 
-        tracker.NotifyResynchronized(AdapterInstanceId.NewId(), 1);
+        tracker.NotifyResynchronized(AdapterInstanceId.NewId(), 1, new UnrelatedResynchronizationToken());
 
         Assert.False(tracker.NeedsResynchronization);
     }
@@ -219,7 +259,7 @@ public class AdapterAvailabilityTrackerTests
         PublishConnected(tracker, currentInstanceId, 2);
 
         PublishDisconnected(tracker, oldInstanceId, 1);
-        tracker.NotifyResynchronized(oldInstanceId, 1);
+        tracker.NotifyResynchronized(oldInstanceId, 1, new UnrelatedResynchronizationToken());
 
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
         Assert.Equal(AdapterAvailability.Available, snapshot.Current);
@@ -238,7 +278,7 @@ public class AdapterAvailabilityTrackerTests
         PublishConnected(tracker, instanceId, 2);
 
         PublishDisconnected(tracker, instanceId, 1);
-        tracker.NotifyResynchronized(instanceId, 1);
+        tracker.NotifyResynchronized(instanceId, 1, new UnrelatedResynchronizationToken());
 
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
         Assert.Equal(AdapterAvailability.Available, snapshot.Current);
@@ -255,7 +295,7 @@ public class AdapterAvailabilityTrackerTests
         PublishConnected(tracker, instanceId, 1);
         PublishDisconnected(tracker, instanceId, 1);
 
-        tracker.NotifyResynchronized(instanceId, 1);
+        tracker.NotifyResynchronized(instanceId, 1, new UnrelatedResynchronizationToken());
 
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
         Assert.Equal(AdapterAvailability.Unavailable, snapshot.Current);
@@ -289,7 +329,7 @@ public class AdapterAvailabilityTrackerTests
             .Select(index => Task.Run(() =>
             {
                 PublishDisconnected(tracker, oldInstanceId, 1);
-                tracker.NotifyResynchronized(oldInstanceId, 1);
+                tracker.NotifyResynchronized(oldInstanceId, 1, new UnrelatedResynchronizationToken());
             }))
             .ToArray();
 
@@ -402,7 +442,7 @@ public class AdapterAvailabilityTrackerTests
         Assert.Null(tracker.TryClaimResynchronizationToken());
         Assert.True(tracker.IsCurrentResynchronizationToken(token));
 
-        tracker.NotifyResynchronized(instanceId, 1);
+        tracker.NotifyResynchronized(instanceId, 1, token);
 
         Assert.False(tracker.IsCurrentResynchronizationToken(token));
         Assert.Null(tracker.TryClaimResynchronizationToken());
@@ -423,7 +463,7 @@ public class AdapterAvailabilityTrackerTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, instanceId, 1);
         IAdapterResynchronizationToken firstToken = tracker.TryClaimResynchronizationToken()!;
-        tracker.NotifyResynchronized(instanceId, 1);
+        tracker.NotifyResynchronized(instanceId, 1, firstToken);
         Assert.False(tracker.NeedsResynchronization);
 
         tracker.RearmResynchronizationForPlayContextTransition();
@@ -480,7 +520,7 @@ public class AdapterAvailabilityTrackerTests
         [
             Task.Run(() => PublishConnected(tracker, secondInstanceId, 2)),
             Task.Run(() => PublishDisconnected(tracker, initialInstanceId, 1)),
-            Task.Run(() => tracker.NotifyResynchronized(initialInstanceId, 1)),
+            Task.Run(() => tracker.NotifyResynchronized(initialInstanceId, 1, new UnrelatedResynchronizationToken())),
             Task.Run(() => PublishConnected(tracker, thirdInstanceId, 3)),
         ];
 
@@ -512,5 +552,24 @@ public class AdapterAvailabilityTrackerTests
         {
             tracker.PublishTransition(transition);
         }
+    }
+
+    /// <summary>
+    /// Claims the current connection's resynchronization token and reports it resynchronized in one
+    /// call, for tests that only care about the combined effect and not the token hand-off. A no-op
+    /// when no token could be claimed.
+    /// </summary>
+    private static void Resynchronize(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long connectionGeneration)
+    {
+        IAdapterResynchronizationToken? token = tracker.TryClaimResynchronizationToken();
+        if (token is not null)
+        {
+            tracker.NotifyResynchronized(instanceId, connectionGeneration, token);
+        }
+    }
+
+    /// <summary>An arbitrary token distinct from any tracker's real current token, for a test whose notification is expected to be rejected for a reason other than the token itself (a stale instance, generation, or connection state).</summary>
+    private sealed class UnrelatedResynchronizationToken : IAdapterResynchronizationToken
+    {
     }
 }
