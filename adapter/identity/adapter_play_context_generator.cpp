@@ -22,9 +22,15 @@ std::mt19937_64& RandomEngine() {
 std::array<std::byte, 16> AdapterPlayContextGenerator::Generate() {
     std::uniform_int_distribution<int> byteDistribution(0, 255);
     std::array<std::byte, 16> playContextId{};
-    std::ranges::generate(playContextId, [&] {
-        return static_cast<std::byte>(byteDistribution(RandomEngine()));
-    });
+    //  All-zero is reserved elsewhere as an invariant no real generated value
+    //  may ever collide with (see IpcFrameCodec::DecodePlayContextChanged);
+    //  re-rolling on the (1 in 2^128) chance of drawing it keeps every byte
+    //  still uniformly distributed, unlike forcing a fixed bit.
+    do {
+        std::ranges::generate(playContextId, [&] {
+            return static_cast<std::byte>(byteDistribution(RandomEngine()));
+        });
+    } while (playContextId == std::array<std::byte, 16>{});
     return playContextId;
 }
 

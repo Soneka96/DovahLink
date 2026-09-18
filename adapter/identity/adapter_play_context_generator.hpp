@@ -19,6 +19,9 @@ class IAdapterPlayContextGenerator {
     virtual ~IAdapterPlayContextGenerator() = default;
 
     ///  Generates a new, randomly generated play-context identity.
+    ///  @return A uniformly random 16-byte value, never all-zero: that value
+    ///  is reserved as an invariant no real generated id may ever collide
+    ///  with.
     virtual std::array<std::byte, 16> Generate() = 0;
 };
 

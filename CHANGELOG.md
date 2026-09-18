@@ -54,6 +54,8 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   returned to the main menu -- instead of only ever announcing a new one; the Host clears its
   tracked play context and stops live sampling until a fresh one is established, instead of
   continuing to treat a stale context as current.
+- The Adapter's generated play-context identity can never be all-zero, and the Host now rejects an
+  all-zero identity outright instead of accepting it as a valid (if never actually issued) context.
 
 ### Removed
 

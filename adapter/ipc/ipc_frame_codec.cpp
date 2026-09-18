@@ -484,6 +484,13 @@ IpcFrameCodec::DecodePlayContextChanged(std::uint64_t correlationId,
 
     IpcPlayContextChangedMessage message{.correlationId = correlationId};
     std::ranges::copy(payload, message.playContextId.begin());
+    if (message.playContextId == std::array<std::byte, 16>{}) {
+        //  All-zero is reserved as an invariant no real generated id may ever
+        //  collide with (see AdapterPlayContextGenerator::Generate); a peer
+        //  sending it is a protocol violation, not a legitimate empty
+        //  identity.
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
     return IpcMessage{message};
 }
 

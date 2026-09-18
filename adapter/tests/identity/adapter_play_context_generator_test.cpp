@@ -33,6 +33,23 @@ TEST_CASE("AdapterPlayContextGenerator produces distinct ids across separate "
     CHECK_FALSE(first == second);
 }
 
+TEST_CASE("AdapterPlayContextGenerator never produces an all-zero id",
+          "[identity][adapter_play_context_generator]") {
+    //  All-zero is reserved elsewhere (see IpcFrameCodec's rejection of an
+    //  empty PlayContextChanged id) as a value no real generated id may ever
+    //  collide with. A large sample is a probabilistic sanity check on that
+    //  property, the same rigor this file's own distinctness tests already
+    //  rely on -- it cannot deterministically exercise Generate()'s internal
+    //  re-roll branch, since this generator has no injectable RNG seam (by
+    //  design, matching AdapterInstanceIdGenerator's identical engine).
+    AdapterPlayContextGenerator generator;
+    constexpr int kDrawCount = 100'000;
+
+    for (int i = 0; i < kDrawCount; ++i) {
+        CHECK_FALSE(generator.Generate() == std::array<std::byte, 16>{});
+    }
+}
+
 TEST_CASE("AdapterPlayContextGenerator produces distinct ids when called "
           "concurrently from multiple threads",
           "[identity][adapter_play_context_generator]") {

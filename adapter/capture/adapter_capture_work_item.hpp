@@ -30,8 +30,10 @@ struct AdapterCaptureWorkItem {
     ///  captured, stamped at the same callback boundary rather than read
     ///  later by worker-owned code -- so a value captured just before a save
     ///  transition can never be misattributed to a context it was not
-    ///  actually captured under. All-zero until the adapter's first real
-    ///  play-context transition.
+    ///  actually captured under. All-zero whenever no play context is
+    ///  currently active: before the first one is ever established, or after
+    ///  one has ended (loading has started, or the player returned to the
+    ///  main menu) with no later one established yet.
     std::array<std::byte, 16> playContextId{};
 
     ///  Structural equality over every field.

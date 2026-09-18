@@ -819,6 +819,14 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         }
 
         var playContextId = new PlayContextId(new Guid(payload, bigEndian: true));
+        if (playContextId.Value == Guid.Empty)
+        {
+            // All-zero is reserved as an invariant no real generated id may ever collide with (see
+            // AdapterPlayContextGenerator::Generate on the Adapter side); a peer sending it is a
+            // protocol violation, not a legitimate empty identity.
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
         return IpcDecodeResult.Success(new IpcPlayContextChangedMessage(correlationId, playContextId));
     }
 
@@ -866,8 +874,10 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
 /// The play context that was current on the adapter at the moment this value was captured, stamped
 /// at the same callback boundary as the value itself rather than re-derived later -- so a value
 /// captured just before a save transition can never be misattributed to a context it was not
-/// actually captured under. All-zero (<see cref="Guid.Empty"/>) until the adapter's first real
-/// play-context transition.
+/// actually captured under. All-zero (<see cref="Guid.Empty"/>) whenever no play context is
+/// currently active on the Adapter: before the first one is ever established, or after one has
+/// ended (loading has started, or the player returned to the main menu) with no later one
+/// established yet.
 /// </param>
 /// <param name="Payload">The captured value, already copied out of Skyrim state; empty when <paramref name="Availability"/> is <see cref="CaptureAvailability.Unavailable"/>.</param>
 public sealed record IpcCaptureResultMessage(

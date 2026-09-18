@@ -1609,6 +1609,21 @@ TEST_CASE("a play-context-changed notification payload of the wrong length "
     }
 }
 
+TEST_CASE("a play-context-changed notification with an all-zero identity "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    //  All-zero is reserved as an invariant no real generated id may ever
+    //  collide with; see AdapterPlayContextGenerator's own guarantee.
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame = BuildFrame(
+        IpcMessageKind::kPlayContextChanged, 0, std::vector<std::byte>(16));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
 TEST_CASE("a play-context-ended notification with a nonzero correlation id "
           "fails closed",
           "[ipc][ipc_frame_codec]") {

@@ -1583,6 +1583,18 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a play-context-changed notification with an all-zero identity fails closed: that value is reserved as an invariant no real generated id may ever collide with.</summary>
+    [Fact]
+    public void Decode_PlayContextChanged_AllZeroIdentity_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextChanged, correlationId: 0, new byte[16]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that a play-context-ended notification carrying a correlation id fails closed because it is unsolicited.</summary>
     [Fact]
     public void Decode_PlayContextEnded_NonZeroCorrelationId_FailsClosed()
