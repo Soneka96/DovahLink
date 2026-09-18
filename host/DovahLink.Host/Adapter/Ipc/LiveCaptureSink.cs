@@ -179,7 +179,14 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         ApplyAndPublish(floatPublisher, UpdateMode.Snapshot, areaId, value, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
-    /// <summary>Decodes and applies a single-uint16 capture (level, from either the baseline sample or the level-changed event) to its one area.</summary>
+    /// <summary>
+    /// Decodes and applies a single-uint16 capture (level, from either the baseline sample or the
+    /// level-changed event) to its one area. The two sources carry different delivery semantics even
+    /// though they share the same decode and the same area: the baseline sample establishes the
+    /// current authoritative level as a replaceable <see cref="UpdateMode.Snapshot"/>, while the
+    /// level-changed event is an ordered, reliable <see cref="UpdateMode.Event"/> -- routing both
+    /// through Event would misrepresent a resynchronization baseline as an ordered level change.
+    /// </summary>
     private void ApplyLevel(
         IpcCaptureResultMessage captureResult,
         StateAreaId areaId,
@@ -203,7 +210,8 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
             return;
         }
 
-        ApplyAndPublish(levelPublisher, UpdateMode.Event, areaId, value, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+        UpdateMode mode = captureResult.Source == CaptureSourceKind.Sample ? UpdateMode.Snapshot : UpdateMode.Event;
+        ApplyAndPublish(levelPublisher, mode, areaId, value, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
     }
 
     /// <summary>

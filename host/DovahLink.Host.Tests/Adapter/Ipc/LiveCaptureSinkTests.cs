@@ -141,6 +141,29 @@ public class LiveCaptureSinkTests
         Assert.False(snapshotChangedRaised);
     }
 
+    /// <summary>
+    /// Verifies that a level baseline sample -- unlike the level-changed event above -- publishes
+    /// through SnapshotChanged, not EventOccurred: the baseline establishes the current authoritative
+    /// level as replaceable state, not an ordered change, even though it shares the same decode and
+    /// the same area as the level-changed event.
+    /// </summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelBaselineSample_PublishesThroughSnapshotChangedNotEventOccurred()
+    {
+        Fixture fixture = CreateReady();
+        StateSnapshotPublication? raisedSnapshot = null;
+        bool eventOccurredRaised = false;
+        fixture.Feed.SnapshotChanged += publication => raisedSnapshot = publication;
+        fixture.Feed.EventOccurred += _ => eventOccurredRaised = true;
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
+
+        fixture.Sink.ApplyCaptureResult(captureResult);
+
+        Assert.NotNull(raisedSnapshot);
+        Assert.Equal(LevelArea, raisedSnapshot!.StateArea);
+        Assert.False(eventOccurredRaised);
+    }
+
     /// <summary>Verifies that an unrecognized capture key is silently dropped rather than applied.</summary>
     [Fact]
     public void ApplyCaptureResult_UnknownCaptureKey_DoesNothing()
