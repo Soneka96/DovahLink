@@ -2,6 +2,8 @@
 
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 
+#include <future>
+#include <mutex>
 #include <utility>
 
 namespace dovahlink::adapter::plugin {
@@ -38,7 +40,34 @@ AdapterRuntime::AdapterRuntime(
                 onCaptureDrained(item);
             }
         },
-        std::move(onCaptureQueueRejected));
+        [this, onCaptureQueueRejected = std::move(onCaptureQueueRejected)](
+            const capture::AdapterCaptureWorkItem& item) {
+            //  A rejected reliable Event (for example the level-changed
+            //  event), unlike a rejected Snapshot sample that the next poll
+            //  can simply recapture, can never be silently lost: continuity
+            //  is no longer trustworthy once one is dropped, so the
+            //  connection is reset and the adapter's normal reconnect drives
+            //  a fresh resynchronization. Dispatched via std::async rather
+            //  than called inline, both because this callback can run on the
+            //  Skyrim game thread (which must never block on Stop()'s own
+            //  wait for the connection's background thread to finish) and
+            //  ahead of the diagnostic callback below, so an exception from
+            //  a caller-supplied diagnostic can never suppress the reset.
+            //  The resulting future is kept in captureRejectionResetFutures_
+            //  rather than discarded: its destructor blocks until this
+            //  dispatched Stop() call actually finishes, and that member is
+            //  declared to be destroyed before connection_ is, so a reset
+            //  can never still be running against an already-freed
+            //  connection_ during teardown.
+            if (item.source == capture::CaptureSourceKind::kEvent) {
+                std::lock_guard<std::mutex> lock(captureRejectionResetFuturesMutex_);
+                captureRejectionResetFutures_.push_back(
+                    std::async(std::launch::async, [this] { connection_->Stop(); }));
+            }
+            if (onCaptureQueueRejected) {
+                onCaptureQueueRejected(item);
+            }
+        });
     captureRouter_ = captureRouterFactory(*captureQueue_, *playContextState_);
 
     session_ = std::make_unique<ipc::AdapterIpcSession>(

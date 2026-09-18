@@ -22,11 +22,13 @@ class CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink final
         : captureQueue_(captureQueue), playContextState_(playContextState) {}
 
     ///  Copies the new level and enqueues it, stamped with the current play
-    ///  context. The queue may reject an item at capacity; reliable-Event
-    ///  loss under sustained capture-queue pressure is a known, documented
-    ///  open risk (see
-    ///  `roadmap/04-live-state-synchronization-foundation.md`'s "Real
-    ///  capture and host integration"), not silently handled here.
+    ///  context. The queue may reject an item at capacity; unlike a rejected
+    ///  Snapshot sample, this reliable Event's own loss is not left silently
+    ///  handled here -- `TryEnqueue` itself reports the rejection to the
+    ///  queue's own `onRejected` callback, which `AdapterRuntime`'s
+    ///  composition resets the private IPC connection for, so a dropped
+    ///  level-changed event can never leave continuity looking trustworthy
+    ///  when it is not.
     RE::BSEventNotifyControl
     ProcessEvent(const RE::LevelIncrease::Event* event,
                  RE::BSTEventSource<RE::LevelIncrease::Event>*) override {
