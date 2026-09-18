@@ -38,7 +38,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
     private readonly IAdapterIpcListener adapterListener;
 
     /// <summary>Drives the host's own sampling cadence for rate-classed capture units.</summary>
-    private readonly LiveStateScheduler liveStateScheduler;
+    private readonly ILiveStateScheduler liveStateScheduler;
 
     /// <summary>Accepts public client connections, or <see langword="null"/> when not composed.</summary>
     private readonly IPublicWebSocketListener? publicListener;
@@ -86,7 +86,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         IHostRendezvousPublisher rendezvousPublisher,
         TextWriter rendezvousOutput,
         IAdapterPeerProofVerifier peerProofVerifier,
-        LiveStateScheduler liveStateScheduler,
+        ILiveStateScheduler liveStateScheduler,
         IPlayContextResynchronizationTrigger playContextResynchronizationTrigger,
         IPublicWebSocketListener? publicListener = null)
     {

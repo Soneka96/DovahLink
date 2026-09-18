@@ -46,6 +46,7 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IResynchronizationTransactionCoordinator, ResynchronizationTransactionCoordinator>();
         services.AddSingleton<ILiveCaptureSink, LiveCaptureSink>();
         services.AddSingleton<LiveStateScheduler>();
+        services.AddSingleton<ILiveStateScheduler>(sp => sp.GetRequiredService<LiveStateScheduler>());
         services.AddSingleton<IPlayContextResynchronizationTrigger, PlayContextResynchronizationTrigger>();
 
         return services;

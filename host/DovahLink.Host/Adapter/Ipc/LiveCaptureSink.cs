@@ -71,8 +71,13 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     }
 
     /// <inheritdoc/>
+    public event Action<IpcCaptureResultMessage, long>? CaptureResultApplied;
+
+    /// <inheritdoc/>
     public void ApplyCaptureResult(IpcCaptureResultMessage captureResult)
     {
+        CaptureResultApplied?.Invoke(captureResult, adapterAvailabilityTracker.GetSnapshot().ConnectionGeneration);
+
         CaptureUnitDefinition? unit = catalog.CaptureUnits.FirstOrDefault(
             candidate => candidate.Source == captureResult.Source && candidate.CaptureKey == captureResult.CaptureKey);
         if (unit is null)

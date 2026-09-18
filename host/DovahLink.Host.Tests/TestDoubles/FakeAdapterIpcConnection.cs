@@ -18,6 +18,9 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         Stream = stream;
     }
 
+    /// <inheritdoc/>
+    public long? ConnectionGeneration { get; set; }
+
     /// <summary>The result <see cref="TrySendPairingDisplay"/> returns.</summary>
     public bool TrySendPairingDisplayResult { get; set; }
 
@@ -83,8 +86,15 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         return TrySendResynchronizeRequestResult;
     }
 
+    /// <summary>The correlation ids passed to <see cref="TryCancel"/>, in call order.</summary>
+    public List<ulong> CancelCalls { get; } = [];
+
     /// <inheritdoc/>
-    public bool TryCancel(ulong correlationId) => false;
+    public bool TryCancel(ulong correlationId)
+    {
+        CancelCalls.Add(correlationId);
+        return false;
+    }
 
     /// <inheritdoc/>
     public bool TrySendPairingDisplay(string code, PairingDisplayMode mode, out ulong correlationId)

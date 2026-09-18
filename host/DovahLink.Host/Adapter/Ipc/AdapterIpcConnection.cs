@@ -20,6 +20,15 @@ public interface IAdapterIpcConnection
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// This connection's own generation once its handshake has committed, or <see langword="null"/>
+    /// before then -- the same value <see cref="IAdapterIpcSession.ConnectionGeneration"/> reports for
+    /// the session this connection owns. Lets a caller (for example <c>LiveStateScheduler</c>) that
+    /// only holds this connection reference stamp a request with the generation it was sent under,
+    /// without needing its own separate reference to the underlying session.
+    /// </summary>
+    long? ConnectionGeneration { get; }
+
     /// <summary>Attempts to enqueue a host-directed event-listening intent.</summary>
     /// <param name="eventKey">The host-owned event key.</param>
     /// <param name="correlationId">The intent's correlation id when enqueued; otherwise zero.</param>
@@ -151,6 +160,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         this.session = session;
         this.clock = clock;
     }
+
+    /// <inheritdoc/>
+    public long? ConnectionGeneration => session.ConnectionGeneration;
 
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)

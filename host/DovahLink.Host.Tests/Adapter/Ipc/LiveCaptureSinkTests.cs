@@ -153,6 +153,39 @@ public class LiveCaptureSinkTests
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
 
+    /// <summary>Verifies that CaptureResultApplied is raised with the arriving result and the adapter's current connection generation, for a consumer (for example LiveStateScheduler) that only cares that a reply arrived.</summary>
+    [Fact]
+    public void ApplyCaptureResult_RaisesCaptureResultAppliedWithConnectionGeneration()
+    {
+        Fixture fixture = CreateReady();
+        fixture.AdapterTracker.CurrentConnectionGeneration = 7;
+        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
+        List<(IpcCaptureResultMessage CaptureResult, long ConnectionGeneration)> raised = [];
+        fixture.Sink.CaptureResultApplied += (result, generation) => raised.Add((result, generation));
+
+        fixture.Sink.ApplyCaptureResult(captureResult);
+
+        Assert.Equal([(captureResult, 7L)], raised);
+    }
+
+    /// <summary>
+    /// Verifies that CaptureResultApplied still fires for an unrecognized capture key -- before this
+    /// sink's own recognition check -- so a listener learns a reply arrived even when this sink itself
+    /// goes on to drop it.
+    /// </summary>
+    [Fact]
+    public void ApplyCaptureResult_UnknownCaptureKey_StillRaisesCaptureResultApplied()
+    {
+        Fixture fixture = CreateReady();
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, CaptureKey: 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
+        int raisedCount = 0;
+        fixture.Sink.CaptureResultApplied += (_, _) => raisedCount++;
+
+        fixture.Sink.ApplyCaptureResult(captureResult);
+
+        Assert.Equal(1, raisedCount);
+    }
+
     /// <summary>Verifies that a capture stamped with a play context other than the current one is dropped rather than misattributed.</summary>
     [Fact]
     public void ApplyCaptureResult_StalePlayContext_DoesNothing()

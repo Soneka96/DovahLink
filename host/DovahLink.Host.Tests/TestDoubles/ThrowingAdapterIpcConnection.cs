@@ -33,6 +33,9 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     public void ReleaseFailure() => failureRelease.TrySetResult();
 
     /// <inheritdoc/>
+    public long? ConnectionGeneration => null;
+
+    /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         runStarted.TrySetResult();

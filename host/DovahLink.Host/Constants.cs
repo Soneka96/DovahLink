@@ -533,4 +533,13 @@ public static class Constants
     /// Hz).
     /// </summary>
     public static readonly TimeSpan LiveStateMediumSampleInterval = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How many consecutive ticks of a capture unit's own cadence a <c>LiveStateScheduler</c> sample
+    /// may stay outstanding with no matching result before it is abandoned: the correlation is
+    /// best-effort cancelled and the unit's one-outstanding-sample slot is released so the very next
+    /// tick can try again, rather than waiting forever for a reply that a dropped result, a failed
+    /// game-thread dispatch, or a disconnect will otherwise never deliver.
+    /// </summary>
+    public const int LiveStateSampleTimeoutTicks = 5;
 }
