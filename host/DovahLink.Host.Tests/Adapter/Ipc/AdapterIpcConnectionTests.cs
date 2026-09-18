@@ -63,6 +63,117 @@ public class AdapterIpcConnectionTests
         Assert.Equal(1, fakeSession.DisconnectedCalls);
     }
 
+    // ---- Resynchronize deadline ----
+
+    /// <summary>Verifies that the connection is forced closed if the resynchronize result never arrives within the deadline.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizeResultNeverArrives_ClosesAfterDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+
+        // No result is ever written back; only the deadline itself can end this run.
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies that a matching resynchronize result cancels the deadline, so the connection stays open well past when it would otherwise have fired.</summary>
+    [Fact]
+    public async Task RunAsync_MatchingResynchronizeResultArrives_StaysOpenPastTheDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        await client.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(2, Accepted: true)));
+
+        await Task.Delay(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(2));
+
+        Assert.False(runTask.IsCompleted);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a resynchronize result carrying a foreign correlation id never cancels the deadline armed for the actual outstanding request.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizeResultWithMismatchedCorrelationId_StillClosesAfterDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request (correlation 2)
+        await client.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(999, Accepted: true))); // foreign correlation id
+
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies that a later, superseding resynchronize request cancels the previous still-outstanding request's own deadline, so only the newest request's deadline can ever fire.</summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Superseding_CancelsThePreviousDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // first resynchronize request (correlation 2), armed at T+0
+
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+        bool enqueued = connection.TrySendResynchronizeRequest();
+        await ReadOneFrameAsync(client, codec); // second resynchronize request (correlation 3), armed at T+3s
+
+        // T+6s: past the first deadline's own T+5s fire time, but well before the second request's own
+        // T+8s fire time -- the connection can only still be open here because superseding cancelled
+        // the first deadline instead of merely leaving it to fire alongside the second.
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        Assert.True(enqueued);
+        Assert.False(runTask.IsCompleted);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Verifies that a rejected handshake sends only the rejection acknowledgement and never requests resynchronization.</summary>
     [Fact]
     public async Task RunAsync_RejectedHandshake_SendsRejectionAckAndClosesWithoutResync()

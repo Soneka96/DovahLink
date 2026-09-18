@@ -16,6 +16,9 @@ public interface IAdapterIpcConnection
     /// resynchronization baseline on success, then serves inbound frames until the peer closes, the
     /// transport fails, or <paramref name="cancellationToken"/> is cancelled. Always notifies the
     /// availability tracker of disconnection and disposes the underlying stream before returning.
+    /// The initial resynchronize request is bounded by the same
+    /// <see cref="Constants.AdapterIpcResynchronizeTimeout"/> deadline <see cref="TrySendResynchronizeRequest"/>'s
+    /// own request is.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
@@ -46,7 +49,10 @@ public interface IAdapterIpcConnection
     /// unlike the automatic first request <see cref="RunAsync"/> itself sends right after handshake,
     /// this is for a later trigger (for example a mid-session play-context transition) that needs a
     /// new baseline without the connection itself having dropped. A no-op, returning
-    /// <see langword="false"/>, before this connection's handshake has committed.
+    /// <see langword="false"/>, before this connection's handshake has committed. A successfully
+    /// enqueued request arms a bounded <see cref="Constants.AdapterIpcResynchronizeTimeout"/> deadline
+    /// that forces the connection closed if its matching result never arrives, superseding (and so
+    /// cancelling) whatever deadline an earlier still-outstanding request had armed.
     /// </summary>
     /// <returns><see langword="true"/> when the request was accepted onto the outbound queue.</returns>
     bool TrySendResynchronizeRequest();
@@ -148,6 +154,19 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// </summary>
     private readonly Dictionary<ulong, TrustAdminDispatch> pendingTrustAdminRequests = [];
 
+    /// <summary>Guards <see cref="resynchronizeDeadline"/> and <see cref="resynchronizeDeadlineCorrelationId"/>.</summary>
+    private readonly object resynchronizeDeadlineGate = new();
+
+    /// <summary>
+    /// The bounded deadline armed for the currently outstanding resynchronize request, if any. Linked
+    /// to <see cref="closeRequested"/> so it is abandoned harmlessly once the connection itself ends,
+    /// without needing its own explicit teardown call.
+    /// </summary>
+    private CancellationTokenSource? resynchronizeDeadline;
+
+    /// <summary>The correlation id <see cref="resynchronizeDeadline"/> is currently armed for.</summary>
+    private ulong resynchronizeDeadlineCorrelationId;
+
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="codec">The codec used to encode outbound frames and decode inbound ones.</param>
@@ -174,12 +193,14 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             bool handshakeAccepted = await HandshakeAsync(ioCancellation.Token).ConfigureAwait(false);
             if (handshakeAccepted)
             {
-                bool resynchronizeQueued = outbound.Writer.TryWrite(codec.Encode(session.PrepareResynchronizeRequest()));
+                IpcResynchronizeRequestMessage resynchronizeRequest = session.PrepareResynchronizeRequest();
+                bool resynchronizeQueued = outbound.Writer.TryWrite(codec.Encode(resynchronizeRequest));
                 if (!resynchronizeQueued)
                 {
                     return;
                 }
 
+                ArmResynchronizeDeadline(resynchronizeRequest.CorrelationId);
                 session.CommitHandshake();
                 await ReadLoopAsync(ioCancellation.Token).ConfigureAwait(false);
             }
@@ -194,6 +215,11 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             // writes once a subscriber could observe Unavailable(N): Channel<T> guarantees TryWrite
             // fails once TryComplete has run, so nothing sent during teardown can land in the channel.
             outbound.Writer.TryComplete();
+            // A still-armed deadline is otherwise never cancelled by a normal peer disconnect or an
+            // external cancellationToken (only RequestClose() cancels closeRequested directly), leaving
+            // its background wait to run for up to its own full timeout after this connection has
+            // already ended.
+            CancelResynchronizeDeadline();
             session.HandleDisconnected();
             FailAllPendingPairingDisplayAcks();
             await CancelAndDrainPendingTrustAdminRequestsAsync().ConfigureAwait(false);
@@ -290,6 +316,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         byte[] frame = codec.Encode(message);
         if (outbound.Writer.TryWrite(frame))
         {
+            ArmResynchronizeDeadline(message.CorrelationId);
             return true;
         }
 
@@ -405,6 +432,121 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <summary>
+    /// Arms a bounded deadline for the resynchronize request just sent under
+    /// <paramref name="correlationId"/>: forces the connection closed if
+    /// <see cref="Constants.AdapterIpcResynchronizeTimeout"/> elapses without the matching result ever
+    /// arriving, so a stalled or lost game-thread dispatch on the Adapter cannot leave the Host waiting
+    /// forever. Superseding a still-outstanding previous deadline cancels it first, so only the most
+    /// recently sent resynchronize request's own timeout can ever fire.
+    /// </summary>
+    /// <param name="correlationId">The just-sent resynchronize request's correlation id.</param>
+    private void ArmResynchronizeDeadline(ulong correlationId)
+    {
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(closeRequested.Token);
+        CancellationTokenSource? superseded;
+        lock (resynchronizeDeadlineGate)
+        {
+            superseded = resynchronizeDeadline;
+            resynchronizeDeadline = deadline;
+            resynchronizeDeadlineCorrelationId = correlationId;
+        }
+
+        TryCancelDeadline(superseded);
+        _ = WaitAndCloseOnTimeoutAsync(deadline);
+    }
+
+    /// <summary>
+    /// Cancels the currently armed resynchronize deadline if it was armed for
+    /// <paramref name="correlationId"/>; a stale or foreign correlation id is a harmless no-op, since
+    /// it can never be the deadline's own outstanding request.
+    /// </summary>
+    /// <param name="correlationId">The received resynchronize result's correlation id.</param>
+    private void CancelResynchronizeDeadlineIfMatching(ulong correlationId)
+    {
+        CancellationTokenSource? deadline = null;
+        lock (resynchronizeDeadlineGate)
+        {
+            if (resynchronizeDeadline is not null && resynchronizeDeadlineCorrelationId == correlationId)
+            {
+                deadline = resynchronizeDeadline;
+                resynchronizeDeadline = null;
+            }
+        }
+
+        TryCancelDeadline(deadline);
+    }
+
+    /// <summary>
+    /// Unconditionally cancels the currently armed resynchronize deadline, if any, regardless of its
+    /// correlation id. Called as part of this connection's own teardown, since no later matching
+    /// result can ever arrive once the connection has ended.
+    /// </summary>
+    private void CancelResynchronizeDeadline()
+    {
+        CancellationTokenSource? deadline;
+        lock (resynchronizeDeadlineGate)
+        {
+            deadline = resynchronizeDeadline;
+            resynchronizeDeadline = null;
+        }
+
+        TryCancelDeadline(deadline);
+    }
+
+    /// <summary>
+    /// Best-effort cancels <paramref name="deadline"/>, containing the case where
+    /// <see cref="WaitAndCloseOnTimeoutAsync"/>'s own <c>finally</c> has already disposed this same
+    /// instance concurrently -- its underlying token is linked to <see cref="closeRequested"/>, so a
+    /// connection-ending cancellation can reach both that method's own wakeup and a caller here at
+    /// nearly the same time.
+    /// </summary>
+    /// <param name="deadline">The deadline to cancel, or <see langword="null"/> for a harmless no-op.</param>
+    private static void TryCancelDeadline(CancellationTokenSource? deadline)
+    {
+        try
+        {
+            deadline?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Waits <see cref="Constants.AdapterIpcResynchronizeTimeout"/> and forces the connection closed if
+    /// <paramref name="deadline"/> is not cancelled first -- by a matching result, a superseding
+    /// resynchronize request, or the connection itself ending.
+    /// </summary>
+    /// <param name="deadline">The deadline armed by <see cref="ArmResynchronizeDeadline"/>.</param>
+    private async Task WaitAndCloseOnTimeoutAsync(CancellationTokenSource deadline)
+    {
+        try
+        {
+            await Task.Delay(Constants.AdapterIpcResynchronizeTimeout, deadline.Token).ConfigureAwait(false);
+            // Cleared here, under the same lock every other mutator of resynchronizeDeadline uses,
+            // before RequestClose() can trigger this connection's own teardown to reach
+            // CancelResynchronizeDeadline() and touch this same, about-to-be-disposed instance.
+            lock (resynchronizeDeadlineGate)
+            {
+                if (ReferenceEquals(resynchronizeDeadline, deadline))
+                {
+                    resynchronizeDeadline = null;
+                }
+            }
+
+            RequestClose();
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded, resolved, or the connection itself ended; nothing to do.
+        }
+        finally
+        {
+            deadline.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Reads and evaluates the connecting adapter's first frame within
     /// <see cref="Constants.AdapterIpcHandshakeTimeout"/>, which must be a Hello. A peer that
     /// withholds its first frame past the deadline is treated the same as one that disconnects
@@ -496,6 +638,14 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 // correlation id this connection never admitted as a trust-admin request (for example
                 // an unrelated pending intent) is that generic handling's own concern, not this one's.
                 TryCancelPendingTrustAdminRequest(trustAdminCancel.CorrelationId);
+            }
+
+            if (decodeResult.Message is IpcResynchronizeResultMessage resynchronizeResult)
+            {
+                // Falls through to the generic handling below unchanged: this only disarms the
+                // deadline, and the session's own HandleFrame still needs to run its stale/foreign
+                // correlation-id check and record the outcome.
+                CancelResynchronizeDeadlineIfMatching(resynchronizeResult.CorrelationId);
             }
 
             AdapterIpcOutcome outcome = session.HandleFrame(decodeResult.Message!);

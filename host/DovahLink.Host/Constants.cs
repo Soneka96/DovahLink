@@ -191,6 +191,15 @@ public static class Constants
     public static readonly TimeSpan AdapterIpcHandshakeTimeout = TimeSpan.FromSeconds(2);
 
     /// <summary>
+    /// How long a sent <see cref="Adapter.Ipc.IpcResynchronizeRequestMessage"/> may go without its
+    /// matching <see cref="Adapter.Ipc.IpcResynchronizeResultMessage"/> before the connection is
+    /// forced closed, so a stalled or lost game-thread dispatch on the Adapter cannot leave the Host
+    /// waiting for a baseline that will now never arrive. The normal reconnect/resync path then
+    /// starts fresh.
+    /// </summary>
+    public static readonly TimeSpan AdapterIpcResynchronizeTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// The byte length of the adapter-generated random challenge carried in
     /// <see cref="Adapter.Ipc.IpcHelloMessage"/>, and of the host's resulting HMAC-SHA256
     /// <c>HostProof</c> in <see cref="Adapter.Ipc.IpcHelloAckMessage"/>.

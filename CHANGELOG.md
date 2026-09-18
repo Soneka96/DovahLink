@@ -56,6 +56,9 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   continuing to treat a stale context as current.
 - The Adapter's generated play-context identity can never be all-zero, and the Host now rejects an
   all-zero identity outright instead of accepting it as a valid (if never actually issued) context.
+- A resynchronization request that never receives its matching result now forces the private IPC
+  connection closed after a bounded deadline, instead of leaving the Host waiting for a baseline
+  that will never arrive.
 
 ### Removed
 
