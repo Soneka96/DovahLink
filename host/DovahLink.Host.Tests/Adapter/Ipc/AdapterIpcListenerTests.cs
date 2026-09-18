@@ -81,6 +81,34 @@ public class AdapterIpcListenerTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>Verifies that the listener registers its active connection with continuity recovery and clears it after ending.</summary>
+    [Fact]
+    public async Task RunAsync_AcceptedConnection_RegistersContinuityRecoveryConnection()
+    {
+        var recovery = new FakeAdapterContinuityRecovery();
+        FakeAdapterIpcConnection? connection = null;
+        using var listener = new AdapterIpcListener(0, stream =>
+        {
+            connection = new FakeAdapterIpcConnection(stream) { ConnectionGeneration = 7 };
+            return connection;
+        }, recovery);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket client = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => connection is not null && recovery.CurrentConnectionCalls.Count == 1);
+        recovery.RequestRecovery(7);
+        Assert.Equal([7L], recovery.RecoveryRequests);
+
+        FakeAdapterIpcConnection acceptedConnection = connection!;
+        acceptedConnection.Complete();
+        await WaitUntilAsync(() => recovery.CurrentConnectionCalls.Count == 2);
+        Assert.Null(recovery.CurrentConnectionCalls[1]);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Verifies that a connection ending normally lets the listener accept a new connection, supporting reconnect.</summary>
     [Fact]
     public async Task RunAsync_AfterConnectionEnds_AcceptsAnotherConnection()

@@ -37,6 +37,7 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IAdapterConnectionLifecycle, AdapterConnectionLifecycle>();
         services.AddSingleton<IAdapterPeerProofVerifier, AdapterPeerProofVerifier>();
         services.AddSingleton<IIpcFrameCodec, IpcFrameCodec>();
+        services.AddSingleton<IAdapterContinuityRecovery, AdapterContinuityRecovery>();
         services.AddSingleton<IAdapterConnectionFactory, AdapterConnectionFactory>();
         services.AddSingleton<IAdapterIpcListener, AdapterIpcListener>();
         services.AddSingleton<IPairingAdapterNotifier, AdapterPairingNotifier>();

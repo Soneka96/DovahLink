@@ -12,6 +12,9 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     /// <summary>Whether <see cref="currentResynchronizationToken"/> has already been claimed by <see cref="TryClaimResynchronizationToken"/>.</summary>
     private bool resynchronizationTokenClaimed;
 
+    /// <summary>Number of snapshots returned by this fake.</summary>
+    private int snapshotCallCount;
+
     /// <inheritdoc/>
     public AdapterAvailability Current { get; set; } = AdapterAvailability.Unavailable;
 
@@ -29,6 +32,9 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
 
     /// <inheritdoc/>
     public event Action<AdapterInstanceId, long>? Resynchronized;
+
+    /// <summary>Optional one-shot hook invoked by <see cref="GetSnapshot"/> with its call number.</summary>
+    public Action<int>? OnGetSnapshot { get; set; }
 
     /// <inheritdoc/>
     public AdapterAvailabilityTransition? CommitConnected(AdapterInstanceId instanceId, long generation)
@@ -137,7 +143,12 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
         ReferenceEquals(currentResynchronizationToken, token);
 
     /// <inheritdoc/>
-    public AdapterAvailabilitySnapshot GetSnapshot() => new(Current, CurrentInstanceId, NeedsResynchronization, CurrentConnectionGeneration);
+    public AdapterAvailabilitySnapshot GetSnapshot()
+    {
+        int callNumber = ++snapshotCallCount;
+        OnGetSnapshot?.Invoke(callNumber);
+        return new AdapterAvailabilitySnapshot(Current, CurrentInstanceId, NeedsResynchronization, CurrentConnectionGeneration);
+    }
 
     private sealed class FakeAdapterResynchronizationToken : IAdapterResynchronizationToken
     {

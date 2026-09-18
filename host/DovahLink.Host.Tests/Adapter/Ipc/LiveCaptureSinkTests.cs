@@ -26,6 +26,7 @@ public class LiveCaptureSinkTests
         FakePlayContextTracker PlayContextTracker,
         PlayContextId Context,
         IResynchronizationTransactionCoordinator Coordinator,
+        FakeAdapterContinuityRecovery ContinuityRecovery,
         AdapterCaptureSource Source);
 
     /// <summary>
@@ -57,9 +58,10 @@ public class LiveCaptureSinkTests
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
         IResynchronizationTransactionCoordinator coordinator = coordinatorOverride ?? new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, adapterTracker);
-        var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, feed, adapterTracker, playContextTracker, coordinator, new FakeClock());
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, feed, adapterTracker, playContextTracker, coordinator, continuityRecovery, new FakeClock());
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
-        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, source);
+        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source);
     }
 
     private static byte[] EncodeVitals(float health, float magicka, float stamina)
@@ -247,9 +249,9 @@ public class LiveCaptureSinkTests
         Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
     }
 
-    /// <summary>Verifies that an Event without current resynchronization authorization is dropped safely.</summary>
+    /// <summary>Verifies that an Event without current resynchronization authorization requests controlled recovery.</summary>
     [Fact]
-    public void ApplyCaptureResult_LevelChangedEventWhileNeedsResynchronizationWithoutToken_DropsWithoutPublication()
+    public void ApplyCaptureResult_LevelChangedEventWhileNeedsResynchronizationWithoutToken_RequestsRecovery()
     {
         var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
         Fixture fixture = CreateReady(fakeCoordinator);
@@ -267,6 +269,69 @@ public class LiveCaptureSinkTests
 
         Assert.NotEmpty(fakeCoordinator.AcquireTokenCalls);
         Assert.False(eventRaised);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+        Assert.Equal([fixture.Source.ConnectionGeneration], fixture.ContinuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>Verifies that a resynchronization finishing before publisher apply lets the Event use ordinary authority.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEvent_ResynchronizationFinishesBeforeApply_PublishesWithoutRecovery()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        fakeCoordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+        fixture.AdapterTracker.OnGetSnapshot = callNumber =>
+        {
+            if (callNumber == 2)
+            {
+                fixture.AdapterTracker.NeedsResynchronization = false;
+            }
+        };
+        StateEventPublication? raisedEvent = null;
+        fixture.Feed.EventOccurred += publication => raisedEvent = publication;
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+
+        Assert.NotNull(raisedEvent);
+        Assert.Empty(fixture.ContinuityRecovery.RecoveryRequests);
+        Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
+    }
+
+    /// <summary>Verifies that a resynchronization beginning before publisher apply is retried with fresh authority.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelChangedEvent_ResynchronizationBeginsBeforeApply_RetriesWithResyncAuthority()
+    {
+        var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
+        Fixture fixture = CreateReady(fakeCoordinator);
+        fixture.AdapterTracker.OnGetSnapshot = callNumber =>
+        {
+            if (callNumber == 2)
+            {
+                fixture.AdapterTracker.RearmResynchronizationForPlayContextTransition();
+                fakeCoordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+            }
+        };
+        StateEventPublication? raisedEvent = null;
+        fixture.Feed.EventOccurred += publication => raisedEvent = publication;
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            0,
+            CaptureSourceKind.Event,
+            (uint)CharacterEventKey.CharacterLevelChanged,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeUInt16(11)), fixture.Source);
+
+        Assert.NotNull(raisedEvent);
+        Assert.NotEmpty(fakeCoordinator.AcquireTokenCalls);
+        Assert.Empty(fixture.ContinuityRecovery.RecoveryRequests);
         Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
     }
 

@@ -129,7 +129,7 @@ public class StatePublisherTests
 
     /// <summary>Verifies that a token-authorized Event is accepted during resynchronization with normal Event revisions.</summary>
     [Fact]
-    public void ApplyResynchronizationEvent_FirstValue_ReturnsAcceptedChangedWithExactRevisions()
+    public void ApplyEvent_CurrentResynchronization_ReturnsAcceptedChangedWithExactRevisions()
     {
         var playContextTracker = new FakePlayContextTracker();
         PlayContextId context = PlayContextId.NewId();
@@ -137,8 +137,14 @@ public class StatePublisherTests
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available, NeedsResynchronization = true };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
 
-        StateApplyResult result = publisher.ApplyResynchronizationEvent(
-            adapterTracker.TryClaimResynchronizationToken()!, context, playContextTracker.TransitionGeneration, AreaId, 42);
+        StateApplyResult result = publisher.ApplyEvent(
+            adapterTracker.CurrentInstanceId!.Value,
+            adapterTracker.CurrentConnectionGeneration,
+            context,
+            playContextTracker.TransitionGeneration,
+            adapterTracker.TryClaimResynchronizationToken(),
+            AreaId,
+            42);
 
         Assert.True(result.Accepted);
         Assert.True(result.Changed);
@@ -147,9 +153,9 @@ public class StatePublisherTests
         Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
     }
 
-    /// <summary>Verifies that a resynchronization Event rejects a token that is not current for the adapter.</summary>
+    /// <summary>Verifies that an Event rejects a token that is not current for the adapter during resynchronization.</summary>
     [Fact]
-    public void ApplyResynchronizationEvent_StaleToken_IsRejected()
+    public void ApplyEvent_StaleToken_IsRejected()
     {
         var playContextTracker = new FakePlayContextTracker();
         PlayContextId context = PlayContextId.NewId();
@@ -157,8 +163,38 @@ public class StatePublisherTests
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available, NeedsResynchronization = true };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
 
-        Assert.False(publisher.ApplyResynchronizationEvent(
-            new ForeignResynchronizationToken(), context, playContextTracker.TransitionGeneration, AreaId, 42).Accepted);
+        Assert.False(publisher.ApplyEvent(
+            adapterTracker.CurrentInstanceId!.Value,
+            adapterTracker.CurrentConnectionGeneration,
+            context,
+            playContextTracker.TransitionGeneration,
+            new ForeignResynchronizationToken(),
+            AreaId,
+            42).Accepted);
+    }
+
+    /// <summary>Verifies that an Event whose apply-time state is ordinary uses current adapter authority without a token.</summary>
+    [Fact]
+    public void ApplyEvent_ResynchronizationFinished_UsesOrdinaryAuthority()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available, NeedsResynchronization = false };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+
+        StateApplyResult result = publisher.ApplyEvent(
+            adapterTracker.CurrentInstanceId!.Value,
+            adapterTracker.CurrentConnectionGeneration,
+            context,
+            playContextTracker.TransitionGeneration,
+            null,
+            AreaId,
+            42);
+
+        Assert.True(result.Accepted);
+        Assert.True(result.Changed);
+        Assert.Equal(RevisionNumber.Initial.Next(), result.Revision);
     }
 
     /// <summary>Verifies that applying the same value again does not advance the revision a second time.</summary>

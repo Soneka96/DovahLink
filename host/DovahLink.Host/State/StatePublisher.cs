@@ -76,21 +76,26 @@ public interface IStatePublisher<TState>
         TState value);
 
     /// <summary>
-    /// Applies an Event from the current adapter while resynchronization is still required. Subject
-    /// to the same resynchronization-token and play-context provenance checks as
-    /// <see cref="ApplyResynchronizationBaseline"/>, but does not establish or count a baseline.
+    /// Applies an Event from the current adapter. The publisher decides under its ordering lock
+    /// whether the current adapter still needs resynchronization: ordinary source authority is used
+    /// when it does not, and the supplied token is required when it does. This keeps the final
+    /// ordinary-vs-resynchronization decision current rather than relying on an older caller snapshot.
     /// </summary>
-    /// <param name="resynchronizationToken">The opaque authorization issued for the current adapter connection.</param>
+    /// <param name="sourceInstanceId">The adapter instance that produced the Event.</param>
+    /// <param name="sourceConnectionGeneration">The adapter connection generation that produced the Event.</param>
     /// <param name="capturedPlayContextId">The play context that was current at the moment this Event was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this Event was captured.</param>
+    /// <param name="resynchronizationToken">The current resynchronization authorization when the adapter is still gated, or <see langword="null"/> when ordinary authority is expected.</param>
     /// <param name="areaId">The state area the Event belongs to.</param>
     /// <param name="value">The Event's resulting value.</param>
     /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
     /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
-    StateApplyResult ApplyResynchronizationEvent(
-        IAdapterResynchronizationToken resynchronizationToken,
+    StateApplyResult ApplyEvent(
+        AdapterInstanceId sourceInstanceId,
+        long sourceConnectionGeneration,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
+        IAdapterResynchronizationToken? resynchronizationToken,
         StateAreaId areaId,
         TState value);
 }
@@ -204,7 +209,7 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     {
         return ApplyCore(
             sourceInstanceId, sourceConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
-            null, areaId, value, allowResynchronization: false);
+            null, areaId, value, ApplyAuthority.Ordinary);
     }
 
     /// <inheritdoc/>
@@ -217,24 +222,27 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     {
         return ApplyCore(
             null, null, capturedPlayContextId, capturedPlayContextGeneration,
-            resynchronizationToken, areaId, value, allowResynchronization: true);
+            resynchronizationToken, areaId, value, ApplyAuthority.ResynchronizationBaseline);
     }
 
     /// <inheritdoc/>
-    public StateApplyResult ApplyResynchronizationEvent(
-        IAdapterResynchronizationToken resynchronizationToken,
+    public StateApplyResult ApplyEvent(
+        AdapterInstanceId sourceInstanceId,
+        long sourceConnectionGeneration,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
+        IAdapterResynchronizationToken? resynchronizationToken,
         StateAreaId areaId,
         TState value)
     {
         return ApplyCore(
-            null, null, capturedPlayContextId, capturedPlayContextGeneration,
-            resynchronizationToken, areaId, value, allowResynchronization: true);
+            sourceInstanceId, sourceConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
+            resynchronizationToken, areaId, value, ApplyAuthority.Event);
     }
 
     /// <summary>
-    /// Shared implementation behind <see cref="Apply"/> and <see cref="ApplyResynchronizationBaseline"/>:
+    /// Shared implementation behind <see cref="Apply"/>, <see cref="ApplyResynchronizationBaseline"/>,
+    /// and <see cref="ApplyEvent"/>:
     /// validates the caller's authority (an ordinary capture's source adapter instance/connection
     /// generation, or a resynchronization baseline/Event's claimed token) and captured play-context
     /// provenance, then applies the value and advances the revision if it actually changed.
@@ -246,7 +254,7 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     /// <param name="resynchronizationToken">The claimed resynchronization authorization for a baseline or Event; <see langword="null"/> for an ordinary capture.</param>
     /// <param name="areaId">The state area the value belongs to.</param>
     /// <param name="value">The value to apply.</param>
-    /// <param name="allowResynchronization"><see langword="true"/> when validating a resynchronization baseline or Event rather than an ordinary capture.</param>
+    /// <param name="authority">The capture authority and current-state policy to validate.</param>
     /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
     /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
     private StateApplyResult ApplyCore(
@@ -257,17 +265,37 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
         IAdapterResynchronizationToken? resynchronizationToken,
         StateAreaId areaId,
         TState value,
-        bool allowResynchronization)
+        ApplyAuthority authority)
     {
         lock (gate)
         {
             AdapterAvailabilitySnapshot adapterSnapshot = adapterAvailabilityTracker.GetSnapshot();
-            if (adapterSnapshot.Current != AdapterAvailability.Available ||
-                adapterSnapshot.NeedsResynchronization != allowResynchronization ||
-                (allowResynchronization
-                    ? resynchronizationToken is null || !adapterAvailabilityTracker.IsCurrentResynchronizationToken(resynchronizationToken)
-                    : adapterSnapshot.CurrentInstanceId != sourceInstanceId ||
-                      adapterSnapshot.ConnectionGeneration != sourceConnectionGeneration))
+            if (adapterSnapshot.Current != AdapterAvailability.Available)
+            {
+                return StateApplyResult.Rejected;
+            }
+
+            if (authority == ApplyAuthority.Ordinary && adapterSnapshot.NeedsResynchronization)
+            {
+                return StateApplyResult.Rejected;
+            }
+
+            if (authority == ApplyAuthority.ResynchronizationBaseline && !adapterSnapshot.NeedsResynchronization)
+            {
+                return StateApplyResult.Rejected;
+            }
+
+            if (authority != ApplyAuthority.ResynchronizationBaseline
+                && (adapterSnapshot.CurrentInstanceId != sourceInstanceId
+                    || adapterSnapshot.ConnectionGeneration != sourceConnectionGeneration))
+            {
+                return StateApplyResult.Rejected;
+            }
+
+            if ((authority == ApplyAuthority.ResynchronizationBaseline
+                    || (authority == ApplyAuthority.Event && adapterSnapshot.NeedsResynchronization))
+                && (resynchronizationToken is null
+                    || !adapterAvailabilityTracker.IsCurrentResynchronizationToken(resynchronizationToken)))
             {
                 return StateApplyResult.Rejected;
             }
@@ -365,6 +393,19 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
         PlayContextId PlayContextId,
         AdapterInstanceId AdapterInstanceId,
         long ConnectionGeneration);
+
+    /// <summary>Identifies the authority policy one apply operation must validate.</summary>
+    private enum ApplyAuthority
+    {
+        /// <summary>Requires ordinary current-adapter authority outside resynchronization.</summary>
+        Ordinary,
+
+        /// <summary>Requires the claimed token for an explicitly identified baseline.</summary>
+        ResynchronizationBaseline,
+
+        /// <summary>Uses current ordinary authority or current resynchronization Event authority.</summary>
+        Event,
+    }
 }
 
 // TODO(stage4-file-extraction): Move StateApplyResult to its own
@@ -374,7 +415,7 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
 /// <summary>
 /// The atomic outcome of one <see cref="IStatePublisher{TState}.Apply"/>,
 /// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/>, or
-/// <see cref="IStatePublisher{TState}.ApplyResynchronizationEvent"/> call, computed inside the
+/// <see cref="IStatePublisher{TState}.ApplyEvent"/> call, computed inside the
 /// same lock that decides acceptance and assigns the revision -- so a caller deciding whether to
 /// push an unsolicited publication never needs to separately re-read <see cref="RevisionNumber"/>
 /// after the fact, which could otherwise race a concurrent capture for the same area.

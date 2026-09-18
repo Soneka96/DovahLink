@@ -37,6 +37,7 @@ public class AdapterIpcServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IAdapterConnectionLifecycle>());
         Assert.NotNull(provider.GetRequiredService<IAdapterPeerProofVerifier>());
         Assert.NotNull(provider.GetRequiredService<IIpcFrameCodec>());
+        Assert.NotNull(provider.GetRequiredService<IAdapterContinuityRecovery>());
         Assert.NotNull(provider.GetRequiredService<IAdapterConnectionFactory>());
         Assert.NotNull(provider.GetRequiredService<IAdapterIpcListener>());
         Assert.NotNull(provider.GetRequiredService<IPairingAdapterNotifier>());

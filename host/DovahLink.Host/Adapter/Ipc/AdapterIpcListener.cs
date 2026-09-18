@@ -36,6 +36,9 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
     /// <summary>Creates a connection over a newly accepted transport.</summary>
     private readonly Func<Stream, IAdapterIpcConnection> connectionFactory;
 
+    /// <summary>Tracks the active connection for generation-checked continuity recovery.</summary>
+    private readonly IAdapterContinuityRecovery? continuityRecovery;
+
     /// <summary>Guards <see cref="currentConnection"/> against concurrent access.</summary>
     private readonly object gate = new();
 
@@ -48,9 +51,14 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
     /// </summary>
     /// <param name="port">The loopback TCP port to bind, or zero to let the operating system assign one.</param>
     /// <param name="connectionFactory">Creates a connection over a newly accepted transport.</param>
-    public AdapterIpcListener(int port, Func<Stream, IAdapterIpcConnection> connectionFactory)
+    /// <param name="continuityRecovery">Tracks the active connection for generation-checked recovery, or <see langword="null"/> for standalone construction.</param>
+    public AdapterIpcListener(
+        int port,
+        Func<Stream, IAdapterIpcConnection> connectionFactory,
+        IAdapterContinuityRecovery? continuityRecovery = null)
     {
         this.connectionFactory = connectionFactory;
+        this.continuityRecovery = continuityRecovery;
         listenerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
         {
@@ -74,6 +82,18 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
     /// <summary>Creates a listener from its own runtime configuration and the Host-lifetime connection factory.</summary>
     /// <param name="options">The private adapter-IPC listener's own runtime configuration.</param>
     /// <param name="connectionFactory">Builds a fresh connection-owned graph for each accepted transport.</param>
+    /// <param name="continuityRecovery">Tracks the active connection for generation-checked recovery.</param>
+    public AdapterIpcListener(
+        AdapterIpcOptions options,
+        IAdapterConnectionFactory connectionFactory,
+        IAdapterContinuityRecovery continuityRecovery)
+        : this(options.ListenerPort, connectionFactory.Create, continuityRecovery)
+    {
+    }
+
+    /// <summary>Creates a listener from its own runtime configuration without a recovery observer.</summary>
+    /// <param name="options">The private adapter-IPC listener's own runtime configuration.</param>
+    /// <param name="connectionFactory">Builds a fresh connection-owned graph for each accepted connection.</param>
     public AdapterIpcListener(AdapterIpcOptions options, IAdapterConnectionFactory connectionFactory)
         : this(options.ListenerPort, connectionFactory.Create)
     {
@@ -181,5 +201,7 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
         {
             currentConnection = connection;
         }
+
+        continuityRecovery?.SetCurrentConnection(connection);
     }
 }
