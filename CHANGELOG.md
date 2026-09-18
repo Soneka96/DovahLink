@@ -46,9 +46,10 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 - The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast when a required
   `clientId` cannot be resolved, instead of proceeding silently.
 - The app no longer keeps observing a stale connection status after its session is invalidated.
-- A rejected reliable Event capture now resets the Adapter's current private IPC attempt and lets the
-  supervisor reconnect, instead of permanently stopping the connection so no later reconnect could
-  ever occur.
+- A rejected reliable Event capture, a lost play-context transition, a lost resynchronization
+  baseline or terminal result, or an unexpected exception mid-resynchronization now all reset the
+  Adapter's current private IPC attempt and let the supervisor reconnect, instead of either
+  permanently stopping the connection or silently leaving the Host waiting forever.
 
 ### Removed
 

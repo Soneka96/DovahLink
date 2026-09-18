@@ -734,6 +734,7 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by registering "
     REQUIRE(result != nullptr);
     CHECK(result->correlationId == 42);
     CHECK(result->accepted);
+    CHECK(connection.ReconnectRequests() == 0);
 }
 
 TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
@@ -881,7 +882,8 @@ TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted "
 
 TEST_CASE("AdapterIpcSession contains an exception thrown by the router's "
           "level-changed event registration inside a marshaled "
-          "resynchronize task, sending no result") {
+          "resynchronize task, sending no result but resetting the "
+          "connection so the Host is not left waiting forever") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
@@ -899,11 +901,13 @@ TEST_CASE("AdapterIpcSession contains an exception thrown by the router's "
 
     CHECK(fixture.captureQueue.Enqueued().empty());
     CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
 }
 
 TEST_CASE("AdapterIpcSession contains an exception thrown mid-sequence by "
           "one baseline sample capture, leaving only the samples captured "
-          "before it enqueued and sending no result") {
+          "before it enqueued, sending no result, and resetting the "
+          "connection so the Host is not left waiting forever") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
@@ -924,6 +928,26 @@ TEST_CASE("AdapterIpcSession contains an exception thrown mid-sequence by "
     CHECK(fixture.captureQueue.Enqueued().front().intentKey ==
           static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline));
     CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession resets the connection when the resynchronize "
+          "result itself fails to send, so the Host is not left waiting "
+          "forever for an outcome that will now never arrive") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetEventRegistered(
+        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+    connection.RejectNextSend();
+    fixture.marshaller.RunAllPending();
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
 }
 
 TEST_CASE("AdapterIpcSession stamps every resynchronize baseline sample with "
@@ -2064,6 +2088,7 @@ TEST_CASE("AdapterIpcSession::SendCaptureResult sends a capture result "
     CHECK(captureResult->playContextId == playContextId);
     CHECK(captureResult->payload ==
           std::vector<std::byte>{std::byte{1}, std::byte{2}});
+    CHECK(connection.ReconnectRequests() == 0);
 }
 
 TEST_CASE("AdapterIpcSession::SendCaptureResult does nothing before "
@@ -2104,6 +2129,85 @@ TEST_CASE("AdapterIpcSession::SendCaptureResult contains an exception "
         AdapterCaptureWorkItem{.intentKey = 5, .correlationId = 3}));
 }
 
+TEST_CASE("AdapterIpcSession::SendCaptureResult resets the connection when "
+          "TrySend rejects a reliable Event result") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.RejectNextSend();
+
+    fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 5, .correlationId = 0, .source = CaptureSourceKind::kEvent});
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult resets the connection when "
+          "TrySend rejects a reliable Event result even with a nonzero "
+          "correlation id, proving the Event/zero-correlation-id "
+          "classification is a true OR rather than an AND") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.RejectNextSend();
+
+    fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 5, .correlationId = 11, .source = CaptureSourceKind::kEvent});
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult resets the connection when "
+          "TrySend throws for a reliable Event result") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.ThrowOnNextSend();
+
+    REQUIRE_NOTHROW(fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 5, .correlationId = 0, .source = CaptureSourceKind::kEvent}));
+
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult resets the connection when "
+          "TrySend rejects a resynchronization baseline result -- identified "
+          "by its zero correlation id, distinct from a host-directed "
+          "ReadSample's own nonzero one") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.RejectNextSend();
+
+    fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 5, .correlationId = 0, .source = CaptureSourceKind::kSample});
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::SendCaptureResult does not reset the "
+          "connection when TrySend rejects an ordinary host-requested "
+          "sampled result, since the Host's own request timeout recovers it") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.RejectNextSend();
+
+    fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 5, .correlationId = 7, .source = CaptureSourceKind::kSample});
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 0);
+}
+
 TEST_CASE("AdapterIpcSession::SendPlayContextChanged writes through to the "
           "shared play-context state even before authentication") {
     //  AdapterPlayContextState's own get/set behavior is covered directly by
@@ -2142,6 +2246,7 @@ TEST_CASE("AdapterIpcSession::SendPlayContextChanged sends a notification "
     REQUIRE(notification != nullptr);
     CHECK(notification->correlationId == 0);
     CHECK(notification->playContextId == playContextId);
+    CHECK(connection.ReconnectRequests() == 0);
 }
 
 TEST_CASE("AdapterIpcSession::SendPlayContextChanged does nothing before "
@@ -2177,6 +2282,35 @@ TEST_CASE("AdapterIpcSession::SendPlayContextChanged contains an exception "
     connection.ThrowOnNextSend();
 
     REQUIRE_NOTHROW(fixture.session.SendPlayContextChanged({}));
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged resets the connection "
+          "when TrySend rejects the notification, since a lost transition "
+          "would leave the Host attributing every later capture to a stale "
+          "context forever") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.RejectNextSend();
+
+    fixture.session.SendPlayContextChanged({});
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession::SendPlayContextChanged resets the connection "
+          "when TrySend throws for the notification") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.ThrowOnNextSend();
+
+    REQUIRE_NOTHROW(fixture.session.SendPlayContextChanged({}));
+
+    CHECK(connection.ReconnectRequests() == 1);
 }
 
 TEST_CASE("AdapterIpcSession never dispatches a listen-event or read-sample "

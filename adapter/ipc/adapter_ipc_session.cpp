@@ -485,8 +485,16 @@ void AdapterIpcSession::SendCaptureResult(
         connection_ == nullptr) {
         return;
     }
+    //  A reliable Event or a resync baseline (zero correlation id, unlike a
+    //  host-directed ReadSample's own nonzero one) can never be silently
+    //  lost, so a failed send resets the connection; an ordinary sampled
+    //  result recovers through the Host's own request timeout instead.
+    bool continuityCritical =
+        item.source == capture::CaptureSourceKind::kEvent ||
+        item.correlationId == 0;
+    bool sent = false;
     try {
-        connection_->TrySend(IpcMessage{IpcCaptureResultMessage{
+        sent = connection_->TrySend(IpcMessage{IpcCaptureResultMessage{
             .correlationId = item.correlationId,
             .source = item.source,
             .captureKey = item.intentKey,
@@ -498,6 +506,9 @@ void AdapterIpcSession::SendCaptureResult(
         //  Best-effort; see SendBestEffortReject's own documentation for why
         //  a failed or throwing send here must never propagate.
     }
+    if (!sent && continuityCritical) {
+        connection_->RequestReconnect();
+    }
 }
 
 void AdapterIpcSession::SendPlayContextChanged(
@@ -508,12 +519,19 @@ void AdapterIpcSession::SendPlayContextChanged(
         connection_ == nullptr) {
         return;
     }
+    bool sent = false;
     try {
-        connection_->TrySend(IpcMessage{IpcPlayContextChangedMessage{
+        sent = connection_->TrySend(IpcMessage{IpcPlayContextChangedMessage{
             .correlationId = 0, .playContextId = playContextId}});
     } catch (...) {
         //  Best-effort; see SendBestEffortReject's own documentation for why
         //  a failed or throwing send here must never propagate.
+    }
+    if (!sent) {
+        //  A lost play-context transition would leave the Host attributing
+        //  every later capture to a stale context, silently rejecting them as
+        //  stale forever; this is always continuity-critical.
+        connection_->RequestReconnect();
     }
 }
 
@@ -640,14 +658,28 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                 bool accepted = eventRegistered && levelBaselineAdmitted &&
                                 vitalsAdmitted && xpAdmitted;
                 if (connection_ != nullptr) {
-                    connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
-                        .correlationId = correlationId, .accepted = accepted}});
+                    //  A dropped terminal result would leave the Host waiting
+                    //  for a resync outcome that will now never arrive:
+                    //  always continuity-critical, unlike an ordinary sampled
+                    //  result.
+                    bool sent = connection_->TrySend(
+                        IpcMessage{IpcResynchronizeResultMessage{
+                            .correlationId = correlationId,
+                            .accepted = accepted}});
+                    if (!sent) {
+                        connection_->RequestReconnect();
+                    }
                 }
             } catch (...) {
                 //  Contained, per ai/context/skse/cpp-style.md's worker-thread
                 //  boundary rule: this task runs on the Skyrim game thread via
                 //  SKSE's own task interface, which must never see an exception
-                //  escape.
+                //  escape. An exception here means the terminal result above
+                //  never sent, which would otherwise leave the Host waiting
+                //  for a resync outcome forever; reset instead.
+                if (connection_ != nullptr) {
+                    connection_->RequestReconnect();
+                }
             }
         });
     if (!admitted) {
