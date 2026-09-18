@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <array>
-#include <iterator>
 
 #include "capture/live_state_sample_codec.hpp"
 #include "enums.hpp"
@@ -40,7 +39,7 @@ class CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink final
         captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
             .intentKey = static_cast<std::uint32_t>(
                 capture::CharacterEventKey::kCharacterLevelChanged),
-            .capturedValue = std::vector<std::byte>(encoded.begin(), encoded.end()),
+            .capturedValue = capture::MakeCapturedPayload(encoded),
             .correlationId = 0,
             .source = capture::CaptureSourceKind::kEvent,
             .availability = capture::CaptureAvailability::kAvailable,
@@ -74,17 +73,17 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
             return dispatch::SampleCaptureResult{
                 .status = dispatch::SampleCaptureStatus::kUnavailable};
         }
-        std::vector<std::byte> payload;
-        payload.reserve(12);
         std::array<std::byte, 4> health = capture::EncodeFloatLittleEndian(vitals->health);
         std::array<std::byte, 4> magicka = capture::EncodeFloatLittleEndian(vitals->magicka);
         std::array<std::byte, 4> stamina = capture::EncodeFloatLittleEndian(vitals->stamina);
-        std::ranges::copy(health, std::back_inserter(payload));
-        std::ranges::copy(magicka, std::back_inserter(payload));
-        std::ranges::copy(stamina, std::back_inserter(payload));
+        capture::CapturedPayload payload;
+        std::ranges::copy(health, payload.bytes.begin());
+        std::ranges::copy(magicka, payload.bytes.begin() + 4);
+        std::ranges::copy(stamina, payload.bytes.begin() + 8);
+        payload.size = 12;
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kAvailable,
-            .payload = std::move(payload)};
+            .payload = payload};
     }
     case capture::CharacterSampleToken::kCharacterXp: {
         std::optional<float> xp = CaptureCharacterXp();
@@ -95,7 +94,7 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
         std::array<std::byte, 4> encoded = capture::EncodeFloatLittleEndian(*xp);
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kAvailable,
-            .payload = std::vector<std::byte>(encoded.begin(), encoded.end())};
+            .payload = capture::MakeCapturedPayload(encoded)};
     }
     case capture::CharacterSampleToken::kCharacterLevelBaseline: {
         std::optional<std::uint16_t> level = CaptureCharacterLevel();
@@ -106,7 +105,7 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
         std::array<std::byte, 2> encoded = capture::EncodeUInt16LittleEndian(*level);
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kAvailable,
-            .payload = std::vector<std::byte>(encoded.begin(), encoded.end())};
+            .payload = capture::MakeCapturedPayload(encoded)};
     }
     default:
         return dispatch::SampleCaptureResult{

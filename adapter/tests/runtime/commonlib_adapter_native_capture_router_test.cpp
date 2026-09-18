@@ -69,10 +69,10 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kAvailable with the "
 
     CHECK(source.find(NormalizeWhitespace(
               ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
-              ".payload = std::move(payload)};")) != std::string::npos);
+              ".payload = payload};")) != std::string::npos);
     CHECK(source.find(NormalizeWhitespace(
               ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
-              ".payload = std::vector<std::byte>(encoded.begin(), encoded.end())};")) !=
+              ".payload = capture::MakeCapturedPayload(encoded)};")) !=
           std::string::npos);
 }
 
@@ -83,10 +83,10 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes each token's payload "
 
     CHECK(source.find(NormalizeWhitespace("EncodeFloatLittleEndian")) != std::string::npos);
     CHECK(source.find(NormalizeWhitespace("EncodeUInt16LittleEndian")) != std::string::npos);
-    //  Vitals is 3 float32 fields (12 bytes); the reservation size pins that
-    //  a later edit cannot silently add or drop a field without this test
-    //  failing.
-    CHECK(source.find(NormalizeWhitespace("payload.reserve(12)")) != std::string::npos);
+    //  Vitals is 3 float32 fields (12 bytes); the fixed size assignment pins
+    //  that a later edit cannot silently add or drop a field without this
+    //  test failing.
+    CHECK(source.find(NormalizeWhitespace("payload.size = 12;")) != std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes and copies vitals in "
@@ -166,7 +166,7 @@ TEST_CASE("LevelChangedEventSink::ProcessEvent guards a null event and "
     CHECK(source.find(NormalizeWhitespace(".availability = capture::CaptureAvailability::kAvailable,")) !=
           std::string::npos);
     CHECK(source.find(NormalizeWhitespace(
-              ".capturedValue = std::vector<std::byte>(encoded.begin(), encoded.end()),")) !=
+              ".capturedValue = capture::MakeCapturedPayload(encoded),")) !=
           std::string::npos);
     //  correlationId stays its captured/no-request default until a following
     //  step adds real resynchronization correlation; guards against it

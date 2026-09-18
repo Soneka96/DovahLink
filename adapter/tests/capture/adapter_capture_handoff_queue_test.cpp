@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -51,8 +52,10 @@ class BlockingGate {
 
 ///  Builds a representative work item for a given intent key.
 AdapterCaptureWorkItem BuildWorkItem(std::uint32_t intentKey) {
-    return AdapterCaptureWorkItem{.intentKey = intentKey,
-                                  .capturedValue = {std::byte{0x01}}};
+    return AdapterCaptureWorkItem{
+        .intentKey = intentKey,
+        .capturedValue = dovahlink::adapter::capture::MakeCapturedPayload(
+            std::array{std::byte{0x01}})};
 }
 
 } //  namespace
@@ -133,6 +136,43 @@ TEST_CASE("AdapterCaptureHandoffQueue rejects without blocking once full, "
     expectedDrained.insert(expectedDrained.end(), fillItems.begin(),
                            fillItems.end());
     REQUIRE(drainedItems == expectedDrained);
+}
+
+TEST_CASE("AdapterCaptureHandoffQueue preserves FIFO order across a "
+          "ring-buffer wraparound") {
+    std::mutex drainedMutex;
+    std::vector<AdapterCaptureWorkItem> drainedItems;
+    std::condition_variable drainedCondition;
+
+    AdapterCaptureHandoffQueue queue(
+        [&](const AdapterCaptureWorkItem& item) {
+            std::lock_guard<std::mutex> lock(drainedMutex);
+            drainedItems.push_back(item);
+            drainedCondition.notify_one();
+        },
+        [](const AdapterCaptureWorkItem&) {});
+
+    //  Enqueuing and waiting for each item to drain before enqueuing the
+    //  next advances the ring buffer's head index one slot at a time, past
+    //  its own capacity, without ever needing more than one item present at
+    //  once -- proving the modulo wraparound itself, not just FIFO order
+    //  within one full buffer's worth of items.
+    std::vector<AdapterCaptureWorkItem> enqueuedItems;
+    for (std::uint32_t index = 0; index < kMaxAdapterCaptureQueueItems + 5;
+         ++index) {
+        enqueuedItems.push_back(BuildWorkItem(index));
+        REQUIRE(queue.TryEnqueue(enqueuedItems.back()));
+
+        std::unique_lock<std::mutex> lock(drainedMutex);
+        REQUIRE(drainedCondition.wait_for(
+            lock, std::chrono::seconds(5),
+            [&] { return drainedItems.size() == index + 1; }));
+    }
+
+    queue.Stop();
+
+    std::lock_guard<std::mutex> lock(drainedMutex);
+    REQUIRE(drainedItems == enqueuedItems);
 }
 
 TEST_CASE("AdapterCaptureHandoffQueue::Stop drains pending items, in FIFO "

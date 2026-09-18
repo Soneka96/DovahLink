@@ -500,7 +500,8 @@ void AdapterIpcSession::SendCaptureResult(
             .captureKey = item.intentKey,
             .availability = item.availability,
             .playContextId = item.playContextId,
-            .payload = item.capturedValue,
+            .payload = std::vector<std::byte>(item.capturedValue.AsSpan().begin(),
+                                              item.capturedValue.AsSpan().end()),
         }});
     } catch (...) {
         //  Best-effort; see SendBestEffortReject's own documentation for why

@@ -18,11 +18,26 @@ AdapterCaptureHandoffQueue::~AdapterCaptureHandoffQueue() { Stop(); }
 
 bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
     bool accepted = false;
-    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
-    if (lock.owns_lock()) {
-        if (!stopping_ && queue_.size() < kMaxAdapterCaptureQueueItems) {
-            queue_.push_back(std::move(item));
-            accepted = true;
+    //  A handful of immediate, non-blocking attempts: the worker thread only
+    //  ever holds this same mutex for the brief span of removing one item
+    //  below, so retrying all but eliminates a spurious rejection from
+    //  transient contention with it -- for example three baseline samples
+    //  enqueued back to back during resynchronization -- without ever
+    //  making this call actually wait for the lock. A genuinely full or
+    //  stopped queue still fails on the very first attempt.
+    for (int attempt = 0; attempt < kCaptureQueueEnqueueLockAttempts;
+         ++attempt) {
+        std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+        if (lock.owns_lock()) {
+            if (!stopping_ && count_ < buffer_.size()) {
+                buffer_[(head_ + count_) % buffer_.size()] = std::move(item);
+                ++count_;
+                accepted = true;
+            }
+            break;
+        }
+        if (attempt + 1 < kCaptureQueueEnqueueLockAttempts) {
+            std::this_thread::yield();
         }
     }
 
@@ -63,15 +78,16 @@ void AdapterCaptureHandoffQueue::WorkerLoop() {
         {
             std::unique_lock<std::mutex> lock(mutex_);
             itemAvailable_.wait(lock,
-                                [this] { return stopping_ || !queue_.empty(); });
-            if (queue_.empty()) {
+                                [this] { return stopping_ || count_ > 0; });
+            if (count_ == 0) {
                 //  The wait predicate only admits an empty queue once `stopping_` is
                 //  set, so there is nothing left to drain.
                 return;
             }
 
-            item = std::move(queue_.front());
-            queue_.pop_front();
+            item = std::move(buffer_[head_]);
+            head_ = (head_ + 1) % buffer_.size();
+            --count_;
         }
 
         try {

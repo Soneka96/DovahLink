@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
+#include "capture/live_state_sample_codec.hpp"
 #include "enums.hpp"
 
 namespace dovahlink::adapter::dispatch {
@@ -17,7 +17,9 @@ struct SampleCaptureResult {
     ///  Which of the three outcomes this call produced.
     SampleCaptureStatus status = SampleCaptureStatus::kUnsupported;
     ///  The captured value when `status` is `kAvailable`; empty otherwise.
-    std::vector<std::byte> payload;
+    ///  A fixed, preallocated buffer -- never a heap allocation -- since this
+    ///  result is built synchronously on the Skyrim game thread.
+    capture::CapturedPayload payload;
 
     ///  Structural equality over every field.
     bool operator==(const SampleCaptureResult&) const = default;

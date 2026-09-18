@@ -2,14 +2,19 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <span>
 
+using dovahlink::adapter::capture::CapturedPayload;
 using dovahlink::adapter::capture::EncodeFloatLittleEndian;
 using dovahlink::adapter::capture::EncodeUInt16LittleEndian;
+using dovahlink::adapter::capture::kMaxCapturedPayloadBytes;
+using dovahlink::adapter::capture::MakeCapturedPayload;
 
 TEST_CASE("EncodeFloatLittleEndian matches the host's little-endian float decode",
           "[capture][live_state_sample_codec]") {
@@ -68,4 +73,53 @@ TEST_CASE("EncodeFloatLittleEndian round-trips every bit pattern exactly, "
         std::uint32_t roundTrippedBits = DecodeBitsLittleEndian(EncodeFloatLittleEndian(value));
         CHECK(roundTrippedBits == originalBits);
     }
+}
+
+TEST_CASE("MakeCapturedPayload copies the source bytes and records their "
+          "count as size",
+          "[capture][live_state_sample_codec]") {
+    std::array<std::byte, 2> source{std::byte{0x34}, std::byte{0x12}};
+
+    CapturedPayload payload = MakeCapturedPayload(source);
+
+    REQUIRE(payload.size == 2);
+    CHECK(payload.AsSpan().size() == 2);
+    CHECK(payload.AsSpan()[0] == std::byte{0x34});
+    CHECK(payload.AsSpan()[1] == std::byte{0x12});
+}
+
+TEST_CASE("MakeCapturedPayload leaves every byte beyond size zeroed",
+          "[capture][live_state_sample_codec]") {
+    std::array<std::byte, 1> source{std::byte{0xFF}};
+
+    CapturedPayload payload = MakeCapturedPayload(source);
+
+    for (std::size_t index = 1; index < payload.bytes.size(); ++index) {
+        CHECK(payload.bytes[index] == std::byte{0x00});
+    }
+}
+
+TEST_CASE("MakeCapturedPayload fills the full buffer at the maximum size",
+          "[capture][live_state_sample_codec]") {
+    std::array<std::byte, kMaxCapturedPayloadBytes> source{};
+    for (std::size_t index = 0; index < source.size(); ++index) {
+        source[index] = static_cast<std::byte>(index);
+    }
+
+    CapturedPayload payload = MakeCapturedPayload(source);
+
+    REQUIRE(payload.size == kMaxCapturedPayloadBytes);
+    CHECK(std::ranges::equal(payload.AsSpan(), source));
+}
+
+TEST_CASE("CapturedPayload equality compares both the buffer and size, "
+          "treating differently-sized empty payloads as equal since their "
+          "unused bytes are always zero",
+          "[capture][live_state_sample_codec]") {
+    CapturedPayload empty{};
+    CapturedPayload alsoEmpty = MakeCapturedPayload(std::span<const std::byte>{});
+    std::array<std::byte, 1> oneByte{std::byte{0x01}};
+
+    CHECK(empty == alsoEmpty);
+    CHECK_FALSE(empty == MakeCapturedPayload(oneByte));
 }

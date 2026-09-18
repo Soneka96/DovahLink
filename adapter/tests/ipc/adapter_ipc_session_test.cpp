@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -131,7 +132,7 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
         }
         return SampleCaptureResult{
             .status = SampleCaptureStatus::kAvailable,
-            .payload = it->second};
+            .payload = dovahlink::adapter::capture::MakeCapturedPayload(it->second)};
     }
 
     bool RegisterEvent(std::uint32_t eventKey) override {
@@ -721,7 +722,7 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by registering "
     REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
     CHECK(fixture.captureQueue.Enqueued()[0].intentKey == levelBaselineToken);
     CHECK(fixture.captureQueue.Enqueued()[0].capturedValue ==
-          std::vector<std::byte>{std::byte{9}});
+          dovahlink::adapter::capture::MakeCapturedPayload(std::array{std::byte{9}}));
     CHECK(fixture.captureQueue.Enqueued()[0].availability ==
           CaptureAvailability::kAvailable);
     CHECK(fixture.captureQueue.Enqueued()[0].source == CaptureSourceKind::kSample);
@@ -761,7 +762,7 @@ TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
     REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
     for (const auto& item : fixture.captureQueue.Enqueued()) {
         CHECK(item.availability == CaptureAvailability::kUnavailable);
-        CHECK(item.capturedValue.empty());
+        CHECK(item.capturedValue.size == 0);
     }
     REQUIRE(connection.Sent().size() == 1);
     auto* result =
@@ -1894,7 +1895,7 @@ TEST_CASE("AdapterIpcSession enqueues an unavailable capture for a "
     CHECK(item.intentKey == 99);
     CHECK(item.correlationId == 1);
     CHECK(item.availability == CaptureAvailability::kUnavailable);
-    CHECK(item.capturedValue.empty());
+    CHECK(item.capturedValue.size == 0);
 }
 
 TEST_CASE("AdapterIpcSession contains an exception thrown by the "
@@ -2090,7 +2091,8 @@ TEST_CASE("AdapterIpcSession::SendCaptureResult sends a capture result "
         std::byte{13}, std::byte{14}, std::byte{15}, std::byte{16}};
     fixture.session.SendCaptureResult(AdapterCaptureWorkItem{
         .intentKey = 5,
-        .capturedValue = {std::byte{1}, std::byte{2}},
+        .capturedValue = dovahlink::adapter::capture::MakeCapturedPayload(
+            std::array{std::byte{1}, std::byte{2}}),
         .correlationId = 3,
         .source = CaptureSourceKind::kSample,
         .availability = CaptureAvailability::kAvailable,
