@@ -277,6 +277,26 @@ class NoopCaptureQueue final : public IAdapterCaptureHandoffQueue {
     void Stop() override {}
 };
 
+///  Accepts every registration and reports every sample unavailable, since
+///  this cross-process test is concerned with IPC connection recovery, not
+///  resync outcome. The generic, production `AdapterNativeCaptureRouter`
+///  approves no token at all, which makes every resynchronize request this
+///  fixture's automatic post-handshake send and any later trigger produce
+///  come back declined -- and the Host closes the connection on a genuinely
+///  declined resync result. Every test built on this fixture that assumes
+///  the connection stays open would otherwise be racing that close.
+class AcceptingCaptureRouter final
+    : public dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter {
+  public:
+    dovahlink::adapter::dispatch::SampleCaptureResult
+    CaptureSample(std::uint32_t) override {
+        return dovahlink::adapter::dispatch::SampleCaptureResult{
+            .status =
+                dovahlink::adapter::dispatch::SampleCaptureStatus::kUnavailable};
+    }
+    bool RegisterEvent(std::uint32_t) override { return true; }
+};
+
 ///  Presents nothing, since this cross-process test is concerned with IPC
 ///  connection recovery, not pairing display.
 class NoopPairingNotificationSink final
@@ -1248,7 +1268,7 @@ class RealHostFixture {
     WinsockAdapterIpcSocket connectionSocket_{0};
     IpcFrameCodec codec_;
     ImmediateTaskMarshaller taskMarshaller_;
-    AdapterNativeCaptureRouter captureRouter_;
+    AcceptingCaptureRouter captureRouter_;
     NoopCaptureQueue captureQueue_;
     NoopPairingNotificationSink noopPairingNotificationSink_;
     AdapterPlayContextState playContextState_;
