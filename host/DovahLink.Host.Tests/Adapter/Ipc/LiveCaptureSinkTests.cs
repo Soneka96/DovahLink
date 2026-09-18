@@ -360,6 +360,65 @@ public class LiveCaptureSinkTests
         Assert.Equal(12, level!.Data.GetProperty("value").GetUInt16());
     }
 
+    /// <summary>
+    /// Verifies that an accepted resynchronization baseline whose value genuinely changed still
+    /// publishes through SnapshotChanged, proving the unchanged-baseline handling below did not fold
+    /// this case into a silent EstablishBaseline-only path.
+    /// </summary>
+    [Fact]
+    public void ApplyCaptureResult_ResynchronizationBaselineChanged_StillRaisesSnapshotChanged()
+    {
+        Fixture fixture = CreateReady();
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        StateSnapshotPublication? raised = null;
+        fixture.Feed.SnapshotChanged += publication =>
+        {
+            if (publication.StateArea == XpArea)
+            {
+                raised = publication;
+            }
+        };
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+
+        fixture.Sink.ApplyCaptureResult(captureResult);
+
+        Assert.NotNull(raised);
+        Assert.Equal(50.0f, ReadValue(raised!.Data));
+    }
+
+    /// <summary>
+    /// Verifies that an accepted resynchronization baseline whose value is unchanged from what was
+    /// already stored still restores the publication feed's pull-read cache after a continuity loss
+    /// cleared it -- not only the publisher's own authoritative store, which a same-value baseline
+    /// already updates correctly. Without this, a client requesting a snapshot right after
+    /// resynchronization completes would be told no value is available merely because nothing about
+    /// it changed.
+    /// </summary>
+    [Fact]
+    public void ApplyCaptureResult_ResynchronizationBaselineUnchangedAfterDisconnect_RestoresFeedSnapshot()
+    {
+        Fixture fixture = CreateReady();
+        var initialCapture = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(100.0f));
+        fixture.Sink.ApplyCaptureResult(initialCapture);
+        Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out _));
+
+        // A continuity loss unconditionally clears the feed's own pull-read cache, per
+        // StatePublicationFeed's documented defense-in-depth clearing.
+        fixture.AdapterTracker.PublishTransition(new AdapterAvailabilityTransition(
+            AdapterAvailability.Available, AdapterAvailability.Unavailable, fixture.AdapterTracker.CurrentInstanceId, fixture.AdapterTracker.CurrentConnectionGeneration));
+        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+
+        // Reconnect and resynchronize the exact same value.
+        fixture.AdapterTracker.Current = AdapterAvailability.Available;
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        var resyncCapture = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(100.0f));
+        fixture.Sink.ApplyCaptureResult(resyncCapture);
+        fixture.AdapterTracker.NeedsResynchronization = false;
+
+        Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
+        Assert.Equal(100.0f, ReadValue(xp!.Data));
+    }
+
     /// <summary>Verifies that a resynchronization token already claimed by another caller is a silent drop, not a crash.</summary>
     [Fact]
     public void ApplyCaptureResult_ResynchronizationTokenAlreadyClaimed_DoesNothingAndDoesNotThrow()

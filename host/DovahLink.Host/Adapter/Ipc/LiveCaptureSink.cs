@@ -244,11 +244,16 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     /// <summary>
     /// Applies one area's value through <paramref name="publisher"/> -- routing through
     /// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/> while the adapter needs
-    /// resynchronization, or <see cref="IStatePublisher{TState}.Apply"/> otherwise -- then publishes
-    /// only when the result is both accepted and actually changed. An accepted resynchronization
-    /// baseline is also reported to <see cref="resynchronizationTransactionCoordinator"/> regardless
-    /// of whether it changed anything, since "this area's baseline landed" is what the transaction
-    /// tracks, not "this area's value differs from before."
+    /// resynchronization, or <see cref="IStatePublisher{TState}.Apply"/> otherwise. An accepted,
+    /// actually-changed result publishes through <see cref="IStatePublicationSink.PublishSnapshot"/>
+    /// or <see cref="IStatePublicationSink.PublishEvent"/>; an accepted-but-unchanged Snapshot-mode
+    /// resynchronization baseline still calls <see cref="IStatePublicationSink.EstablishBaseline"/> so
+    /// the publication feed's pull-read cache -- unconditionally cleared by the continuity loss this
+    /// resynchronization is recovering from -- is restored even when nothing about the value actually
+    /// differs from before. An accepted resynchronization baseline is also reported to
+    /// <see cref="resynchronizationTransactionCoordinator"/> regardless of whether it changed
+    /// anything, since "this area's baseline landed" is what the transaction tracks, not "this area's
+    /// value differs from before."
     /// </summary>
     private void ApplyAndPublish<TState>(
         IStatePublisher<TState> publisher,
@@ -261,7 +266,8 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         DateTimeOffset occurredAt)
     {
         StateApplyResult result;
-        if (adapterSnapshot.NeedsResynchronization)
+        bool isResynchronizationBaseline = adapterSnapshot.NeedsResynchronization;
+        if (isResynchronizationBaseline)
         {
             if (adapterSnapshot.CurrentInstanceId is not AdapterInstanceId resyncInstanceId)
             {
@@ -292,12 +298,30 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
             result = publisher.Apply(instanceId, adapterSnapshot.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
         }
 
-        if (!result.Accepted || !result.Changed)
+        if (!result.Accepted)
         {
             return;
         }
 
         JsonElement data = JsonSerializer.SerializeToElement(new { value });
+
+        if (!result.Changed)
+        {
+            // An accepted resynchronization baseline still repopulates the feed's pull-read cache even
+            // when nothing actually differs from before: that cache was unconditionally cleared by the
+            // continuity loss this resynchronization is recovering from, so leaving it untouched here
+            // would strand it empty until some later, unrelated value change happened to refill it. An
+            // ordinary (non-baseline) unchanged apply has no such cache to restore -- it was never
+            // cleared -- so it stays a pure no-op, matching the architecture's "unchanged sampled values
+            // stop before they create... publication[or] queue entry" rule.
+            if (isResynchronizationBaseline && mode == UpdateMode.Snapshot)
+            {
+                publicationSink.EstablishBaseline(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+            }
+
+            return;
+        }
+
         if (mode == UpdateMode.Snapshot)
         {
             publicationSink.PublishSnapshot(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);

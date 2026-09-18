@@ -117,6 +117,26 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         }
     }
 
+    /// <inheritdoc/>
+    public void EstablishBaseline(
+        StateAreaId areaId,
+        RevisionNumber revision,
+        JsonElement data,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        DateTimeOffset occurredAt)
+    {
+        lock (gate)
+        {
+            if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration))
+            {
+                return;
+            }
+
+            latestByArea[areaId] = new StateSnapshotPublication(areaId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+        }
+    }
+
     /// <summary>
     /// Invokes every <see cref="SnapshotChanged"/> subscriber, containing each one's own exception
     /// individually -- the same isolation <see cref="Identity.StateAuthorityLifecycle"/> already
