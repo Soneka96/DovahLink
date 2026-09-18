@@ -17,21 +17,22 @@ public interface ILiveCaptureSink
 {
     /// <summary>
     /// Raised at the start of every <see cref="ApplyCaptureResult"/> call, before any of its own
-    /// recognition, provenance, or decoding checks -- carrying the raw result and the adapter
-    /// connection generation it arrived under, per <see cref="IAdapterAvailabilityTracker"/>'s own
-    /// canonical numbering. Lets an interested collaborator (for example <c>LiveStateScheduler</c>,
-    /// releasing its own per-sample outstanding-request tracking) observe that a reply arrived at
-    /// all, independently of whether this sink goes on to actually apply it. This is the sink's own
-    /// event specifically so a listener like the scheduler never needs a direct dependency on
-    /// <see cref="AdapterIpcSession"/> or the adapter-IPC listener it would otherwise have to reach
-    /// through -- avoiding a composition-root dependency cycle back through the connection factory
-    /// that builds every session.
+    /// recognition, provenance, or decoding checks -- carrying the raw result and the connection
+    /// generation of <paramref name="source"/> as passed to that call, not rediscovered from mutable
+    /// global availability state. Lets an interested collaborator (for example
+    /// <c>LiveStateScheduler</c>, releasing its own per-sample outstanding-request tracking) observe
+    /// that a reply arrived at all, independently of whether this sink goes on to actually apply it.
+    /// This is the sink's own event specifically so a listener like the scheduler never needs a
+    /// direct dependency on <see cref="AdapterIpcSession"/> or the adapter-IPC listener it would
+    /// otherwise have to reach through -- avoiding a composition-root dependency cycle back through
+    /// the connection factory that builds every session.
     /// </summary>
     event Action<IpcCaptureResultMessage, long>? CaptureResultApplied;
 
     /// <summary>Applies one adapter-reported capture result.</summary>
     /// <param name="captureResult">The decoded capture result to apply.</param>
-    void ApplyCaptureResult(IpcCaptureResultMessage captureResult);
+    /// <param name="source">The exact adapter connection that received <paramref name="captureResult"/>.</param>
+    void ApplyCaptureResult(IpcCaptureResultMessage captureResult, AdapterCaptureSource source);
 }
 
 /// <inheritdoc cref="ILiveCaptureSink"/>
@@ -101,9 +102,9 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
     public event Action<IpcCaptureResultMessage, long>? CaptureResultApplied;
 
     /// <inheritdoc/>
-    public void ApplyCaptureResult(IpcCaptureResultMessage captureResult)
+    public void ApplyCaptureResult(IpcCaptureResultMessage captureResult, AdapterCaptureSource source)
     {
-        CaptureResultApplied?.Invoke(captureResult, adapterAvailabilityTracker.GetSnapshot().ConnectionGeneration);
+        CaptureResultApplied?.Invoke(captureResult, source.ConnectionGeneration);
 
         CaptureUnitDefinition? unit = catalog.CaptureUnits.FirstOrDefault(
             candidate => candidate.Source == captureResult.Source && candidate.CaptureKey == captureResult.CaptureKey);
@@ -371,3 +372,17 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
         return float.IsFinite(value);
     }
 }
+
+// TODO(stage4-file-extraction): Move AdapterCaptureSource to its own
+// AdapterCaptureSource.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>
+/// Identifies the exact adapter connection that received one capture result. Passed in by the
+/// receiving <see cref="AdapterIpcSession"/>, which already knows its own identity, rather than
+/// rediscovered inside <see cref="LiveCaptureSink"/> from mutable global availability state that may
+/// have since moved on to a newer connection.
+/// </summary>
+/// <param name="InstanceId">The adapter instance this capture result was received from.</param>
+/// <param name="ConnectionGeneration">The connection generation the capture result was received on.</param>
+public readonly record struct AdapterCaptureSource(AdapterInstanceId InstanceId, long ConnectionGeneration);

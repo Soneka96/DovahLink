@@ -461,6 +461,40 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
+    /// <summary>Verifies that a CaptureResult arriving before any handshake is ignored safely, never forwarded to the sink without a real source identity.</summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_BeforeHandshake_IsIgnoredSafely()
+    {
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink, new FakeResynchronizationTransactionCoordinator());
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Empty(liveCaptureSink.Applied);
+    }
+
+    /// <summary>
+    /// Verifies that a CaptureResult arriving after a validated but not-yet-committed handshake --
+    /// where this session's own instance id is set but it has no connection lease yet -- is still
+    /// ignored safely, never forwarded to the sink with an incomplete source.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_HandshakeValidatedButNotCommitted_IsIgnoredSafely()
+    {
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink, new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Empty(liveCaptureSink.Applied);
+    }
+
     /// <summary>Verifies that preparing an event-listening intent with a zero key returns null even after handshake.</summary>
     [Fact]
     public void PrepareListenEvent_ZeroKey_ReturnsNull()
@@ -525,7 +559,8 @@ public class AdapterIpcSessionTests
         var session = new AdapterIpcSession(
             lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink,
             new FakeResynchronizationTransactionCoordinator());
-        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        AdapterInstanceId connectingInstanceId = AdapterInstanceId.NewId();
+        session.Handshake(new IpcHelloMessage(1, connectingInstanceId, verifier.ExpectedToken));
         session.CommitHandshake();
         var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []);
 
@@ -533,6 +568,41 @@ public class AdapterIpcSessionTests
 
         Assert.Equal(AdapterIpcOutcome.None, outcome);
         Assert.Equal([captureResult], liveCaptureSink.Applied);
+        Assert.Equal([new AdapterCaptureSource(connectingInstanceId, session.ConnectionGeneration!.Value)], liveCaptureSink.Sources);
+    }
+
+    /// <summary>
+    /// Verifies that the source passed to the live capture sink carries this exact session's own
+    /// instance id and connection generation -- not a value read from mutable global availability
+    /// state, which a differently-configured tracker here proves is never consulted for it.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_PassesThisSessionsOwnInstanceIdAndGenerationAsSource()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker
+        {
+            // Deliberately different from the connecting adapter below: proves the passed source
+            // comes from this exact session, never rediscovered from this global tracker.
+            CurrentInstanceId = AdapterInstanceId.NewId(),
+            CurrentConnectionGeneration = 999,
+        };
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = new AdapterIpcSession(
+            lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink,
+            new FakeResynchronizationTransactionCoordinator());
+        AdapterInstanceId connectingInstanceId = AdapterInstanceId.NewId();
+        session.Handshake(new IpcHelloMessage(1, connectingInstanceId, verifier.ExpectedToken));
+        session.CommitHandshake();
+        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []);
+
+        session.HandleFrame(captureResult);
+
+        AdapterCaptureSource source = Assert.Single(liveCaptureSink.Sources);
+        Assert.Equal(connectingInstanceId, source.InstanceId);
+        Assert.Equal(session.ConnectionGeneration, source.ConnectionGeneration);
+        Assert.NotEqual(999, source.ConnectionGeneration);
     }
 
     /// <summary>Verifies that several sequential CaptureResult frames reach the sink in the same order they were handled.</summary>
@@ -557,6 +627,7 @@ public class AdapterIpcSessionTests
         session.HandleFrame(third);
 
         Assert.Equal([first, second, third], liveCaptureSink.Applied);
+        Assert.All(liveCaptureSink.Sources, source => Assert.Equal(session.ConnectionGeneration, source.ConnectionGeneration));
     }
 
     /// <summary>

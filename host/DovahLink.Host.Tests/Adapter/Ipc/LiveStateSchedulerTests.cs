@@ -249,7 +249,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
+        var liveCaptureSink = new FakeLiveCaptureSink();
         LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
@@ -257,7 +257,7 @@ public class LiveStateSchedulerTests
         await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
 
         liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
-            42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []));
+            42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []), new AdapterCaptureSource(AdapterInstanceId.NewId(), 1));
 
         // Released immediately: the next Fast tick (well before the five-tick timeout would have
         // released it on its own) already sends again.
@@ -277,7 +277,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 2,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 }; // stale: the slot was sent under generation 2
+        var liveCaptureSink = new FakeLiveCaptureSink(); // stale: the slot was sent under generation 2
         LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
@@ -285,7 +285,7 @@ public class LiveStateSchedulerTests
         await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
 
         liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
-            42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []));
+            42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []), new AdapterCaptureSource(AdapterInstanceId.NewId(), 1));
         await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
         cancellation.Cancel();
@@ -308,7 +308,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
+        var liveCaptureSink = new FakeLiveCaptureSink();
         LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
@@ -316,7 +316,7 @@ public class LiveStateSchedulerTests
         await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
 
         Exception? exception = Record.Exception(() => liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
-            0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, default, [0, 1])));
+            0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, default, [0, 1]), new AdapterCaptureSource(AdapterInstanceId.NewId(), 1)));
         Assert.Null(exception);
         await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
@@ -336,7 +336,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
+        var liveCaptureSink = new FakeLiveCaptureSink();
         LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
@@ -344,7 +344,7 @@ public class LiveStateSchedulerTests
         await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
 
         liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
-            999, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []));
+            999, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []), new AdapterCaptureSource(AdapterInstanceId.NewId(), 1));
         await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
         cancellation.Cancel();
@@ -367,7 +367,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
+        var liveCaptureSink = new FakeLiveCaptureSink();
         LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
@@ -375,7 +375,7 @@ public class LiveStateSchedulerTests
         await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
 
         liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
-            42, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, default, [0, 1]));
+            42, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, default, [0, 1]), new AdapterCaptureSource(AdapterInstanceId.NewId(), 1));
         await Task.Delay(TimeSpan.FromMilliseconds(60)); // just over one tick, comfortably under the five-tick (250ms) timeout budget
 
         cancellation.Cancel();
@@ -508,7 +508,7 @@ public class LiveStateSchedulerTests
     [Fact]
     public async Task RunAsync_ImmediateReplyRacesTrySendReadSampleOnAnotherThread_StillReleasesSlotForNextTick()
     {
-        var liveCaptureSink = new FakeLiveCaptureSink { ConnectionGeneration = 1 };
+        var liveCaptureSink = new FakeLiveCaptureSink();
         FakeAdapterIpcConnection connection = new(new MemoryStream())
         {
             TrySendReadSampleResult = true,
@@ -530,7 +530,7 @@ public class LiveStateSchedulerTests
             {
                 backgroundReplyStarted.Release();
                 liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
-                    42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []));
+                    42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []), new AdapterCaptureSource(AdapterInstanceId.NewId(), 1));
             });
             backgroundReplyThread.Start();
             // Waits for the background thread to have at least started, then holds this call open for

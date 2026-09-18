@@ -25,7 +25,8 @@ public class LiveCaptureSinkTests
         FakeAdapterAvailabilityTracker AdapterTracker,
         FakePlayContextTracker PlayContextTracker,
         PlayContextId Context,
-        IResynchronizationTransactionCoordinator Coordinator);
+        IResynchronizationTransactionCoordinator Coordinator,
+        AdapterCaptureSource Source);
 
     /// <summary>
     /// Builds a sink wired exactly like production composition, but with controllable adapter/play-context
@@ -57,7 +58,8 @@ public class LiveCaptureSinkTests
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
         IResynchronizationTransactionCoordinator coordinator = coordinatorOverride ?? new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, adapterTracker);
         var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, feed, adapterTracker, playContextTracker, coordinator, new FakeClock());
-        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator);
+        var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
+        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, source);
     }
 
     private static byte[] EncodeVitals(float health, float magicka, float stamina)
@@ -95,7 +97,7 @@ public class LiveCaptureSinkTests
         // resynchronization baseline (which always carries zero).
         var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.True(fixture.Feed.TryGetSnapshot(HealthArea, out StateSnapshotPublication? health));
         Assert.Equal(93.4f, ReadValue(health!.Data));
@@ -110,12 +112,12 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_VitalsSecondCaptureChangesOnlyHealth_OnlyHealthRevisionAdvances()
     {
         Fixture fixture = CreateReady();
-        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f)));
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f)), fixture.Source);
         RevisionNumber healthRevisionBefore = fixture.FloatPublisher.CurrentRevision(HealthArea);
         RevisionNumber magickaRevisionBefore = fixture.FloatPublisher.CurrentRevision(MagickaArea);
         RevisionNumber staminaRevisionBefore = fixture.FloatPublisher.CurrentRevision(StaminaArea);
 
-        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f)));
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f)), fixture.Source);
 
         Assert.NotEqual(healthRevisionBefore, fixture.FloatPublisher.CurrentRevision(HealthArea));
         Assert.Equal(magickaRevisionBefore, fixture.FloatPublisher.CurrentRevision(MagickaArea));
@@ -133,7 +135,7 @@ public class LiveCaptureSinkTests
         // resynchronization baseline (which always carries zero).
         var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Unavailable, fixture.Context, []);
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
         Assert.Null(ReadValue(xp!.Data));
@@ -150,7 +152,7 @@ public class LiveCaptureSinkTests
         fixture.Feed.SnapshotChanged += _ => snapshotChangedRaised = true;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.NotNull(raisedEvent);
         Assert.Equal(LevelArea, raisedEvent!.StateArea);
@@ -174,7 +176,7 @@ public class LiveCaptureSinkTests
         fixture.AdapterTracker.NeedsResynchronization = true;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.NotEmpty(fakeCoordinator.AcquireTokenCalls);
     }
@@ -198,7 +200,7 @@ public class LiveCaptureSinkTests
         fixture.Feed.EventOccurred += _ => eventOccurredRaised = true;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.NotNull(raisedSnapshot);
         Assert.Equal(LevelArea, raisedSnapshot!.StateArea);
@@ -212,22 +214,28 @@ public class LiveCaptureSinkTests
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, CaptureKey: 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
 
-    /// <summary>Verifies that CaptureResultApplied is raised with the arriving result and the adapter's current connection generation, for a consumer (for example LiveStateScheduler) that only cares that a reply arrived.</summary>
+    /// <summary>
+    /// Verifies that CaptureResultApplied is raised with the arriving result and the passed-in
+    /// source's own connection generation -- not a value rediscovered from the adapter availability
+    /// tracker's own current state, which this test deliberately sets to a different value to prove
+    /// the passed source, not the tracker, is authoritative.
+    /// </summary>
     [Fact]
-    public void ApplyCaptureResult_RaisesCaptureResultAppliedWithConnectionGeneration()
+    public void ApplyCaptureResult_RaisesCaptureResultAppliedWithSourcesConnectionGeneration()
     {
         Fixture fixture = CreateReady();
-        fixture.AdapterTracker.CurrentConnectionGeneration = 7;
+        fixture.AdapterTracker.CurrentConnectionGeneration = 999;
         var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
+        var source = new AdapterCaptureSource(fixture.AdapterTracker.CurrentInstanceId!.Value, 7);
         List<(IpcCaptureResultMessage CaptureResult, long ConnectionGeneration)> raised = [];
         fixture.Sink.CaptureResultApplied += (result, generation) => raised.Add((result, generation));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, source);
 
         Assert.Equal([(captureResult, 7L)], raised);
     }
@@ -245,7 +253,7 @@ public class LiveCaptureSinkTests
         int raisedCount = 0;
         fixture.Sink.CaptureResultApplied += (_, _) => raisedCount++;
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.Equal(1, raisedCount);
     }
@@ -257,7 +265,7 @@ public class LiveCaptureSinkTests
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, PlayContextId.NewId(), EncodeFloat(1.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
@@ -269,7 +277,7 @@ public class LiveCaptureSinkTests
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, float.NaN, 100.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(HealthArea, out _));
         Assert.False(fixture.Feed.TryGetSnapshot(MagickaArea, out _));
@@ -283,7 +291,7 @@ public class LiveCaptureSinkTests
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, new byte[10]);
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(HealthArea, out _));
     }
@@ -301,7 +309,7 @@ public class LiveCaptureSinkTests
         fixture.AdapterTracker.NeedsResynchronization = true;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
         fixture.AdapterTracker.NeedsResynchronization = false;
@@ -330,7 +338,7 @@ public class LiveCaptureSinkTests
         // resynchronization baseline (which always carries zero).
         var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.Empty(fakeCoordinator.AcquireTokenCalls);
         Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
@@ -353,8 +361,8 @@ public class LiveCaptureSinkTests
         // resynchronization baseline (which always carries zero).
         var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.Single(raised);
     }
@@ -367,7 +375,7 @@ public class LiveCaptureSinkTests
         fixture.AdapterTracker.Current = AdapterAvailability.Unavailable;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
@@ -379,7 +387,7 @@ public class LiveCaptureSinkTests
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, new byte[3]);
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
@@ -391,7 +399,7 @@ public class LiveCaptureSinkTests
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(float.NaN));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
@@ -403,7 +411,7 @@ public class LiveCaptureSinkTests
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Unavailable, fixture.Context, EncodeFloat(50.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
@@ -422,7 +430,7 @@ public class LiveCaptureSinkTests
         fixture.AdapterTracker.NeedsResynchronization = true;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(LevelArea, out _));
         fixture.AdapterTracker.NeedsResynchronization = false;
@@ -450,7 +458,7 @@ public class LiveCaptureSinkTests
         };
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
-        fixture.Sink.ApplyCaptureResult(captureResult);
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.NotNull(raised);
         Assert.Equal(50.0f, ReadValue(raised!.Data));
@@ -471,7 +479,7 @@ public class LiveCaptureSinkTests
         // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
         // resynchronization baseline (which always carries zero).
         var initialCapture = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(100.0f));
-        fixture.Sink.ApplyCaptureResult(initialCapture);
+        fixture.Sink.ApplyCaptureResult(initialCapture, fixture.Source);
         Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out _));
 
         // A continuity loss unconditionally clears the feed's own pull-read cache, per
@@ -484,7 +492,7 @@ public class LiveCaptureSinkTests
         fixture.AdapterTracker.Current = AdapterAvailability.Available;
         fixture.AdapterTracker.NeedsResynchronization = true;
         var resyncCapture = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(100.0f));
-        fixture.Sink.ApplyCaptureResult(resyncCapture);
+        fixture.Sink.ApplyCaptureResult(resyncCapture, fixture.Source);
         fixture.AdapterTracker.NeedsResynchronization = false;
 
         Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
@@ -500,7 +508,7 @@ public class LiveCaptureSinkTests
         fixture.AdapterTracker.TryClaimResynchronizationToken(); // claimed by someone else first
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
-        Exception? escaped = Record.Exception(() => fixture.Sink.ApplyCaptureResult(captureResult));
+        Exception? escaped = Record.Exception(() => fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source));
 
         Assert.Null(escaped);
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));

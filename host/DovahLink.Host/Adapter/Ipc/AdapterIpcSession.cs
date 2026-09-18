@@ -284,7 +284,11 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
                 return AdapterIpcOutcome.None;
 
             case IpcCaptureResultMessage captureResult:
-                liveCaptureSink.ApplyCaptureResult(captureResult);
+                if (instanceId is not null && lease is not null)
+                {
+                    liveCaptureSink.ApplyCaptureResult(captureResult, new AdapterCaptureSource(instanceId.Value, lease.Generation));
+                }
+
                 return AdapterIpcOutcome.None;
 
             case IpcListenEventResultMessage:
