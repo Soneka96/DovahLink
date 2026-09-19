@@ -213,7 +213,7 @@ public class DovahLinkHostRuntimeTests
     public async Task RunAsync_BeforeShutdownRequested_LiveStateSchedulerSendsSamplesOnTheAdapterConnection()
     {
         var adapterListener = new FakeAdapterIpcListener();
-        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendReadSampleResult = true };
+        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendReadSampleResult = true, ConnectionGeneration = 1 };
         adapterListener.CurrentConnection = connection;
         var tinyIntervals = new Dictionary<RateClass, TimeSpan> { [RateClass.Fast] = TimeSpan.FromMilliseconds(5), [RateClass.Medium] = TimeSpan.FromMilliseconds(5) };
         // The scheduler sends only with an active play context and an available, synchronized

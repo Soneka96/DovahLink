@@ -100,6 +100,24 @@ public interface IAdapterAvailabilityTracker
     void RearmResynchronizationForPlayContextTransition();
 
     /// <summary>
+    /// Runs one bounded ordinary-sample queue admission while the tracker still proves that the
+    /// Adapter is available, resynchronized, and on <paramref name="connectionGeneration"/>.
+    /// The admission linearizes under the same lock as connection commits and resynchronization
+    /// re-arms, so one of them must happen first.
+    /// </summary>
+    /// <param name="connectionGeneration">The generation the sample would be sent on.</param>
+    /// <param name="tryAdmission">
+    /// A synchronous, bounded, non-blocking queue admission. It runs while this tracker is locked
+    /// and must not call back into this tracker or perform waits or network I/O.
+    /// </param>
+    /// <returns>
+    /// <see langword="true"/> only when the state allowed ordinary sampling and the queue admitted
+    /// the sample; otherwise <see langword="false"/>.
+    /// </returns>
+    /// <exception cref="Exception">Propagated if <paramref name="tryAdmission"/> throws.</exception>
+    bool TryExecuteWhileOrdinarySamplingAllowed(long connectionGeneration, Func<bool> tryAdmission);
+
+    /// <summary>
     /// Reads all availability, identity, and generation fields together as one
     /// internally consistent snapshot. Use this instead of reading separate properties when a
     /// decision needs a coherent combined view.
@@ -295,6 +313,25 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
             needsResynchronization = true;
             currentResynchronizationToken = new AdapterResynchronizationToken();
             resynchronizationTokenClaimed = false;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryExecuteWhileOrdinarySamplingAllowed(long connectionGeneration, Func<bool> tryAdmission)
+    {
+        ArgumentNullException.ThrowIfNull(tryAdmission);
+
+        lock (gate)
+        {
+            if (current != AdapterAvailability.Available
+                || currentInstanceId is null
+                || needsResynchronization
+                || currentConnectionGeneration != connectionGeneration)
+            {
+                return false;
+            }
+
+            return tryAdmission();
         }
     }
 

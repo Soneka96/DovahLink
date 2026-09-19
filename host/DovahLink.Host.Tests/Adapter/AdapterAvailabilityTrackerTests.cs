@@ -63,6 +63,37 @@ public class AdapterAvailabilityTrackerTests
         Assert.False(tracker.NeedsResynchronization);
     }
 
+    /// <summary>Verifies that ordinary queue admission runs only for the current, available, resynchronized connection generation.</summary>
+    [Fact]
+    public void TryExecuteWhileOrdinarySamplingAllowed_RequiresAvailableCurrentResynchronizedGeneration()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PublishConnected(tracker, instanceId, 4);
+        Resynchronize(tracker, instanceId, 4);
+        int admissions = 0;
+
+        Assert.True(tracker.TryExecuteWhileOrdinarySamplingAllowed(4, () =>
+        {
+            admissions++;
+            return true;
+        }));
+        Assert.False(tracker.TryExecuteWhileOrdinarySamplingAllowed(3, () =>
+        {
+            admissions++;
+            return true;
+        }));
+
+        tracker.RearmResynchronizationForPlayContextTransition();
+        Assert.False(tracker.TryExecuteWhileOrdinarySamplingAllowed(4, () =>
+        {
+            admissions++;
+            return true;
+        }));
+
+        Assert.Equal(1, admissions);
+    }
+
     /// <summary>Verifies that calling NotifyResynchronized a second time with the same, already-consumed token is a harmless no-op rather than a double-clear or a thrown exception.</summary>
     [Fact]
     public void NotifyResynchronized_CalledTwiceWithSameToken_SecondCallIsNoOp()

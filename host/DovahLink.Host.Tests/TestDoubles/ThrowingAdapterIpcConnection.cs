@@ -62,6 +62,16 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <inheritdoc/>
+    public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => null;
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId)
+    {
+        correlationId = 0;
+        return false;
+    }
+
+    /// <inheritdoc/>
     public bool TrySendResynchronizeRequest() => false;
 
     /// <inheritdoc/>

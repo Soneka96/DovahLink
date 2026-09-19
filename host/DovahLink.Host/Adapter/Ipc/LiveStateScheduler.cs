@@ -42,10 +42,11 @@ public interface ILiveStateScheduler
 /// again immediately against whatever the adapter listener's current state is then. The first send
 /// for a unit happens only after its first interval elapses -- an immediate authoritative baseline is
 /// already established by the adapter's own resynchronization sequence, so this scheduler does not
-/// need to rush a first sample. A new sample is sent only with an active play context and one
-/// coherent adapter snapshot that reports the adapter available and resynchronization complete.
-/// Existing outstanding requests still follow their normal reply and timeout handling while new
-/// requests are gated.
+/// need to rush a first sample. A new sample is prepared only with an active play context and one
+/// coherent adapter snapshot that reports the adapter available and resynchronization complete;
+/// final queue admission rechecks those conditions under the tracker's transition lock. Existing
+/// outstanding requests still follow their normal reply and timeout handling while new requests are
+/// gated.
 /// </remarks>
 public sealed class LiveStateScheduler : ILiveStateScheduler
 {
@@ -214,23 +215,46 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
                 continue;
             }
 
-            // The slot is marked outstanding under the same lock hold as the send itself, so it is
-            // atomic with HandleCaptureResultApplied's own lock: sending first and marking outstanding
-            // in a separate, later lock scope left a window where an immediate reply could arrive and
-            // be processed in between, find the slot not yet outstanding, and be silently dropped --
-            // stranding the slot until its own timeout despite the reply having actually arrived.
+            // Prepare before entering the tracker's gate: connection preparation checks the active
+            // lease under the lifecycle lock, whose lock order precedes the tracker gate during
+            // connection commits. The final queue admission is then gated against re-arm and
+            // connection changes without reacquiring that lifecycle lock.
             lock (slot.Gate)
             {
                 IAdapterIpcConnection? connection = listener.CurrentConnection;
-                if (connection is null || !connection.TrySendReadSample(sampleToken, out ulong correlationId) || connection.ConnectionGeneration is not long generation)
+                if (connection is null
+                    || connection.ConnectionGeneration is not long generation
+                    || generation != adapterSnapshot.ConnectionGeneration
+                    || connection.PrepareReadSample(sampleToken) is not IpcReadSampleMessage preparedMessage)
                 {
                     continue;
                 }
 
-                slot.Outstanding = true;
-                slot.CorrelationId = correlationId;
-                slot.ConnectionGeneration = generation;
-                slot.TicksOutstanding = 0;
+                // Keep the slot lock across the final gated admission and bookkeeping, so an
+                // immediate CaptureResultApplied callback cannot run between queueing and recording
+                // the correlation. Tracker state and this queue admission share a linearization
+                // point with connection commits and play-context re-arms.
+                ulong correlationId = 0;
+                bool admitted = adapterAvailabilityTracker.TryExecuteWhileOrdinarySamplingAllowed(
+                    generation,
+                    () =>
+                    {
+                        if (!connection.TrySendPreparedReadSample(preparedMessage, generation, out correlationId))
+                        {
+                            return false;
+                        }
+
+                        slot.Outstanding = true;
+                        slot.CorrelationId = correlationId;
+                        slot.ConnectionGeneration = generation;
+                        slot.TicksOutstanding = 0;
+                        return true;
+                    });
+                if (!admitted)
+                {
+                    continue;
+                }
+
             }
         }
     }

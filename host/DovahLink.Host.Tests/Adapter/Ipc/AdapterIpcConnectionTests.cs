@@ -533,6 +533,32 @@ public class AdapterIpcConnectionTests
         Assert.Equal(42u, readSample.SampleToken);
     }
 
+    /// <summary>Verifies that a prepared sample is admitted and retains its prepared correlation on the expected connection generation.</summary>
+    [Fact]
+    public void TrySendPreparedReadSample_MatchingGeneration_QueuesAndReportsCorrelation()
+    {
+        var session = new FakeAdapterIpcSession { ConnectionGeneration = 4 };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), session, new SystemClock());
+
+        bool enqueued = connection.TrySendPreparedReadSample(new IpcReadSampleMessage(9, 42), 4, out ulong correlationId);
+
+        Assert.True(enqueued);
+        Assert.Equal(9UL, correlationId);
+    }
+
+    /// <summary>Verifies that a prepared sample cannot be admitted by a connection from another generation.</summary>
+    [Fact]
+    public void TrySendPreparedReadSample_MismatchedGeneration_ReturnsFalseWithoutCorrelation()
+    {
+        var session = new FakeAdapterIpcSession { ConnectionGeneration = 5 };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), session, new SystemClock());
+
+        bool enqueued = connection.TrySendPreparedReadSample(new IpcReadSampleMessage(9, 42), 4, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+    }
+
     /// <summary>
     /// Verifies that a fresh resynchronize request requested after handshake
     /// is written to the peer once the connection has committed.

@@ -124,6 +124,17 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
+    public bool TryExecuteWhileOrdinarySamplingAllowed(long connectionGeneration, Func<bool> tryAdmission)
+    {
+        ArgumentNullException.ThrowIfNull(tryAdmission);
+        return Current == AdapterAvailability.Available
+            && CurrentInstanceId is not null
+            && !NeedsResynchronization
+            && CurrentConnectionGeneration == connectionGeneration
+            && tryAdmission();
+    }
+
+    /// <inheritdoc/>
     public IAdapterResynchronizationToken? TryClaimResynchronizationToken()
     {
         if (Current != AdapterAvailability.Available || !NeedsResynchronization || resynchronizationTokenClaimed)

@@ -43,6 +43,26 @@ public interface IAdapterIpcConnection
     bool TrySendReadSample(uint sampleToken, out ulong correlationId);
 
     /// <summary>
+    /// Prepares a host-directed sample-read intent without enqueueing it. The returned message can
+    /// then be admitted under the availability tracker's ordinary-sampling gate without reacquiring
+    /// the connection lifecycle lock.
+    /// </summary>
+    /// <param name="sampleToken">The host-owned sample token.</param>
+    /// <returns>The prepared intent, or <see langword="null"/> when this connection cannot prepare it.</returns>
+    IpcReadSampleMessage? PrepareReadSample(uint sampleToken);
+
+    /// <summary>
+    /// Attempts to enqueue a sample intent prepared by this connection, provided this connection's
+    /// generation still matches the expected generation. This method performs only a bounded
+    /// outbound queue admission and does not acquire the connection lifecycle lock.
+    /// </summary>
+    /// <param name="message">The intent previously prepared by this connection.</param>
+    /// <param name="expectedConnectionGeneration">The generation verified by the caller's availability gate.</param>
+    /// <param name="correlationId">The intent's correlation id when enqueued; otherwise zero.</param>
+    /// <returns><see langword="true"/> when the intent was accepted onto the outbound queue.</returns>
+    bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId);
+
+    /// <summary>
     /// Attempts to enqueue a fresh resynchronize request on this already-authenticated connection
     /// for a play-context transition that needs a new baseline without the connection itself having
     /// dropped. A no-op, returning
@@ -275,8 +295,31 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <inheritdoc/>
     public bool TrySendReadSample(uint sampleToken, out ulong correlationId)
     {
-        IpcReadSampleMessage? message = session.PrepareReadSample(sampleToken);
+        IpcReadSampleMessage? message = PrepareReadSample(sampleToken);
         if (message is null)
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        byte[] frame = codec.Encode(message);
+        if (!outbound.Writer.TryWrite(frame))
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        correlationId = message.CorrelationId;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => session.PrepareReadSample(sampleToken);
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId)
+    {
+        if (session.ConnectionGeneration != expectedConnectionGeneration)
         {
             correlationId = 0;
             return false;

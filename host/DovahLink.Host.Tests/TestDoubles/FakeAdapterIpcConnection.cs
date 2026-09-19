@@ -62,12 +62,13 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
     /// <summary>The correlation id <see cref="TrySendReadSample"/> reports when <see cref="TrySendReadSampleResult"/> is <see langword="true"/>.</summary>
     public ulong TrySendReadSampleCorrelationId { get; set; }
 
-    /// <summary>The sample tokens passed to <see cref="TrySendReadSample"/>, in call order.</summary>
+    /// <summary>The sample tokens whose direct or prepared send method was called, in call order.</summary>
     public List<uint> ReadSampleCalls { get; } = [];
 
     /// <summary>
-    /// Invoked synchronously by every <see cref="TrySendReadSample"/> call, once this call's own
-    /// sample token is already recorded in <see cref="ReadSampleCalls"/> but before it resolves --
+    /// Invoked synchronously by every <see cref="TrySendReadSample"/> or
+    /// <see cref="TrySendPreparedReadSample"/> call, once this call's own sample token is already
+    /// recorded in <see cref="ReadSampleCalls"/> but before it resolves --
     /// lets a test inject work (for example applying the matching capture result immediately, before
     /// the caller has had a chance to record its own request as outstanding) to exercise a race the
     /// caller's own locking is meant to close. Mirrors
@@ -82,6 +83,31 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         OnTrySendReadSample?.Invoke();
         correlationId = TrySendReadSampleResult ? TrySendReadSampleCorrelationId : 0;
         return TrySendReadSampleResult;
+    }
+
+    /// <summary>Invoked when a scheduler prepares a sample request, before its final availability check.</summary>
+    public Action<uint>? OnPrepareReadSample { get; set; }
+
+    /// <inheritdoc/>
+    public IpcReadSampleMessage? PrepareReadSample(uint sampleToken)
+    {
+        OnPrepareReadSample?.Invoke(sampleToken);
+        return ConnectionGeneration is null ? null : new IpcReadSampleMessage(TrySendReadSampleCorrelationId, sampleToken);
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId)
+    {
+        ReadSampleCalls.Add(message.SampleToken);
+        OnTrySendReadSample?.Invoke();
+        if (ConnectionGeneration != expectedConnectionGeneration || !TrySendReadSampleResult)
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        correlationId = message.CorrelationId;
+        return true;
     }
 
     /// <summary>The result <see cref="TrySendResynchronizeRequest"/> returns.</summary>
