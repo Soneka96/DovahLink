@@ -20,8 +20,9 @@ public static class AdapterIpcServiceExtensions
     /// <see cref="TrustServiceExtensions.AddTrustServices"/> to already be registered on
     /// <paramref name="services"/>. <see cref="LiveCaptureSink"/>, <see cref="LiveStateScheduler"/>,
     /// and the singleton <see cref="ResynchronizationPlan"/> also resolve <see cref="LiveStateCatalog"/>.
-    /// The plan is shared by every connection-owned session. <see cref="LiveStateApplication"/> further
-    /// resolves <see cref="IStatePublicationSink"/>, so
+    /// The plan is shared by every connection-owned session. The explicitly registered
+    /// <see cref="CharacterCaptureHandler"/> resolves the typed publishers and
+    /// <see cref="LiveStateApplication"/>, which resolves <see cref="IStatePublicationSink"/>, so
     /// <see cref="PublicClientServiceExtensions.AddPublicClientServices"/> must be registered too
     /// before the composed provider is built -- registration order across these methods does not
     /// otherwise matter, since every dependency here resolves lazily at first use.
@@ -49,6 +50,8 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
         services.AddSingleton<IResynchronizationTransactionCoordinator, ResynchronizationTransactionCoordinator>();
         services.AddSingleton<ILiveStateApplication, LiveStateApplication>();
+        services.AddSingleton<CharacterCaptureHandler>();
+        services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<CharacterCaptureHandler>());
         services.AddSingleton<ILiveCaptureSink, LiveCaptureSink>();
         services.AddSingleton<LiveStateScheduler>();
         services.AddSingleton<ILiveStateScheduler>(sp => sp.GetRequiredService<LiveStateScheduler>());

@@ -20,6 +20,7 @@ public class LiveCaptureSinkTests
 
     /// <summary>The sink and observable state collaborators used by capture-result tests.</summary>
     /// <param name="Sink">The capture sink under test.</param>
+    /// <param name="Catalog">The catalog used to recognize capture results.</param>
     /// <param name="Feed">The publication feed that exposes applied values.</param>
     /// <param name="FloatPublisher">The publisher used to inspect float-area revisions.</param>
     /// <param name="AdapterTracker">The controllable adapter authority source.</param>
@@ -31,6 +32,7 @@ public class LiveCaptureSinkTests
     /// <param name="Clock">The clock used for publication timestamps.</param>
     private sealed record Fixture(
         LiveCaptureSink Sink,
+        LiveStateCatalog Catalog,
         StatePublicationFeed Feed,
         IStatePublisher<float?> FloatPublisher,
         FakeAdapterAvailabilityTracker AdapterTracker,
@@ -63,6 +65,30 @@ public class LiveCaptureSinkTests
                 capturedPlayContextId, capturedPlayContextGeneration, occurredAt));
     }
 
+    /// <summary>Records validated contexts routed by the sink.</summary>
+    private sealed class RecordingLiveCaptureHandler : ILiveCaptureHandler
+    {
+        /// <summary>The sole source and key identity owned by this test handler.</summary>
+        private readonly IReadOnlyCollection<(CaptureSourceKind Source, uint CaptureKey)> supportedCaptures;
+
+        /// <summary>Every validated capture context delivered to this handler.</summary>
+        public List<LiveCaptureContext> Contexts { get; } = [];
+
+        /// <summary>Creates a handler that claims one capture identity.</summary>
+        /// <param name="source">The capture source namespace to claim.</param>
+        /// <param name="captureKey">The capture key to claim.</param>
+        public RecordingLiveCaptureHandler(CaptureSourceKind source, uint captureKey)
+        {
+            supportedCaptures = [(source, captureKey)];
+        }
+
+        /// <inheritdoc/>
+        public IReadOnlyCollection<(CaptureSourceKind Source, uint CaptureKey)> SupportedCaptures => supportedCaptures;
+
+        /// <inheritdoc/>
+        public void Handle(LiveCaptureContext context) => Contexts.Add(context);
+    }
+
     /// <summary>
     /// Builds a sink wired exactly like production composition, but with controllable adapter/play-context
     /// trackers and a real StatePublisher/StatePublicationFeed pair so applied values are actually
@@ -75,17 +101,24 @@ public class LiveCaptureSinkTests
     /// this sink ever claimed a token or recorded an area accepted, rather than only the resulting
     /// state.
     /// </param>
+    /// <param name="applicationOverride">The application service to pass through the Character handler, or <see langword="null"/> for the real implementation.</param>
+    /// <param name="clockOverride">The clock to use for accepted dispatch timestamps, or <see langword="null"/> for a new fake clock.</param>
+    /// <param name="catalogOverride">The capture catalog to recognize, or <see langword="null"/> for the production catalog.</param>
+    /// <param name="handlerOverrides">The explicit capture handlers to register, or <see langword="null"/> for the production Character handler.</param>
     private static Fixture CreateReady(
         IResynchronizationTransactionCoordinator? coordinatorOverride = null,
         ILiveStateApplication? applicationOverride = null,
-        FakeClock? clockOverride = null)
+        FakeClock? clockOverride = null,
+        LiveStateCatalog? catalogOverride = null,
+        IReadOnlyCollection<ILiveCaptureHandler>? handlerOverrides = null)
     {
+        LiveStateCatalog catalog = catalogOverride ?? LiveStateCatalog.Default;
         var playContextTracker = new FakePlayContextTracker();
         PlayContextId context = PlayContextId.NewId();
         playContextTracker.NotifyTransition(context);
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var registeredAreas = new RegisteredStateAreaPolicy();
-        foreach (StateAreaDefinition area in LiveStateCatalog.Default.StateAreas)
+        foreach (StateAreaDefinition area in catalog.StateAreas)
         {
             registeredAreas.TryRegister(area.Id);
         }
@@ -94,15 +127,42 @@ public class LiveCaptureSinkTests
         var revisionTracker = new RevisionTracker();
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
-        IResynchronizationTransactionCoordinator coordinator = coordinatorOverride ?? new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, adapterTracker);
+        IResynchronizationTransactionCoordinator coordinator = coordinatorOverride ?? new ResynchronizationTransactionCoordinator(catalog, adapterTracker);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
         FakeClock clock = clockOverride ?? new FakeClock();
         ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, feed);
-        var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, application, adapterTracker, playContextTracker, clock);
+        IReadOnlyCollection<ILiveCaptureHandler> handlers = handlerOverrides
+            ?? new ILiveCaptureHandler[] { new CharacterCaptureHandler(floatPublisher, levelPublisher, application) };
+        var sink = new LiveCaptureSink(catalog, handlers, adapterTracker, playContextTracker, clock);
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
-        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
+        return new Fixture(sink, catalog, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
     }
 
+    /// <summary>Builds a one-unit catalog for generic handler-routing tests.</summary>
+    /// <param name="source">The source namespace recognized by the catalog.</param>
+    /// <param name="captureKey">The capture key recognized by the catalog.</param>
+    /// <param name="areaId">The state area declared for the capture unit.</param>
+    /// <param name="mode">The canonical publication mode of the area.</param>
+    /// <returns>A catalog containing only the requested capture and state area.</returns>
+    private static LiveStateCatalog BuildSingleCaptureCatalog(
+        CaptureSourceKind source,
+        uint captureKey,
+        StateAreaId areaId,
+        UpdateMode mode)
+    {
+        SynchronizationRole role = source == CaptureSourceKind.Sample
+            ? SynchronizationRole.BaselineSample
+            : SynchronizationRole.PersistentEvent;
+        return new LiveStateCatalog(
+            [new CaptureUnitDefinition(source, captureKey, RateClass: null, SynchronizationRole: role, StateAreas: [areaId])],
+            [new StateAreaDefinition(areaId, mode)]);
+    }
+
+    /// <summary>Encodes a Vitals sample in health, magicka, and stamina order.</summary>
+    /// <param name="health">The health value to encode.</param>
+    /// <param name="magicka">The magicka value to encode.</param>
+    /// <param name="stamina">The stamina value to encode.</param>
+    /// <returns>The 12-byte little-endian Vitals payload.</returns>
     private static byte[] EncodeVitals(float health, float magicka, float stamina)
     {
         var bytes = new byte[12];
@@ -112,6 +172,9 @@ public class LiveCaptureSinkTests
         return bytes;
     }
 
+    /// <summary>Encodes one little-endian float.</summary>
+    /// <param name="value">The value to encode.</param>
+    /// <returns>The four-byte payload.</returns>
     private static byte[] EncodeFloat(float value)
     {
         var bytes = new byte[4];
@@ -119,6 +182,9 @@ public class LiveCaptureSinkTests
         return bytes;
     }
 
+    /// <summary>Encodes one little-endian unsigned 16-bit integer.</summary>
+    /// <param name="value">The value to encode.</param>
+    /// <returns>The two-byte payload.</returns>
     private static byte[] EncodeUInt16(ushort value)
     {
         var bytes = new byte[2];
@@ -126,6 +192,9 @@ public class LiveCaptureSinkTests
         return bytes;
     }
 
+    /// <summary>Reads the nullable float <c>value</c> from a state publication.</summary>
+    /// <param name="data">The publication payload.</param>
+    /// <returns>The decoded float value, or <see langword="null"/>.</returns>
     private static float? ReadValue(JsonElement data) =>
         data.GetProperty("value").ValueKind == JsonValueKind.Null ? null : data.GetProperty("value").GetSingle();
 
@@ -518,12 +587,81 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_UnknownCaptureKey_DoesNothing()
     {
-        Fixture fixture = CreateReady();
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
+        Fixture fixture = CreateReady(handlerOverrides: [handler]);
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, CaptureKey: 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
+        Assert.Empty(handler.Contexts);
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+    }
+
+    /// <summary>Verifies that a catalog-recognized capture without a handler fails closed without state or publication effects.</summary>
+    [Fact]
+    public void ApplyCaptureResult_RecognizedCaptureWithoutHandler_DropsWithoutMutationOrPublication()
+    {
+        LiveStateCatalog catalog = BuildSingleCaptureCatalog(CaptureSourceKind.Sample, 999, XpArea, UpdateMode.Snapshot);
+        var application = new RecordingLiveStateApplication();
+        Fixture fixture = CreateReady(
+            applicationOverride: application,
+            catalogOverride: catalog,
+            handlerOverrides: []);
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 999, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12));
+        int snapshotCount = 0;
+        int eventCount = 0;
+        fixture.Feed.SnapshotChanged += _ => snapshotCount++;
+        fixture.Feed.EventOccurred += _ => eventCount++;
+
+        Exception? exception = Record.Exception(() => fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source));
+
+        Assert.Null(exception);
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Empty(application.ApplyCalls);
+        Assert.Equal(0, snapshotCount);
+        Assert.Equal(0, eventCount);
+    }
+
+    /// <summary>Verifies that a capture identity owned by a registered handler is routed with its exact validated context.</summary>
+    [Fact]
+    public void ApplyCaptureResult_FutureCaptureHandler_ReceivesExactCaptureUnitAndContext()
+    {
+        LiveStateCatalog catalog = BuildSingleCaptureCatalog(CaptureSourceKind.Sample, 999, XpArea, UpdateMode.Snapshot);
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
+        Fixture fixture = CreateReady(catalogOverride: catalog, handlerOverrides: [handler]);
+        CaptureUnitDefinition unit = fixture.Catalog.CaptureUnits[0];
+        var captureResult = new IpcCaptureResultMessage(7, CaptureSourceKind.Sample, 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(17.0f));
+
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
+
+        LiveCaptureContext context = Assert.Single(handler.Contexts);
+        Assert.Same(captureResult, context.CaptureResult);
+        Assert.Equal(fixture.Source, context.Source);
+        Assert.Same(unit, context.CaptureUnit);
+        Assert.Equal(fixture.AdapterTracker.GetSnapshot(), context.AdapterSnapshot);
+        Assert.Equal(fixture.Context, context.PlayContextId);
+        Assert.Equal(fixture.PlayContextTracker.TransitionGeneration, context.PlayContextGeneration);
+        Assert.Equal(fixture.Clock.UtcNow, context.OccurredAt);
+    }
+
+    /// <summary>Verifies that duplicate handler ownership fails at sink construction.</summary>
+    [Fact]
+    public void LiveCaptureSink_DuplicateHandlerIdentity_ThrowsClearCompositionFailure()
+    {
+        Fixture fixture = CreateReady();
+        var first = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
+        var second = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new LiveCaptureSink(
+            fixture.Catalog,
+            [first, second],
+            fixture.AdapterTracker,
+            fixture.PlayContextTracker,
+            fixture.Clock));
+
+        Assert.Contains("Sample", exception.Message);
+        Assert.Contains("999", exception.Message);
     }
 
     /// <summary>
@@ -567,7 +705,8 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_OldConnectionGeneration_DropsWithoutMutation()
     {
         var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
-        Fixture fixture = CreateReady(fakeCoordinator);
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
+        Fixture fixture = CreateReady(coordinatorOverride: fakeCoordinator, handlerOverrides: [handler]);
         fixture.AdapterTracker.CurrentConnectionGeneration = 2;
         AdapterCaptureSource staleSource = new(fixture.Source.InstanceId, 1);
         var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
@@ -582,6 +721,7 @@ public class LiveCaptureSinkTests
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
         Assert.Equal(0, snapshotPublicationCount);
         Assert.Equal(0, eventPublicationCount);
+        Assert.Empty(handler.Contexts);
         Assert.Empty(fakeCoordinator.AcquireTokenCalls);
         Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
     }
@@ -590,7 +730,8 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_OldAdapterInstance_DropsWithoutMutation()
     {
-        Fixture fixture = CreateReady();
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
+        Fixture fixture = CreateReady(handlerOverrides: [handler]);
         AdapterCaptureSource staleSource = new(AdapterInstanceId.NewId(), fixture.Source.ConnectionGeneration);
         var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
         int snapshotPublicationCount = 0;
@@ -601,6 +742,7 @@ public class LiveCaptureSinkTests
         Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
         Assert.Equal(0, snapshotPublicationCount);
+        Assert.Empty(handler.Contexts);
     }
 
     /// <summary>Verifies that a delayed generation-one result is dropped after the same adapter reconnects as generation two.</summary>
@@ -660,11 +802,13 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_StalePlayContext_DoesNothing()
     {
-        Fixture fixture = CreateReady();
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
+        Fixture fixture = CreateReady(handlerOverrides: [handler]);
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, PlayContextId.NewId(), EncodeFloat(1.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
+        Assert.Empty(handler.Contexts);
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
 
@@ -769,12 +913,14 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_AdapterUnavailable_DoesNothing()
     {
-        Fixture fixture = CreateReady();
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
+        Fixture fixture = CreateReady(handlerOverrides: [handler]);
         fixture.AdapterTracker.Current = AdapterAvailability.Unavailable;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
+        Assert.Empty(handler.Contexts);
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
 

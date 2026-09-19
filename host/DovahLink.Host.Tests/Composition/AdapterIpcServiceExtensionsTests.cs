@@ -48,6 +48,9 @@ public class AdapterIpcServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IAdapterIpcListener>());
         Assert.NotNull(provider.GetRequiredService<IPairingAdapterNotifier>());
         Assert.IsType<LiveStateApplication>(provider.GetRequiredService<ILiveStateApplication>());
+        ILiveCaptureHandler captureHandler = Assert.Single(provider.GetServices<ILiveCaptureHandler>());
+        Assert.IsType<CharacterCaptureHandler>(captureHandler);
+        Assert.Same(captureHandler, provider.GetRequiredService<CharacterCaptureHandler>());
         Assert.NotNull(provider.GetRequiredService<ILiveCaptureSink>());
         Assert.NotNull(provider.GetRequiredService<LiveStateScheduler>());
     }
