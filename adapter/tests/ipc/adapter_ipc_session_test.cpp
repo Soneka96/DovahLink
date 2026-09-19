@@ -28,8 +28,6 @@
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::CaptureAvailability;
 using dovahlink::adapter::capture::CaptureSourceKind;
-using dovahlink::adapter::capture::CharacterEventKey;
-using dovahlink::adapter::capture::CharacterSampleToken;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::SampleCaptureResult;
@@ -117,8 +115,10 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
         throwingEventKeys_.insert(eventKey);
     }
 
+    ///  @copydoc IAdapterNativeCaptureRouter::CaptureSample
     SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override {
         dispatchedKeys_.push_back(sampleToken);
+        calls_.emplace_back(CaptureSourceKind::kSample, sampleToken);
         if (throwingSampleTokens_.contains(sampleToken)) {
             throw std::runtime_error("CaptureSample failed");
         }
@@ -136,8 +136,10 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
             .payload = dovahlink::adapter::capture::MakeCapturedPayload(it->second)};
     }
 
+    ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
     bool RegisterEvent(std::uint32_t eventKey) override {
         dispatchedKeys_.push_back(eventKey);
+        calls_.emplace_back(CaptureSourceKind::kEvent, eventKey);
         if (throwingEventKeys_.contains(eventKey)) {
             throw std::runtime_error("RegisterEvent failed");
         }
@@ -149,6 +151,11 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
         return dispatchedKeys_;
     }
 
+    ///  The router operations and intent keys, in exact call order.
+    const std::vector<std::pair<CaptureSourceKind, std::uint32_t>>& Calls() const {
+        return calls_;
+    }
+
   private:
     std::unordered_map<std::uint32_t, std::vector<std::byte>> sampleResults_;
     std::unordered_set<std::uint32_t> unsupportedSampleTokens_;
@@ -156,6 +163,8 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
     std::unordered_map<std::uint32_t, bool> eventResults_;
     std::unordered_set<std::uint32_t> throwingEventKeys_;
     std::vector<std::uint32_t> dispatchedKeys_;
+    ///  The operation kind and intent key, recorded in call order.
+    std::vector<std::pair<CaptureSourceKind, std::uint32_t>> calls_;
 };
 
 ///  A capture router that holds a game-thread callback until the test
@@ -825,28 +834,26 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected marks the host "
     CHECK_FALSE(fixture.session.IsHostAvailable());
 }
 
-TEST_CASE("AdapterIpcSession handles a resynchronize request by registering "
-          "the level-changed event, enqueueing level/vitals/XP baseline "
-          "samples, and reporting the resync accepted") {
+TEST_CASE("AdapterIpcSession executes requested events before requested samples",
+          "[ipc][adapter_ipc_session]") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    std::uint32_t levelChangedKey =
-        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged);
-    std::uint32_t levelBaselineToken =
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline);
-    std::uint32_t vitalsToken =
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals);
-    std::uint32_t xpToken = static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp);
-    fixture.dispatcher.SetEventRegistered(levelChangedKey, true);
-    fixture.dispatcher.SetSampleResult(levelBaselineToken, {std::byte{9}});
-    fixture.dispatcher.SetSampleResult(
-        vitalsToken, {std::byte{1}, std::byte{2}, std::byte{3}});
-    fixture.dispatcher.SetSampleResult(xpToken, {std::byte{7}});
+    constexpr std::uint32_t firstEventKey = 1001;
+    constexpr std::uint32_t secondEventKey = 1002;
+    constexpr std::uint32_t firstSampleToken = 2001;
+    constexpr std::uint32_t secondSampleToken = 2002;
+    fixture.dispatcher.SetEventRegistered(firstEventKey, true);
+    fixture.dispatcher.SetEventRegistered(secondEventKey, true);
+    fixture.dispatcher.SetSampleResult(firstSampleToken, {std::byte{9}});
+    fixture.dispatcher.SetSampleResult(secondSampleToken, {std::byte{7}});
 
     CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
-              .correlationId = 42}}) == AdapterIpcMessageDisposition::kContinue);
+              .correlationId = 42,
+              .persistentEventKeys = {firstEventKey, secondEventKey},
+              .baselineSampleTokens = {firstSampleToken, secondSampleToken}}}) ==
+          AdapterIpcMessageDisposition::kContinue);
 
     //  Not sent synchronously: it must go through the game-thread marshaller.
     CHECK(connection.Sent().empty());
@@ -854,25 +861,25 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by registering "
 
     fixture.marshaller.RunAllPending();
 
-    //  Registration reaches the router before any baseline sample -- in this
-    //  same game-thread task -- so a level-up cannot land in the gap between
-    //  them.
-    REQUIRE(fixture.dispatcher.DispatchedKeys().size() == 4);
-    CHECK(fixture.dispatcher.DispatchedKeys()[0] == levelChangedKey);
-    CHECK(fixture.dispatcher.DispatchedKeys()[1] == levelBaselineToken);
-    CHECK(fixture.dispatcher.DispatchedKeys()[2] == vitalsToken);
-    CHECK(fixture.dispatcher.DispatchedKeys()[3] == xpToken);
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kEvent, firstEventKey},
+               {CaptureSourceKind::kEvent, secondEventKey},
+               {CaptureSourceKind::kSample, firstSampleToken},
+               {CaptureSourceKind::kSample, secondSampleToken}}));
 
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
-    CHECK(fixture.captureQueue.Enqueued()[0].intentKey == levelBaselineToken);
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
+    CHECK(fixture.captureQueue.Enqueued()[0].intentKey == firstSampleToken);
     CHECK(fixture.captureQueue.Enqueued()[0].capturedValue ==
           dovahlink::adapter::capture::MakeCapturedPayload(std::array{std::byte{9}}));
     CHECK(fixture.captureQueue.Enqueued()[0].availability ==
           CaptureAvailability::kAvailable);
     CHECK(fixture.captureQueue.Enqueued()[0].source == CaptureSourceKind::kSample);
-    CHECK(fixture.captureQueue.Enqueued()[0].correlationId == 0);
-    CHECK(fixture.captureQueue.Enqueued()[1].intentKey == vitalsToken);
-    CHECK(fixture.captureQueue.Enqueued()[2].intentKey == xpToken);
+    CHECK(fixture.captureQueue.Enqueued()[1].intentKey == secondSampleToken);
+    for (const auto& item : fixture.captureQueue.Enqueued()) {
+        CHECK(item.correlationId == 0);
+        CHECK(item.source == CaptureSourceKind::kSample);
+    }
 
     REQUIRE(connection.Sent().size() == 1);
     auto* result =
@@ -881,6 +888,90 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by registering "
     CHECK(result->correlationId == 42);
     CHECK(result->accepted);
     CHECK(connection.ReconnectRequests() == 0);
+}
+
+TEST_CASE("AdapterIpcSession accepts an empty no-op resynchronization plan") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+              .correlationId = 42}}) == AdapterIpcMessageDisposition::kContinue);
+    fixture.marshaller.RunAllPending();
+
+    CHECK(fixture.dispatcher.Calls().empty());
+    CHECK(fixture.captureQueue.Enqueued().empty());
+    REQUIRE(connection.Sent().size() == 1);
+    const auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession owns the plan until its marshaled callback runs",
+          "[ipc][adapter_ipc_session]") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    constexpr std::uint32_t eventKey = 1001;
+    constexpr std::uint32_t sampleToken = 2001;
+    fixture.dispatcher.SetEventRegistered(eventKey, true);
+    fixture.dispatcher.SetSampleResult(sampleToken, {std::byte{9}});
+    IpcMessage message{IpcResynchronizeRequestMessage{
+        .correlationId = 42,
+        .persistentEventKeys = {eventKey},
+        .baselineSampleTokens = {sampleToken}}};
+
+    CHECK(fixture.session.HandleMessage(message) ==
+          AdapterIpcMessageDisposition::kContinue);
+    auto& source = std::get<IpcResynchronizeRequestMessage>(message);
+    source.persistentEventKeys.front() = eventKey + 1;
+    source.baselineSampleTokens.front() = sampleToken + 1;
+    fixture.marshaller.RunAllPending();
+
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kEvent, eventKey},
+               {CaptureSourceKind::kSample, sampleToken}}));
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().intentKey == sampleToken);
+    REQUIRE(connection.Sent().size() == 1);
+    const auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession tolerates bounded duplicate plan entries") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    constexpr std::uint32_t eventKey = 1001;
+    constexpr std::uint32_t sampleToken = 2001;
+    fixture.dispatcher.SetEventRegistered(eventKey, true);
+    fixture.dispatcher.SetSampleResult(sampleToken, {std::byte{9}});
+
+    fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+        .correlationId = 42,
+        .persistentEventKeys = {eventKey, eventKey},
+        .baselineSampleTokens = {sampleToken, sampleToken}}});
+    fixture.marshaller.RunAllPending();
+
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kEvent, eventKey},
+               {CaptureSourceKind::kEvent, eventKey},
+               {CaptureSourceKind::kSample, sampleToken},
+               {CaptureSourceKind::kSample, sampleToken}}));
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
+    REQUIRE(connection.Sent().size() == 1);
+    const auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK(result->accepted);
 }
 
 TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
@@ -896,11 +987,18 @@ TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetEventRegistered(
-        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
+    constexpr std::uint32_t eventKey = 1001;
+    constexpr std::uint32_t firstSampleToken = 2001;
+    constexpr std::uint32_t secondSampleToken = 2002;
+    constexpr std::uint32_t thirdSampleToken = 2003;
+    fixture.dispatcher.SetEventRegistered(eventKey, true);
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1,
+            .persistentEventKeys = {eventKey},
+            .baselineSampleTokens =
+                {firstSampleToken, secondSampleToken, thirdSampleToken}}});
     fixture.marshaller.RunAllPending();
 
     REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
@@ -915,31 +1013,32 @@ TEST_CASE("AdapterIpcSession still reports a resynchronize request accepted, "
     CHECK(result->accepted);
 }
 
-TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted "
-          "when the level-changed event registration itself fails, even "
-          "though every baseline sample is recognized and available") {
-    //  accepted now truthfully reports admission -- registering the event and
-    //  recognizing every requested sample token -- not merely that a capture
-    //  attempt ran.
+TEST_CASE("AdapterIpcSession continues the bounded plan after an event registration fails") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetEventRegistered(
-        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), false);
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
-        {std::byte{9}});
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals),
-        {std::byte{1}, std::byte{2}, std::byte{3}});
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp), {std::byte{7}});
+    constexpr std::uint32_t firstEventKey = 1001;
+    constexpr std::uint32_t secondEventKey = 1002;
+    constexpr std::uint32_t sampleToken = 2001;
+    fixture.dispatcher.SetEventRegistered(firstEventKey, false);
+    fixture.dispatcher.SetEventRegistered(secondEventKey, true);
+    fixture.dispatcher.SetSampleResult(sampleToken, {std::byte{7}});
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1,
+            .persistentEventKeys = {firstEventKey, secondEventKey},
+            .baselineSampleTokens = {sampleToken}}});
     fixture.marshaller.RunAllPending();
 
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kEvent, firstEventKey},
+               {CaptureSourceKind::kEvent, secondEventKey},
+               {CaptureSourceKind::kSample, sampleToken}}));
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().intentKey == sampleToken);
     REQUIRE(connection.Sent().size() == 1);
     auto* result =
         std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
@@ -954,27 +1053,27 @@ TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted, "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetEventRegistered(
-        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
-    fixture.dispatcher.SetSampleUnsupported(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
-        {std::byte{9}});
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp), {std::byte{7}});
+    constexpr std::uint32_t eventKey = 1001;
+    constexpr std::uint32_t unsupportedToken = 2001;
+    constexpr std::uint32_t recognizedToken = 2002;
+    fixture.dispatcher.SetEventRegistered(eventKey, true);
+    fixture.dispatcher.SetSampleUnsupported(unsupportedToken);
+    fixture.dispatcher.SetSampleResult(recognizedToken, {std::byte{7}});
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1,
+            .persistentEventKeys = {eventKey},
+            .baselineSampleTokens = {unsupportedToken, recognizedToken}}});
     fixture.marshaller.RunAllPending();
 
-    //  Only the two recognized tokens enqueue; the unsupported one never
-    //  fabricates a capture.
-    REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
-    for (const auto& item : fixture.captureQueue.Enqueued()) {
-        CHECK(item.intentKey !=
-              static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
-    }
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kEvent, eventKey},
+               {CaptureSourceKind::kSample, unsupportedToken},
+               {CaptureSourceKind::kSample, recognizedToken}}));
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().intentKey == recognizedToken);
     REQUIRE(connection.Sent().size() == 1);
     auto* result =
         std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
@@ -994,31 +1093,36 @@ TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetEventRegistered(
-        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
-        {std::byte{9}});
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals),
-        {std::byte{1}, std::byte{2}, std::byte{3}});
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterXp), {std::byte{7}});
-    fixture.captureQueue.SetRejectIntentKey(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
+    constexpr std::uint32_t eventKey = 1001;
+    constexpr std::uint32_t firstSampleToken = 2001;
+    constexpr std::uint32_t rejectedSampleToken = 2002;
+    constexpr std::uint32_t finalSampleToken = 2003;
+    fixture.dispatcher.SetEventRegistered(eventKey, true);
+    fixture.dispatcher.SetSampleResult(firstSampleToken, {std::byte{1}});
+    fixture.dispatcher.SetSampleResult(rejectedSampleToken, {std::byte{2}});
+    fixture.dispatcher.SetSampleResult(finalSampleToken, {std::byte{3}});
+    fixture.captureQueue.SetRejectIntentKey(rejectedSampleToken);
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1,
+            .persistentEventKeys = {eventKey},
+            .baselineSampleTokens =
+                {firstSampleToken, rejectedSampleToken, finalSampleToken}}});
     fixture.marshaller.RunAllPending();
 
     //  The rejected sample never actually lands in the queue; the other two
     //  still do, since a legitimate Skyrim-value queue rejection is a
     //  per-sample admission failure, not a reason to withhold the rest.
     REQUIRE(fixture.captureQueue.Enqueued().size() == 2);
-    for (const auto& item : fixture.captureQueue.Enqueued()) {
-        CHECK(item.intentKey !=
-              static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
-    }
+    CHECK(fixture.captureQueue.Enqueued()[0].intentKey == firstSampleToken);
+    CHECK(fixture.captureQueue.Enqueued()[1].intentKey == finalSampleToken);
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kEvent, eventKey},
+               {CaptureSourceKind::kSample, firstSampleToken},
+               {CaptureSourceKind::kSample, rejectedSampleToken},
+               {CaptureSourceKind::kSample, finalSampleToken}}));
     REQUIRE(connection.Sent().size() == 1);
     auto* result =
         std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
@@ -1026,19 +1130,44 @@ TEST_CASE("AdapterIpcSession reports a resynchronize request not accepted "
     CHECK_FALSE(result->accepted);
 }
 
-TEST_CASE("AdapterIpcSession contains an exception thrown by the router's "
-          "level-changed event registration inside a marshaled "
+TEST_CASE("AdapterIpcSession rejects a plan when the queue refuses a recognized unavailable sample") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    constexpr std::uint32_t sampleToken = 2001;
+    fixture.captureQueue.SetRejectIntentKey(sampleToken);
+
+    fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+        .correlationId = 1,
+        .baselineSampleTokens = {sampleToken}}});
+    fixture.marshaller.RunAllPending();
+
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kSample, sampleToken}}));
+    CHECK(fixture.captureQueue.Enqueued().empty());
+    REQUIRE(connection.Sent().size() == 1);
+    const auto* result =
+        std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
+    REQUIRE(result != nullptr);
+    CHECK_FALSE(result->accepted);
+}
+
+TEST_CASE("AdapterIpcSession contains an exception thrown by a router event "
+          "registration inside a marshaled "
           "resynchronize task, sending no result but resetting the "
           "connection so the Host is not left waiting forever") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetEventThrows(
-        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged));
+    constexpr std::uint32_t eventKey = 1001;
+    fixture.dispatcher.SetEventThrows(eventKey);
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1, .persistentEventKeys = {eventKey}}});
 
     //  If the exception escaped, it would propagate out of RunAllPending() --
     //  the fake marshaller's stand-in for SKSE's own game-thread task queue --
@@ -1058,21 +1187,26 @@ TEST_CASE("AdapterIpcSession contains an exception thrown mid-sequence by "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    //  Level baseline is captured first; vitals throws before it or XP ever
-    //  enqueue.
-    fixture.dispatcher.SetSampleResult(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline),
-        {std::byte{9}});
-    fixture.dispatcher.SetSampleThrows(
-        static_cast<std::uint32_t>(CharacterSampleToken::kCharacterVitals));
+    constexpr std::uint32_t firstSampleToken = 2001;
+    constexpr std::uint32_t throwingSampleToken = 2002;
+    constexpr std::uint32_t finalSampleToken = 2003;
+    fixture.dispatcher.SetSampleResult(firstSampleToken, {std::byte{9}});
+    fixture.dispatcher.SetSampleThrows(throwingSampleToken);
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1,
+            .baselineSampleTokens =
+                {firstSampleToken, throwingSampleToken, finalSampleToken}}});
     fixture.marshaller.RunAllPending();
 
     REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
     CHECK(fixture.captureQueue.Enqueued().front().intentKey ==
-          static_cast<std::uint32_t>(CharacterSampleToken::kCharacterLevelBaseline));
+          firstSampleToken);
+    CHECK((fixture.dispatcher.Calls() ==
+           std::vector<std::pair<CaptureSourceKind, std::uint32_t>>{
+               {CaptureSourceKind::kSample, firstSampleToken},
+               {CaptureSourceKind::kSample, throwingSampleToken}}));
     CHECK(connection.Sent().empty());
     CHECK(connection.ReconnectRequests() == 1);
 }
@@ -1084,13 +1218,29 @@ TEST_CASE("AdapterIpcSession resets the connection when the resynchronize "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
-    fixture.dispatcher.SetEventRegistered(
-        static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged), true);
+    constexpr std::uint32_t eventKey = 1001;
+    fixture.dispatcher.SetEventRegistered(eventKey, true);
+
+    fixture.session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1, .persistentEventKeys = {eventKey}}});
+    connection.RejectNextSend();
+    fixture.marshaller.RunAllPending();
+
+    CHECK(connection.Sent().empty());
+    CHECK(connection.ReconnectRequests() == 1);
+}
+
+TEST_CASE("AdapterIpcSession contains a thrown terminal resynchronization send and reconnects") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    connection.ThrowOnNextSend();
 
     fixture.session.HandleMessage(
         IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
-    connection.RejectNextSend();
-    fixture.marshaller.RunAllPending();
+    REQUIRE_NOTHROW(fixture.marshaller.RunAllPending());
 
     CHECK(connection.Sent().empty());
     CHECK(connection.ReconnectRequests() == 1);
@@ -1102,6 +1252,9 @@ TEST_CASE("AdapterIpcSession stamps every resynchronize baseline sample with "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
+    constexpr std::uint32_t firstSampleToken = 2001;
+    constexpr std::uint32_t secondSampleToken = 2002;
+    constexpr std::uint32_t thirdSampleToken = 2003;
     std::array<std::byte, 16> playContextId{
         std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
         std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8},
@@ -1110,10 +1263,16 @@ TEST_CASE("AdapterIpcSession stamps every resynchronize baseline sample with "
     fixture.session.SendPlayContextChanged(playContextId);
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1,
+            .baselineSampleTokens =
+                {firstSampleToken, secondSampleToken, thirdSampleToken}}});
     fixture.marshaller.RunAllPending();
 
     REQUIRE(fixture.captureQueue.Enqueued().size() == 3);
+    CHECK(fixture.captureQueue.Enqueued()[0].intentKey == firstSampleToken);
+    CHECK(fixture.captureQueue.Enqueued()[1].intentKey == secondSampleToken);
+    CHECK(fixture.captureQueue.Enqueued()[2].intentKey == thirdSampleToken);
     for (const auto& item : fixture.captureQueue.Enqueued()) {
         CHECK(item.playContextId == playContextId);
     }
@@ -1354,25 +1513,35 @@ TEST_CASE("AdapterIpcSession::HandleClosing and HandleDisconnected "
     CHECK(fixture.captureQueue.Enqueued().size() == 1);
 }
 
-TEST_CASE("AdapterIpcSession drops pending intent requests from an older "
-          "generation after reconnect") {
+TEST_CASE("AdapterIpcSession drops every pending intent, including a populated "
+          "resynchronization plan, from an older generation after reconnect") {
     SessionFixture fixture;
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
     fixture.dispatcher.SetEventRegistered(7, true);
     fixture.dispatcher.SetSampleResult(8, {std::byte{2}});
+    constexpr std::uint32_t resynchronizeEventKey = 1001;
+    constexpr std::uint32_t resynchronizeSampleToken = 2001;
+    fixture.dispatcher.SetEventRegistered(resynchronizeEventKey, true);
+    fixture.dispatcher.SetSampleResult(resynchronizeSampleToken, {std::byte{9}});
 
     fixture.session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
     fixture.session.HandleMessage(
         IpcMessage{IpcReadSampleMessage{.correlationId = 2, .sampleToken = 8}});
+    fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+        .correlationId = 3,
+        .persistentEventKeys = {resynchronizeEventKey},
+        .baselineSampleTokens = {resynchronizeSampleToken}}});
     fixture.session.HandleDisconnected();
     fixture.session.HandleConnected(fixture.target);
+    connection.Clear();
     fixture.marshaller.RunAllPending();
 
     CHECK(fixture.dispatcher.DispatchedKeys().empty());
     CHECK(fixture.captureQueue.Enqueued().empty());
+    CHECK(connection.Sent().empty());
 }
 
 TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
@@ -3384,15 +3553,24 @@ TEST_CASE("AdapterIpcSession cancels a resynchronization request received "
     FakeAdapterIpcConnection connection;
     fixture.session.AttachConnection(connection);
     Authenticate(fixture.session, connection, fixture.target);
+    constexpr std::uint32_t eventKey = 1001;
+    constexpr std::uint32_t sampleToken = 2001;
+    fixture.dispatcher.SetEventRegistered(eventKey, true);
+    fixture.dispatcher.SetSampleResult(sampleToken, {std::byte{9}});
 
     fixture.session.HandleMessage(
-        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}});
+        IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 42,
+            .persistentEventKeys = {eventKey},
+            .baselineSampleTokens = {sampleToken}}});
     REQUIRE(fixture.marshaller.PendingCount() == 1);
 
     fixture.session.HandleMessage(
         IpcMessage{IpcCancelMessage{.correlationId = 42}});
     fixture.marshaller.RunAllPending();
 
+    CHECK(fixture.dispatcher.Calls().empty());
+    CHECK(fixture.captureQueue.Enqueued().empty());
     CHECK(connection.Sent().empty());
 }
 

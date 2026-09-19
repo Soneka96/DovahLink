@@ -288,12 +288,18 @@ class AdapterIpcSession final : public IAdapterIpcSession {
         kClosed,
     };
 
-    ///  Marshals the resynchronization decision onto the game thread and replies
-    ///  that no baseline is available until an approved domain is registered.
+    ///  Marshals every requested event registration before any requested
+    ///  baseline sample, then reports whether the bounded plan was admitted.
+    ///  Duplicate entries are processed in order; Host-built plans already
+    ///  de-duplicate them.
+    ///  @param request The Host-owned event keys and sample tokens to execute.
     ///  @return `kClose` if `request.correlationId` is already admitted and
     ///  still outstanding on the current generation, after sending
     ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
-    ///  otherwise.
+    ///  otherwise. The result's `accepted` value is false if any event
+    ///  registration fails, a sample is unsupported, or the capture queue
+    ///  rejects a recognized sample. A recognized unavailable sample still
+    ///  counts as admitted when the queue accepts it.
     AdapterIpcMessageDisposition
     HandleResynchronizeRequest(const IpcResynchronizeRequestMessage& request);
 

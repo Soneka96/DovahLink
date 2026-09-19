@@ -577,10 +577,18 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     }
     auto callbackMutex = callbackMutex_;
     auto lifetimeToken = lifetimeToken_;
+    //  The game-thread callback may run after the decoded message is released.
+    //  Own copies of the codec-bounded lists for the callback's full lifetime.
+    std::vector<std::uint32_t> persistentEventKeys =
+        request.persistentEventKeys;
+    std::vector<std::uint32_t> baselineSampleTokens =
+        request.baselineSampleTokens;
     bool admitted = ScheduleGameThreadDispatch(
         [this, callbackMutex = std::move(callbackMutex),
          lifetimeToken = std::move(lifetimeToken), correlationId,
-         connectionGeneration, cancellation] {
+         connectionGeneration, cancellation,
+         persistentEventKeys = std::move(persistentEventKeys),
+         baselineSampleTokens = std::move(baselineSampleTokens)] {
             std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
             if (!lifetimeToken->load()) {
                 return;
@@ -617,13 +625,15 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                 std::array<std::byte, 16> playContextId =
                     playContextState_.CurrentPlayContext().value_or(
                         std::array<std::byte, 16>{});
-                //  Register the level-changed event before reading the level
-                //  baseline below, in this same game-thread task, so there is
-                //  no window between registration and the baseline read in
-                //  which a level-up could occur and be missed entirely.
-                bool eventRegistered = captureRouter_.RegisterEvent(
-                    static_cast<std::uint32_t>(
-                        capture::CharacterEventKey::kCharacterLevelChanged));
+                //  Register every requested persistent event before any
+                //  baseline read in this same game-thread task, so no update
+                //  can occur in a gap before its baseline sample.
+                bool accepted = true;
+                for (std::uint32_t eventKey : persistentEventKeys) {
+                    if (!captureRouter_.RegisterEvent(eventKey)) {
+                        accepted = false;
+                    }
+                }
                 //  A recognized sample is queued the same way a host-directed
                 //  ReadSample's own result is, per HandleReadSample -- through
                 //  the capture queue's worker thread, not a direct send from
@@ -632,16 +642,8 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                 //  unsupported token enqueues nothing at all -- fabricating an
                 //  "unavailable" capture for a token this router does not even
                 //  recognize would hide a protocol/version mismatch as normal
-                //  Skyrim state.
-                //  @return Whether sampleToken was both recognized AND its
-                //  baseline result was actually admitted to the bounded
-                //  capture handoff queue -- distinct from whether its
-                //  underlying Skyrim read was itself available. The queue is
-                //  deliberately bounded and non-blocking, so admission is not
-                //  guaranteed by recognition alone: a recognized sample the
-                //  queue rejects must not be reported as accepted below, or
-                //  the host would wait forever for a baseline area that was
-                //  never actually handed off.
+                //  Skyrim state. A recognized unavailable value can still be
+                //  admitted; the queue's own rejection is a plan failure.
                 auto enqueueBaselineSample = [this, &playContextId](
                                                  std::uint32_t sampleToken) {
                     dispatch::SampleCaptureResult captured =
@@ -662,22 +664,11 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                         .playContextId = playContextId,
                     });
                 };
-                bool levelBaselineAdmitted = enqueueBaselineSample(
-                    static_cast<std::uint32_t>(
-                        capture::CharacterSampleToken::kCharacterLevelBaseline));
-                bool vitalsAdmitted = enqueueBaselineSample(static_cast<std::uint32_t>(
-                    capture::CharacterSampleToken::kCharacterVitals));
-                bool xpAdmitted = enqueueBaselineSample(static_cast<std::uint32_t>(
-                    capture::CharacterSampleToken::kCharacterXp));
-                //  Truthfully reports whether every requested event
-                //  registration succeeded and every requested sample token
-                //  was both recognized and admitted to the capture handoff
-                //  queue -- not merely that a capture attempt ran. An
-                //  individual recognized-and-admitted sample's own
-                //  Skyrim-side unavailability is reported through its own
-                //  capture result, not this flag.
-                bool accepted = eventRegistered && levelBaselineAdmitted &&
-                                vitalsAdmitted && xpAdmitted;
+                for (std::uint32_t sampleToken : baselineSampleTokens) {
+                    if (!enqueueBaselineSample(sampleToken)) {
+                        accepted = false;
+                    }
+                }
                 if (connection_ != nullptr) {
                     //  A dropped terminal result would leave the Host waiting
                     //  for a resync outcome that will now never arrive:

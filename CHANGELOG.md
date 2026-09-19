@@ -40,6 +40,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   Bridge ZIP.
 - Host composition now resolves every service through dependency injection instead of manual
   object-graph assembly in `Program.cs`.
+- The Adapter executes the Host's bounded resynchronization plan for event registrations and baseline samples.
 
 ### Fixed
 
