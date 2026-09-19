@@ -761,9 +761,22 @@ public class AdapterIpcChannelIntegrationTests
         // completes resynchronization from the wire-level accept alone -- this class proves
         // handshake/connection-level wiring, not the catalog-specific baseline-transaction semantics
         // LiveCaptureSinkTests and ResynchronizationTransactionCoordinatorTests already cover.
-        var coordinator = new ResynchronizationTransactionCoordinator(new LiveStateCatalog([], []), tracker);
+        var catalog = new LiveStateCatalog([], []);
+        var coordinator = new ResynchronizationTransactionCoordinator(catalog, tracker);
+        ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler, playContextTracker, new FakeLiveCaptureSink(), coordinator), new SystemClock()));
+            new AdapterIpcConnection(
+                stream,
+                codec,
+                new AdapterIpcSession(
+                    lifecycle,
+                    verifier,
+                    trustAdminRequestHandler,
+                    playContextTracker,
+                    new FakeLiveCaptureSink(),
+                    coordinator,
+                    plan),
+                new SystemClock()));
         _ = new PlayContextResynchronizationTrigger(playContextTracker, tracker, listener);
         return (listener, tracker, verifier, trustAdminRequestHandler, playContextTracker);
     }

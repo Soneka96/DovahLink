@@ -113,4 +113,156 @@ public class LiveStateCatalogTests
             Assert.Contains(area.Id, fedAreaIds);
         }
     }
+
+    /// <summary>Verifies that the default catalog builds its event and baseline-sample plan from synchronization roles.</summary>
+    [Fact]
+    public void Default_BuildsExpectedResynchronizationPlan()
+    {
+        ResynchronizationPlan plan = LiveStateCatalog.Default.BuildResynchronizationPlan();
+
+        Assert.Equal([(uint)CharacterEventKey.CharacterLevelChanged], plan.PersistentEventKeys);
+        uint[] expectedSamples =
+        [
+            (uint)CharacterSampleToken.CharacterVitals,
+            (uint)CharacterSampleToken.CharacterXp,
+            (uint)CharacterSampleToken.CharacterLevelBaseline,
+        ];
+        Assert.Equal(expectedSamples.OrderBy(token => token), plan.BaselineSampleTokens.OrderBy(token => token));
+    }
+
+    /// <summary>Verifies that a future baseline sample joins the plan without a scheduling special case.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_IncludesFutureSampleToken()
+    {
+        var catalog = new LiveStateCatalog(
+            [new CaptureUnitDefinition(CaptureSourceKind.Sample, 999, RateClass: null, SynchronizationRole.BaselineSample, [])],
+            []);
+
+        ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
+
+        Assert.Equal([999u], plan.BaselineSampleTokens);
+        Assert.Empty(plan.PersistentEventKeys);
+    }
+
+    /// <summary>Verifies that a future persistent event joins the plan without a connection special case.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_IncludesFuturePersistentEventKey()
+    {
+        var catalog = new LiveStateCatalog(
+            [new CaptureUnitDefinition(CaptureSourceKind.Event, 998, RateClass: null, SynchronizationRole.PersistentEvent, [])],
+            []);
+
+        ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
+
+        Assert.Equal([998u], plan.PersistentEventKeys);
+        Assert.Empty(plan.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that an empty catalog intentionally produces a valid empty plan.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_EmptyCatalog_ReturnsNoOpPlan()
+    {
+        ResynchronizationPlan plan = new LiveStateCatalog([], []).BuildResynchronizationPlan();
+
+        Assert.Empty(plan.PersistentEventKeys);
+        Assert.Empty(plan.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that duplicate keys are removed in their first catalog occurrence order.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_DeduplicatesEachKeyNamespaceInFirstSeenOrder()
+    {
+        var catalog = new LiveStateCatalog(
+        [
+            new CaptureUnitDefinition(CaptureSourceKind.Event, 998, null, SynchronizationRole.PersistentEvent, []),
+            new CaptureUnitDefinition(CaptureSourceKind.Sample, 999, null, SynchronizationRole.BaselineSample, []),
+            new CaptureUnitDefinition(CaptureSourceKind.Event, 997, null, SynchronizationRole.PersistentEvent, []),
+            new CaptureUnitDefinition(CaptureSourceKind.Event, 998, null, SynchronizationRole.PersistentEvent, []),
+            new CaptureUnitDefinition(CaptureSourceKind.Sample, 1000, null, SynchronizationRole.BaselineSample, []),
+            new CaptureUnitDefinition(CaptureSourceKind.Sample, 999, null, SynchronizationRole.BaselineSample, []),
+        ], []);
+
+        ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
+
+        Assert.Equal([998u, 997u], plan.PersistentEventKeys);
+        Assert.Equal([999u, 1000u], plan.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that exact count bounds remain valid when duplicate catalog entries exceed those counts.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_AtBoundWithDuplicates_StaysBounded()
+    {
+        CaptureUnitDefinition[] eventUnits = Enumerable.Range(1, Constants.MaxResynchronizationEventKeys)
+            .Select(key => new CaptureUnitDefinition(CaptureSourceKind.Event, (uint)key, null, SynchronizationRole.PersistentEvent, []))
+            .Append(new CaptureUnitDefinition(CaptureSourceKind.Event, 1, null, SynchronizationRole.PersistentEvent, []))
+            .ToArray();
+        CaptureUnitDefinition[] sampleUnits = Enumerable.Range(1, Constants.MaxResynchronizationSampleTokens)
+            .Select(key => new CaptureUnitDefinition(CaptureSourceKind.Sample, (uint)key, null, SynchronizationRole.BaselineSample, []))
+            .Append(new CaptureUnitDefinition(CaptureSourceKind.Sample, 1, null, SynchronizationRole.BaselineSample, []))
+            .ToArray();
+
+        ResynchronizationPlan plan = new LiveStateCatalog([.. eventUnits, .. sampleUnits], []).BuildResynchronizationPlan();
+
+        Assert.Equal(Constants.MaxResynchronizationEventKeys, plan.PersistentEventKeys.Count);
+        Assert.Equal(Constants.MaxResynchronizationSampleTokens, plan.BaselineSampleTokens.Count);
+    }
+
+    /// <summary>Verifies that source and synchronization role must refer to the same key namespace.</summary>
+    /// <param name="source">The capture unit's declared key namespace.</param>
+    /// <param name="role">The capture unit's declared resynchronization role.</param>
+    [Theory]
+    [InlineData(CaptureSourceKind.Event, SynchronizationRole.BaselineSample)]
+    [InlineData(CaptureSourceKind.Sample, SynchronizationRole.PersistentEvent)]
+    public void BuildResynchronizationPlan_MismatchedSourceAndRole_Throws(
+        CaptureSourceKind source,
+        SynchronizationRole role)
+    {
+        var catalog = new LiveStateCatalog(
+            [new CaptureUnitDefinition(source, 998, null, role, [])],
+            []);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => catalog.BuildResynchronizationPlan());
+
+        Assert.Contains("synchronization role", exception.Message);
+        Assert.Contains("source", exception.Message);
+    }
+
+    /// <summary>Verifies that zero catalog keys cannot become resynchronization intents.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_ZeroCaptureKey_Throws()
+    {
+        var catalog = new LiveStateCatalog(
+            [new CaptureUnitDefinition(CaptureSourceKind.Sample, 0, null, SynchronizationRole.BaselineSample, [])],
+            []);
+
+        Assert.Throws<InvalidOperationException>(() => catalog.BuildResynchronizationPlan());
+    }
+
+    /// <summary>Verifies that an undefined synchronization role fails with a clear catalog error.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_UnsupportedRole_Throws()
+    {
+        var catalog = new LiveStateCatalog(
+            [new CaptureUnitDefinition(CaptureSourceKind.Sample, 1, null, (SynchronizationRole)byte.MaxValue, [])],
+            []);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => catalog.BuildResynchronizationPlan());
+
+        Assert.Contains("unsupported synchronization role", exception.Message);
+    }
+
+    /// <summary>Verifies that the Host plan builder fails instead of exceeding either private IPC count bound.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_OverBoundNamespace_Throws()
+    {
+        CaptureUnitDefinition[] tooManyEvents = Enumerable.Range(1, Constants.MaxResynchronizationEventKeys + 1)
+            .Select(key => new CaptureUnitDefinition(CaptureSourceKind.Event, (uint)key, null, SynchronizationRole.PersistentEvent, []))
+            .ToArray();
+        CaptureUnitDefinition[] tooManySamples = Enumerable.Range(1, Constants.MaxResynchronizationSampleTokens + 1)
+            .Select(key => new CaptureUnitDefinition(CaptureSourceKind.Sample, (uint)key, null, SynchronizationRole.BaselineSample, []))
+            .ToArray();
+
+        Assert.Throws<InvalidOperationException>(() => new LiveStateCatalog(tooManyEvents, []).BuildResynchronizationPlan());
+        Assert.Throws<InvalidOperationException>(() => new LiveStateCatalog(tooManySamples, []).BuildResynchronizationPlan());
+    }
 }

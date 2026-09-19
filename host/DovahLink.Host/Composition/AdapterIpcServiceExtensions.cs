@@ -18,9 +18,10 @@ public static class AdapterIpcServiceExtensions
     /// shared across two accepted connections. Requires
     /// <see cref="CoreServiceExtensions.AddCoreServices"/> and
     /// <see cref="TrustServiceExtensions.AddTrustServices"/> to already be registered on
-    /// <paramref name="services"/>. <see cref="LiveCaptureSink"/> and <see cref="LiveStateScheduler"/>
-    /// also resolve <see cref="LiveStateCatalog"/>, and <see cref="LiveCaptureSink"/> further resolves
-    /// <see cref="IStatePublicationSink"/>, so
+    /// <paramref name="services"/>. <see cref="LiveCaptureSink"/>, <see cref="LiveStateScheduler"/>,
+    /// and the singleton <see cref="ResynchronizationPlan"/> also resolve <see cref="LiveStateCatalog"/>.
+    /// The plan is shared by every connection-owned session. <see cref="LiveCaptureSink"/> further
+    /// resolves <see cref="IStatePublicationSink"/>, so
     /// <see cref="PublicClientServiceExtensions.AddPublicClientServices"/> must be registered too
     /// before the composed provider is built -- registration order across these methods does not
     /// otherwise matter, since every dependency here resolves lazily at first use.
@@ -38,6 +39,8 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IAdapterPeerProofVerifier, AdapterPeerProofVerifier>();
         services.AddSingleton<IIpcFrameCodec, IpcFrameCodec>();
         services.AddSingleton<IAdapterContinuityRecovery, AdapterContinuityRecovery>();
+        services.AddSingleton<ResynchronizationPlan>(sp =>
+            sp.GetRequiredService<LiveStateCatalog>().BuildResynchronizationPlan());
         services.AddSingleton<IAdapterConnectionFactory, AdapterConnectionFactory>();
         services.AddSingleton<IAdapterIpcListener, AdapterIpcListener>();
         services.AddSingleton<IPairingAdapterNotifier, AdapterPairingNotifier>();

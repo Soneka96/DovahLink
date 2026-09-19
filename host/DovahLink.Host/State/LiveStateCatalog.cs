@@ -1,12 +1,12 @@
 namespace DovahLink.Host.State;
 
 /// <summary>
-/// The host-owned declaration of every capture unit and state area Stage 4's "Real capture and host
-/// integration" slice defines, per
-/// <c>roadmap/04-live-state-synchronization-foundation.md</c>. Purely declarative data: it does not
-/// decode payload bytes, schedule captures, or apply state -- those remain the composed
-/// <c>LiveCaptureSink</c> and <c>LiveStateScheduler</c>'s own jobs, so this catalog stays a plain
-/// lookup rather than a service locator.
+/// The Host-owned declaration of capture units and state areas. It can derive bounded
+/// resynchronization plans through <see cref="BuildResynchronizationPlan"/>, but does not decode
+/// payload bytes, schedule captures, or apply state; those remain the composed
+/// <see cref="DovahLink.Host.Adapter.Ipc.LiveCaptureSink"/> and
+/// <see cref="DovahLink.Host.Adapter.Ipc.LiveStateScheduler"/>'s jobs. The catalog remains
+/// declarative data rather than a service locator.
 /// </summary>
 public sealed class LiveStateCatalog
 {
@@ -71,6 +71,95 @@ public sealed class LiveStateCatalog
             new StateAreaDefinition(new StateAreaId(Constants.CharacterXpStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterLevelStateArea), UpdateMode.Event),
         ]);
+
+    /// <summary>
+    /// Builds the bounded event and sample intents from synchronization roles, preserving catalog
+    /// order for the first occurrence of each key and de-duplicating later occurrences.
+    /// </summary>
+    /// <returns>The plan derived from this catalog's capture units.</returns>
+    /// <exception cref="InvalidOperationException">A capture has an invalid source/role, zero key, or exceeds a plan bound.</exception>
+    public ResynchronizationPlan BuildResynchronizationPlan()
+    {
+        List<uint> eventKeys = [];
+        HashSet<uint> seenEventKeys = [];
+        List<uint> sampleTokens = [];
+        HashSet<uint> seenSampleTokens = [];
+
+        foreach (CaptureUnitDefinition unit in CaptureUnits)
+        {
+            switch (unit.SynchronizationRole)
+            {
+                case SynchronizationRole.PersistentEvent:
+                    if (unit.Source != CaptureSourceKind.Event)
+                    {
+                        throw new InvalidOperationException(
+                            $"Capture key {unit.CaptureKey} has synchronization role {unit.SynchronizationRole} but source {unit.Source}.");
+                    }
+
+                    AddResynchronizationKey(
+                        unit.CaptureKey,
+                        eventKeys,
+                        seenEventKeys,
+                        Constants.MaxResynchronizationEventKeys,
+                        "persistent event");
+                    break;
+
+                case SynchronizationRole.BaselineSample:
+                    if (unit.Source != CaptureSourceKind.Sample)
+                    {
+                        throw new InvalidOperationException(
+                            $"Capture key {unit.CaptureKey} has synchronization role {unit.SynchronizationRole} but source {unit.Source}.");
+                    }
+
+                    AddResynchronizationKey(
+                        unit.CaptureKey,
+                        sampleTokens,
+                        seenSampleTokens,
+                        Constants.MaxResynchronizationSampleTokens,
+                        "baseline sample");
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Capture key {unit.CaptureKey} has unsupported synchronization role {unit.SynchronizationRole}.");
+            }
+        }
+
+        return new ResynchronizationPlan(eventKeys.ToArray(), sampleTokens.ToArray());
+    }
+
+    /// <summary>Adds one nonzero intent key once, failing when the resulting plan would exceed its bound.</summary>
+    /// <param name="key">The event key or sample token to include.</param>
+    /// <param name="keys">The ordered list being built.</param>
+    /// <param name="seenKeys">The keys already added to that list.</param>
+    /// <param name="maximumCount">The maximum number of unique keys allowed.</param>
+    /// <param name="intentName">The intent kind used in failure messages.</param>
+    /// <exception cref="InvalidOperationException">The key is zero or adding it would exceed <paramref name="maximumCount"/>.</exception>
+    private static void AddResynchronizationKey(
+        uint key,
+        List<uint> keys,
+        HashSet<uint> seenKeys,
+        int maximumCount,
+        string intentName)
+    {
+        if (key == 0)
+        {
+            throw new InvalidOperationException($"A {intentName} capture key must be nonzero.");
+        }
+
+        if (!seenKeys.Add(key))
+        {
+            return;
+        }
+
+        if (keys.Count >= maximumCount)
+        {
+            throw new InvalidOperationException(
+                $"The catalog exceeds the maximum of {maximumCount} {intentName} intents in a resynchronization plan.");
+        }
+
+        keys.Add(key);
+    }
 }
 
 // TODO(stage4-file-extraction): Move CaptureUnitDefinition to its own

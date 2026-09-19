@@ -1,5 +1,6 @@
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
+using DovahLink.Host.State;
 using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Adapter.Ipc;
@@ -42,6 +43,9 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     /// <summary>The Host-lifetime coordinator every connection's session reports its own resynchronize request's wire-level admission result to.</summary>
     private readonly IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator;
 
+    /// <summary>The one Host-catalog plan reused by every accepted Adapter connection.</summary>
+    private readonly ResynchronizationPlan resynchronizationPlan;
+
     /// <summary>This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</summary>
     private readonly HostInstanceOptions hostInstance;
 
@@ -56,6 +60,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
     /// <param name="playContextTracker">The Host-lifetime tracker every connection's session notifies of adapter-reported play-context transitions.</param>
     /// <param name="liveCaptureSink">The Host-lifetime sink every connection's session routes decoded capture results into.</param>
     /// <param name="resynchronizationTransactionCoordinator">The Host-lifetime coordinator every connection's session reports its own resynchronize request's wire-level admission result to.</param>
+    /// <param name="resynchronizationPlan">The bounded native intent plan derived from the Host's live-state catalog.</param>
     /// <param name="hostInstance">This Host process's identity, whose <see cref="HostInstanceOptions.OwnerLifetimeId"/> is verified against every accepted connection.</param>
     /// <param name="clock">The time source every connection reports through.</param>
     public AdapterConnectionFactory(
@@ -66,6 +71,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
         IPlayContextTracker playContextTracker,
         ILiveCaptureSink liveCaptureSink,
         IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
+        ResynchronizationPlan resynchronizationPlan,
         HostInstanceOptions hostInstance,
         IClock clock)
     {
@@ -76,6 +82,7 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
         this.playContextTracker = playContextTracker;
         this.liveCaptureSink = liveCaptureSink;
         this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
+        this.resynchronizationPlan = resynchronizationPlan;
         this.hostInstance = hostInstance;
         this.clock = clock;
     }
@@ -87,6 +94,6 @@ public sealed class AdapterConnectionFactory : IAdapterConnectionFactory
             codec,
             new AdapterIpcSession(
                 lifecycle, peerProofVerifier, trustAdminRequestHandler, playContextTracker, liveCaptureSink,
-                resynchronizationTransactionCoordinator, hostInstance.OwnerLifetimeId),
+                resynchronizationTransactionCoordinator, resynchronizationPlan, hostInstance.OwnerLifetimeId),
             clock);
 }

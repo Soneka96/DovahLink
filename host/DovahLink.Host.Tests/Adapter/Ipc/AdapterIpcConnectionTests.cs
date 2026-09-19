@@ -587,7 +587,11 @@ public class AdapterIpcConnectionTests
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var codec = new IpcFrameCodec();
-        var fakeSession = new FakeAdapterIpcSession { ConnectionGeneration = 1, ResynchronizeRequest = new IpcResynchronizeRequestMessage(9) };
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(9, [998], [999]),
+        };
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
 
@@ -601,6 +605,8 @@ public class AdapterIpcConnectionTests
         Assert.True(enqueued);
         var request = Assert.IsType<IpcResynchronizeRequestMessage>(delivered);
         Assert.Equal(9UL, request.CorrelationId);
+        Assert.Equal([998u], request.PersistentEventKeys);
+        Assert.Equal([999u], request.BaselineSampleTokens);
     }
 
     /// <summary>Verifies that a resynchronize request is refused before this connection's handshake has committed.</summary>

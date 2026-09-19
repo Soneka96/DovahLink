@@ -3,14 +3,16 @@ using System.Security.Cryptography;
 using DovahLink.Host.Identity;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
+using DovahLink.Host.State;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
 /// <summary>
 /// The per-connection private IPC protocol decisions for one adapter connection attempt: handshake
 /// acceptance, resynchronization request/response correlation, host-directed capture-intent
-/// preparation, and disconnect notification. Holds no transport state of its own; a new instance is
-/// created for each accepted connection and consumed by that connection's <see cref="IAdapterIpcConnection"/>.
+/// preparation, and disconnect notification. Every prepared resynchronization request carries the
+/// same Host-catalog plan. Holds no transport state of its own; a new instance is created for each
+/// accepted connection and consumed by that connection's <see cref="IAdapterIpcConnection"/>.
 /// </summary>
 public interface IAdapterIpcSession
 {
@@ -148,6 +150,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The coordinator this session reports its own resynchronize request's wire-level admission result to.</summary>
     private readonly IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator;
 
+    /// <summary>The Host-catalog plan shared by every resynchronization request this session prepares.</summary>
+    private readonly ResynchronizationPlan resynchronizationPlan;
+
     /// <summary>
     /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
     /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
@@ -200,6 +205,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <param name="playContextTracker">The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</param>
     /// <param name="liveCaptureSink">The domain-facing sink this session routes decoded capture results into.</param>
     /// <param name="resynchronizationTransactionCoordinator">The coordinator this session reports its own resynchronize request's wire-level admission result to.</param>
+    /// <param name="resynchronizationPlan">The bounded native intent plan derived from the Host's live-state catalog.</param>
     /// <param name="expectedOwnerLifetimeId">
     /// The owning Skyrim process's lifetime identity this host process was launched with, or
     /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
@@ -212,6 +218,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         IPlayContextTracker playContextTracker,
         ILiveCaptureSink liveCaptureSink,
         IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
+        ResynchronizationPlan resynchronizationPlan,
         OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
         this.lifecycle = lifecycle;
@@ -220,6 +227,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         this.playContextTracker = playContextTracker;
         this.liveCaptureSink = liveCaptureSink;
         this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
+        this.resynchronizationPlan = resynchronizationPlan;
         this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
@@ -269,7 +277,10 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     {
         ulong correlationId = NextCorrelationId();
         pendingResynchronizeCorrelationId = correlationId;
-        return new IpcResynchronizeRequestMessage(correlationId);
+        return new IpcResynchronizeRequestMessage(
+            correlationId,
+            resynchronizationPlan.PersistentEventKeys,
+            resynchronizationPlan.BaselineSampleTokens);
     }
 
     /// <inheritdoc/>
