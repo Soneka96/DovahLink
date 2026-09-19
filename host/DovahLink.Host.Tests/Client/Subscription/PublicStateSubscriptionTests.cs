@@ -592,9 +592,8 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>
-    /// Verifies that a second snapshot_request for the same still-pending area supersedes the first:
-    /// once a value becomes available, only one baseline is delivered, correlated to the second (most
-    /// recent) request's own message id, not the first.
+    /// Verifies that a second snapshot_request for the same still-pending area terminates the first
+    /// request with a retryable error, then delivers the later baseline only to the second request.
     /// </summary>
     [Fact]
     public void HandleSnapshotRequest_SecondRequestForSameStillPendingArea_SupersedesFirstCorrelation()
@@ -605,14 +604,212 @@ public class PublicStateSubscriptionTests
 
         subscription.HandleSnapshotRequest("area_a", "req-1");
         subscription.HandleSnapshotRequest("area_a", "req-2");
-        Assert.Empty(connectionContext.SentPayloads);
+
+        (byte[] errorBytes, PublicOutboundLane errorLane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, errorLane);
+        Assert.True(codec.TryDecode(errorBytes, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("req-1", errorEnvelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(errorEnvelope, out ErrorPayload? errorPayload));
+        Assert.Equal(PublicProtocolErrorCode.TemporarilyUnavailable, errorPayload!.Code);
+        Assert.True(errorPayload.Retryable);
+        Assert.Contains("superseded", errorPayload.Message, StringComparison.OrdinalIgnoreCase);
 
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
         feed.RaiseSnapshotChanged(BuildSnapshot("area_a"));
 
-        (byte[] bytes, _) = Assert.Single(connectionContext.SentPayloads);
-        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
-        Assert.Equal("req-2", envelope!.CorrelationId);
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        (byte[] snapshotBytes, _) = connectionContext.SentPayloads[1];
+        Assert.True(codec.TryDecode(snapshotBytes, out PublicEnvelope? snapshotEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, snapshotEnvelope!.MessageType);
+        Assert.Equal("req-2", snapshotEnvelope.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that a superseded request's original deadline cannot send a second error, while the
+    /// replacement remains pending past that deadline and can complete before its own deadline.
+    /// </summary>
+    /// <returns>Completes after the superseded and replacement deadlines have both elapsed.</returns>
+    [Fact]
+    public async Task HandleSnapshotRequest_SupersededRequestDeadlineCannotRespondAgain()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            ["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(1200));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+        await Task.Delay(TimeSpan.FromMilliseconds(600));
+        subscription.HandleSnapshotRequest("area_a", "req-2");
+
+        Assert.Single(connectionContext.SentPayloads);
+        await Task.Delay(TimeSpan.FromMilliseconds(700)); // past req-1's deadline, before req-2's
+        Assert.Single(connectionContext.SentPayloads);
+
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a");
+        feed.SetSnapshot(snapshot.StateArea, snapshot);
+        feed.RaiseSnapshotChanged(snapshot);
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(700)); // req-2's deadline is cancelled by fulfillment
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[0].Payload, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("req-1", errorEnvelope.CorrelationId);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? snapshotEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, snapshotEnvelope!.MessageType);
+        Assert.Equal("req-2", snapshotEnvelope.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that an availability retry already fetching req-1 becomes a no-op when req-2
+    /// supersedes it, leaving the replacement correlation and attempt intact.
+    /// </summary>
+    [Fact]
+    public void SnapshotAvailabilityWake_RetrySupersededByNewRequest_CannotAffectReplacement()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            ["area_a"], pendingBaselineDeadline: TimeSpan.FromSeconds(5));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a");
+        feed.SetSnapshot(snapshot.StateArea, snapshot);
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            subscription.HandleSnapshotRequest("area_a", "req-2");
+        };
+
+        feed.RaiseSnapshotAvailabilityChanged();
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[0].Payload, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("req-1", errorEnvelope.CorrelationId);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? snapshotEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, snapshotEnvelope!.MessageType);
+        Assert.Equal("req-2", snapshotEnvelope.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies the other side of the fulfillment race: once req-1's baseline is admitted, a
+    /// reentrant req-2 is independent and cannot make req-1 receive both a snapshot and an error.
+    /// </summary>
+    [Fact]
+    public void HandleSnapshotRequest_FulfillmentWinsRaceWithNewRequest_BothCorrelationsCompleteOnce()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a");
+        feed.SetSnapshot(snapshot.StateArea, snapshot);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null;
+            subscription.HandleSnapshotRequest("area_a", "req-2");
+        };
+
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[0].Payload, out PublicEnvelope? firstEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, firstEnvelope!.MessageType);
+        Assert.Equal("req-1", firstEnvelope.CorrelationId);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? secondEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, secondEnvelope!.MessageType);
+        Assert.Equal("req-2", secondEnvelope.CorrelationId);
+    }
+
+    /// <summary>Verifies that superseding one area's pending request leaves another area's correlation pending.</summary>
+    [Fact]
+    public void HandleSnapshotRequest_SupersedingOneAreaLeavesOtherAreaPending()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["health", "magicka"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        subscription.HandleSnapshotRequest("health", "health-1");
+        subscription.HandleSnapshotRequest("magicka", "magicka-1");
+
+        subscription.HandleSnapshotRequest("health", "health-2");
+
+        Assert.Single(connectionContext.SentPayloads);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[0].Payload, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("health-1", errorEnvelope.CorrelationId);
+
+        StateSnapshotPublication healthSnapshot = BuildSnapshot("health");
+        StateSnapshotPublication magickaSnapshot = BuildSnapshot("magicka");
+        feed.SetSnapshot(healthSnapshot.StateArea, healthSnapshot);
+        feed.SetSnapshot(magickaSnapshot.StateArea, magickaSnapshot);
+        feed.RaiseSnapshotChanged(healthSnapshot);
+        feed.RaiseSnapshotChanged(magickaSnapshot);
+
+        Assert.Equal(3, connectionContext.SentPayloads.Count);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? healthEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, healthEnvelope!.MessageType);
+        Assert.Equal("health-2", healthEnvelope.CorrelationId);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[2].Payload, out PublicEnvelope? magickaEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, magickaEnvelope!.MessageType);
+        Assert.Equal("magicka-1", magickaEnvelope.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that when subscribe takes ownership of a baseline previously pending for a
+    /// snapshot_request, the request receives its terminal error and the subscribe baseline proceeds.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_ReplacingPendingSnapshotRequest_TerminatesRequestAndKeepsBaseline()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        (byte[] errorBytes, _) = Assert.Single(connectionContext.SentPayloads);
+        Assert.True(codec.TryDecode(errorBytes, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("req-1", errorEnvelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(errorEnvelope, out ErrorPayload? errorPayload));
+        Assert.Equal(PublicProtocolErrorCode.TemporarilyUnavailable, errorPayload!.Code);
+        Assert.True(errorPayload.Retryable);
+
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a");
+        feed.SetSnapshot(snapshot.StateArea, snapshot);
+        feed.RaiseSnapshotChanged(snapshot);
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? baselineEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, baselineEnvelope!.MessageType);
+        Assert.Equal("sub-1", baselineEnvelope.CorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that a snapshot_request replacing a pending subscribe baseline does not send a new
+    /// superseded error for the subscribe correlation and keeps the established request behavior.
+    /// </summary>
+    [Fact]
+    public void HandleSnapshotRequest_ReplacingPendingSubscribeBaseline_PreservesSubscribeBehavior()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+
+        subscription.HandleSnapshotRequest("area_a", "req-1");
+
+        Assert.Empty(connectionContext.SentPayloads);
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a");
+        feed.SetSnapshot(snapshot.StateArea, snapshot);
+        feed.RaiseSnapshotChanged(snapshot);
+
+        (byte[] baselineBytes, _) = Assert.Single(connectionContext.SentPayloads);
+        Assert.True(codec.TryDecode(baselineBytes, out PublicEnvelope? baselineEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, baselineEnvelope!.MessageType);
+        Assert.Equal("req-1", baselineEnvelope.CorrelationId);
     }
 
     /// <summary>

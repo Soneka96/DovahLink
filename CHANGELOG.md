@@ -43,6 +43,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Fixed
 
+- The Host now ends a superseded pending `snapshot_request` with a retryable error instead of dropping its correlation.
 - The Host now waits for the Adapter's post-authentication play-context replay before issuing one
   initial resynchronization for an active context, and issues none while the Adapter is inactive.
 - The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast when a required
