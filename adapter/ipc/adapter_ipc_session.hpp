@@ -412,8 +412,17 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  Called once, immediately after this generation reaches
     ///  `AuthenticationState::kAuthenticated`. Sends
     ///  `PlayContextChanged` when a context exists and `PlayContextEnded`
-    ///  otherwise; it never fabricates an all-zero context identifier.
+    ///  otherwise; it never fabricates an all-zero context identifier. The
+    ///  observation and its outbound notification are serialized with live
+    ///  play-context transitions, and replay never mutates the observed state.
     void ReplayCurrentPlayContextState();
+
+    ///  Sends one play-context notification through the authenticated
+    ///  connection, requesting reconnect if the continuity-critical send fails.
+    ///  Must be called while holding `playContextPublicationMutex_` so the
+    ///  observed or mutated context cannot be overtaken by another notification.
+    ///  @param message The already-decided play-context notification to send.
+    void SendPlayContextNotification(const IpcMessage& message);
 
     ///  Invalidates the current generation for deferred work exactly once: a
     ///  no-op (returning an empty vector) if `authenticationState_` is already
@@ -617,6 +626,10 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  its correlated result before resolving it with
     ///  `TrustAdminRequestOutcome::kTimedOut`.
     std::chrono::milliseconds trustAdminRequestTimeout_;
+    ///  Serializes play-context state reads or mutations with their matching
+    ///  outbound notification. Acquired before `availableMutex_`; no path
+    ///  acquires it while already holding `availableMutex_`.
+    std::mutex playContextPublicationMutex_;
 };
 
 } //  namespace dovahlink::adapter::ipc

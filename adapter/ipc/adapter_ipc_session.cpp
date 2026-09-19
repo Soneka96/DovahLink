@@ -514,30 +514,20 @@ void AdapterIpcSession::SendCaptureResult(
 
 void AdapterIpcSession::SendPlayContextChanged(
     std::array<std::byte, 16> playContextId) {
+    std::lock_guard<std::mutex> publicationLock(playContextPublicationMutex_);
     playContextState_.SetCurrentPlayContext(playContextId);
-    std::lock_guard<std::mutex> lock(availableMutex_);
-    if (authenticationState_ != AuthenticationState::kAuthenticated ||
-        connection_ == nullptr) {
-        return;
-    }
-    bool sent = false;
-    try {
-        sent = connection_->TrySend(IpcMessage{IpcPlayContextChangedMessage{
-            .correlationId = 0, .playContextId = playContextId}});
-    } catch (...) {
-        //  Best-effort; see SendBestEffortReject's own documentation for why
-        //  a failed or throwing send here must never propagate.
-    }
-    if (!sent) {
-        //  A lost play-context transition would leave the Host attributing
-        //  every later capture to a stale context, silently rejecting them as
-        //  stale forever; this is always continuity-critical.
-        connection_->RequestReconnect();
-    }
+    SendPlayContextNotification(IpcMessage{IpcPlayContextChangedMessage{
+        .correlationId = 0, .playContextId = playContextId}});
 }
 
 void AdapterIpcSession::SendPlayContextEnded() {
+    std::lock_guard<std::mutex> publicationLock(playContextPublicationMutex_);
     playContextState_.ClearCurrentPlayContext();
+    SendPlayContextNotification(
+        IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}});
+}
+
+void AdapterIpcSession::SendPlayContextNotification(const IpcMessage& message) {
     std::lock_guard<std::mutex> lock(availableMutex_);
     if (authenticationState_ != AuthenticationState::kAuthenticated ||
         connection_ == nullptr) {
@@ -545,27 +535,28 @@ void AdapterIpcSession::SendPlayContextEnded() {
     }
     bool sent = false;
     try {
-        sent = connection_->TrySend(
-            IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}});
+        sent = connection_->TrySend(message);
     } catch (...) {
         //  Best-effort; see SendBestEffortReject's own documentation for why
         //  a failed or throwing send here must never propagate.
     }
     if (!sent) {
-        //  A lost play-context-ended notification would leave the Host still
-        //  treating a since-ended context as authoritative; this is always
-        //  continuity-critical, matching SendPlayContextChanged's own policy.
+        //  Losing either play-context notification can leave the Host
+        //  attributing later captures to a stale context; both require recovery.
         connection_->RequestReconnect();
     }
 }
 
 void AdapterIpcSession::ReplayCurrentPlayContextState() {
+    std::lock_guard<std::mutex> publicationLock(playContextPublicationMutex_);
     std::optional<std::array<std::byte, 16>> current =
         playContextState_.CurrentPlayContext();
     if (current.has_value()) {
-        SendPlayContextChanged(*current);
+        SendPlayContextNotification(IpcMessage{IpcPlayContextChangedMessage{
+            .correlationId = 0, .playContextId = *current}});
     } else {
-        SendPlayContextEnded();
+        SendPlayContextNotification(
+            IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}});
     }
 }
 

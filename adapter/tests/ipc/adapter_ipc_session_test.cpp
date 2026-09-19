@@ -36,6 +36,7 @@ using dovahlink::adapter::dispatch::SampleCaptureResult;
 using dovahlink::adapter::dispatch::SampleCaptureStatus;
 using dovahlink::adapter::identity::AdapterInstanceId;
 using dovahlink::adapter::identity::AdapterPlayContextState;
+using dovahlink::adapter::identity::IAdapterPlayContextState;
 using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
 using dovahlink::adapter::ipc::AdapterIpcSession;
 using dovahlink::adapter::ipc::AdapterIpcTarget;
@@ -442,6 +443,149 @@ struct SessionFixture {
                                           "rejected-dispatch diagnostics failure");
                                   }
                               }};
+};
+
+///  A thread-safe play-context fake that can pause one replay read after it
+///  has captured its value, at the exact state-read/send race boundary.
+class BlockingAdapterPlayContextState final : public IAdapterPlayContextState {
+  public:
+    ///  Arms the next current-context read to pause after taking its snapshot.
+    ///  @return A future that resolves once the read has taken its snapshot.
+    std::future<void> BlockNextCurrentPlayContextRead() {
+        readEntered_ = std::promise<void>();
+        std::future<void> entered = readEntered_.get_future();
+        blockNextCurrentRead_.store(true, std::memory_order_release);
+        return entered;
+    }
+
+    ///  Releases the current-context read paused by `BlockNextCurrentPlayContextRead`.
+    void ReleaseBlockedCurrentPlayContextRead() { releaseRead_.count_down(); }
+
+    ///  @copydoc IAdapterPlayContextState::CurrentPlayContext
+    [[nodiscard]] std::optional<std::array<std::byte, 16>>
+    CurrentPlayContext() const override {
+        std::optional<std::array<std::byte, 16>> current;
+        {
+            std::lock_guard<std::mutex> lock(gate_);
+            current = playContextId_;
+        }
+
+        if (blockNextCurrentRead_.exchange(false, std::memory_order_acq_rel)) {
+            readEntered_.set_value();
+            releaseRead_.wait();
+        }
+
+        return current;
+    }
+
+    ///  @copydoc IAdapterPlayContextState::SetCurrentPlayContext
+    void SetCurrentPlayContext(std::array<std::byte, 16> playContextId) override {
+        std::lock_guard<std::mutex> lock(gate_);
+        playContextId_ = playContextId;
+    }
+
+    ///  @copydoc IAdapterPlayContextState::ClearCurrentPlayContext
+    void ClearCurrentPlayContext() override {
+        std::lock_guard<std::mutex> lock(gate_);
+        playContextId_.reset();
+    }
+
+  private:
+    ///  Guards the fake's mutable play-context value.
+    mutable std::mutex gate_;
+    ///  The fake's current play-context value.
+    std::optional<std::array<std::byte, 16>> playContextId_;
+    ///  Whether the next read must pause after capturing its current value.
+    mutable std::atomic_bool blockNextCurrentRead_{false};
+    ///  Signals once the paused read has captured its value.
+    mutable std::promise<void> readEntered_;
+    ///  Releases the read after the test has attempted a concurrent transition.
+    mutable std::latch releaseRead_{1};
+};
+
+///  Bundles the real session with a controllable play-context state and fake
+///  connection for replay publication-order tests.
+struct PlayContextReplayFixture {
+    ///  The peer proof material used by the accepted HelloAck.
+    FixedAdapterIpcPeerProofProvider peerProofProvider{
+        {std::byte{9}, std::byte{8}, std::byte{7}}};
+    ///  The target authenticated by this fixture's session.
+    AdapterIpcTarget target{
+        .port = 58231,
+        .proofToken = peerProofProvider.Token(),
+        .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+        .targetGeneration = 1,
+    };
+    ///  The game-thread dispatcher supplied to the session.
+    FakeAdapterTaskMarshaller marshaller;
+    ///  The capture router supplied to the session.
+    FakeAdapterNativeCaptureRouter dispatcher;
+    ///  The capture handoff queue supplied to the session.
+    FakeAdapterCaptureHandoffQueue captureQueue;
+    ///  The pairing notification sink supplied to the session.
+    FakeAdapterPairingNotificationSink pairingNotificationSink;
+    ///  The controllable play-context state whose replay read the tests pause.
+    BlockingAdapterPlayContextState playContextState;
+    ///  The fake transport receiving this fixture's outbound messages.
+    FakeAdapterIpcConnection connection;
+    ///  The session under test.
+    AdapterIpcSession session{SampleInstanceId(),
+                              SampleOwnerLifetimeId(),
+                              marshaller,
+                              dispatcher,
+                              captureQueue,
+                              pairingNotificationSink,
+                              playContextState,
+                              [] {}};
+
+    ///  Attaches the fake connection to the session.
+    PlayContextReplayFixture() { session.AttachConnection(connection); }
+
+    ///  Starts a new Hello and returns its valid accepted reply for this target.
+    ///  @return The accepted HelloAck matching the prepared Hello.
+    IpcHelloAckMessage PrepareAcceptedHelloAck() {
+        session.HandleConnected(target);
+        REQUIRE(connection.Sent().size() == 1);
+        auto* hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
+        REQUIRE(hello != nullptr);
+        IpcHelloMessage helloCopy = *hello;
+        auto expectedProof = ComputeIpcHmacSha256(
+            target.hostProofKey,
+            BuildHostProofMessage(helloCopy.challenge,
+                                  helloCopy.correlationId,
+                                  helloCopy.adapterInstanceId,
+                                  helloCopy.ownerLifetimeId));
+        connection.Clear();
+        return IpcHelloAckMessage{
+            .correlationId = helloCopy.correlationId,
+            .accepted = true,
+            .rejectReason = IpcHelloRejectReason::kNone,
+            .hostProof = std::move(expectedProof),
+        };
+    }
+
+    ///  Authenticates asynchronously and pauses once replay has captured the
+    ///  current play-context value.
+    ///  @param helloAck The accepted reply returned by `PrepareAcceptedHelloAck`.
+    ///  @return The future completing when authentication and replay finish.
+    std::future<AdapterIpcMessageDisposition> BeginBlockedReplay(
+        IpcHelloAckMessage helloAck) {
+        std::future<void> readEntered =
+            playContextState.BlockNextCurrentPlayContextRead();
+        std::future<AdapterIpcMessageDisposition> authentication =
+            std::async(std::launch::async,
+                       [this, helloAck = std::move(helloAck)] {
+                           return session.HandleMessage(IpcMessage{helloAck});
+                       });
+        bool replayReadBlocked =
+            readEntered.wait_for(std::chrono::seconds(5)) ==
+            std::future_status::ready;
+        if (!replayReadBlocked) {
+            playContextState.ReleaseBlockedCurrentPlayContextRead();
+        }
+        REQUIRE(replayReadBlocked);
+        return authentication;
+    }
 };
 
 ///  Drives a real Hello/HelloAck handshake to completion: connects with
@@ -1291,6 +1435,160 @@ TEST_CASE("AdapterIpcSession replays the active play context to a "
     REQUIRE(notification != nullptr);
     CHECK(notification->correlationId == 0);
     CHECK(notification->playContextId == playContextId);
+}
+
+TEST_CASE("AdapterIpcSession serializes an active replay before a concurrent "
+          "play-context end") {
+    PlayContextReplayFixture fixture;
+    std::array<std::byte, 16> playContextId{};
+    playContextId[0] = std::byte{42};
+    fixture.playContextState.SetCurrentPlayContext(playContextId);
+    IpcHelloAckMessage helloAck = fixture.PrepareAcceptedHelloAck();
+    std::future<AdapterIpcMessageDisposition> authentication =
+        fixture.BeginBlockedReplay(std::move(helloAck));
+
+    std::latch endCallStarted{1};
+    std::future<void> endTransition = std::async(
+        std::launch::async, [&fixture, &endCallStarted] {
+            endCallStarted.count_down();
+            fixture.session.SendPlayContextEnded();
+        });
+    endCallStarted.wait();
+
+    //  Replay is held after capturing A but before its send. The bounded wait
+    //  gives the competing call a chance to run and proves it cannot clear or
+    //  publish a later transition inside replay's serialized section.
+    CHECK(endTransition.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::timeout);
+    CHECK(fixture.playContextState.CurrentPlayContext() == playContextId);
+    CHECK(fixture.connection.Sent().empty());
+
+    fixture.playContextState.ReleaseBlockedCurrentPlayContextRead();
+    CHECK(authentication.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+    CHECK(endTransition.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+    if (authentication.wait_for(std::chrono::seconds(0)) ==
+        std::future_status::ready) {
+        CHECK(authentication.get() ==
+              AdapterIpcMessageDisposition::kAuthenticated);
+    }
+    if (endTransition.wait_for(std::chrono::seconds(0)) ==
+        std::future_status::ready) {
+        endTransition.get();
+    }
+
+    CHECK(fixture.playContextState.CurrentPlayContext() == std::nullopt);
+    const std::vector<IpcMessage>& sent = fixture.connection.Sent();
+    REQUIRE(sent.size() == 2);
+    const auto* replay = std::get_if<IpcPlayContextChangedMessage>(&sent[0]);
+    REQUIRE(replay != nullptr);
+    CHECK(replay->playContextId == playContextId);
+    CHECK(std::holds_alternative<IpcPlayContextEndedMessage>(sent[1]));
+}
+
+TEST_CASE("AdapterIpcSession serializes an active replay before a concurrent "
+          "new play context") {
+    PlayContextReplayFixture fixture;
+    std::array<std::byte, 16> firstPlayContextId{};
+    firstPlayContextId[0] = std::byte{42};
+    std::array<std::byte, 16> nextPlayContextId{};
+    nextPlayContextId[0] = std::byte{43};
+    fixture.playContextState.SetCurrentPlayContext(firstPlayContextId);
+    IpcHelloAckMessage helloAck = fixture.PrepareAcceptedHelloAck();
+    std::future<AdapterIpcMessageDisposition> authentication =
+        fixture.BeginBlockedReplay(std::move(helloAck));
+
+    std::latch transitionCallStarted{1};
+    std::future<void> nextTransition = std::async(
+        std::launch::async, [&fixture, &transitionCallStarted,
+                             nextPlayContextId] {
+            transitionCallStarted.count_down();
+            fixture.session.SendPlayContextChanged(nextPlayContextId);
+        });
+    transitionCallStarted.wait();
+
+    //  The same blocked replay-read seam proves the live B transition cannot
+    //  overtake replay's observation of A and then be followed by stale A.
+    CHECK(nextTransition.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::timeout);
+    CHECK(fixture.playContextState.CurrentPlayContext() == firstPlayContextId);
+    CHECK(fixture.connection.Sent().empty());
+
+    fixture.playContextState.ReleaseBlockedCurrentPlayContextRead();
+    CHECK(authentication.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+    CHECK(nextTransition.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+    if (authentication.wait_for(std::chrono::seconds(0)) ==
+        std::future_status::ready) {
+        CHECK(authentication.get() ==
+              AdapterIpcMessageDisposition::kAuthenticated);
+    }
+    if (nextTransition.wait_for(std::chrono::seconds(0)) ==
+        std::future_status::ready) {
+        nextTransition.get();
+    }
+
+    CHECK(fixture.playContextState.CurrentPlayContext() == nextPlayContextId);
+    const std::vector<IpcMessage>& sent = fixture.connection.Sent();
+    REQUIRE(sent.size() == 2);
+    const auto* replay = std::get_if<IpcPlayContextChangedMessage>(&sent[0]);
+    REQUIRE(replay != nullptr);
+    CHECK(replay->playContextId == firstPlayContextId);
+    const auto* transition = std::get_if<IpcPlayContextChangedMessage>(&sent[1]);
+    REQUIRE(transition != nullptr);
+    CHECK(transition->playContextId == nextPlayContextId);
+}
+
+TEST_CASE("AdapterIpcSession serializes an inactive replay before a concurrent "
+          "new play context") {
+    PlayContextReplayFixture fixture;
+    std::array<std::byte, 16> playContextId{};
+    playContextId[0] = std::byte{42};
+    IpcHelloAckMessage helloAck = fixture.PrepareAcceptedHelloAck();
+    std::future<AdapterIpcMessageDisposition> authentication =
+        fixture.BeginBlockedReplay(std::move(helloAck));
+
+    std::latch transitionCallStarted{1};
+    std::future<void> transition = std::async(
+        std::launch::async, [&fixture, &transitionCallStarted,
+                             playContextId] {
+            transitionCallStarted.count_down();
+            fixture.session.SendPlayContextChanged(playContextId);
+        });
+    transitionCallStarted.wait();
+
+    //  Replay is held after observing no context. The live transition must
+    //  wait, so replay cannot clear a context that becomes active afterward.
+    CHECK(transition.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::timeout);
+    CHECK(fixture.playContextState.CurrentPlayContext() == std::nullopt);
+    CHECK(fixture.connection.Sent().empty());
+
+    fixture.playContextState.ReleaseBlockedCurrentPlayContextRead();
+    CHECK(authentication.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+    CHECK(transition.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+    if (authentication.wait_for(std::chrono::seconds(0)) ==
+        std::future_status::ready) {
+        CHECK(authentication.get() ==
+              AdapterIpcMessageDisposition::kAuthenticated);
+    }
+    if (transition.wait_for(std::chrono::seconds(0)) ==
+        std::future_status::ready) {
+        transition.get();
+    }
+
+    CHECK(fixture.playContextState.CurrentPlayContext() == playContextId);
+    const std::vector<IpcMessage>& sent = fixture.connection.Sent();
+    REQUIRE(sent.size() == 2);
+    CHECK(std::holds_alternative<IpcPlayContextEndedMessage>(sent[0]));
+    const auto* transitionMessage =
+        std::get_if<IpcPlayContextChangedMessage>(&sent[1]);
+    REQUIRE(transitionMessage != nullptr);
+    CHECK(transitionMessage->playContextId == playContextId);
 }
 
 TEST_CASE("AdapterIpcSession replays the ended play-context state after "
