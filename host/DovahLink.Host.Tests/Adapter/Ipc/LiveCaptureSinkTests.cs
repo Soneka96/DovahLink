@@ -18,6 +18,17 @@ public class LiveCaptureSinkTests
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
 
+    /// <summary>The sink and observable state collaborators used by capture-result tests.</summary>
+    /// <param name="Sink">The capture sink under test.</param>
+    /// <param name="Feed">The publication feed that exposes applied values.</param>
+    /// <param name="FloatPublisher">The publisher used to inspect float-area revisions.</param>
+    /// <param name="AdapterTracker">The controllable adapter authority source.</param>
+    /// <param name="PlayContextTracker">The active play-context source.</param>
+    /// <param name="Context">The play context stamped on test captures.</param>
+    /// <param name="Coordinator">The resynchronization coordinator used by the sink.</param>
+    /// <param name="ContinuityRecovery">The controlled Event-recovery recorder.</param>
+    /// <param name="Source">The exact adapter connection stamped on test captures.</param>
+    /// <param name="Clock">The clock used for publication timestamps.</param>
     private sealed record Fixture(
         LiveCaptureSink Sink,
         StatePublicationFeed Feed,
@@ -27,7 +38,30 @@ public class LiveCaptureSinkTests
         PlayContextId Context,
         IResynchronizationTransactionCoordinator Coordinator,
         FakeAdapterContinuityRecovery ContinuityRecovery,
-        AdapterCaptureSource Source);
+        AdapterCaptureSource Source,
+        FakeClock Clock);
+
+    /// <summary>Records calls through the generic application boundary for sink interaction tests.</summary>
+    private sealed class RecordingLiveStateApplication : ILiveStateApplication
+    {
+        /// <summary>Every applied value and its validated capture context, in call order.</summary>
+        public List<(Type StateType, UpdateMode Mode, StateAreaId AreaId, object? Value, bool IsBaseline, AdapterCaptureSource Source, AdapterAvailabilitySnapshot AdapterSnapshot, PlayContextId PlayContextId, long PlayContextGeneration, DateTimeOffset OccurredAt)> ApplyCalls { get; } = [];
+
+        /// <inheritdoc/>
+        public void Apply<TState>(
+            IStatePublisher<TState> publisher,
+            UpdateMode mode,
+            StateAreaId areaId,
+            TState value,
+            bool isResynchronizationBaseline,
+            AdapterCaptureSource source,
+            AdapterAvailabilitySnapshot adapterSnapshot,
+            PlayContextId capturedPlayContextId,
+            long capturedPlayContextGeneration,
+            DateTimeOffset occurredAt) =>
+            ApplyCalls.Add((typeof(TState), mode, areaId, value, isResynchronizationBaseline, source, adapterSnapshot,
+                capturedPlayContextId, capturedPlayContextGeneration, occurredAt));
+    }
 
     /// <summary>
     /// Builds a sink wired exactly like production composition, but with controllable adapter/play-context
@@ -41,7 +75,10 @@ public class LiveCaptureSinkTests
     /// this sink ever claimed a token or recorded an area accepted, rather than only the resulting
     /// state.
     /// </param>
-    private static Fixture CreateReady(IResynchronizationTransactionCoordinator? coordinatorOverride = null)
+    private static Fixture CreateReady(
+        IResynchronizationTransactionCoordinator? coordinatorOverride = null,
+        ILiveStateApplication? applicationOverride = null,
+        FakeClock? clockOverride = null)
     {
         var playContextTracker = new FakePlayContextTracker();
         PlayContextId context = PlayContextId.NewId();
@@ -59,9 +96,11 @@ public class LiveCaptureSinkTests
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
         IResynchronizationTransactionCoordinator coordinator = coordinatorOverride ?? new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, adapterTracker);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
-        var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, feed, adapterTracker, playContextTracker, coordinator, continuityRecovery, new FakeClock());
+        FakeClock clock = clockOverride ?? new FakeClock();
+        ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, feed);
+        var sink = new LiveCaptureSink(LiveStateCatalog.Default, floatPublisher, levelPublisher, application, adapterTracker, playContextTracker, clock);
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
-        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source);
+        return new Fixture(sink, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
     }
 
     private static byte[] EncodeVitals(float health, float magicka, float stamina)
@@ -107,6 +146,59 @@ public class LiveCaptureSinkTests
         Assert.Equal(71.0f, ReadValue(magicka!.Data));
         Assert.True(fixture.Feed.TryGetSnapshot(StaminaArea, out StateSnapshotPublication? stamina));
         Assert.Equal(100.0f, ReadValue(stamina!.Data));
+    }
+
+    /// <summary>Verifies that a coherent Vitals capture fans out through the shared application with its exact context.</summary>
+    [Fact]
+    public void ApplyCaptureResult_Vitals_UsesSharedApplicationForEachArea()
+    {
+        var application = new RecordingLiveStateApplication();
+        Fixture fixture = CreateReady(applicationOverride: application);
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f));
+
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
+
+        Assert.Collection(
+            application.ApplyCalls,
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, HealthArea, 93.4f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, MagickaArea, 71.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, StaminaArea, 100.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)));
+        Assert.All(application.ApplyCalls, call =>
+        {
+            Assert.False(call.IsBaseline);
+            Assert.Equal(fixture.Source, call.Source);
+            Assert.Equal(fixture.AdapterTracker.GetSnapshot(), call.AdapterSnapshot);
+            Assert.Equal(fixture.Context, call.PlayContextId);
+            Assert.Equal(fixture.PlayContextTracker.TransitionGeneration, call.PlayContextGeneration);
+            Assert.Equal(fixture.Clock.UtcNow, call.OccurredAt);
+        });
+    }
+
+    /// <summary>Verifies that Level baseline Samples and native Events retain separate application modes.</summary>
+    [Fact]
+    public void ApplyCaptureResult_LevelSampleAndEvent_KeepTheirApplicationSemantics()
+    {
+        var application = new RecordingLiveStateApplication();
+        Fixture fixture = CreateReady(applicationOverride: application);
+        fixture.Sink.ApplyCaptureResult(
+            new IpcCaptureResultMessage(5, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, fixture.Context, EncodeUInt16(11)),
+            fixture.Source);
+        fixture.AdapterTracker.NeedsResynchronization = true;
+        fixture.Sink.ApplyCaptureResult(
+            new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline, CaptureAvailability.Available, fixture.Context, EncodeUInt16(12)),
+            fixture.Source);
+        fixture.Sink.ApplyCaptureResult(
+            new IpcCaptureResultMessage(0, CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, CaptureAvailability.Available, fixture.Context, EncodeUInt16(13)),
+            fixture.Source);
+
+        Assert.Equal(
+            [
+                (UpdateMode.Snapshot, false, (object?)(ushort)11),
+                (UpdateMode.Snapshot, true, (object?)(ushort)12),
+                (UpdateMode.Event, false, (object?)(ushort)13),
+            ],
+            application.ApplyCalls.Select(call => (call.Mode, call.IsBaseline, call.Value)));
+        Assert.All(application.ApplyCalls, call => Assert.Equal(LevelArea, call.AreaId));
     }
 
     /// <summary>Verifies that only the area whose value actually changed advances its revision, matching the roadmap's "only Health revision advances" acceptance scenario.</summary>
