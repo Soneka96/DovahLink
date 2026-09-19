@@ -53,6 +53,12 @@ inline constexpr std::size_t kMaxIpcFrameBytes = 65536;
 ///  The maximum byte length of an `IpcHelloMessage` peer-ownership proof token.
 inline constexpr std::size_t kMaxIpcPeerProofTokenBytes = 64;
 
+///  The maximum number of persistent event keys in a resynchronization plan.
+inline constexpr std::size_t kMaxResynchronizationEventKeys = 16;
+
+///  The maximum number of baseline sample tokens in a resynchronization plan.
+inline constexpr std::size_t kMaxResynchronizationSampleTokens = 32;
+
 ///  The bounded capacity of `AdapterIpcConnection`'s own outbound queue (see
 ///  `IAdapterIpcConnection::TrySend`).
 inline constexpr std::size_t kMaxIpcQueuedMessages = 256;

@@ -154,6 +154,12 @@ public static class Constants
     /// <summary>The maximum byte length of an <see cref="Adapter.Ipc.IpcHelloMessage"/> peer-ownership proof token.</summary>
     public const int MaxIpcPeerProofTokenBytes = 64;
 
+    /// <summary>The maximum number of persistent event keys in a resynchronization plan.</summary>
+    public const int MaxResynchronizationEventKeys = 16;
+
+    /// <summary>The maximum number of baseline sample tokens in a resynchronization plan.</summary>
+    public const int MaxResynchronizationSampleTokens = 32;
+
     /// <summary>
     /// The bounded capacity approved for a private IPC send/receive queue; not itself enforced by
     /// this contract's codec.

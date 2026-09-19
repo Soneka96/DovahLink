@@ -287,16 +287,127 @@ public class IpcFrameCodecTests
         Assert.Equal(original.HostProof, decoded.HostProof);
     }
 
-    /// <summary>Verifies that a ResynchronizeRequest round-trips.</summary>
+    /// <summary>Verifies that a ResynchronizeRequest preserves ordered event keys and sample tokens.</summary>
     [Fact]
     public void RoundTrip_ResynchronizeRequest()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcResynchronizeRequestMessage(42);
+        var original = new IpcResynchronizeRequestMessage(
+            42,
+            [0x11223344, 0x11223344, 0x55667788],
+            [0xAABBCCDD, 3, 0xAABBCCDD]);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
-        Assert.Equal(original, result.Message);
+        var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.PersistentEventKeys, decoded.PersistentEventKeys);
+        Assert.Equal(original.BaselineSampleTokens, decoded.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that an empty no-op plan round-trips with both counts set to zero.</summary>
+    [Fact]
+    public void RoundTrip_ResynchronizeRequest_EmptyPlan()
+    {
+        var codec = new IpcFrameCodec();
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, new IpcResynchronizeRequestMessage(42));
+
+        var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+        Assert.Empty(decoded.PersistentEventKeys);
+        Assert.Empty(decoded.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that either ordered intent list can independently form a valid plan.</summary>
+    [Fact]
+    public void RoundTrip_ResynchronizeRequest_OneSidedPlans()
+    {
+        var codec = new IpcFrameCodec();
+        IpcResynchronizeRequestMessage[] requests =
+        [
+            new(42, [11, 12], []),
+            new(43, [], [21, 22]),
+        ];
+
+        foreach (IpcResynchronizeRequestMessage request in requests)
+        {
+            (IpcDecodeResult result, _) = EncodeThenDecode(codec, request);
+
+            var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+            Assert.Equal(request.PersistentEventKeys, decoded.PersistentEventKeys);
+            Assert.Equal(request.BaselineSampleTokens, decoded.BaselineSampleTokens);
+        }
+    }
+
+    /// <summary>Verifies that a maximum-size resynchronization plan round-trips within its small frame bound.</summary>
+    [Fact]
+    public void RoundTrip_ResynchronizeRequest_MaximumPlan()
+    {
+        var codec = new IpcFrameCodec();
+        uint[] eventKeys = Enumerable.Range(1, Constants.MaxResynchronizationEventKeys).Select(value => (uint)value).ToArray();
+        uint[] sampleTokens = Enumerable.Range(101, Constants.MaxResynchronizationSampleTokens).Select(value => (uint)value).ToArray();
+        var original = new IpcResynchronizeRequestMessage(42, eventKeys, sampleTokens);
+
+        byte[] encoded = codec.Encode(original);
+        IpcDecodeResult result = codec.Decode(encoded.AsSpan(4));
+
+        Assert.Equal(4 + Constants.IpcFrameHeaderBytes + 2 + sizeof(uint) * (eventKeys.Length + sampleTokens.Length), encoded.Length);
+        Assert.Null(result.FailureReason);
+        var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+        Assert.Equal(eventKeys, decoded.PersistentEventKeys);
+        Assert.Equal(sampleTokens, decoded.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that either resynchronization list cannot exceed its configured count bound.</summary>
+    [Fact]
+    public void Encode_ResynchronizeRequest_OverBoundList_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        uint[] eventKeys = Enumerable.Range(1, Constants.MaxResynchronizationEventKeys + 1).Select(value => (uint)value).ToArray();
+        uint[] sampleTokens = Enumerable.Range(101, Constants.MaxResynchronizationSampleTokens + 1).Select(value => (uint)value).ToArray();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, eventKeys, [])));
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [], sampleTokens)));
+    }
+
+    /// <summary>Verifies that a zero event key or sample token cannot be encoded as a useful plan intent.</summary>
+    [Fact]
+    public void Encode_ResynchronizeRequest_ZeroIntentKey_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [0], [])));
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [], [0])));
+    }
+
+    /// <summary>Verifies that null intent lists fail with a controlled argument error.</summary>
+    [Fact]
+    public void Encode_ResynchronizeRequest_NullIntentList_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentNullException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, null!, [])));
+        Assert.Throws<ArgumentNullException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [], null!)));
+    }
+
+    /// <summary>Verifies that malformed resynchronization counts, lengths, and zero keys fail closed.</summary>
+    /// <param name="payload">The malformed count-prefixed resynchronization payload.</param>
+    [Theory]
+    [InlineData(new byte[] { 17, 0 })]
+    [InlineData(new byte[] { 0, 33 })]
+    [InlineData(new byte[] { 0 })]
+    [InlineData(new byte[] { 0, 0, 0 })]
+    [InlineData(new byte[] { 1, 0 })]
+    [InlineData(new byte[] { 1, 0, 0, 0, 0, 0 })]
+    [InlineData(new byte[] { 0, 1, 0, 0, 0, 0 })]
+    public void Decode_ResynchronizeRequest_InvalidPlan_FailsClosed(byte[] payload)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ResynchronizeRequest, correlationId: 42, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
     /// <summary>Verifies that a ResynchronizeResult round-trips for both accepted and declined outcomes.</summary>
@@ -1252,12 +1363,12 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
-    /// <summary>Verifies that a ResynchronizeRequest carrying an unexpected payload fails closed.</summary>
+    /// <summary>Verifies that a ResynchronizeRequest with no plan count bytes fails closed.</summary>
     [Fact]
-    public void Decode_ResynchronizeRequest_NonEmptyPayload_FailsClosed()
+    public void Decode_ResynchronizeRequest_EmptyPayload_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] frame = BuildFrame(IpcMessageKind.ResynchronizeRequest, correlationId: 1, [0]);
+        byte[] frame = BuildFrame(IpcMessageKind.ResynchronizeRequest, correlationId: 1, []);
 
         IpcDecodeResult result = codec.Decode(frame);
 
@@ -1838,7 +1949,8 @@ public class IpcFrameCodecTests
             (new IpcHelloAckMessage(2, true, IpcHelloRejectReason.None),
                 "2B0000000202000000000000000100" +
                 "0000000000000000000000000000000000000000000000000000000000000000"),
-            (new IpcResynchronizeRequestMessage(4), "09000000030400000000000000"),
+            (new IpcResynchronizeRequestMessage(4, [0x11223344, 0x55667788], [0xAABBCCDD, 3]),
+                "1B00000003040000000000000002443322118877665502DDCCBBAA03000000"),
             (new IpcResynchronizeResultMessage(5, Accepted: true), "0A00000004050000000000000001"),
             (new IpcCloseMessage(0, IpcCloseReason.Normal), "0A00000005000000000000000000"),
             (new IpcRejectMessage(6, IpcRejectReason.InvalidIdentity), "0A00000006060000000000000002"),
@@ -1930,7 +2042,10 @@ public class IpcFrameCodecTests
                 case (IpcPlayContextChangedMessage expectedMessage, IpcPlayContextChangedMessage actualMessage):
                     Assert.Equal(expectedMessage.PlayContextId, actualMessage.PlayContextId);
                     break;
-                case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
+                case (IpcResynchronizeRequestMessage expectedMessage, IpcResynchronizeRequestMessage actualMessage):
+                    Assert.Equal(expectedMessage.PersistentEventKeys, actualMessage.PersistentEventKeys);
+                    Assert.Equal(expectedMessage.BaselineSampleTokens, actualMessage.BaselineSampleTokens);
+                    break;
                 case (IpcCancelMessage, IpcCancelMessage):
                 case (IpcPairingAttemptsExhaustedMessage, IpcPairingAttemptsExhaustedMessage):
                 case (IpcPlayContextEndedMessage, IpcPlayContextEndedMessage):

@@ -69,6 +69,15 @@ class IpcFrameCodec final : public IIpcFrameCodec {
     static std::vector<std::byte>
     EncodeHelloAck(const IpcHelloAckMessage& helloAck);
 
+    ///  Encodes one event-count byte and little-endian event keys, followed by
+    ///  one sample-count byte and little-endian sample tokens.
+    ///  @param request The resynchronization request to encode.
+    ///  @return The bounded resynchronization payload.
+    ///  @throws std::invalid_argument A list exceeds its bound or contains a
+    ///  zero intent key.
+    static std::vector<std::byte> EncodeResynchronizeRequest(
+        const IpcResynchronizeRequestMessage& request);
+
     ///  Decodes an `IpcHelloMessage` payload, validating the bounded token
     ///  length.
     static std::expected<IpcMessage, IpcRejectReason>
@@ -79,6 +88,15 @@ class IpcFrameCodec final : public IIpcFrameCodec {
     static std::expected<IpcMessage, IpcRejectReason>
     DecodeHelloAck(std::uint64_t correlationId,
                    std::span<const std::byte> payload);
+
+    ///  Decodes a bounded resynchronization plan, validating counts, exact
+    ///  length, and nonzero keys before allocating its lists.
+    ///  @param correlationId The request correlation id from the frame header.
+    ///  @param payload The count-prefixed event and sample intent lists.
+    ///  @return The decoded plan or its malformed-payload failure.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeResynchronizeRequest(std::uint64_t correlationId,
+                               std::span<const std::byte> payload);
 
     ///  Decodes an `IpcResynchronizeResultMessage` payload, validating its
     ///  boolean field.

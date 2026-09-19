@@ -11,24 +11,43 @@ namespace DovahLink.Host.Tests.Adapter.Ipc;
 /// <summary>Tests for <see cref="AdapterIpcConnection"/>.</summary>
 public class AdapterIpcConnectionTests
 {
-    /// <summary>Reads the shared native/host private-IPC rate-limit fixture.</summary>
-    private static (int MaxMessagesPerSecond, TimeSpan MessageRateWindow) ReadPrivateIpcLimitsFixture()
+    /// <summary>Reads the shared native/host private-IPC limits fixture.</summary>
+    /// <returns>The rate window and resynchronization plan bounds shared by the Host and Adapter.</returns>
+    private static (
+        int MaxMessagesPerSecond,
+        TimeSpan MessageRateWindow,
+        int MaxResynchronizationEventKeys,
+        int MaxResynchronizationSampleTokens) ReadPrivateIpcLimitsFixture()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "adapter-host-ipc", "fixtures", "private-ipc-limits.json");
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
         int maxMessages = document.RootElement.GetProperty("maxMessagesPerSecond").GetInt32();
         int windowMilliseconds = document.RootElement.GetProperty("messageRateWindowMilliseconds").GetInt32();
-        return (maxMessages, TimeSpan.FromMilliseconds(windowMilliseconds));
+        int maxEventKeys = document.RootElement.GetProperty("maxResynchronizationEventKeys").GetInt32();
+        int maxSampleTokens = document.RootElement.GetProperty("maxResynchronizationSampleTokens").GetInt32();
+        return (maxMessages, TimeSpan.FromMilliseconds(windowMilliseconds), maxEventKeys, maxSampleTokens);
     }
 
     /// <summary>Verifies that the host constants remain synchronized with the shared contract fixture.</summary>
     [Fact]
     public void InboundRateLimit_MatchesSharedPrivateIpcFixture()
     {
-        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+        var limits = ReadPrivateIpcLimitsFixture();
 
-        Assert.Equal(Constants.MaxIpcMessagesPerSecond, maxMessages);
-        Assert.Equal(Constants.IpcMessageRateWindow, window);
+        Assert.Equal(Constants.MaxIpcMessagesPerSecond, limits.MaxMessagesPerSecond);
+        Assert.Equal(Constants.IpcMessageRateWindow, limits.MessageRateWindow);
+    }
+
+    /// <summary>
+    /// Verifies that Host resynchronization-plan bounds match the shared private-IPC fixture.
+    /// </summary>
+    [Fact]
+    public void ResynchronizationPlanBounds_MatchSharedPrivateIpcFixture()
+    {
+        var limits = ReadPrivateIpcLimitsFixture();
+
+        Assert.Equal(Constants.MaxResynchronizationEventKeys, limits.MaxResynchronizationEventKeys);
+        Assert.Equal(Constants.MaxResynchronizationSampleTokens, limits.MaxResynchronizationSampleTokens);
     }
 
     // ---- Handshake and resynchronization, over a real connected stream pair ----
@@ -833,7 +852,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ClosesAfterLimit()
     {
-        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
+        int maxMessages = ReadPrivateIpcLimitsFixture().MaxMessagesPerSecond;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -862,7 +881,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ForceClosesBlockedWriter()
     {
-        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
+        int maxMessages = ReadPrivateIpcLimitsFixture().MaxMessagesPerSecond;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var blockingStream = new BlockingWriteStream(server);
         var session = new FakeAdapterIpcSession();
@@ -890,7 +909,9 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_AllowsMessagesAfterWindowExpires()
     {
-        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+        var limits = ReadPrivateIpcLimitsFixture();
+        int maxMessages = limits.MaxMessagesPerSecond;
+        TimeSpan window = limits.MessageRateWindow;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -921,7 +942,9 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ExactWindowBoundaryRemainsLimited()
     {
-        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+        var limits = ReadPrivateIpcLimitsFixture();
+        int maxMessages = limits.MaxMessagesPerSecond;
+        TimeSpan window = limits.MessageRateWindow;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Linq;
 using System.Text;
 using System.Text.Unicode;
 using DovahLink.Host.Identity;
@@ -45,7 +46,8 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         {
             IpcHelloMessage hello => (IpcMessageKind.Hello, EncodeHello(hello)),
             IpcHelloAckMessage helloAck => (IpcMessageKind.HelloAck, EncodeHelloAck(helloAck)),
-            IpcResynchronizeRequestMessage => (IpcMessageKind.ResynchronizeRequest, Array.Empty<byte>()),
+            IpcResynchronizeRequestMessage resynchronizeRequest =>
+                (IpcMessageKind.ResynchronizeRequest, EncodeResynchronizeRequest(resynchronizeRequest)),
             IpcResynchronizeResultMessage resynchronizeResult =>
                 (IpcMessageKind.ResynchronizeResult, new byte[] { resynchronizeResult.Accepted ? (byte)1 : (byte)0 }),
             IpcCloseMessage close => (IpcMessageKind.Close, EncodeClose(close)),
@@ -116,9 +118,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         {
             IpcMessageKind.Hello => DecodeHello(correlationId, payload),
             IpcMessageKind.HelloAck => DecodeHelloAck(correlationId, payload),
-            IpcMessageKind.ResynchronizeRequest => payload.IsEmpty
-                ? IpcDecodeResult.Success(new IpcResynchronizeRequestMessage(correlationId))
-                : IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload),
+            IpcMessageKind.ResynchronizeRequest => DecodeResynchronizeRequest(correlationId, payload),
             IpcMessageKind.ResynchronizeResult => DecodeResynchronizeResult(correlationId, payload),
             IpcMessageKind.Close => DecodeClose(correlationId, payload),
             IpcMessageKind.Reject => DecodeReject(correlationId, payload),
@@ -235,6 +235,45 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         return payload;
     }
 
+    /// <summary>
+    /// Encodes an event-count byte and little-endian event keys, followed by a sample-count byte and
+    /// little-endian sample tokens.
+    /// </summary>
+    /// <param name="request">The resynchronization request to encode.</param>
+    /// <returns>The bounded resynchronization payload.</returns>
+    /// <exception cref="ArgumentNullException">Either intent list is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">A list exceeds its bound or contains a zero intent key.</exception>
+    private static byte[] EncodeResynchronizeRequest(IpcResynchronizeRequestMessage request)
+    {
+        ArgumentNullException.ThrowIfNull(request.PersistentEventKeys);
+        ArgumentNullException.ThrowIfNull(request.BaselineSampleTokens);
+        if (request.PersistentEventKeys.Count > Constants.MaxResynchronizationEventKeys ||
+            request.BaselineSampleTokens.Count > Constants.MaxResynchronizationSampleTokens ||
+            request.PersistentEventKeys.Contains(0u) || request.BaselineSampleTokens.Contains(0u))
+        {
+            throw new ArgumentException("The resynchronization plan exceeds its bounds or contains a zero intent key.", nameof(request));
+        }
+
+        int sampleCountOffset = 1 + request.PersistentEventKeys.Count * sizeof(uint);
+        byte[] payload = new byte[sampleCountOffset + 1 + request.BaselineSampleTokens.Count * sizeof(uint)];
+        payload[0] = (byte)request.PersistentEventKeys.Count;
+        int offset = 1;
+        foreach (uint eventKey in request.PersistentEventKeys)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(offset, sizeof(uint)), eventKey);
+            offset += sizeof(uint);
+        }
+
+        payload[offset++] = (byte)request.BaselineSampleTokens.Count;
+        foreach (uint sampleToken in request.BaselineSampleTokens)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(offset, sizeof(uint)), sampleToken);
+            offset += sizeof(uint);
+        }
+
+        return payload;
+    }
+
     /// <summary>Validates the common identity rules for host-directed capture intents.</summary>
     /// <param name="correlationId">The request correlation id.</param>
     /// <param name="intentId">The event key or sample token.</param>
@@ -294,6 +333,68 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         byte[] hostProof = payload.Slice(2, Constants.IpcHostProofBytes).ToArray();
         return IpcDecodeResult.Success(
             new IpcHelloAckMessage(correlationId, accepted, (IpcHelloRejectReason)payload[1], hostProof));
+    }
+
+    /// <summary>
+    /// Decodes a bounded resynchronization plan, validating counts, exact length, and nonzero keys
+    /// before allocation.
+    /// </summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The count-prefixed event and sample intent lists.</param>
+    /// <returns>The decoded plan or a malformed-payload failure.</returns>
+    private static IpcDecodeResult DecodeResynchronizeRequest(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 2)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        int eventCount = payload[0];
+        if (eventCount > Constants.MaxResynchronizationEventKeys)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        int sampleCountOffset = 1 + eventCount * sizeof(uint);
+        if (payload.Length <= sampleCountOffset)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        int sampleCount = payload[sampleCountOffset];
+        if (sampleCount > Constants.MaxResynchronizationSampleTokens ||
+            payload.Length != sampleCountOffset + 1 + sampleCount * sizeof(uint))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        uint[] eventKeys = new uint[eventCount];
+        for (int index = 0; index < eventCount; index++)
+        {
+            uint eventKey = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(1 + index * sizeof(uint), sizeof(uint)));
+            if (eventKey == 0)
+            {
+                return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+            }
+
+            eventKeys[index] = eventKey;
+        }
+
+        uint[] sampleTokens = new uint[sampleCount];
+        int offset = sampleCountOffset + 1;
+        for (int index = 0; index < sampleCount; index++)
+        {
+            uint sampleToken = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(offset, sizeof(uint)));
+            if (sampleToken == 0)
+            {
+                return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+            }
+
+            sampleTokens[index] = sampleToken;
+            offset += sizeof(uint);
+        }
+
+        return IpcDecodeResult.Success(new IpcResynchronizeRequestMessage(correlationId, eventKeys, sampleTokens));
     }
 
     /// <summary>Decodes an <see cref="IpcResynchronizeResultMessage"/> payload, validating its boolean field.</summary>

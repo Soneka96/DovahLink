@@ -55,6 +55,8 @@ using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxIpcFrameBytes;
 using dovahlink::adapter::ipc::kMaxIpcPeerProofTokenBytes;
 using dovahlink::adapter::ipc::kMaxIpcTrustAdminResultTextBytes;
+using dovahlink::adapter::ipc::kMaxResynchronizationEventKeys;
+using dovahlink::adapter::ipc::kMaxResynchronizationSampleTokens;
 using dovahlink::adapter::ipc::kPairingChallengeCodeDigits;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::TrustAdminListScope;
@@ -302,7 +304,22 @@ TEST_CASE("rejected hello-ack round-trips for every reject reason",
     }
 }
 
-TEST_CASE("resynchronize-request round-trips", "[ipc][ipc_frame_codec]") {
+TEST_CASE("resynchronize-request round-trips ordered intent lists",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcResynchronizeRequestMessage original{
+        .correlationId = 42,
+        .persistentEventKeys = {0x11223344, 0x11223344, 0x55667788},
+        .baselineSampleTokens = {0xAABBCCDD, 3, 0xAABBCCDD}};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("resynchronize-request accepts an empty no-op plan",
+          "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
     IpcResynchronizeRequestMessage original{.correlationId = 42};
 
@@ -310,6 +327,76 @@ TEST_CASE("resynchronize-request round-trips", "[ipc][ipc_frame_codec]") {
 
     REQUIRE(result.has_value());
     CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("resynchronize-request accepts either intent list by itself",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    const std::array<IpcResynchronizeRequestMessage, 2> requests{
+        IpcResynchronizeRequestMessage{.correlationId = 42,
+                                       .persistentEventKeys = {11, 12}},
+        IpcResynchronizeRequestMessage{.correlationId = 43,
+                                       .baselineSampleTokens = {21, 22}},
+    };
+
+    for (const IpcResynchronizeRequestMessage& request : requests) {
+        auto result = EncodeThenDecode(codec, IpcMessage{request});
+
+        REQUIRE(result.has_value());
+        CHECK(*result == IpcMessage{request});
+    }
+}
+
+TEST_CASE("resynchronize-request round-trips at both count bounds",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcResynchronizeRequestMessage original{.correlationId = 42};
+    for (std::size_t index = 0; index < kMaxResynchronizationEventKeys;
+         ++index) {
+        original.persistentEventKeys.push_back(
+            static_cast<std::uint32_t>(index + 1));
+    }
+    for (std::size_t index = 0; index < kMaxResynchronizationSampleTokens;
+         ++index) {
+        original.baselineSampleTokens.push_back(
+            static_cast<std::uint32_t>(index + 101));
+    }
+
+    std::vector<std::byte> encoded = codec.Encode(IpcMessage{original});
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    CHECK(encoded.size() == 4 + kIpcFrameHeaderBytes + 2 +
+                                sizeof(std::uint32_t) *
+                                    (original.persistentEventKeys.size() +
+                                     original.baselineSampleTokens.size()));
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("resynchronize-request encode rejects over-bound lists and zero keys",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::uint32_t> tooManyEventKeys(
+        kMaxResynchronizationEventKeys + 1, 1);
+    std::vector<std::uint32_t> tooManySampleTokens(
+        kMaxResynchronizationSampleTokens + 1, 1);
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .persistentEventKeys = tooManyEventKeys}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .baselineSampleTokens = tooManySampleTokens}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .persistentEventKeys = {0}}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .baselineSampleTokens = {0}}}),
+                    std::invalid_argument);
 }
 
 TEST_CASE("resynchronize-result round-trips for both outcomes",
@@ -1172,16 +1259,42 @@ TEST_CASE("a hello-ack payload of the wrong length fails closed",
     }
 }
 
-TEST_CASE("a resynchronize-request carrying an unexpected payload fails closed",
+TEST_CASE("a resynchronize-request without count bytes fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
     std::vector<std::byte> frame =
-        BuildFrame(IpcMessageKind::kResynchronizeRequest, 1, {std::byte{0}});
+        BuildFrame(IpcMessageKind::kResynchronizeRequest, 1, {});
 
     auto result = codec.Decode(frame);
 
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a resynchronize-request with malformed bounds, lengths, or keys fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    const std::array<std::vector<std::byte>, 7> payloads{
+        Bytes({static_cast<std::uint8_t>(kMaxResynchronizationEventKeys + 1),
+               0}),
+        Bytes({0, static_cast<std::uint8_t>(
+                      kMaxResynchronizationSampleTokens + 1)}),
+        Bytes({0}),
+        Bytes({0, 0, 0}),
+        Bytes({1, 0}),
+        Bytes({1, 0, 0, 0, 0, 0}),
+        Bytes({0, 1, 0, 0, 0, 0}),
+    };
+
+    for (const std::vector<std::byte>& payload : payloads) {
+        std::vector<std::byte> frame =
+            BuildFrame(IpcMessageKind::kResynchronizeRequest, 1, payload);
+
+        auto result = codec.Decode(frame);
+
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+    }
 }
 
 TEST_CASE("a resynchronize-result payload with an out-of-range accepted byte "
@@ -1884,9 +1997,14 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})},
-        {IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 4}},
-         Bytes({0x09, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00})},
+        {IpcMessage{IpcResynchronizeRequestMessage{
+             .correlationId = 4,
+             .persistentEventKeys = {0x11223344, 0x55667788},
+             .baselineSampleTokens = {0xAABBCCDD, 3}}},
+         Bytes({0x1B, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x02, 0x44, 0x33, 0x22, 0x11, 0x88, 0x77,
+                0x66, 0x55, 0x02, 0xDD, 0xCC, 0xBB, 0xAA, 0x03, 0x00, 0x00,
+                0x00})},
         {IpcMessage{
              IpcResynchronizeResultMessage{.correlationId = 5, .accepted = true}},
          Bytes({0x0A, 0x00, 0x00, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00,

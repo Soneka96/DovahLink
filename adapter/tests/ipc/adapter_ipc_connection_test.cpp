@@ -41,6 +41,8 @@ using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::kMaxIpcMessagesPerSecond;
 using dovahlink::adapter::ipc::kMaxIpcQueuedMessages;
+using dovahlink::adapter::ipc::kMaxResynchronizationEventKeys;
+using dovahlink::adapter::ipc::kMaxResynchronizationSampleTokens;
 using dovahlink::adapter::ipc::test_support::FakeAdapterIpcSocket;
 using dovahlink::adapter::test_support::ReadSource;
 
@@ -223,6 +225,14 @@ TEST_CASE("AdapterIpcConnection enforces the shared inbound message-rate "
     CHECK(delivered.load() == maxMessages);
 
     connection.Stop();
+}
+
+TEST_CASE("resynchronization plan bounds match the shared private-IPC fixture",
+          "[ipc][adapter_ipc_connection]") {
+    CHECK(ReadPrivateIpcLimit("maxResynchronizationEventKeys") ==
+          kMaxResynchronizationEventKeys);
+    CHECK(ReadPrivateIpcLimit("maxResynchronizationSampleTokens") ==
+          kMaxResynchronizationSampleTokens);
 }
 
 TEST_CASE("AdapterIpcConnection resets inbound rate history for a reconnect") {
