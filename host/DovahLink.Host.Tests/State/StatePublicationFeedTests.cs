@@ -120,6 +120,39 @@ public class StatePublicationFeedTests
         Assert.True(feed.TryGetSnapshot(AreaId, out _));
     }
 
+    /// <summary>Verifies that an unchanged baseline raises only an availability hint after the adapter clears its resynchronization gate.</summary>
+    [Fact]
+    public void EstablishBaseline_WhileResynchronizing_RaisesAvailabilityAfterResynchronizationWithoutSnapshotChanged()
+    {
+        (StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, _, _, PlayContextId context) = CreateReadyFeed();
+        adapterTracker.NeedsResynchronization = true;
+        bool snapshotChanged = false;
+        bool snapshotAvailabilityChanged = false;
+        bool resynchronizationGateWasClearAtNotification = false;
+        feed.SnapshotChanged += _ => snapshotChanged = true;
+        feed.SnapshotAvailabilityChanged += () =>
+        {
+            snapshotAvailabilityChanged = true;
+            resynchronizationGateWasClearAtNotification = !adapterTracker.NeedsResynchronization;
+        };
+
+        feed.EstablishBaseline(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
+
+        Assert.False(snapshotChanged);
+        Assert.False(snapshotAvailabilityChanged);
+        Assert.False(feed.TryGetSnapshot(AreaId, out _));
+
+        IAdapterResynchronizationToken token = Assert.IsAssignableFrom<IAdapterResynchronizationToken>(adapterTracker.TryClaimResynchronizationToken());
+        AdapterInstanceId instanceId = adapterTracker.CurrentInstanceId!.Value;
+        adapterTracker.NotifyResynchronized(instanceId, adapterTracker.CurrentConnectionGeneration, token);
+
+        Assert.False(snapshotChanged);
+        Assert.True(snapshotAvailabilityChanged);
+        Assert.True(resynchronizationGateWasClearAtNotification);
+        Assert.True(feed.TryGetSnapshot(AreaId, out StateSnapshotPublication? stored));
+        Assert.Equal(AreaId, stored!.StateArea);
+    }
+
     /// <summary>Verifies that a publish stamped with a play context other than the current one is a silent no-op, isolating one side of the freshness check's OR condition.</summary>
     [Fact]
     public void PublishSnapshot_StalePlayContextId_DoesNothing()

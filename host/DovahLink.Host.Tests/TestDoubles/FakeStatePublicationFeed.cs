@@ -15,6 +15,9 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
     /// <inheritdoc/>
     public event Action<StateSnapshotPublication>? SnapshotChanged;
 
+    /// <inheritdoc/>
+    public event Action? SnapshotAvailabilityChanged;
+
     /// <summary>Whether any caller currently holds a live registration on <see cref="EventOccurred"/>.</summary>
     public bool HasSubscribers => EventOccurred is not null;
 
@@ -45,4 +48,7 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
     /// <summary>Raises <see cref="SnapshotChanged"/>, as a real feed would when a registered Snapshot-mode area's value changes.</summary>
     /// <param name="snapshotPublication">The snapshot value to raise.</param>
     public void RaiseSnapshotChanged(StateSnapshotPublication snapshotPublication) => SnapshotChanged?.Invoke(snapshotPublication);
+
+    /// <summary>Raises <see cref="SnapshotAvailabilityChanged"/> without claiming that a snapshot is readable.</summary>
+    public void RaiseSnapshotAvailabilityChanged() => SnapshotAvailabilityChanged?.Invoke();
 }

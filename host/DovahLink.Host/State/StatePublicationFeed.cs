@@ -48,6 +48,7 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         this.registeredStateAreaPolicy = registeredStateAreaPolicy;
 
         adapterAvailabilityTracker.AvailabilityChanged += HandleAdapterAvailabilityChanged;
+        adapterAvailabilityTracker.Resynchronized += (_, _) => RaiseSnapshotAvailabilityChanged();
         playContextTracker.Transitioned += HandlePlayContextTransitioned;
     }
 
@@ -56,6 +57,9 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
 
     /// <inheritdoc/>
     public event Action<StateSnapshotPublication>? SnapshotChanged;
+
+    /// <inheritdoc/>
+    public event Action? SnapshotAvailabilityChanged;
 
     /// <inheritdoc/>
     public bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot)
@@ -162,6 +166,28 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
             {
                 // A subscriber's own failure must never prevent another subscriber from receiving
                 // this publication, or escape into the capture path that produced it.
+            }
+        }
+    }
+
+    /// <summary>Invokes every snapshot-availability subscriber, containing each one's exception individually.</summary>
+    private void RaiseSnapshotAvailabilityChanged()
+    {
+        Delegate[]? subscribers = SnapshotAvailabilityChanged?.GetInvocationList();
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        foreach (Delegate subscriber in subscribers)
+        {
+            try
+            {
+                ((Action)subscriber).Invoke();
+            }
+            catch (Exception)
+            {
+                // A failed availability hint must not prevent other consumers from retrying.
             }
         }
     }

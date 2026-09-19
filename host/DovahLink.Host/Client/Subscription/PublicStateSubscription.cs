@@ -203,6 +203,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             {
                 feed.EventOccurred += OnEventOccurred;
                 feed.SnapshotChanged += OnSnapshotChanged;
+                feed.SnapshotAvailabilityChanged += OnSnapshotAvailabilityChanged;
                 playContextTracker.Transitioned += OnPlayContextTransitioned;
                 stateAuthorityLifecycle.Rotated += OnStateAuthorityRotated;
                 subscribedToExternalEvents = true;
@@ -306,6 +307,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
             feed.EventOccurred -= OnEventOccurred;
             feed.SnapshotChanged -= OnSnapshotChanged;
+            feed.SnapshotAvailabilityChanged -= OnSnapshotAvailabilityChanged;
             playContextTracker.Transitioned -= OnPlayContextTransitioned;
             stateAuthorityLifecycle.Rotated -= OnStateAuthorityRotated;
             subscribedToExternalEvents = false;
@@ -531,6 +533,33 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     }
 
     /// <summary>
+    /// Retries every still-pending baseline after resynchronization may have made cached values
+    /// readable. An in-flight attempt is included so a resynchronization that completes just before
+    /// that attempt falls back to <see cref="AreaDeliveryPhase.AwaitingBaseline"/> cannot lose its
+    /// only wake. Each retry rechecks the feed and its captured recovery epoch.
+    /// </summary>
+    private void OnSnapshotAvailabilityChanged()
+    {
+        List<(StateAreaId AreaId, string CorrelationMessageId, long RecoveryEpoch)> pendingBaselines = [];
+        lock (gate)
+        {
+            foreach ((StateAreaId areaId, AreaState state) in areaStates)
+            {
+                if (state.Phase is AreaDeliveryPhase.AwaitingBaseline or AreaDeliveryPhase.Recovering
+                    && state.RecoveryCorrelationMessageId is string correlationMessageId)
+                {
+                    pendingBaselines.Add((areaId, correlationMessageId, state.RecoveryEpoch));
+                }
+            }
+        }
+
+        foreach ((StateAreaId areaId, string correlationMessageId, long recoveryEpoch) in pendingBaselines)
+        {
+            TryEstablishBaseline(areaId, correlationMessageId, recoveryEpoch);
+        }
+    }
+
+    /// <summary>
     /// Establishes a fresh baseline for <paramref name="areaId"/> through the reserved Control/Recovery
     /// lane. Enters <see cref="AreaDeliveryPhase.Recovering"/> under a fresh recovery epoch, with the
     /// barrier revision still unknown, before reading <paramref name="areaId"/>'s current value from
@@ -560,7 +589,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// so a later held-Event overflow's re-baseline (see <see cref="OnEventOccurred"/>) can reuse it
     /// instead of inventing a correlation no client request ever made.
     /// </param>
-    private void TryEstablishBaseline(StateAreaId areaId, string correlationMessageId)
+    /// <param name="expectedRecoveryEpoch">
+    /// The still-current attempt required for an availability retry, or <see langword="null"/> for
+    /// an initial or publication-driven attempt.
+    /// </param>
+    private void TryEstablishBaseline(StateAreaId areaId, string correlationMessageId, long? expectedRecoveryEpoch = null)
     {
         IPublicConnectionContext? currentConnectionContext;
         SessionId? currentSessionId;
@@ -575,6 +608,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             }
 
             AreaState state = GetOrCreateAreaState(areaId);
+            if (expectedRecoveryEpoch is long expectedEpoch
+                && (state.RecoveryEpoch != expectedEpoch
+                    || state.RecoveryCorrelationMessageId != correlationMessageId
+                    || state.Phase is not (AreaDeliveryPhase.AwaitingBaseline or AreaDeliveryPhase.Recovering)))
+            {
+                return;
+            }
+
             // This fresh attempt supersedes anything a previous pending attempt was still waiting on.
             CancelPendingBaselineDeadlineLocked(state);
             state.Phase = AreaDeliveryPhase.Recovering;

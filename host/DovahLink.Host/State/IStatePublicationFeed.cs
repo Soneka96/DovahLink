@@ -54,6 +54,13 @@ public interface IStatePublicationFeed
     event Action<StateSnapshotPublication>? SnapshotChanged;
 
     /// <summary>
+    /// Raised when adapter resynchronization completes and a cached snapshot may now be readable.
+    /// This is only an availability hint; consumers must still call <see cref="TryGetSnapshot"/> to
+    /// validate current authority, connection, play context, and resynchronization state.
+    /// </summary>
+    event Action? SnapshotAvailabilityChanged;
+
+    /// <summary>
     /// Tries to read a state area's current value as a fresh baseline snapshot. See this
     /// interface's own summary for the freshness guarantee this read makes relative to
     /// <see cref="EventOccurred"/>.
