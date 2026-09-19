@@ -1,3 +1,4 @@
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 using DovahLink.Host.State;
@@ -21,7 +22,7 @@ public class LiveStateSchedulerTests
     {
         FakeAdapterIpcConnection connection = new(new MemoryStream());
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -38,7 +39,7 @@ public class LiveStateSchedulerTests
     {
         FakeAdapterIpcConnection connection = new(new MemoryStream());
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -55,7 +56,7 @@ public class LiveStateSchedulerTests
     {
         FakeAdapterIpcConnection connection = new(new MemoryStream());
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -72,7 +73,7 @@ public class LiveStateSchedulerTests
     public async Task RunAsync_WithNoConnection_SendsNothing()
     {
         FakeAdapterIpcListener listener = new() { CurrentConnection = null };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -81,13 +82,167 @@ public class LiveStateSchedulerTests
         await run;
     }
 
+    /// <summary>Verifies that pending resynchronization suppresses both Fast and Medium ordinary samples.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizationPending_SuppressesFastAndMediumSamples()
+    {
+        FakeAdapterIpcConnection connection = new(new MemoryStream()) { TrySendReadSampleResult = true };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        AdapterAvailabilityTracker adapterAvailabilityTracker = BuildPendingAdapterAvailabilityTracker();
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), adapterAvailabilityTracker, FastIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(70));
+        cancellation.Cancel();
+        await run;
+
+        Assert.Empty(connection.ReadSampleCalls);
+    }
+
+    /// <summary>Verifies that an unavailable Adapter suppresses ordinary samples with an active play context.</summary>
+    [Fact]
+    public async Task RunAsync_AdapterUnavailable_SendsNothing()
+    {
+        FakeAdapterIpcConnection connection = new(new MemoryStream()) { TrySendReadSampleResult = true };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        AdapterAvailabilityTracker adapterAvailabilityTracker = new();
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), adapterAvailabilityTracker, FastIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(70));
+        cancellation.Cancel();
+        await run;
+
+        Assert.Empty(connection.ReadSampleCalls);
+    }
+
+    /// <summary>Verifies that Fast and Medium polling resume after successful resynchronization.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizationCompleted_ResumesFastAndMediumSamples()
+    {
+        FakeAdapterIpcConnection connection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 42,
+            ConnectionGeneration = 1,
+        };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        AdapterAvailabilityTracker adapterAvailabilityTracker = BuildPendingAdapterAvailabilityTracker();
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), adapterAvailabilityTracker, FastIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(70));
+        Assert.Empty(connection.ReadSampleCalls);
+
+        CompleteAdapterResynchronization(adapterAvailabilityTracker);
+        await WaitUntilAsync(
+            () => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals)
+                && connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterXp),
+            run);
+        cancellation.Cancel();
+        await run;
+
+        Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));
+        Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterXp));
+    }
+
+    /// <summary>Verifies that a long resynchronization pause resumes without replaying missed Fast or Medium ticks.</summary>
+    [Fact]
+    public async Task RunAsync_LongResynchronization_DoesNotCatchUpBurst()
+    {
+        FakeAdapterIpcConnection connection = new(new MemoryStream());
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        AdapterAvailabilityTracker adapterAvailabilityTracker = BuildPendingAdapterAvailabilityTracker();
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), adapterAvailabilityTracker, SlotIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(275));
+        Assert.Empty(connection.ReadSampleCalls);
+
+        CompleteAdapterResynchronization(adapterAvailabilityTracker);
+        await WaitUntilAsync(() => connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals) >= 1, run);
+        await Task.Delay(TimeSpan.FromMilliseconds(15));
+        cancellation.Cancel();
+        await run;
+
+        Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));
+        Assert.InRange(connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterXp), 0, 1);
+    }
+
+    /// <summary>Verifies that resynchronization leaves a pre-existing ordinary request outstanding and sends no replacement.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizationStartsWithOutstandingRequest_PreservesItsSlot()
+    {
+        FakeAdapterIpcConnection connection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 42,
+            ConnectionGeneration = 1,
+        };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        FakeLiveCaptureSink liveCaptureSink = new();
+        AdapterAvailabilityTracker adapterAvailabilityTracker = BuildAvailableAdapterAvailabilityTracker();
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), adapterAvailabilityTracker, SlotIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
+        adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
+        await Task.Delay(TimeSpan.FromMilliseconds(120));
+
+        Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));
+        Assert.DoesNotContain(42UL, connection.CancelCalls);
+
+        liveCaptureSink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            42, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Unavailable, default, []), new AdapterCaptureSource(AdapterInstanceId.NewId(), 1));
+        await Task.Delay(TimeSpan.FromMilliseconds(60));
+
+        cancellation.Cancel();
+        await run;
+        Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));
+    }
+
+    /// <summary>Verifies that a pre-resynchronization request can time out without sending its retry until resynchronization completes.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizationPending_ProcessesOutstandingTimeoutWithoutRetry()
+    {
+        FakeAdapterIpcConnection connection = new(new MemoryStream())
+        {
+            TrySendReadSampleResult = true,
+            TrySendReadSampleCorrelationId = 42,
+            ConnectionGeneration = 1,
+        };
+        FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+        AdapterAvailabilityTracker adapterAvailabilityTracker = BuildAvailableAdapterAvailabilityTracker();
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), adapterAvailabilityTracker, SlotIntervals);
+        using CancellationTokenSource cancellation = new();
+
+        Task run = scheduler.RunAsync(cancellation.Token);
+        await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
+        adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
+
+        await WaitUntilAsync(() => connection.CancelCalls.Contains(42UL), run);
+        Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));
+
+        CompleteAdapterResynchronization(adapterAvailabilityTracker);
+        await WaitUntilAsync(() => connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals) > 1, run);
+        cancellation.Cancel();
+        await run;
+
+        Assert.Equal(2, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));
+    }
+
     /// <summary>Verifies that no send is attempted while no play context is active, even with a connection ready to accept one.</summary>
     [Fact]
     public async Task RunAsync_NoActivePlayContext_SendsNothing()
     {
         FakeAdapterIpcConnection connection = new(new MemoryStream()) { TrySendReadSampleResult = true };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), new FakePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), new FakePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -105,7 +260,7 @@ public class LiveStateSchedulerTests
         FakeAdapterIpcConnection connection = new(new MemoryStream()) { TrySendReadSampleResult = true };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var playContextTracker = new FakePlayContextTracker();
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -125,7 +280,7 @@ public class LiveStateSchedulerTests
     public async Task RunAsync_Cancelled_Completes()
     {
         FakeAdapterIpcListener listener = new() { CurrentConnection = null };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -141,7 +296,7 @@ public class LiveStateSchedulerTests
     {
         FakeAdapterIpcConnection connection = new(new MemoryStream()) { TrySendReadSampleResult = true };
         FakeAdapterIpcListener listener = new() { CurrentConnection = null };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -167,7 +322,7 @@ public class LiveStateSchedulerTests
     {
         FakeAdapterIpcConnection connection = new(new MemoryStream()) { TrySendReadSampleResult = true };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -191,7 +346,7 @@ public class LiveStateSchedulerTests
             captureUnits: [new CaptureUnitDefinition(CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged, RateClass: null, SynchronizationRole.PersistentEvent, [new StateAreaId(Constants.CharacterLevelStateArea)])],
             stateAreas: [new StateAreaDefinition(new StateAreaId(Constants.CharacterLevelStateArea), UpdateMode.Event)]);
         FakeAdapterIpcListener listener = new() { CurrentConnection = null };
-        LiveStateScheduler scheduler = new(listener, emptyCatalog, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), FastIntervals);
+        LiveStateScheduler scheduler = new(listener, emptyCatalog, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), FastIntervals);
 
         Task completed = await Task.WhenAny(scheduler.RunAsync(CancellationToken.None), Task.Delay(TimeSpan.FromSeconds(5)));
 
@@ -224,7 +379,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -250,7 +405,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink();
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -278,7 +433,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink(); // stale: the slot was sent under generation 2
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -309,7 +464,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink();
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -337,7 +492,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink();
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -368,7 +523,7 @@ public class LiveStateSchedulerTests
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var liveCaptureSink = new FakeLiveCaptureSink();
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -394,7 +549,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -427,7 +582,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = originalConnection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -466,7 +621,7 @@ public class LiveStateSchedulerTests
             ConnectionGeneration = 1,
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -542,7 +697,7 @@ public class LiveStateSchedulerTests
             Thread.Sleep(TimeSpan.FromMilliseconds(20));
         };
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, liveCaptureSink, Fixtures.BuildActivePlayContextTracker(), BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -574,7 +729,7 @@ public class LiveStateSchedulerTests
         FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
         var playContextTracker = new FakePlayContextTracker();
         playContextTracker.NotifyTransition(new PlayContextId(Guid.NewGuid()));
-        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, SlotIntervals);
+        LiveStateScheduler scheduler = new(listener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, BuildAvailableAdapterAvailabilityTracker(), SlotIntervals);
         using CancellationTokenSource cancellation = new();
 
         Task run = scheduler.RunAsync(cancellation.Token);
@@ -614,5 +769,36 @@ public class LiveStateSchedulerTests
             Assert.True(DateTime.UtcNow < deadline, "Condition was not met within the expected time.");
             await Task.Delay(2);
         }
+    }
+
+    /// <summary>Creates connected Adapter state with a completed resynchronization.</summary>
+    /// <returns>Availability state that permits ordinary scheduled samples.</returns>
+    private static AdapterAvailabilityTracker BuildAvailableAdapterAvailabilityTracker()
+    {
+        AdapterAvailabilityTracker tracker = BuildPendingAdapterAvailabilityTracker();
+        CompleteAdapterResynchronization(tracker);
+        return tracker;
+    }
+
+    /// <summary>Creates connected Adapter state with a pending resynchronization.</summary>
+    /// <returns>Availability state that suppresses ordinary scheduled samples.</returns>
+    private static AdapterAvailabilityTracker BuildPendingAdapterAvailabilityTracker()
+    {
+        AdapterAvailabilityTracker tracker = new();
+        tracker.CommitConnected(AdapterInstanceId.NewId(), 1);
+        return tracker;
+    }
+
+    /// <summary>Completes the current Adapter resynchronization.</summary>
+    /// <param name="tracker">The connected Adapter availability tracker to update.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the tracker has no pending connected resynchronization.</exception>
+    private static void CompleteAdapterResynchronization(AdapterAvailabilityTracker tracker)
+    {
+        AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
+        AdapterInstanceId instanceId = snapshot.CurrentInstanceId
+            ?? throw new InvalidOperationException("The connected Adapter identity is missing.");
+        IAdapterResynchronizationToken token = tracker.TryClaimResynchronizationToken()
+            ?? throw new InvalidOperationException("No Adapter resynchronization is pending.");
+        tracker.NotifyResynchronized(instanceId, snapshot.ConnectionGeneration, token);
     }
 }

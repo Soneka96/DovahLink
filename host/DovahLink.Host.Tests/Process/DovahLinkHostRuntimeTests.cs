@@ -1,3 +1,4 @@
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Process;
@@ -27,7 +28,7 @@ public class DovahLinkHostRuntimeTests
         var runtime = new DovahLinkHostRuntime(
             adapterListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
             new FakeAdapterPeerProofVerifier { ExpectedToken = [1, 2, 3], HostProofKey = [4, 5, 6] },
-            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker),
+            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, new AdapterAvailabilityTracker()),
             new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), adapterListener), publicListener);
         using var shutdown = new CancellationTokenSource();
 
@@ -74,7 +75,7 @@ public class DovahLinkHostRuntimeTests
         var runtime = new DovahLinkHostRuntime(
             noPublicListenerAdapterListener, new FakeHostShutdownSignal(), new HostProcessLifetime(),
             new FakeHostRendezvousPublisher(), output, new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
-            new LiveStateScheduler(noPublicListenerAdapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker),
+            new LiveStateScheduler(noPublicListenerAdapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, new AdapterAvailabilityTracker()),
             new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), noPublicListenerAdapterListener));
         using var shutdown = new CancellationTokenSource();
         shutdown.Cancel();
@@ -102,7 +103,7 @@ public class DovahLinkHostRuntimeTests
         var runtime = new DovahLinkHostRuntime(
             adapterListener, shutdownSignal, new HostProcessLifetime(), rendezvousPublisher, output,
             new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
-            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker),
+            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, new AdapterAvailabilityTracker()),
             new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), adapterListener), publicListener);
         using var shutdown = new CancellationTokenSource();
 
@@ -129,7 +130,7 @@ public class DovahLinkHostRuntimeTests
             lifetimeCompletesAdapterListener, new FakeHostShutdownSignal(), new HostProcessLifetime(),
             new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
             new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
-            new LiveStateScheduler(lifetimeCompletesAdapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker),
+            new LiveStateScheduler(lifetimeCompletesAdapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, new AdapterAvailabilityTracker()),
             new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), lifetimeCompletesAdapterListener), new FakePublicWebSocketListener());
         using var shutdown = new CancellationTokenSource();
         shutdown.Cancel();
@@ -150,7 +151,7 @@ public class DovahLinkHostRuntimeTests
             shutdownSignalSetAdapterListener, shutdownSignal, new HostProcessLifetime(),
             new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
             new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
-            new LiveStateScheduler(shutdownSignalSetAdapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker),
+            new LiveStateScheduler(shutdownSignalSetAdapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, new AdapterAvailabilityTracker()),
             new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), shutdownSignalSetAdapterListener), new FakePublicWebSocketListener());
         using var shutdown = new CancellationTokenSource();
 
@@ -182,7 +183,7 @@ public class DovahLinkHostRuntimeTests
                 adapterListener, shutdownSignal, new HostProcessLifetime(),
                 new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
                 new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
-                new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker),
+                new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, new AdapterAvailabilityTracker()),
                 new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), adapterListener), publicListener);
             using var shutdown = new CancellationTokenSource();
 
@@ -215,16 +216,21 @@ public class DovahLinkHostRuntimeTests
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendReadSampleResult = true };
         adapterListener.CurrentConnection = connection;
         var tinyIntervals = new Dictionary<RateClass, TimeSpan> { [RateClass.Fast] = TimeSpan.FromMilliseconds(5), [RateClass.Medium] = TimeSpan.FromMilliseconds(5) };
-        //  The scheduler only ever sends while a play context is active; without this, its own
-        //  send-gate would make this test's expected send never happen.
+        // The scheduler sends only with an active play context and an available, synchronized
+        // Adapter; without either condition this test's expected send never happens.
         var playContextTracker = new FakePlayContextTracker();
         playContextTracker.NotifyTransition(new PlayContextId(Guid.NewGuid()));
+        var adapterAvailabilityTracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId adapterInstanceId = AdapterInstanceId.NewId();
+        adapterAvailabilityTracker.CommitConnected(adapterInstanceId, 1);
+        IAdapterResynchronizationToken resynchronizationToken = adapterAvailabilityTracker.TryClaimResynchronizationToken()!;
+        adapterAvailabilityTracker.NotifyResynchronized(adapterInstanceId, 1, resynchronizationToken);
         var runtime = new DovahLinkHostRuntime(
             adapterListener, new FakeHostShutdownSignal(), new HostProcessLifetime(),
             new FakeHostRendezvousPublisher(), new SynchronizedTextCapture(),
             new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
-            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, tinyIntervals),
-            new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), adapterListener));
+            new LiveStateScheduler(adapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, adapterAvailabilityTracker, tinyIntervals),
+            new PlayContextResynchronizationTrigger(playContextTracker, adapterAvailabilityTracker, adapterListener));
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
