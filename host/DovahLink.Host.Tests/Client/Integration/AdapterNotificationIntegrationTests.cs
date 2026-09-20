@@ -55,7 +55,7 @@ public class AdapterNotificationIntegrationTests
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
         (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
@@ -81,7 +81,7 @@ public class AdapterNotificationIntegrationTests
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
         (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
@@ -118,7 +118,7 @@ public class AdapterNotificationIntegrationTests
         (ClientWebSocket client, _, _) = await ConnectAndAdmitPublicClientAsync(
             publicPort, codec, clientId, new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = TrustedCredential });
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Revoke, ShortId: "54321")));
@@ -169,7 +169,7 @@ public class AdapterNotificationIntegrationTests
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
         (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
@@ -259,7 +259,7 @@ public class AdapterNotificationIntegrationTests
         (ClientWebSocket client, _, _) = await ConnectAndAdmitPublicClientAsync(
             publicPort, codec, clientId, new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = TrustedCredential });
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Block, ShortId: "54321")));
@@ -315,7 +315,7 @@ public class AdapterNotificationIntegrationTests
         (ClientWebSocket client, _, _) = await ConnectAndAdmitPublicClientAsync(
             publicPort, codec, clientId, new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = TrustedCredential });
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.ResetTrust)));
@@ -424,8 +424,13 @@ public class AdapterNotificationIntegrationTests
         return payload!;
     }
 
-    /// <summary>Connects a raw socket to the private adapter listener, standing in for the adapter, and completes its handshake and initial resynchronization exchange.</summary>
-    private static async Task<Socket> ConnectAdapterAsync(int adapterPort, byte[] adapterProofToken, OwnerLifetimeId ownerLifetimeId, IIpcFrameCodec ipcCodec)
+    /// <summary>Connects a raw socket as an active adapter and completes the context-gated resynchronization handshake.</summary>
+    /// <param name="adapterPort">The private adapter listener's bound port.</param>
+    /// <param name="adapterProofToken">The proof token issued by the Host.</param>
+    /// <param name="ownerLifetimeId">The Skyrim process lifetime accepted by the Host.</param>
+    /// <param name="ipcCodec">The codec used for private IPC frames.</param>
+    /// <returns>The connected socket, left open for the test.</returns>
+    private static async Task<Socket> ConnectActiveAdapterAsync(int adapterPort, byte[] adapterProofToken, OwnerLifetimeId ownerLifetimeId, IIpcFrameCodec ipcCodec)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         await socket.ConnectAsync(IPAddress.Loopback, adapterPort);
@@ -434,7 +439,10 @@ public class AdapterNotificationIntegrationTests
 
         var ack = Assert.IsType<IpcHelloAckMessage>(await ReadIpcFrameAsync(stream, ipcCodec));
         Assert.True(ack.Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(await ReadIpcFrameAsync(stream, ipcCodec));
+        await stream.WriteAsync(ipcCodec.Encode(new IpcPlayContextChangedMessage(
+            0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
+        var request = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadIpcFrameAsync(stream, ipcCodec));
+        await stream.WriteAsync(ipcCodec.Encode(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true)));
 
         return socket;
     }

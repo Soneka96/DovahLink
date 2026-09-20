@@ -84,7 +84,10 @@ public class AdapterIpcServiceExtensionsTests
         IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, codec)).Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(
+            0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
+        var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
 
         await adapterStream.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.List, ListScope: TrustAdminListScope.All)));
         var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(adapterStream, codec));
@@ -146,7 +149,10 @@ public class AdapterIpcServiceExtensionsTests
         IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, codec)).Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(
+            0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
+        var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
 
         Task<bool> notifyTask = provider.GetRequiredService<IPairingAdapterNotifier>().TryNotifyCodeAvailableAsync("123456", CancellationToken.None);
         var display = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(adapterStream, codec));
@@ -180,7 +186,9 @@ public class AdapterIpcServiceExtensionsTests
         services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
         services.AddPublicClientServices(publicListenerPort: null);
 
-        return services.BuildServiceProvider();
+        ServiceProvider provider = services.BuildServiceProvider();
+        _ = provider.GetRequiredService<IPlayContextResynchronizationTrigger>();
+        return provider;
     }
 
     /// <summary>Connects a plain client socket to the listener's bound loopback port, standing in for the adapter.</summary>

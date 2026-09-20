@@ -155,7 +155,10 @@ public class PublicClientServiceExtensionsTests
         IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec)).Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
+        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPlayContextChangedMessage(
+            0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
+        var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
+        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
 
         IPublicWebSocketListener listener = provider.GetRequiredService<IPublicWebSocketListener>();
         Task publicRunTask = listener.RunAsync(shutdown.Token);
@@ -208,7 +211,9 @@ public class PublicClientServiceExtensionsTests
         services.AddAdapterIpcServices(listenerPort: 0, ownerLifetimeId);
         services.AddPublicClientServices(publicListenerPort);
 
-        return services.BuildServiceProvider();
+        ServiceProvider provider = services.BuildServiceProvider();
+        _ = provider.GetRequiredService<IPlayContextResynchronizationTrigger>();
+        return provider;
     }
 
     /// <summary>Connects a plain client socket to the listener's bound loopback port, standing in for the adapter.</summary>
