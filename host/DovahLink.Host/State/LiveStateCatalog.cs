@@ -13,8 +13,24 @@ public sealed class LiveStateCatalog
     /// <summary>Creates a catalog from its complete capture unit and state area lists.</summary>
     /// <param name="captureUnits">Every capture unit this catalog defines.</param>
     /// <param name="stateAreas">Every state area this catalog defines.</param>
+    /// <exception cref="InvalidOperationException">A capture unit is an Event with a rate class, or two capture units share the same source and capture key.</exception>
     public LiveStateCatalog(IReadOnlyList<CaptureUnitDefinition> captureUnits, IReadOnlyList<StateAreaDefinition> stateAreas)
     {
+        HashSet<(CaptureSourceKind Source, uint CaptureKey)> identities = [];
+        foreach (CaptureUnitDefinition unit in captureUnits)
+        {
+            if (unit.Source == CaptureSourceKind.Event && unit.RateClass is not null)
+            {
+                throw new InvalidOperationException($"Event capture key {unit.CaptureKey} cannot have a rate class.");
+            }
+
+            if (!identities.Add((unit.Source, unit.CaptureKey)))
+            {
+                throw new InvalidOperationException(
+                    $"Capture identity ({unit.Source}, {unit.CaptureKey}) is duplicated in the live-state catalog.");
+            }
+        }
+
         CaptureUnits = captureUnits;
         StateAreas = stateAreas;
     }
@@ -74,7 +90,7 @@ public sealed class LiveStateCatalog
 
     /// <summary>
     /// Builds the bounded event and sample intents from synchronization roles, preserving catalog
-    /// order for the first occurrence of each key and de-duplicating later occurrences.
+    /// order for each unique key.
     /// </summary>
     /// <returns>The plan derived from this catalog's capture units.</returns>
     /// <exception cref="InvalidOperationException">A capture has an invalid source/role, zero key, or exceeds a plan bound.</exception>

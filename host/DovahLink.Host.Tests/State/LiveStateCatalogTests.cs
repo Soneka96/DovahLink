@@ -2,7 +2,7 @@ using DovahLink.Host.State;
 
 namespace DovahLink.Host.Tests.State;
 
-/// <summary>Tests for <see cref="LiveStateCatalog.Default"/>.</summary>
+/// <summary>Tests for live-state catalog validation and resynchronization plans.</summary>
 public class LiveStateCatalogTests
 {
     /// <summary>Verifies that the default catalog defines exactly the five state areas Stage 4's "Real capture and host integration" slice names, each with its documented update mode.</summary>
@@ -168,43 +168,101 @@ public class LiveStateCatalogTests
         Assert.Empty(plan.BaselineSampleTokens);
     }
 
-    /// <summary>Verifies that duplicate keys are removed in their first catalog occurrence order.</summary>
+    /// <summary>Verifies that a repeated Sample identity is rejected even when the units feed different state areas.</summary>
     [Fact]
-    public void BuildResynchronizationPlan_DeduplicatesEachKeyNamespaceInFirstSeenOrder()
+    public void LiveStateCatalog_DuplicateSampleIdentity_Throws()
+    {
+        CaptureUnitDefinition first = new(
+            CaptureSourceKind.Sample,
+            999,
+            RateClass.Fast,
+            SynchronizationRole.BaselineSample,
+            [new StateAreaId(Constants.CharacterHealthStateArea)]);
+        CaptureUnitDefinition second = new(
+            CaptureSourceKind.Sample,
+            999,
+            RateClass.Medium,
+            SynchronizationRole.BaselineSample,
+            [new StateAreaId(Constants.CharacterMagickaStateArea)]);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => new LiveStateCatalog([first, second], []));
+
+        Assert.Contains("Sample", exception.Message);
+        Assert.Contains("999", exception.Message);
+    }
+
+    /// <summary>Verifies that a repeated Event identity is rejected during catalog construction.</summary>
+    [Fact]
+    public void LiveStateCatalog_DuplicateEventIdentity_Throws()
+    {
+        CaptureUnitDefinition unit = new(
+            CaptureSourceKind.Event,
+            999,
+            RateClass: null,
+            SynchronizationRole.PersistentEvent,
+            []);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => new LiveStateCatalog([unit, unit], []));
+
+        Assert.Contains("Event", exception.Message);
+        Assert.Contains("999", exception.Message);
+    }
+
+    /// <summary>Verifies that one raw key can identify a Sample and an Event because they occupy different source namespaces.</summary>
+    [Fact]
+    public void LiveStateCatalog_SameKeyAcrossSources_IsAllowed()
     {
         var catalog = new LiveStateCatalog(
         [
-            new CaptureUnitDefinition(CaptureSourceKind.Event, 998, null, SynchronizationRole.PersistentEvent, []),
             new CaptureUnitDefinition(CaptureSourceKind.Sample, 999, null, SynchronizationRole.BaselineSample, []),
-            new CaptureUnitDefinition(CaptureSourceKind.Event, 997, null, SynchronizationRole.PersistentEvent, []),
-            new CaptureUnitDefinition(CaptureSourceKind.Event, 998, null, SynchronizationRole.PersistentEvent, []),
-            new CaptureUnitDefinition(CaptureSourceKind.Sample, 1000, null, SynchronizationRole.BaselineSample, []),
-            new CaptureUnitDefinition(CaptureSourceKind.Sample, 999, null, SynchronizationRole.BaselineSample, []),
+            new CaptureUnitDefinition(CaptureSourceKind.Event, 999, null, SynchronizationRole.PersistentEvent, []),
         ], []);
 
         ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
 
-        Assert.Equal([998u, 997u], plan.PersistentEventKeys);
-        Assert.Equal([999u, 1000u], plan.BaselineSampleTokens);
+        Assert.Equal([999u], plan.BaselineSampleTokens);
+        Assert.Equal([999u], plan.PersistentEventKeys);
     }
 
-    /// <summary>Verifies that exact count bounds remain valid when duplicate catalog entries exceed those counts.</summary>
+    /// <summary>Verifies that Event captures with a rate class fail during catalog construction with a clear configuration error.</summary>
     [Fact]
-    public void BuildResynchronizationPlan_AtBoundWithDuplicates_StaysBounded()
+    public void LiveStateCatalog_EventWithRateClass_Throws()
+    {
+        var eventUnit = new CaptureUnitDefinition(
+            CaptureSourceKind.Event,
+            999,
+            RateClass.Fast,
+            SynchronizationRole.PersistentEvent,
+            []);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => new LiveStateCatalog([eventUnit], []));
+
+        Assert.Contains("Event", exception.Message);
+        Assert.Contains("rate class", exception.Message);
+    }
+
+    /// <summary>Verifies that unique identities at both exact plan bounds remain valid and adding a duplicate identity fails.</summary>
+    [Fact]
+    public void BuildResynchronizationPlan_AtBoundUniqueCatalogSucceeds_DuplicateAppendThrows()
     {
         CaptureUnitDefinition[] eventUnits = Enumerable.Range(1, Constants.MaxResynchronizationEventKeys)
             .Select(key => new CaptureUnitDefinition(CaptureSourceKind.Event, (uint)key, null, SynchronizationRole.PersistentEvent, []))
-            .Append(new CaptureUnitDefinition(CaptureSourceKind.Event, 1, null, SynchronizationRole.PersistentEvent, []))
             .ToArray();
         CaptureUnitDefinition[] sampleUnits = Enumerable.Range(1, Constants.MaxResynchronizationSampleTokens)
             .Select(key => new CaptureUnitDefinition(CaptureSourceKind.Sample, (uint)key, null, SynchronizationRole.BaselineSample, []))
-            .Append(new CaptureUnitDefinition(CaptureSourceKind.Sample, 1, null, SynchronizationRole.BaselineSample, []))
             .ToArray();
 
         ResynchronizationPlan plan = new LiveStateCatalog([.. eventUnits, .. sampleUnits], []).BuildResynchronizationPlan();
 
         Assert.Equal(Constants.MaxResynchronizationEventKeys, plan.PersistentEventKeys.Count);
         Assert.Equal(Constants.MaxResynchronizationSampleTokens, plan.BaselineSampleTokens.Count);
+        Assert.Throws<InvalidOperationException>(
+            () => new LiveStateCatalog([.. eventUnits, eventUnits[0]], []));
+        Assert.Throws<InvalidOperationException>(
+            () => new LiveStateCatalog([.. sampleUnits, sampleUnits[0]], []));
     }
 
     /// <summary>Verifies that source and synchronization role must refer to the same key namespace.</summary>
