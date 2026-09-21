@@ -512,13 +512,15 @@ Acceptance criteria:
 - Host restart, adapter restart, game load, save transition, and shutdown do not publish stale state
   as current.
 - The first real state flow is proven over the host, adapter, and client processes.
+- The maintainer validates the real CommonLib capture/lifecycle path in a supported live Skyrim
+  session, covering the manual runtime-validation checklist recorded below.
 
 Not in scope: broad domain expansion beyond the narrow first slice.
 
-**Implementation record.** The existing `ReadSample`/`ListenEvent`/`CaptureResult`/
-`ResynchronizeRequest` private IPC messages, `LiveStateCatalog`, and `LiveCaptureSink` (all already
-built before this slice) needed no changes; the remaining work was entirely the real capture path
-behind them.
+**Implementation record.** The slice began on the existing typed private IPC contract
+(`ReadSample`/`ListenEvent`/`CaptureResult`/`ResynchronizeRequest`). The final implementation
+retains those message families while the Host capture path was generalized around catalog-derived
+resynchronization, domain-handler dispatch, and shared application authority.
 
 - Host: `LiveStateScheduler` drives the Fast/Medium `ReadSample` cadence for the vitals and XP
   capture units from `LiveStateCatalog`, as a third concurrent task in `DovahLinkHostRuntime`. It
