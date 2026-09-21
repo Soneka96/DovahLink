@@ -809,9 +809,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
     def test_local_ci_preflight_covers_all_workflow_command_payloads(self) -> None:
         """Require the local preflight to mirror every CI command surface in order."""
         script = self._read("tooling/run-local-ci.ps1")
+        prerequisite_checker = self._read("tooling/check-local-prerequisites.ps1")
         required_fragments = (
             ". $toolchainScript",
-            "Find-VisualStudioToolchain",
             "Import-VisualStudioEnvironment",
             '$vcpkgBaseline = "2f1d605400c8727cc00c15797aba796c88ccd523"',
             '"clone", "https://github.com/microsoft/vcpkg.git", $vcpkgRoot',
@@ -857,6 +857,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         for fragment in required_fragments:
             self.assertIn(fragment, script)
+        for fragment in (
+            "Find-VisualStudioToolchain -LocatorPath $vswherePath",
+            '"Visual Studio 2022 or 2026 with Desktop development with C++ and MSVC x64/x86"',
+        ):
+            self.assertIn(fragment, prerequisite_checker)
         self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", script)
         self.assertNotIn("vcpkg-registries-cache", script)
 
@@ -940,6 +945,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     ) -> None:
         """Require local CI to locate pinned tools dynamically and invoke the selected paths."""
         script = self._read("tooling/run-local-ci.ps1")
+        prerequisite_checker = self._read("tooling/check-local-prerequisites.ps1")
         toolchain = self._read("tooling/local-ci-toolchain.ps1")
 
         for fragment in (
@@ -952,6 +958,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             'Get-ExecutablePathsFromPath -Name "ninja.exe"',
             '-ExpectedVersion "cmake version 4.4.2"',
             '-ExpectedVersion "1.13.2"',
+        ):
+            self.assertIn(fragment, prerequisite_checker)
+
+        for fragment in (
             "-FilePath $cmakePath",
             '"-DCMAKE_MAKE_PROGRAM=$ninjaPath"',
         ):
@@ -961,6 +971,52 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("Microsoft.VisualStudio.Component.VC.CMake.Project", toolchain)
         self.assertNotIn("CMakeDirectory", toolchain)
         self.assertNotIn("NinjaDirectory", toolchain)
+
+    def test_local_ci_checks_all_prerequisites_before_bootstrapping(self) -> None:
+        """Require an actionable prerequisite report before local CI starts changing temp state."""
+        script = self._read("tooling/run-local-ci.ps1")
+        checker = self._read("tooling/check-local-prerequisites.ps1")
+        readme = self._read("README.md")
+        guide = self._read("DEVELOPMENT.md")
+        local_ci_guide = self._read("ai/context/tooling/local-ci.md")
+
+        check_position = script.index("$prerequisiteReport = Invoke-LocalCiPrerequisiteCheck")
+        failure_guard_position = script.index("if (-not $prerequisiteReport.IsReady)")
+        failure_throw_position = script.index(
+            'throw "Local CI prerequisites are missing. Follow DEVELOPMENT.md and rerun the prerequisite check."'
+        )
+        import_position = script.index("Import-VisualStudioEnvironment -Toolchain $toolchain")
+        cache_position = script.index("$cacheRoot = Join-Path")
+        clone_position = script.index('"clone", "https://github.com/microsoft/vcpkg.git", $vcpkgRoot')
+        self.assertEqual(
+            [
+                check_position,
+                failure_guard_position,
+                failure_throw_position,
+                import_position,
+                cache_position,
+                clone_position,
+            ],
+            sorted(
+                [
+                    check_position,
+                    failure_guard_position,
+                    failure_throw_position,
+                    import_position,
+                    cache_position,
+                    clone_position,
+                ]
+            ),
+        )
+        self.assertIn("Get-LocalCiPrerequisiteDefinitions", checker)
+        self.assertIn("InstallCommand", checker)
+        self.assertIn("VerifyCommand", checker)
+        self.assertIn("InstallUrl", checker)
+        self.assertIn("DEVELOPMENT.md", readme)
+        self.assertIn("check-local-prerequisites.ps1", guide)
+        self.assertIn("DEVELOPMENT.md", local_ci_guide)
+        for install_url in re.findall(r'InstallUrl\s*=\s*"([^"]+)"', checker):
+            self.assertIn(install_url, guide, f"DEVELOPMENT.md omits {install_url}.")
 
     def test_published_release_and_roadmap_status_agree(self) -> None:
         """Keep the published version and completed roadmap phase synchronized."""

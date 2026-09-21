@@ -1,5 +1,9 @@
 # Local CI bootstrap
 
+For the human-facing prerequisite list, official installation links, and verification commands, see
+[`DEVELOPMENT.md`](../../../DEVELOPMENT.md). Run `tooling/check-local-prerequisites.ps1` to collect
+missing local CI tools in one report before a build starts.
+
 `tooling/run-local-ci.ps1` mirrors the repository's hosted CI command payloads locally on Windows
 before a push, using a vcpkg checkout cloned at a pinned baseline commit under
 `%LOCALAPPDATA%\Temp\DovahLink\`, plus pinned CMake and Ninja versions discovered from the

@@ -4,21 +4,20 @@
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $toolchainScript = Join-Path $PSScriptRoot "local-ci-toolchain.ps1"
+$prerequisiteScript = Join-Path $PSScriptRoot "check-local-prerequisites.ps1"
 $vcpkgBaseline = "2f1d605400c8727cc00c15797aba796c88ccd523"
 $vcpkgRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg"
 
 . $toolchainScript
-
-$vswhereCandidates = @($env:DOVAHLINK_VSWHERE_PATH)
-if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
-    $vswhereCandidates += Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+. $prerequisiteScript
+$prerequisiteReport = Invoke-LocalCiPrerequisiteCheck
+if (-not $prerequisiteReport.IsReady) {
+    throw "Local CI prerequisites are missing. Follow DEVELOPMENT.md and rerun the prerequisite check."
 }
-$vswhereCandidates += Get-ExecutablePathsFromPath -Name "vswhere.exe"
-$vswherePath = Resolve-ExistingExecutablePath `
-    -ToolName "Visual Studio Installer's vswhere.exe" `
-    -CandidatePaths $vswhereCandidates `
-    -OverrideVariable "DOVAHLINK_VSWHERE_PATH"
-$toolchain = Find-VisualStudioToolchain -LocatorPath $vswherePath
+$toolchain = ($prerequisiteReport.Results | Where-Object { $_.Id -eq "visual-studio" }).Value
+$cmakePath = ($prerequisiteReport.Results | Where-Object { $_.Id -eq "cmake" }).Path
+$ninjaPath = ($prerequisiteReport.Results | Where-Object { $_.Id -eq "ninja" }).Path
+
 Import-VisualStudioEnvironment -Toolchain $toolchain
 
 $cacheRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg-binary-cache"
@@ -110,60 +109,9 @@ function Repair-CorruptVcpkgVersioningCache {
 }
 Repair-CorruptVcpkgVersioningCache -VcpkgRoot $vcpkgRoot
 
-$cmakeCandidates = @($env:DOVAHLINK_CMAKE_PATH)
-if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
-    $cmakeCandidates += Join-Path $env:ChocolateyInstall "bin\cmake.exe"
-}
-$programFiles = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFiles)
-if (-not [string]::IsNullOrWhiteSpace($programFiles)) {
-    $cmakeCandidates += Join-Path $programFiles "CMake\bin\cmake.exe"
-}
-$cmakeCandidates += Get-ExecutablePathsFromPath -Name "cmake.exe"
-$cmakePath = Resolve-PinnedExecutablePath `
-    -ToolName "CMake" `
-    -CandidatePaths $cmakeCandidates `
-    -ExpectedVersion "cmake version 4.4.2" `
-    -OverrideVariable "DOVAHLINK_CMAKE_PATH"
-
-$ninjaCandidates = @($env:DOVAHLINK_NINJA_PATH)
-if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
-    $ninjaCandidates += Join-Path $env:ChocolateyInstall "bin\ninja.exe"
-}
-$ninjaCandidates += @(
-    "C:\ProgramData\chocolatey\bin\ninja.exe",
-    "C:\Program Files\Ninja\ninja.exe"
-)
-$ninjaCandidates += Get-ExecutablePathsFromPath -Name "ninja.exe"
-$ninjaPath = Resolve-PinnedExecutablePath `
-    -ToolName "Ninja" `
-    -CandidatePaths $ninjaCandidates `
-    -ExpectedVersion "1.13.2" `
-    -OverrideVariable "DOVAHLINK_NINJA_PATH"
-
 $env:PATH = "$(Split-Path -Parent $cmakePath);$(Split-Path -Parent $ninjaPath);$env:PATH"
 Write-Host "Using pinned CMake 4.4.2: $cmakePath"
 Write-Host "Using pinned Ninja 1.13.2: $ninjaPath"
-
-$pythonOutput = @(& python --version 2>&1)
-if ($LASTEXITCODE -ne 0) {
-    throw "Python version check failed with exit code $LASTEXITCODE."
-}
-$pythonVersion = ($pythonOutput | Select-Object -First 1).Trim()
-if ($pythonVersion -notmatch "^Python 3\.13\.") {
-    throw "Expected Python 3.13, but found '$pythonVersion'."
-}
-
-$dotnetSdks = @(& dotnet --list-sdks)
-if ($LASTEXITCODE -ne 0) {
-    throw "The .NET SDK version check failed with exit code $LASTEXITCODE."
-}
-if (-not ($dotnetSdks -match "^9\.")) {
-    throw "A .NET 9 SDK is required for the Host build and test steps below."
-}
-
-if ($null -eq (Get-Command flutter -ErrorAction SilentlyContinue)) {
-    throw "Flutter is required for app-ci checks but was not found on PATH."
-}
 
 function Invoke-LocalCommand {
     <#

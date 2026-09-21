@@ -70,6 +70,7 @@ system boundaries.
 - [ARCHITECTURE.md](ARCHITECTURE.md) defines the system boundaries and technical direction.
 - [ROADMAP.md](ROADMAP.md) is the source of truth for phase status, order, and dependencies.
 - [CONTRIBUTING.md](CONTRIBUTING.md) defines the development and proposal workflow.
+- [DEVELOPMENT.md](DEVELOPMENT.md) explains how to install and verify local development prerequisites.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) addresses known issues and solutions.
 
 ## Name
