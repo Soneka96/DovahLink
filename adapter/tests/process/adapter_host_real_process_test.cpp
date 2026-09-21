@@ -1,6 +1,8 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
+#include "capture/live_state_sample_codec.hpp"
 #include "constants.hpp"
 #include "dispatch/adapter_native_capture_router.hpp"
+#include "enums.hpp"
 #include "identity/adapter_instance_id_generator.hpp"
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_session.hpp"
@@ -25,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -49,11 +52,21 @@
 #include <utility>
 #include <vector>
 
+using dovahlink::adapter::capture::AdapterCaptureHandoffQueue;
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::CaptureAvailability;
+using dovahlink::adapter::capture::CapturedPayload;
 using dovahlink::adapter::capture::CaptureSourceKind;
+using dovahlink::adapter::capture::CharacterEventKey;
+using dovahlink::adapter::capture::CharacterSampleToken;
+using dovahlink::adapter::capture::EncodeFloatLittleEndian;
+using dovahlink::adapter::capture::EncodeUInt16LittleEndian;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
+using dovahlink::adapter::capture::MakeCapturedPayload;
 using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
+using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
+using dovahlink::adapter::dispatch::SampleCaptureResult;
+using dovahlink::adapter::dispatch::SampleCaptureStatus;
 using dovahlink::adapter::identity::AdapterInstanceIdGenerator;
 using dovahlink::adapter::identity::AdapterPlayContextState;
 using dovahlink::adapter::ipc::AdapterIpcConnection;
@@ -295,6 +308,53 @@ class AcceptingCaptureRouter final
                 dovahlink::adapter::dispatch::SampleCaptureStatus::kUnavailable};
     }
     bool RegisterEvent(std::uint32_t) override { return true; }
+};
+
+///  A deterministic, TEST-ONLY stand-in for a real Skyrim capture, used only
+///  by the live-state E2E test below. Mirrors
+///  `CommonLibAdapterNativeCaptureRouter::CaptureSample`'s exact switch
+///  shape and wire encoding (via the same production
+///  `EncodeFloatLittleEndian`/`EncodeUInt16LittleEndian`/`MakeCapturedPayload`
+///  helpers) so the real Host's real resynchronization plan -- which
+///  currently requires the full Character baseline, not XP alone -- actually
+///  completes. Deliberately never touches Skyrim/CommonLib/SKSE, so CI stays
+///  deterministic.
+class DeterministicBaselineCaptureRouter final
+    : public IAdapterNativeCaptureRouter {
+  public:
+    SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override {
+        switch (static_cast<CharacterSampleToken>(sampleToken)) {
+        case CharacterSampleToken::kCharacterVitals: {
+            std::array<std::byte, 4> health = EncodeFloatLittleEndian(100.0f);
+            std::array<std::byte, 4> magicka = EncodeFloatLittleEndian(80.0f);
+            std::array<std::byte, 4> stamina = EncodeFloatLittleEndian(90.0f);
+            CapturedPayload payload;
+            std::ranges::copy(health, payload.bytes.begin());
+            std::ranges::copy(magicka, payload.bytes.begin() + 4);
+            std::ranges::copy(stamina, payload.bytes.begin() + 8);
+            payload.size = 12;
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = payload};
+        }
+        case CharacterSampleToken::kCharacterXp: {
+            std::array<std::byte, 4> encoded = EncodeFloatLittleEndian(42.5f);
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = MakeCapturedPayload(encoded)};
+        }
+        case CharacterSampleToken::kCharacterLevelBaseline: {
+            std::array<std::byte, 2> encoded = EncodeUInt16LittleEndian(10);
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = MakeCapturedPayload(encoded)};
+        }
+        default:
+            return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
+        }
+    }
+
+    bool RegisterEvent(std::uint32_t eventKey) override {
+        return static_cast<CharacterEventKey>(eventKey) ==
+               CharacterEventKey::kCharacterLevelChanged;
+    }
 };
 
 ///  Presents nothing, since this cross-process test is concerned with IPC
@@ -790,6 +850,35 @@ std::string ExtractJsonStringField(const std::string& json,
     return json.substr(start, end - start);
 }
 
+///  Extracts a top-level JSON numeric field's value by key from `json`,
+///  using the same plain substring search as `ExtractJsonStringField` --
+///  sufficient for this test's own real, well-formed server responses.
+///  Returns `std::nullopt` if `key` is absent or its value is not a bare
+///  numeric literal.
+std::optional<double> ExtractJsonNumberField(const std::string& json,
+                                             const std::string& key) {
+    const std::string marker = "\"" + key + "\":";
+    std::size_t start = json.find(marker);
+    if (start == std::string::npos) {
+        return std::nullopt;
+    }
+    start += marker.size();
+    std::size_t end = start;
+    while (end < json.size() &&
+           (std::isdigit(static_cast<unsigned char>(json[end])) != 0 ||
+            json[end] == '.' || json[end] == '-' || json[end] == '+')) {
+        ++end;
+    }
+    if (end == start) {
+        return std::nullopt;
+    }
+    try {
+        return std::stod(json.substr(start, end - start));
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
 ///  Waits for a bounded asynchronous process condition without busy spinning.
 template <typename Predicate>
 bool WaitUntil(Predicate predicate, std::chrono::milliseconds timeout) {
@@ -801,6 +890,28 @@ bool WaitUntil(Predicate predicate, std::chrono::milliseconds timeout) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     return predicate();
+}
+
+///  Receives text frames from `client` until one whose top-level
+///  `"messageType"` field equals `expectedMessageType`, skipping any
+///  legitimate protocol message that may legitimately precede it (for
+///  example a subscription_ack before its own baseline state_snapshot),
+///  bounded by `timeout` rather than looping unboundedly. Each individual
+///  `ReceiveText()` call already carries its own bounded socket receive
+///  timeout; this additionally bounds the total number of skippable frames
+///  this helper will wait through.
+std::string ReceiveUntil(MinimalPublicWebSocketClient& client,
+                         const std::string& expectedMessageType,
+                         std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::string frame = client.ReceiveText();
+        if (ExtractJsonStringField(frame, "messageType") == expectedMessageType) {
+            return frame;
+        }
+    }
+    throw std::runtime_error("Timed out waiting for a \"" + expectedMessageType +
+                             "\" message from the real Host's public listener.");
 }
 
 ///  Returns whether a real loopback port no longer accepts connections.
@@ -1318,6 +1429,128 @@ class RealHostFixture {
     AcceptingCaptureRouter captureRouter_;
     NoopCaptureQueue captureQueue_;
     NoopPairingNotificationSink noopPairingNotificationSink_;
+    AdapterPlayContextState playContextState_;
+    AdapterIpcSession session_;
+    AdapterIpcConnection connection_;
+};
+
+///  Extends `RealHostFixture`'s real Hello/HelloAck proof with a real,
+///  draining `AdapterCaptureHandoffQueue` (the production queue, not
+///  `NoopCaptureQueue`) whose drain callback is wired to
+///  `AdapterIpcSession::SendCaptureResult` exactly the way `AdapterRuntime`'s
+///  own composition wires it (see `adapter/plugin/adapter_runtime.cpp`) --
+///  so a captured baseline this fixture's `DeterministicBaselineCaptureRouter`
+///  produces during a real Host-driven resynchronization actually crosses
+///  the real private IPC connection, rather than being silently accepted and
+///  dropped. Used only by the live-state E2E test below.
+class RealHostLiveStateFixture {
+  public:
+    ///  Launches a real host under a fresh, uniquely marked owner-lifetime
+    ///  id and a fixed public listener port, establishes `playContextId` as
+    ///  the active play context before connecting, then connects and
+    ///  authenticates a real native session against it -- the same
+    ///  active-context-before-authentication ordering
+    ///  `AdapterIpcSession::ReplayCurrentPlayContextState` requires for its
+    ///  post-authentication replay to report it.
+    RealHostLiveStateFixture(std::byte ownerLifetimeMarker,
+                             std::array<std::byte, 16> playContextId,
+                             std::uint16_t publicListenerPort,
+                             dovahlink::adapter::ipc::IAdapterPairingNotificationSink&
+                                 pairingSink)
+        : publicListenerPort_(publicListenerPort),
+          hostExecutable_(DOVAHLINK_HOST_EXECUTABLE),
+          ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
+          launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
+          session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
+                   taskMarshaller_, captureRouter_, captureQueue_, pairingSink,
+                   playContextState_),
+          connection_(
+              connectionSocket_, codec_,
+              dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
+                  .onTargetConnected =
+                      [this](const AdapterIpcTarget& target) {
+                          session_.HandleConnected(target);
+                      },
+                  .onMessageReceived =
+                      [this](const IpcMessage& message) {
+                          return session_.HandleMessage(message);
+                      },
+                  .onDecodeFailure = [this] { session_.HandleDecodeFailure(); },
+                  .onDisconnected = [this] { session_.HandleDisconnected(); },
+                  .onAttemptFinished =
+                      [](std::uint64_t,
+                         dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) {},
+              }) {
+        if (!std::filesystem::exists(hostExecutable_)) {
+            throw std::runtime_error("DovahLink.Host.exe was not found at " +
+                                     hostExecutable_.string());
+        }
+
+        //  Established before the private connection ever starts, so the
+        //  normal post-authentication replay (not this test) reports it to
+        //  the real Host, which then requests its own generic
+        //  resynchronization plan.
+        playContextState_.SetCurrentPlayContext(playContextId);
+
+        auto endpoint = launcher_.Launch();
+        if (!endpoint.has_value()) {
+            throw std::runtime_error("Unable to launch a real Host process.");
+        }
+
+        session_.AttachConnection(connection_);
+        connection_.ConfigureTarget(
+            AdapterIpcTarget{.port = endpoint->port,
+                             .proofToken = endpoint->proofToken,
+                             .hostProofKey = endpoint->hostProofKey,
+                             .targetGeneration = 1});
+        connection_.Start();
+
+        if (!WaitUntil([this] { return session_.IsHostAvailable(); },
+                       std::chrono::seconds(10))) {
+            throw std::runtime_error(
+                "The real host never completed Hello/HelloAck authentication.");
+        }
+    }
+
+    ///  Stops the draining capture queue first -- joining its worker thread,
+    ///  so no further drained item can ever call back into `session_` --
+    ///  before any member destructor runs, since plain reverse-declaration-
+    ///  order destruction would otherwise destroy `session_` while the
+    ///  queue's worker thread could still be mid-drain.
+    ~RealHostLiveStateFixture() {
+        captureQueue_.Stop();
+        connection_.Stop();
+        launcher_.AwaitExitOrTerminate(std::chrono::seconds(5));
+    }
+
+    RealHostLiveStateFixture(const RealHostLiveStateFixture&) = delete;
+    RealHostLiveStateFixture& operator=(const RealHostLiveStateFixture&) = delete;
+
+  private:
+    //  Declared first so it sets DOVAHLINK_TEST_TRUST_STORE_PATH before
+    //  launcher_.Launch() runs in the constructor body below, mirroring
+    //  RealHostFixture's own ordering rationale.
+    ScopedTestTrustStorePathEnvironmentVariable trustStorePath_;
+    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort_;
+    std::filesystem::path hostExecutable_;
+    std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
+        ownerLifetimeId_;
+    Win32AdapterHostProcessLauncher launcher_;
+    WinsockAdapterIpcSocket connectionSocket_{0};
+    IpcFrameCodec codec_;
+    ImmediateTaskMarshaller taskMarshaller_;
+    DeterministicBaselineCaptureRouter captureRouter_;
+    //  The real production queue, draining onto SendCaptureResult exactly
+    //  the way AdapterRuntime's own composition wires it -- captures `this`
+    //  rather than `&session_` directly, since session_ is declared (and
+    //  constructed) after this member, but the drain callback cannot run
+    //  until this queue's worker thread actually drains an enqueued item,
+    //  which happens well after this constructor finishes.
+    AdapterCaptureHandoffQueue captureQueue_{
+        [this](const AdapterCaptureWorkItem& item) {
+            session_.SendCaptureResult(item);
+        },
+        [](const AdapterCaptureWorkItem&) {}};
     AdapterPlayContextState playContextState_;
     AdapterIpcSession session_;
     AdapterIpcConnection connection_;
@@ -1982,4 +2215,137 @@ TEST_CASE("a real native adapter's play-context-changed notification is "
             std::future_status::ready);
     CHECK(secondResultFuture.get().outcome ==
           TrustAdminRequestOutcome::kCompleted);
+}
+
+TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
+          "reaches a real public WebSocket client as a character_xp "
+          "Snapshot",
+          "[process][integration]") {
+    //  The end-to-end live-state proof: a synthetic native capture in this
+    //  real Adapter test process crosses the real AdapterIpcSession, the
+    //  real AdapterCaptureHandoffQueue, the real private IPC connection, a
+    //  real launched Host process, its real LiveCaptureSink/
+    //  CharacterCaptureHandler/LiveStateApplication/StatePublisher/
+    //  publication feed, and finally the real public WebSocket transport --
+    //  observed here only through a real public client, never by inspecting
+    //  Host-internal services directly. XP = 42.5 travels only because
+    //  DeterministicBaselineCaptureRouter reported it from the real
+    //  Host-driven resynchronization plan this fixture never asks for
+    //  directly: the normal active-context replay below is what earns it.
+    constexpr std::uint16_t kPublicListenerPort = 58432;
+    const std::array<std::byte, 16> playContextId = {
+        std::byte{0xF9}, std::byte{0xE8}, std::byte{0xD7}, std::byte{0xC6},
+        std::byte{0xB5}, std::byte{0xA4}, std::byte{0x93}, std::byte{0x82},
+        std::byte{0x71}, std::byte{0x60}, std::byte{0x5F}, std::byte{0x4E},
+        std::byte{0x3D}, std::byte{0x2C}, std::byte{0x1B}, std::byte{0x0A}};
+    RecordingPairingNotificationSink pairingSink;
+    RealHostLiveStateFixture fixture(std::byte{0xF9}, playContextId,
+                                     kPublicListenerPort, pairingSink);
+
+    //  The real Host's own reaction to the real native adapter's replayed
+    //  active context: a fresh resynchronization request against the
+    //  current catalog-derived plan, executed by the real
+    //  AdapterIpcSession -- not asked for by this test.
+    const std::string clientId = "f9f9f9f9-f9f9-f9f9-f9f9-f9f9f9f9f9f9";
+    MinimalPublicWebSocketClient client(kPublicListenerPort);
+    client.SendText(
+        R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+        R"("correlationId":null,"payload":{"endpoint":"client",)"
+        R"("clientId":")" +
+        clientId +
+        R"(","auth":{"method":"unpaired"}},)"
+        R"("playContextId":null,"clientId":null})");
+    std::string helloAck = client.ReceiveText();
+    REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+    std::string sessionId = ExtractJsonStringField(helloAck, "sessionId");
+    REQUIRE_FALSE(sessionId.empty());
+    std::string capabilities = client.ReceiveText();
+    REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+            std::string::npos);
+
+    //  A Restricted-tier session may not subscribe -- only Full trust may
+    //  (see PublicHelloAdmissionHandler::IsAllowedForTier) -- so this client
+    //  must complete real pairing first, exactly like the pairing E2Es
+    //  above, reusing that same real cross-language pairing/trust flow
+    //  rather than a test-only bypass. UpgradeToFullTrust upgrades this same
+    //  session's tier in place once pairing_ack resolves, so no reconnect is
+    //  needed before subscribing below.
+    client.SendText(
+        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                      std::chrono::seconds(10)));
+    auto displayed = pairingSink.Displayed();
+    REQUIRE(displayed.size() == 1);
+    const std::string code = displayed.front().first;
+    REQUIRE_FALSE(code.empty());
+    std::string pairingStatus = client.ReceiveText();
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+
+    client.SendText(
+        R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"code":")" + code +
+        R"(","displayName":"Live-State E2E PC"},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    std::string confirmOutcome = client.ReceiveText();
+    REQUIRE(confirmOutcome.find(R"("outcome":"credential_issued")") !=
+            std::string::npos);
+    std::string credential = ExtractJsonStringField(confirmOutcome, "credential");
+    REQUIRE_FALSE(credential.empty());
+
+    client.SendText(
+        R"({"messageType":"pairing_ack","messageId":"m4","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"credential":")" +
+        credential + R"("},"playContextId":null,)" + R"("clientId":")" +
+        clientId + R"("})");
+    std::string ackOutcome = client.ReceiveText();
+    REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
+
+    //  Full trust now: subscribe to exactly the one state area this test
+    //  cares about. subscription_ack accepts it immediately -- registration
+    //  (RegisteredStateAreaPolicy) is independent of whether a baseline
+    //  value is available yet -- so acceptance alone does not prove the
+    //  resynchronization baseline arrived; the state_snapshot below does.
+    client.SendText(
+        R"({"messageType":"subscribe","messageId":"m5","sessionId":")" +
+        sessionId +
+        R"(","correlationId":null,"payload":{"stateAreas":["character_xp"]},)"
+        R"("playContextId":null,"clientId":")" +
+        clientId + R"("})");
+    std::string subscriptionAck = client.ReceiveText();
+    REQUIRE(subscriptionAck.find(R"("messageType":"subscription_ack")") !=
+            std::string::npos);
+    REQUIRE(subscriptionAck.find(R"("acceptedStateAreas":["character_xp"])") !=
+            std::string::npos);
+
+    //  The Host's own pending-baseline mechanism (Constants.PendingBaselineDeadline
+    //  = 5s) answers this subscribe with the baseline state_snapshot once the
+    //  real resynchronization -- already in flight from this adapter's own
+    //  active-context replay above -- actually completes; no manual trigger.
+    //  A well-formed hello_ack/capabilities/subscription_ack may legitimately
+    //  precede it, so this waits for the specific expected message type
+    //  rather than assuming the very next frame.
+    std::string snapshot =
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15));
+
+    //  Proves this is specifically the character_xp Snapshot, not merely a
+    //  frame containing the substring "42.5" somewhere.
+    CHECK(ExtractJsonStringField(snapshot, "stateArea") == "character_xp");
+    CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
+    std::optional<double> revision = ExtractJsonNumberField(snapshot, "revision");
+    REQUIRE(revision.has_value());
+    CHECK(*revision >= 1.0);
+    //  42.5 is exactly representable in both float and double, so this
+    //  compares exactly rather than needing an epsilon.
+    std::optional<double> value = ExtractJsonNumberField(snapshot, "value");
+    REQUIRE(value.has_value());
+    CHECK(*value == 42.5);
+
+    //  The active play context this adapter replayed is the one the Host
+    //  captured the baseline under.
+    std::string expectedPlayContextId =
+        "f9e8d7c6-b5a4-9382-7160-5f4e3d2c1b0a";
+    CHECK(ExtractJsonStringField(snapshot, "playContextId") ==
+          expectedPlayContextId);
 }
