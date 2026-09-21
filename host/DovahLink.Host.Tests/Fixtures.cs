@@ -170,7 +170,7 @@ public static class Fixtures
     /// <summary>
     /// Builds a <see cref="FakePlayContextTracker"/> that already has an active play context
     /// established, so a test whose own focus is some other gate or behavior is not also confounded
-    /// by a consumer's separate active-context gate (for example <see cref="Adapter.Ipc.LiveStateScheduler"/>'s).
+    /// by a consumer's separate active-context gate (for example <see cref="DovahLink.Host.Adapter.Ipc.LiveStateScheduler"/>'s).
     /// </summary>
     public static FakePlayContextTracker BuildActivePlayContextTracker()
     {
