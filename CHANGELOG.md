@@ -49,6 +49,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 - The Host now ends a superseded pending `snapshot_request` with a retryable error instead of dropping its correlation.
 - The Host now waits for the Adapter's post-authentication play-context replay before issuing one
   initial resynchronization for an active context, and issues none while the Adapter is inactive.
+- Local CI now falls back to standard locations and `PATH` when tool-path overrides are unset.
 - The Builder now discovers non-standard Visual Studio installations and uses that installation's
   CMake and Ninja executables for Adapter builds.
 - The Builder now uses its saved Skyrim install path to locate the Papyrus compiler, with environment

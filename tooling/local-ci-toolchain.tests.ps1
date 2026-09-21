@@ -145,6 +145,29 @@ try {
         -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
     Assert-True ($resolvedPathExecutable -eq $pathExecutable) "Executable discovery did not accept a PATH-derived path."
 
+    $resolvedAfterEmptyCandidate = Resolve-ExistingExecutablePath `
+        -ToolName "Test tool" `
+        -CandidatePaths @("", $standardExecutable) `
+        -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    Assert-True ($resolvedAfterEmptyCandidate -eq $standardExecutable) "Executable discovery did not skip an empty candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-ExistingExecutablePath `
+            -ToolName "Test tool" `
+            -CandidatePaths @("") `
+            -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    } "DOVAHLINK_TEST_TOOL_PATH"
+    $resolvedAfterWhitespaceCandidate = Resolve-ExistingExecutablePath `
+        -ToolName "Test tool" `
+        -CandidatePaths @("   ", $standardExecutable) `
+        -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    Assert-True ($resolvedAfterWhitespaceCandidate -eq $standardExecutable) "Executable discovery did not skip a whitespace-only candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-ExistingExecutablePath `
+            -ToolName "Test tool" `
+            -CandidatePaths @("   ") `
+            -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    } "DOVAHLINK_TEST_TOOL_PATH"
+
     $pathSearchDirectory = Join-Path $candidateRoot "PATH search"
     $pathSearchExecutable = Join-Path $pathSearchDirectory "cmake.exe"
     New-Item -ItemType Directory -Path $pathSearchDirectory -Force | Out-Null
@@ -167,6 +190,33 @@ try {
         -ExpectedVersion "cmake version 4.4.2" `
         -OverrideVariable "DOVAHLINK_CMAKE_PATH"
     Assert-True ($resolvedCmakePath -eq $pinnedCmakePath) "Pinned CMake discovery did not skip an earlier wrong-version installation."
+
+    $resolvedCmakeAfterEmptyCandidate = Resolve-PinnedExecutablePath `
+        -ToolName "CMake" `
+        -CandidatePaths @("", $pinnedCmakePath) `
+        -ExpectedVersion "cmake version 4.4.2" `
+        -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    Assert-True ($resolvedCmakeAfterEmptyCandidate -eq $pinnedCmakePath) "Pinned executable discovery did not skip an empty candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-PinnedExecutablePath `
+            -ToolName "CMake" `
+            -CandidatePaths @("") `
+            -ExpectedVersion "cmake version 4.4.2" `
+            -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    } "DOVAHLINK_CMAKE_PATH"
+    $resolvedCmakeAfterWhitespaceCandidate = Resolve-PinnedExecutablePath `
+        -ToolName "CMake" `
+        -CandidatePaths @("   ", $pinnedCmakePath) `
+        -ExpectedVersion "cmake version 4.4.2" `
+        -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    Assert-True ($resolvedCmakeAfterWhitespaceCandidate -eq $pinnedCmakePath) "Pinned executable discovery did not skip a whitespace-only candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-PinnedExecutablePath `
+            -ToolName "CMake" `
+            -CandidatePaths @("   ") `
+            -ExpectedVersion "cmake version 4.4.2" `
+            -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    } "DOVAHLINK_CMAKE_PATH"
 
     $pinnedNinjaPath = Join-Path $candidateRoot "Ninja 1.13.2\ninja.cmd"
     New-Item -ItemType Directory -Path (Split-Path -Parent $pinnedNinjaPath) -Force | Out-Null

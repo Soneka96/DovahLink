@@ -40,7 +40,7 @@ The normalized path to the first existing executable.
 function Resolve-ExistingExecutablePath {
     param(
         [Parameter(Mandatory = $true)][string]$ToolName,
-        [Parameter(Mandatory = $true)][string[]]$CandidatePaths,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string[]]$CandidatePaths,
         [Parameter(Mandatory = $true)][string]$OverrideVariable
     )
 
@@ -79,7 +79,7 @@ The normalized path to the first executable with the expected version.
 function Resolve-PinnedExecutablePath {
     param(
         [Parameter(Mandatory = $true)][string]$ToolName,
-        [Parameter(Mandatory = $true)][string[]]$CandidatePaths,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string[]]$CandidatePaths,
         [Parameter(Mandatory = $true)][string]$ExpectedVersion,
         [Parameter(Mandatory = $true)][string]$OverrideVariable,
         [scriptblock]$VersionProbe
