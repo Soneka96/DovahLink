@@ -35,6 +35,65 @@ foreach ($definition in $definitions) {
     Assert-True (-not [string]::IsNullOrWhiteSpace($definition.VerifyCommand)) "$($definition.Name) has no verification command."
     Assert-True ([Uri]::IsWellFormedUriString($definition.InstallUrl, [UriKind]::Absolute)) "$($definition.Name) has no absolute installation guide URL."
 }
+$ruffRequirement = $definitions | Where-Object { $_.Id -eq "ruff" } | Select-Object -First 1
+Assert-True ($ruffRequirement.VerifyCommand -eq "python -m ruff --version") "Ruff verification must use the Python module command."
+
+$ruffAvailableProbe = {
+    param([string]$PythonPath)
+    return [pscustomobject]@{ ExitCode = 0; Version = "ruff 0.16.8" }
+}
+$ruffAvailable = Test-LocalCiRuffModule -PythonPath "C:\test\python.exe" -VersionProbe $ruffAvailableProbe
+Assert-True $ruffAvailable.Available "The checker rejected Ruff installed as a Python module."
+Assert-True ($ruffAvailable.Version -eq "ruff 0.16.8") "The checker omitted the module version."
+Assert-True ($ruffAvailable.Path -eq "C:\test\python.exe") "The checker did not associate Ruff with the selected Python interpreter."
+
+$ruffMissingProbe = {
+    param([string]$PythonPath)
+    return [pscustomobject]@{ ExitCode = 1; Version = ""; Details = "No module named ruff" }
+}
+$ruffMissing = Test-LocalCiRuffModule -PythonPath "C:\test\python.exe" -VersionProbe $ruffMissingProbe
+Assert-True (-not $ruffMissing.Available) "The checker accepted an unavailable Ruff module."
+Assert-True ($ruffMissing.Details -like "*No module named ruff*") "The missing-module diagnostic omitted Python's reason."
+Assert-True ($ruffMissing.Details -like "*python -m pip install ruff*") "The missing-module diagnostic omitted its install command."
+
+$vsClangPaths = @(Get-VisualStudioClangFormatCandidatePaths -InstallationPath "C:\Visual Studio")
+Assert-True ($vsClangPaths -contains "C:\Visual Studio\VC\Tools\Llvm\x64\bin\clang-format.exe") "The checker did not include Visual Studio's x64 clang-format location."
+Assert-True ($vsClangPaths.Count -eq 1) "The checker included clang-format binaries that cannot run on the x64 build host."
+
+$clangVersions = @{
+    "C:\tools\clang-format-19.exe"         = "clang-format version 19.1.5 (test build)"
+    "C:\Visual Studio\clang-format-22.exe" = "clang-format version 22.1.3 (test build)"
+}
+$clangVersionProbe = {
+    param([string]$ExecutablePath)
+    return [pscustomobject]@{ ExitCode = 0; Version = $clangVersions[$ExecutablePath] }
+}.GetNewClosure()
+$pinnedClangFormat = Test-LocalCiClangFormat -PathCandidates @("C:\tools\clang-format-19.exe") -VersionProbe $clangVersionProbe
+Assert-True $pinnedClangFormat.Available "The checker rejected pinned clang-format available on PATH."
+Assert-True ($pinnedClangFormat.Version -eq "19.1.5") "The checker reported the wrong pinned clang-format version."
+
+$shadowedPinnedClangFormat = Test-LocalCiClangFormat `
+    -PathCandidates @("C:\Visual Studio\clang-format-22.exe", "C:\tools\clang-format-19.exe") `
+    -VersionProbe $clangVersionProbe
+Assert-True (-not $shadowedPinnedClangFormat.Available) "The checker accepted a pinned clang-format shadowed by an earlier PATH entry."
+Assert-True ($shadowedPinnedClangFormat.Details -like "*clang-format-22.exe*resolves first*") "The checker did not identify the clang-format executable that resolves first from PATH."
+
+$newerVisualStudioClangFormat = Test-LocalCiClangFormat `
+    -VisualStudioCandidates @("C:\Visual Studio\clang-format-22.exe") `
+    -VersionProbe $clangVersionProbe
+Assert-True (-not $newerVisualStudioClangFormat.Available) "The checker accepted Visual Studio's unpinned clang-format."
+Assert-True ($newerVisualStudioClangFormat.Details -like "*22.1.3*") "The checker did not report Visual Studio's installed clang-format version."
+Assert-True ($newerVisualStudioClangFormat.Details -like "*19.1.5 on PATH*") "The checker omitted the required clang-format version and PATH requirement."
+
+$pinnedVisualStudioClangFormat = Test-LocalCiClangFormat `
+    -VisualStudioCandidates @("C:\tools\clang-format-19.exe") `
+    -VersionProbe $clangVersionProbe
+Assert-True (-not $pinnedVisualStudioClangFormat.Available) "The checker accepted a pinned clang-format that the formatter cannot resolve from PATH."
+Assert-True ($pinnedVisualStudioClangFormat.Details -like "*not on PATH*") "The checker did not explain that a Visual Studio candidate must be added to PATH."
+
+$missingClangFormat = Test-LocalCiClangFormat
+Assert-True (-not $missingClangFormat.Available) "The checker accepted clang-format when no candidate exists."
+Assert-True ($missingClangFormat.Details -like "*Install clang-format 19.1.5*") "The missing clang-format diagnostic omitted its pinned install guidance."
 
 $probeCalls = [System.Collections.Generic.List[string]]::new()
 $allAvailableProbe = {
@@ -96,7 +155,13 @@ $throwingProbe = {
     if ($Requirement.Id -eq "python") {
         throw "test probe failed"
     }
-    return New-TestPrerequisiteResult -Requirement $Requirement
+    return [pscustomobject]@{
+        Available = $true
+        Version   = "test version"
+        Details   = "test details"
+        Path      = "C:\test\$($Requirement.Id).exe"
+        Value     = $null
+    }
 }.GetNewClosure()
 $throwingReport = Invoke-LocalCiPrerequisiteCheck -Probe $throwingProbe 6>$null
 $pythonResult = $throwingReport.Results | Where-Object { $_.Id -eq "python" } | Select-Object -First 1

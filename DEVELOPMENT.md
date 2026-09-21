@@ -21,8 +21,8 @@ command, and official setup link for each one. It never installs software or cha
 | Python 3.13.x | [Python for Windows](https://www.python.org/downloads/windows/). | `python --version` |
 | .NET 9 SDK | [Download the .NET 9 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/9.0). The runtime alone cannot build or test the Host. | `dotnet --list-sdks` must include a 9.x SDK. |
 | Flutter stable and its bundled Dart SDK | [Install Flutter](https://docs.flutter.dev/install), then add Flutter's `bin` directory to PATH. Do not install Dart separately. | `flutter --version --machine` and `dart --version` |
-| clang-format 19.1.5 | [Official LLVM 19.1.5 release](https://github.com/llvm/llvm-project/releases/tag/llvmorg-19.1.5); add the directory containing `clang-format.exe` to PATH. | `clang-format --version` must report 19.1.5. |
-| Ruff | [Installation guide](https://docs.astral.sh/ruff/installation/); run `python -m pip install ruff`. | `ruff --version` |
+| clang-format 19.1.5 | [Official LLVM 19.1.5 release](https://github.com/llvm/llvm-project/releases/tag/llvmorg-19.1.5); install the Windows x64 package alongside Visual Studio's copy and put its `bin` directory first on PATH. | `clang-format.exe --version` must report 19.1.5. A newer Visual Studio-bundled version does not satisfy the CI pin. |
+| Ruff | [Installation guide](https://docs.astral.sh/ruff/installation/); run `python -m pip install ruff`. | `python -m ruff --version` |
 | PSScriptAnalyzer | [Overview and installation](https://learn.microsoft.com/en-us/powershell/utility-modules/psscriptanalyzer/overview); run `pwsh -NoProfile -Command "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force"`. | `pwsh -NoProfile -Command "Get-Command Invoke-Formatter"` |
 
 The checker also verifies that `dotnet format` is available through the .NET SDK. vcpkg is cloned,
