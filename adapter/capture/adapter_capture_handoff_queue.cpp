@@ -18,13 +18,17 @@ AdapterCaptureHandoffQueue::~AdapterCaptureHandoffQueue() { Stop(); }
 
 bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
     bool accepted = false;
-    //  A handful of immediate, non-blocking attempts: the worker thread only
-    //  ever holds this same mutex for the brief span of removing one item
-    //  below, so retrying all but eliminates a spurious rejection from
-    //  transient contention with it -- for example three baseline samples
-    //  enqueued back to back during resynchronization -- without ever
-    //  making this call actually wait for the lock. A genuinely full or
-    //  stopped queue still fails on the very first attempt.
+    //  A handful of immediate, non-blocking attempts, with no yield between
+    //  them: the worker thread only ever holds this same mutex for the brief
+    //  span of removing one item below -- a few instructions, no I/O, no
+    //  allocation -- so it never needs scheduler help to release it, and an
+    //  immediate retry absorbs the same transient contention (for example
+    //  three baseline samples enqueued back to back during
+    //  resynchronization) without ever surrendering this call's own
+    //  scheduler timeslice, which `std::this_thread::yield()` can do for a
+    //  scheduler-dependent duration this Skyrim game-thread callback must
+    //  not risk. A genuinely full or stopped queue still fails on the very
+    //  first attempt.
     for (int attempt = 0; attempt < kCaptureQueueEnqueueLockAttempts;
          ++attempt) {
         std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
@@ -35,9 +39,6 @@ bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
                 accepted = true;
             }
             break;
-        }
-        if (attempt + 1 < kCaptureQueueEnqueueLockAttempts) {
-            std::this_thread::yield();
         }
     }
 

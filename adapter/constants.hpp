@@ -25,13 +25,14 @@ inline constexpr std::size_t kMaxCapturedPayloadBytes = 12;
 
 ///  The number of immediate, non-blocking lock attempts
 ///  `AdapterCaptureHandoffQueue::TryEnqueue` makes before treating an item as
-///  rejected. The worker thread holds the same mutex only for the brief span
-///  of removing one item from the ring buffer, so a handful of retries all
-///  but eliminates a spurious rejection from transient contention with it --
-///  for example three baseline samples enqueued back to back during
-///  resynchronization -- without ever making the calling game-thread
-///  callback actually wait for the lock: a genuinely full or stopped queue
-///  still fails on the very first attempt.
+///  rejected, with no yield or wait between attempts. The worker thread
+///  holds the same mutex only for the brief span of removing one item from
+///  the ring buffer, so a handful of immediate retries all but eliminates a
+///  spurious rejection from transient contention with it -- for example
+///  three baseline samples enqueued back to back during resynchronization --
+///  without ever making the calling game-thread callback actually wait for
+///  the lock or surrender its scheduler timeslice: a genuinely full or
+///  stopped queue still fails on the very first attempt.
 inline constexpr int kCaptureQueueEnqueueLockAttempts = 4;
 
 } //  namespace dovahlink::adapter::capture
