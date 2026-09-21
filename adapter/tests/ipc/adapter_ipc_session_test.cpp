@@ -131,10 +131,14 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
             return SampleCaptureResult{
                 .status = SampleCaptureStatus::kUnavailable};
         }
+        std::optional<dovahlink::adapter::capture::CapturedPayload> payload =
+            dovahlink::adapter::capture::TryMakeCapturedPayload(it->second);
+        if (!payload.has_value()) {
+            return SampleCaptureResult{
+                .status = SampleCaptureStatus::kUnavailable};
+        }
         return SampleCaptureResult{
-            .status = SampleCaptureStatus::kAvailable,
-            .payload = dovahlink::adapter::capture::TryMakeCapturedPayload(it->second)
-                           .value()};
+            .status = SampleCaptureStatus::kAvailable, .payload = *payload};
     }
 
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
@@ -889,6 +893,22 @@ TEST_CASE("AdapterIpcSession executes requested events before requested samples"
     CHECK(result->correlationId == 42);
     CHECK(result->accepted);
     CHECK(connection.ReconnectRequests() == 0);
+}
+
+TEST_CASE("FakeAdapterNativeCaptureRouter::CaptureSample fails closed for a "
+          "configured sample exceeding CapturedPayload's maximum capacity, "
+          "rather than truncating it or throwing",
+          "[ipc][adapter_ipc_session]") {
+    FakeAdapterNativeCaptureRouter router;
+    constexpr std::uint32_t sampleToken = 3001;
+    //  One byte beyond kMaxCapturedPayloadBytes (12), so
+    //  TryMakeCapturedPayload rejects it.
+    router.SetSampleResult(sampleToken, std::vector<std::byte>(13, std::byte{0xAB}));
+
+    SampleCaptureResult result = router.CaptureSample(sampleToken);
+
+    CHECK(result.status == SampleCaptureStatus::kUnavailable);
+    CHECK(result.payload == dovahlink::adapter::capture::CapturedPayload{});
 }
 
 TEST_CASE("AdapterIpcSession accepts an empty no-op resynchronization plan") {
