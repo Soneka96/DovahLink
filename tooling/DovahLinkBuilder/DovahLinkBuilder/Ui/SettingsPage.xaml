@@ -28,7 +28,7 @@
 
                     <StackPanel Margin="0,0,0,6">
                         <TextBlock Text="Skyrim / Creation Kit install path" FontSize="13" />
-                        <TextBlock Text="Not read by any check or build yet -- set it here for your own reference" Style="{StaticResource MutedTextStyle}" Margin="0,1,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="Used to find the Papyrus compiler; clear it to use automatic discovery" Style="{StaticResource MutedTextStyle}" Margin="0,1,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">

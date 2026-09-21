@@ -103,6 +103,25 @@ public sealed class PreflightServiceTests
         Assert.Equal(PapyrusToolchainLocator.TryFind(), results[5]);
     }
 
+    /// <summary>Uses the configured Settings path when checking Papyrus availability.</summary>
+    [Fact]
+    public async Task CheckAllChecksPapyrusFromTheConfiguredInstallationPath()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        PapyrusToolchain expected = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "Configured");
+        string configuredInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(expected.CompilerPath)!)!;
+        VisualStudioToolchain visualStudioToolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        var service = new PreflightService(new FakeCommandRunner(), () => visualStudioToolchain, TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(
+            temporaryDirectory.Path,
+            skyrimInstallPathOverride: configuredInstallPath);
+
+        ToolchainCheckResult papyrusResult = Assert.Single(results, result => result.ToolName == "Papyrus Compiler");
+        Assert.Equal(ToolchainAvailability.Found, papyrusResult.Availability);
+        Assert.Equal(expected.CompilerPath, papyrusResult.Detail);
+    }
+
     /// <summary>Reports a version-probed tool as found when the probe exits zero.</summary>
     [Fact]
     public async Task CheckAllReportsDotNetFoundOnAZeroExitCode()
@@ -400,6 +419,43 @@ public sealed class PreflightServiceTests
         IReadOnlyList<ToolchainCheckResult> previousResults = [];
 
         IReadOnlyList<ToolchainCheckResult> updatedResults = service.RefreshOutputFolderCheck(previousResults, @"C:\repo", null);
+
+        Assert.Same(previousResults, updatedResults);
+    }
+
+    /// <summary>Replaces only the Papyrus Compiler entry when the configured installation path changes.</summary>
+    [Fact]
+    public async Task RefreshPapyrusCompilerCheckReplacesOnlyThePapyrusEntry()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        PapyrusToolchain firstToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "First Installation");
+        PapyrusToolchain secondToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "Second Installation");
+        string firstInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(firstToolchain.CompilerPath)!)!;
+        string secondInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(secondToolchain.CompilerPath)!)!;
+        VisualStudioToolchain visualStudioToolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        var service = new PreflightService(new FakeCommandRunner(), () => visualStudioToolchain, TestVersionProbeTimeout);
+        IReadOnlyList<ToolchainCheckResult> previousResults = await service.CheckAllAsync(
+            temporaryDirectory.Path,
+            skyrimInstallPathOverride: firstInstallPath);
+
+        IReadOnlyList<ToolchainCheckResult> updatedResults = service.RefreshPapyrusCompilerCheck(previousResults, secondInstallPath);
+
+        Assert.Equal(previousResults.Take(5), updatedResults.Take(5));
+        ToolchainCheckResult papyrusResult = updatedResults[5];
+        Assert.Equal("Papyrus Compiler", papyrusResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Found, papyrusResult.Availability);
+        Assert.Equal(secondToolchain.CompilerPath, papyrusResult.Detail);
+        Assert.Equal(previousResults.Skip(6), updatedResults.Skip(6));
+    }
+
+    /// <summary>Returns prior checks unchanged when the Papyrus Compiler entry has not been loaded.</summary>
+    [Fact]
+    public void RefreshPapyrusCompilerCheckReturnsResultsUnchangedWithoutAnExistingEntry()
+    {
+        var service = new PreflightService(new FakeCommandRunner(), TestVersionProbeTimeout);
+        IReadOnlyList<ToolchainCheckResult> previousResults = [];
+
+        IReadOnlyList<ToolchainCheckResult> updatedResults = service.RefreshPapyrusCompilerCheck(previousResults, null);
 
         Assert.Same(previousResults, updatedResults);
     }

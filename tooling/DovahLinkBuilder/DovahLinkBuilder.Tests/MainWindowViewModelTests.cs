@@ -26,7 +26,7 @@ public sealed class MainWindowViewModelTests
     public MainWindowViewModelTests()
     {
         gitStatusStore = new GitStatusStore(new StubGitStatusService(), repositoryContext);
-        environmentStore = new EnvironmentStore(new StubPreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
+        environmentStore = new EnvironmentStore(new StubPreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
     }
 
     /// <summary>Builds a <see cref="MainWindowViewModel"/> over stub page ViewModels, since these tests exercise navigation only.</summary>
@@ -34,6 +34,7 @@ public sealed class MainWindowViewModelTests
         new(BuildStubBuildPage(), BuildStubEnvironmentPage(),
             new SettingsPageViewModel(
                 new StubSettingsStore(), new StubFolderPickerService(), _ => { }, @"C:\repo", repositoryContext, new OutputPathContext(null),
+                new SkyrimInstallPathContext(null),
                 new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true)));
 
     /// <summary>Builds a <see cref="BuildPageViewModel"/> over stub collaborators that never resolve, since these tests never trigger a build.</summary>
@@ -145,11 +146,15 @@ public sealed class MainWindowViewModelTests
     private sealed class StubPreflightService : IPreflightService
     {
         /// <inheritdoc/>
-        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, string? skyrimInstallPathOverride = null, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ToolchainCheckResult>>([]);
 
         /// <inheritdoc/>
         public IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride) =>
+            previousResults;
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ToolchainCheckResult> RefreshPapyrusCompilerCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? skyrimInstallPathOverride) =>
             previousResults;
     }
 

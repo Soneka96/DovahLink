@@ -16,12 +16,17 @@ public interface IPreflightService
     /// The configured build output path override, or <see langword="null"/> to check the repository's
     /// default <c>tooling/out</c> instead.
     /// </param>
+    /// <param name="skyrimInstallPathOverride">The configured Skyrim / Creation Kit installation path, or <see langword="null"/> to use automatic discovery.</param>
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
     /// <returns>
     /// One <see cref="ToolchainCheckResult"/> per required check: Repository, .NET SDK, Visual
     /// Studio, CMake, vcpkg, Papyrus Compiler, Python, then Output Folder.
     /// </returns>
-    Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(
+        string startPath,
+        string? outputPathOverride = null,
+        string? skyrimInstallPathOverride = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Recomputes just the Output Folder check against <paramref name="outputPathOverride"/>, leaving
@@ -33,6 +38,17 @@ public interface IPreflightService
     /// <param name="outputPathOverride">The configured build output path override, or <see langword="null"/> to check the repository's default <c>tooling/out</c> instead.</param>
     /// <returns><paramref name="previousResults"/> unchanged if it contains no Output Folder entry yet; otherwise a new list with that entry replaced.</returns>
     IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride);
+
+    /// <summary>
+    /// Recomputes just the Papyrus Compiler check against <paramref name="skyrimInstallPathOverride"/>,
+    /// leaving every other entry in <paramref name="previousResults"/> unchanged.
+    /// </summary>
+    /// <param name="previousResults">The most recently loaded results, as returned by <see cref="CheckAllAsync"/>.</param>
+    /// <param name="skyrimInstallPathOverride">The configured Skyrim / Creation Kit installation path, or <see langword="null"/> to use automatic discovery.</param>
+    /// <returns><paramref name="previousResults"/> unchanged if it contains no Papyrus Compiler entry yet; otherwise a new list with that entry replaced.</returns>
+    IReadOnlyList<ToolchainCheckResult> RefreshPapyrusCompilerCheck(
+        IReadOnlyList<ToolchainCheckResult> previousResults,
+        string? skyrimInstallPathOverride);
 }
 
 /// <summary>Aggregates every required build tool into one ordered, non-throwing preflight report.</summary>
@@ -46,6 +62,9 @@ public sealed class PreflightService : IPreflightService
 
     /// <summary>The tool name reported for the output folder check.</summary>
     private const string OutputFolderToolName = "Output Folder";
+
+    /// <summary>The tool name reported for the Papyrus Compiler check.</summary>
+    private const string PapyrusCompilerToolName = "Papyrus Compiler";
 
     /// <summary>The runner used to probe version-reporting command-line tools.</summary>
     private readonly ICommandRunner commandRunner;
@@ -94,7 +113,11 @@ public sealed class PreflightService : IPreflightService
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(
+        string startPath,
+        string? outputPathOverride = null,
+        string? skyrimInstallPathOverride = null,
+        CancellationToken cancellationToken = default)
     {
         ToolchainCheckResult repositoryResult = CheckRepository(startPath, out string? repositoryRoot);
         ToolchainCheckResult visualStudioResult = VisualStudioToolchainLocator.TryFind(visualStudioToolchainProvider, out VisualStudioToolchain? toolchain);
@@ -106,7 +129,7 @@ public sealed class PreflightService : IPreflightService
             visualStudioResult,
             await CheckCMakeAsync(toolchain, visualStudioResult, startPath, cancellationToken),
             CheckVcpkg(toolchain, visualStudioResult),
-            PapyrusToolchainLocator.TryFind(),
+            PapyrusToolchainLocator.TryFindWithInstallationPath(skyrimInstallPathOverride),
             await CheckVersionProbeAsync("python", "Python", startPath, cancellationToken),
             CheckOutputFolder(repositoryRoot, outputPathOverride),
         ];
@@ -194,6 +217,22 @@ public sealed class PreflightService : IPreflightService
 
         ToolchainCheckResult[] updatedResults = previousResults.ToArray();
         updatedResults[index] = CheckOutputFolder(repositoryRoot, outputPathOverride);
+        return updatedResults;
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<ToolchainCheckResult> RefreshPapyrusCompilerCheck(
+        IReadOnlyList<ToolchainCheckResult> previousResults,
+        string? skyrimInstallPathOverride)
+    {
+        int index = previousResults.ToList().FindIndex(result => result.ToolName == PapyrusCompilerToolName);
+        if (index < 0)
+        {
+            return previousResults;
+        }
+
+        ToolchainCheckResult[] updatedResults = previousResults.ToArray();
+        updatedResults[index] = PapyrusToolchainLocator.TryFindWithInstallationPath(skyrimInstallPathOverride);
         return updatedResults;
     }
 
