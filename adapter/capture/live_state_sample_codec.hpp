@@ -5,6 +5,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "constants.hpp"
@@ -38,10 +39,27 @@ struct CapturedPayload {
     bool operator==(const CapturedPayload&) const = default;
 };
 
-///  Copies `source` into a fresh `CapturedPayload`. `source` must fit within
-///  `kMaxCapturedPayloadBytes`, which every current capture unit's own fixed
-///  wire shape (2, 4, or 12 bytes) already satisfies by construction.
-inline CapturedPayload MakeCapturedPayload(std::span<const std::byte> source) {
+///  Copies a compile-time fixed-size `source` into a fresh `CapturedPayload`.
+///  `N` is checked against `kMaxCapturedPayloadBytes` at compile time, so
+///  this overload can never be built for an oversized `source`.
+template <std::size_t N>
+CapturedPayload MakeCapturedPayload(const std::array<std::byte, N>& source) {
+    static_assert(N <= kMaxCapturedPayloadBytes,
+                  "source exceeds CapturedPayload's fixed capacity");
+    CapturedPayload payload;
+    std::ranges::copy(source, payload.bytes.begin());
+    payload.size = static_cast<std::uint8_t>(N);
+    return payload;
+}
+
+///  Copies an arbitrary runtime `source` into a fresh `CapturedPayload`, or
+///  fails closed with `std::nullopt` if it exceeds `kMaxCapturedPayloadBytes`
+///  rather than truncating it.
+inline std::optional<CapturedPayload>
+TryMakeCapturedPayload(std::span<const std::byte> source) {
+    if (source.size() > kMaxCapturedPayloadBytes) {
+        return std::nullopt;
+    }
     CapturedPayload payload;
     std::ranges::copy(source, payload.bytes.begin());
     payload.size = static_cast<std::uint8_t>(source.size());

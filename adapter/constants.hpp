@@ -17,7 +17,10 @@ inline constexpr std::size_t kMaxAdapterCaptureQueueItems = 64;
 
 ///  The largest captured value any current capture unit produces (the
 ///  12-byte coherent vitals sample), sizing `CapturedPayload`'s fixed buffer
-///  so no capture ever needs a heap allocation to hold its own value.
+///  so no capture ever needs a heap allocation to hold its own value. This is
+///  a requirement-driven bound, not an intentional architectural ceiling:
+///  raising it is fine once a real capture unit needs more than 12 bytes, but
+///  it must not be raised speculatively ahead of one.
 inline constexpr std::size_t kMaxCapturedPayloadBytes = 12;
 
 ///  The number of immediate, non-blocking lock attempts

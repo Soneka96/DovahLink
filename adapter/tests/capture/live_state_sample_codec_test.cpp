@@ -9,12 +9,14 @@
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <vector>
 
 using dovahlink::adapter::capture::CapturedPayload;
 using dovahlink::adapter::capture::EncodeFloatLittleEndian;
 using dovahlink::adapter::capture::EncodeUInt16LittleEndian;
 using dovahlink::adapter::capture::kMaxCapturedPayloadBytes;
 using dovahlink::adapter::capture::MakeCapturedPayload;
+using dovahlink::adapter::capture::TryMakeCapturedPayload;
 
 TEST_CASE("EncodeFloatLittleEndian matches the host's little-endian float decode",
           "[capture][live_state_sample_codec]") {
@@ -117,9 +119,40 @@ TEST_CASE("CapturedPayload equality compares both the buffer and size, "
           "unused bytes are always zero",
           "[capture][live_state_sample_codec]") {
     CapturedPayload empty{};
-    CapturedPayload alsoEmpty = MakeCapturedPayload(std::span<const std::byte>{});
+    CapturedPayload alsoEmpty = MakeCapturedPayload(std::array<std::byte, 0>{});
     std::array<std::byte, 1> oneByte{std::byte{0x01}};
 
     CHECK(empty == alsoEmpty);
     CHECK_FALSE(empty == MakeCapturedPayload(oneByte));
+}
+
+TEST_CASE("TryMakeCapturedPayload accepts runtime spans at and under the "
+          "maximum capacity, preserving exact bytes and size",
+          "[capture][live_state_sample_codec]") {
+    std::vector<std::byte> empty;
+    std::vector<std::byte> twoBytes{std::byte{0x01}, std::byte{0x02}};
+    std::vector<std::byte> fourBytes{
+        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+    std::vector<std::byte> twelveBytes(kMaxCapturedPayloadBytes);
+    for (std::size_t index = 0; index < twelveBytes.size(); ++index) {
+        twelveBytes[index] = static_cast<std::byte>(index);
+    }
+
+    for (const std::vector<std::byte>& source :
+         {empty, twoBytes, fourBytes, twelveBytes}) {
+        std::optional<CapturedPayload> payload =
+            TryMakeCapturedPayload(std::span(source));
+
+        REQUIRE(payload.has_value());
+        REQUIRE(payload->size == source.size());
+        CHECK(std::ranges::equal(payload->AsSpan(), source));
+    }
+}
+
+TEST_CASE("TryMakeCapturedPayload fails closed for a runtime span over the "
+          "maximum capacity, without truncating it",
+          "[capture][live_state_sample_codec]") {
+    std::vector<std::byte> oversized(kMaxCapturedPayloadBytes + 1);
+
+    CHECK_FALSE(TryMakeCapturedPayload(std::span(oversized)).has_value());
 }

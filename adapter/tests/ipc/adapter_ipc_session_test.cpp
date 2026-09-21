@@ -133,7 +133,8 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
         }
         return SampleCaptureResult{
             .status = SampleCaptureStatus::kAvailable,
-            .payload = dovahlink::adapter::capture::MakeCapturedPayload(it->second)};
+            .payload = dovahlink::adapter::capture::TryMakeCapturedPayload(it->second)
+                           .value()};
     }
 
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
