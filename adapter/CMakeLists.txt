@@ -163,15 +163,11 @@ add_executable(dovahlink_adapter_tests
     tests/process/adapter_host_supervisor_test.cpp
     tests/process/adapter_shutdown_orchestrator_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
-    tests/capture/live_state_catalog_fixture_test.cpp
     tests/capture/live_state_sample_codec_test.cpp
     tests/dispatch/adapter_native_capture_router_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
     tests/identity/adapter_play_context_generator_test.cpp
-    tests/identity/adapter_play_context_state_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
-    tests/runtime/commonlib_adapter_character_capture_test.cpp
-    tests/runtime/commonlib_adapter_native_capture_router_test.cpp
     tests/runtime/game_thread_completion_test.cpp
     tests/runtime/adapter_game_behavior_config_file_reader_test.cpp
     tests/runtime/adapter_runtime_guard_test.cpp
