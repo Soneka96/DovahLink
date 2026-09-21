@@ -860,6 +860,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", script)
         self.assertNotIn("vcpkg-registries-cache", script)
 
+    
         section_positions = [
             script.index("=== tooling-ci ==="),
             script.index("=== app-ci ==="),
@@ -933,6 +934,33 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(command_positions, sorted(command_positions))
         self.assertNotIn("choco install", script)
         self.assertIn("All local CI command payloads passed.", script)
+
+    def test_local_ci_resolves_pinned_executables_without_visual_studio_cmake_tools(
+        self,
+    ) -> None:
+        """Require local CI to locate pinned tools dynamically and invoke the selected paths."""
+        script = self._read("tooling/run-local-ci.ps1")
+        toolchain = self._read("tooling/local-ci-toolchain.ps1")
+
+        for fragment in (
+            "$env:DOVAHLINK_VSWHERE_PATH",
+            'Get-ExecutablePathsFromPath -Name "vswhere.exe"',
+            "Resolve-ExistingExecutablePath",
+            "$env:DOVAHLINK_CMAKE_PATH",
+            "$env:DOVAHLINK_NINJA_PATH",
+            'Get-ExecutablePathsFromPath -Name "cmake.exe"',
+            'Get-ExecutablePathsFromPath -Name "ninja.exe"',
+            '-ExpectedVersion "cmake version 4.4.2"',
+            '-ExpectedVersion "1.13.2"',
+            "-FilePath $cmakePath",
+            '"-DCMAKE_MAKE_PROGRAM=$ninjaPath"',
+        ):
+            self.assertIn(fragment, script)
+
+        self.assertNotIn('-FilePath "cmake"', script)
+        self.assertNotIn("Microsoft.VisualStudio.Component.VC.CMake.Project", toolchain)
+        self.assertNotIn("CMakeDirectory", toolchain)
+        self.assertNotIn("NinjaDirectory", toolchain)
 
     def test_published_release_and_roadmap_status_agree(self) -> None:
         """Keep the published version and completed roadmap phase synchronized."""
