@@ -545,24 +545,36 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <paramref name="deadline"/> is not cancelled first -- by a matching result, a superseding
     /// resynchronize request, or the connection itself ending.
     /// </summary>
+    /// <remarks>
+    /// <see cref="Task.Delay(TimeSpan,CancellationToken)"/> completing does not, by itself, prove this
+    /// deadline is still the outstanding one: this continuation can be descheduled between the delay
+    /// completing and reaching <see cref="resynchronizeDeadlineGate"/>, during which a superseding
+    /// request can replace and cancel this same deadline. Ownership is therefore claimed atomically
+    /// under the lock -- only the caller that still finds itself the current deadline at that exact
+    /// moment may close the connection; closing unconditionally after the delay would let a stale
+    /// deadline still close a connection a newer request now owns.
+    /// </remarks>
     /// <param name="deadline">The deadline armed by <see cref="ArmResynchronizeDeadline"/>.</param>
     private async Task WaitAndCloseOnTimeoutAsync(CancellationTokenSource deadline)
     {
         try
         {
             await Task.Delay(Constants.AdapterIpcResynchronizeTimeout, deadline.Token).ConfigureAwait(false);
-            // Cleared here, under the same lock every other mutator of resynchronizeDeadline uses,
-            // before RequestClose() can trigger this connection's own teardown to reach
-            // CancelResynchronizeDeadline() and touch this same, about-to-be-disposed instance.
+            // Claims ownership under the same lock every other mutator of resynchronizeDeadline uses.
+            bool shouldClose;
             lock (resynchronizeDeadlineGate)
             {
-                if (ReferenceEquals(resynchronizeDeadline, deadline))
+                shouldClose = ReferenceEquals(resynchronizeDeadline, deadline);
+                if (shouldClose)
                 {
                     resynchronizeDeadline = null;
                 }
             }
 
-            RequestClose();
+            if (shouldClose)
+            {
+                RequestClose();
+            }
         }
         catch (OperationCanceledException)
         {

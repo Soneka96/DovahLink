@@ -201,6 +201,87 @@ public class AdapterIpcConnectionTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that a superseding resynchronize request's own deadline still closes the connection
+    /// normally when nothing ever resolves it -- proving supersession rearms a real, live deadline of
+    /// its own rather than leaving the connection unbounded once the previous deadline is cancelled.
+    /// </summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Superseding_NewDeadlineStillClosesWhenUnresolved()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // first resynchronize request (correlation 2)
+
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+        Assert.True(connection.TrySendResynchronizeRequest()); // Supersedes; arms the second deadline.
+        await ReadOneFrameAsync(client, codec); // second resynchronize request (correlation 3)
+
+        // Nothing ever resolves the second request; only its own deadline can end this run.
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>
+    /// Verifies that several requests superseding each other in quick succession remain idempotent:
+    /// only the very last request's own deadline can ever close the connection, no earlier deadline
+    /// closes it, and no redundant cancel/dispose from the chain of supersessions throws.
+    /// </summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_RepeatedSupersession_OnlyLastDeadlineCanClose()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // correlation 2, armed at 0T
+
+        // 60% of the timeout per step, matching this file's own established geometry: third request
+        // at 1.2T, assertion at 1.8T (past the first two requests' own 1.0T/1.6T deadlines, before the
+        // third's own 2.2T deadline), final close by 2.4T.
+        TimeSpan step = Constants.AdapterIpcResynchronizeTimeout * 0.6;
+
+        await Task.Delay(step);
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // correlation 3, armed at 0.6T, supersedes correlation 2
+
+        await Task.Delay(step);
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(4);
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // correlation 4, armed at 1.2T, supersedes correlation 3
+
+        await Task.Delay(step);
+        Assert.False(runTask.IsCompleted);
+
+        // Past the third deadline's own 2.2T fire time: only it -- the very last one -- can close.
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
     /// <summary>Verifies that a rejected handshake sends only the rejection acknowledgement and never requests resynchronization.</summary>
     [Fact]
     public async Task RunAsync_RejectedHandshake_SendsRejectionAckAndClosesWithoutResync()
