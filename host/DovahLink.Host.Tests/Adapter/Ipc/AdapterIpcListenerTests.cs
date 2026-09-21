@@ -669,7 +669,10 @@ public class PlayContextResynchronizationTriggerTests
     /// reached it -- leaving A's own watchdog free to expire and recover the connection context B now
     /// owns. With the fix, a real transition from A to B supersedes A immediately: A's watchdog can
     /// never fire, even though no capture for B ever arrives at the coordinator, while B still gets
-    /// its own live, independent watchdog.
+    /// its own live, independent watchdog. Uses a wide 300ms timeout with a 200ms supersession offset
+    /// so the no-recovery check sits comfortably (100ms) on both sides of A's and B's deadlines, rather
+    /// than the narrow ~40ms margin that was flaky on Windows/CI scheduling, and polls for B's eventual
+    /// recovery instead of assuming a fixed delay proves its timer continuation has already run.
     /// </summary>
     [Fact]
     public async Task HandleTransition_SupersedesTrackedCoordinatorTransaction_OldWatchdogCannotRecoverNewerContext()
@@ -680,25 +683,25 @@ public class PlayContextResynchronizationTriggerTests
         Connect(availabilityTracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
         var coordinator = new ResynchronizationTransactionCoordinator(
-            LiveStateCatalog.Default, availabilityTracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+            LiveStateCatalog.Default, availabilityTracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
         listener.CurrentConnection = connection;
         _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, coordinator);
 
-        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context A: arms its own 200ms watchdog.
+        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context A: arms its own 300ms watchdog.
 
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context B: supersedes A immediately.
 
-        // Past A's original 200ms deadline (measured from t=0), but before B's own fresh 200ms
-        // deadline (measured from t=50, due at t=250ms). No capture for B ever reached the coordinator.
-        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        // Past A's original 300ms deadline (measured from t=0), but 100ms before B's own fresh 300ms
+        // deadline (measured from t=200, due at t=500ms). No capture for B ever reached the coordinator.
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Assert.Empty(continuityRecovery.RecoveryRequests);
 
         // Past B's own independent deadline: B never completed, so it must still fire on its own
         // bound, proving the trigger armed a real watchdog for B rather than leaving it unbounded.
-        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        await WaitUntilAsync(() => continuityRecovery.RecoveryRequests.Count > 0);
         Assert.Equal([1L], continuityRecovery.RecoveryRequests);
     }
 
@@ -719,6 +722,18 @@ public class PlayContextResynchronizationTriggerTests
         if (token is not null)
         {
             tracker.NotifyResynchronized(instanceId, connectionGeneration, token);
+        }
+    }
+
+    /// <summary>Polls <paramref name="condition"/> until it is true, rather than assuming a fixed delay proves a timer continuation has already run.</summary>
+    /// <param name="condition">The condition to poll.</param>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Condition was not met within the expected time.");
+            await Task.Delay(10);
         }
     }
 }

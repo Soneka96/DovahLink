@@ -1246,7 +1246,9 @@ public class ResynchronizationTransactionCoordinatorTests
     /// "a timeout that has technically elapsed but loses ownership to B before recovery" and "context
     /// B superseding A on the same connection generation prevents A from closing B" together: B is
     /// tracked on the exact same connection generation as A, and the assertion runs past A's own
-    /// original deadline before B's independent one has fired.
+    /// original deadline before B's independent one has fired. Uses a wide 300ms timeout with a 200ms
+    /// supersession offset so the no-recovery check sits comfortably (100ms) on both sides of A's and
+    /// B's deadlines, rather than the narrow 20-40ms margins that were flaky on Windows/CI scheduling.
     /// </summary>
     [Fact]
     public async Task BeginTransaction_SupersedesTrackedTransaction_OldWatchdogCannotRecoverNewerConnectionGeneration()
@@ -1255,31 +1257,35 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
-        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
         PlayContextId contextA = PlayContextId.NewId();
         PlayContextId contextB = PlayContextId.NewId();
 
-        coordinator.AcquireToken(instanceId, 1, contextA, 1); // Arms A's watchdog (200ms from now).
+        coordinator.AcquireToken(instanceId, 1, contextA, 1); // Arms A's watchdog (300ms from now).
 
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         // No capture for B has arrived yet -- BeginTransaction alone must still supersede A.
         coordinator.BeginTransaction(instanceId, 1, contextB, 2);
 
-        // Past A's original 200ms deadline (measured from t=0), but before B's own fresh 200ms
-        // deadline (measured from t=50, due at t=250ms).
-        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        // Past A's original 300ms deadline (measured from t=0), but 100ms before B's own fresh 300ms
+        // deadline (measured from t=200, due at t=500ms).
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Assert.Empty(continuityRecovery.RecoveryRequests);
 
         // Past B's own independent deadline: B never completed, so it must still fire on its own
         // bound, proving BeginTransaction armed a real watchdog for B rather than leaving it unbounded.
-        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        // Polls rather than assuming a fixed delay proves the timer continuation has already run.
+        await WaitUntilAsync(() => continuityRecovery.RecoveryRequests.Count > 0);
         Assert.Equal([1L], continuityRecovery.RecoveryRequests);
     }
 
     /// <summary>
-    /// Verifies that a transaction which completes at almost exactly its own watchdog deadline never
-    /// recovers afterward: completion clears <c>transactionWatchdog</c> under the same lock the
-    /// watchdog's own claim uses, so even a concurrently elapsing watchdog finds it already gone.
+    /// Verifies that completing a transaction while its watchdog is still armed cancels the watchdog
+    /// and prevents later recovery: completion clears <c>transactionWatchdog</c> under the same lock
+    /// the watchdog's own claim uses, so even a watchdog that goes on to elapse finds it already gone.
+    /// Uses a 300ms watchdog against a 75ms completion so completion is comfortably inside the armed
+    /// window rather than racing the deadline itself, which is the narrow 5ms margin (80ms watchdog vs
+    /// 75ms completion) that was flaky on Windows/CI scheduling.
     /// </summary>
     [Fact]
     public async Task TransactionCompletesAsTimeoutElapses_DoesNotRecoverAfterward()
@@ -1288,7 +1294,7 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
-        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(80));
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
         PlayContextId context = PlayContextId.NewId();
 
         foreach (StateAreaId area in AllFiveAreas)
@@ -1297,11 +1303,12 @@ public class ResynchronizationTransactionCoordinatorTests
             coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
         }
 
-        // Completes right around the watchdog's own 80ms deadline.
+        // Completes well within the watchdog's still-armed 300ms window.
         await Task.Delay(TimeSpan.FromMilliseconds(75));
         coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        // Comfortably past the 300ms deadline, so a still-armed watchdog would have fired by now.
+        await Task.Delay(TimeSpan.FromMilliseconds(350));
 
         Assert.Empty(continuityRecovery.RecoveryRequests);
     }
@@ -1451,6 +1458,18 @@ public class ResynchronizationTransactionCoordinatorTests
         if (transition is not null)
         {
             tracker.PublishTransition(transition);
+        }
+    }
+
+    /// <summary>Polls <paramref name="condition"/> until it is true, rather than assuming a fixed delay proves a timer continuation has already run.</summary>
+    /// <param name="condition">The condition to poll.</param>
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Condition was not met within the expected time.");
+            await Task.Delay(10);
         }
     }
 }
