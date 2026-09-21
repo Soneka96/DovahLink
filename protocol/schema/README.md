@@ -92,7 +92,7 @@ The Host currently registers five Character state areas, each independently auth
 | `character_health` | Current health | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, as part of one coherent Vitals capture together with magicka and stamina | `"value": null` |
 | `character_magicka` | Current magicka | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
 | `character_stamina` | Current stamina | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
-| `character_level` | Current level | JSON number (integer-valued, 0-65535) | Snapshot for the initial/recovery baseline, then Event for each subsequent change | Baseline established by a dedicated resynchronization-only sample; native level-up occurrences publish as Events | `"value": null` |
+| `character_level` | Current level | JSON number (integer-valued, 0-65535) | Event | Its initial/recovery baseline is established by a dedicated resynchronization-only sample, delivered as a `state_snapshot`; native level-up occurrences then publish as `state_event` | `"value": null` |
 
 Every one of the five areas uses the same public `data` shape, with `value` as its only field:
 
@@ -112,11 +112,15 @@ that update.
 the Host has no Event-domain update for them, and only ever revises their value at a new `revision`
 via `state_snapshot`, through the normal subscribe/snapshot_request/recovery rules above.
 
-`character_level` establishes its initial or recovery value the same way, as a `state_snapshot`, but
-subsequent native level changes are delivered as `state_event`: `revision` equals `baseRevision + 1`,
-and `data` carries the complete post-change value, not a delta, per the general event rule above. A
-client must not treat `character_level` as usable before it has received a baseline Snapshot; the
-Event stream alone is not a valid starting point.
+`character_level`'s canonical delivery mode is Event, but native level changes are not its only
+source of state: its initial or recovery value is established the same way as the four Snapshot-only
+areas above, as a `state_snapshot`, before any Event is delivered. This baseline delivery does not
+change the area's canonical Event mode -- it is how an Event-mode area still gives a client a
+starting value to apply Events against. Once established, subsequent native level changes are
+delivered as `state_event`: `revision` equals `baseRevision + 1`, and `data` carries the complete
+post-change value, not a delta, per the general event rule above. A client must not treat
+`character_level` as usable before it has received a baseline Snapshot; the Event stream alone is
+not a valid starting point.
 
 The retired `character` aggregate (player level and three resource pools bundled into one state
 area) is not revived by this. `character_xp`, `character_health`, `character_magicka`,
@@ -568,7 +572,16 @@ Both arrays are required. The host sends snapshots only for accepted areas. A re
 the five registered state areas above appears in `acceptedStateAreas`; any other requested area
 appears in `rejectedStateAreas`.
 
-`subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. Each initial snapshot also uses the `subscribe` message ID as its `correlationId`; later snapshots use the `snapshot_request` message ID that caused them.
+`subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. An accepted
+area's own baseline snapshot correlates to whichever request is currently establishing it: the
+`subscribe` message ID for its first baseline, or a later `snapshot_request`'s message ID when that
+request is what triggered re-establishing it. An automatic re-baseline the Host starts on its own --
+after a play-context transition, a state-authority rotation, or a bounded recovery buffer
+overflowing -- is not a fresh client request; it reuses whichever message ID (the original
+`subscribe`, or the most recent `snapshot_request`) that area was already correlated to, rather than
+inventing a new one or always attaching to `snapshot_request`. Once an area is live and simply
+receives a newer authoritative value outside of any recovery, that snapshot is unsolicited and its
+`correlationId` is `null`, the same as an Event's.
 
 ### `snapshot_request`
 
@@ -596,7 +609,7 @@ Contains the complete state for one subscribed state area at a revision.
 
 Required payload fields: `stateArea`, `revision`, `occurredAt`, `data`.
 
-An initial snapshot correlates to `subscribe`; a recovery snapshot correlates to `snapshot_request`.
+See `subscription_ack` above for exactly which request a given snapshot's `correlationId` reflects: a first baseline, a baseline re-established by an explicit `snapshot_request`, an automatic Host-initiated re-baseline, or an unsolicited live update.
 
 ### `state_event`
 
