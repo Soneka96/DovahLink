@@ -1,14 +1,18 @@
 # Local CI bootstrap
 
 `tooling/run-local-ci.ps1` mirrors the repository's hosted CI command payloads locally on Windows
-before a push, using a pinned, disposable toolchain -- a vcpkg checkout cloned at a pinned baseline
-commit, plus pinned CMake and Ninja versions -- kept under `%LOCALAPPDATA%\Temp\DovahLink\`.
+before a push, using a vcpkg checkout cloned at a pinned baseline commit under
+`%LOCALAPPDATA%\Temp\DovahLink\`, plus pinned CMake and Ninja versions discovered from the
+configured overrides, standard install locations, or `PATH`.
 
 The local bootstrap discovers Visual Studio 2022 and Visual Studio 2026 through Visual Studio
-Installer's `vswhere`, selecting the latest complete installation in the 17.x or 18.x version range.
-It requires the Desktop development with C++ workload, MSVC x64/x86 tools, and CMake tools, plus the
-installation's `vcvarsall.bat`, vcpkg directory, CMake, and Ninja files. Hosted Adapter CI continues
-to use its pinned Visual Studio 2022 runner environment.
+Installer's `vswhere`, selecting the latest installation in the 17.x or 18.x version range that has
+the Desktop development with C++ workload and MSVC x64/x86 tools. It locates `vswhere.exe` from
+`DOVAHLINK_VSWHERE_PATH`, the standard installer location, or `PATH`. It uses pinned CMake 4.4.2
+and Ninja 1.13.2 from `DOVAHLINK_CMAKE_PATH` / `DOVAHLINK_NINJA_PATH`, standard install locations,
+or `PATH`, and invokes those resolved executables directly. The overrides must name the executable
+files themselves. Hosted Adapter CI continues to use its pinned Visual Studio 2022 runner
+environment.
 
 ## Disposable state vs. genuine failures
 

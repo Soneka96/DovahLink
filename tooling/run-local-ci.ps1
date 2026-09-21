@@ -9,7 +9,16 @@ $vcpkgRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg"
 
 . $toolchainScript
 
-$toolchain = Find-VisualStudioToolchain -LocatorPath (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe")
+$vswhereCandidates = @($env:DOVAHLINK_VSWHERE_PATH)
+if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+    $vswhereCandidates += Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+}
+$vswhereCandidates += Get-ExecutablePathsFromPath -Name "vswhere.exe"
+$vswherePath = Resolve-ExistingExecutablePath `
+    -ToolName "Visual Studio Installer's vswhere.exe" `
+    -CandidatePaths $vswhereCandidates `
+    -OverrideVariable "DOVAHLINK_VSWHERE_PATH"
+$toolchain = Find-VisualStudioToolchain -LocatorPath $vswherePath
 Import-VisualStudioEnvironment -Toolchain $toolchain
 
 $cacheRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg-binary-cache"
@@ -101,44 +110,39 @@ function Repair-CorruptVcpkgVersioningCache {
 }
 Repair-CorruptVcpkgVersioningCache -VcpkgRoot $vcpkgRoot
 
-$cmakeCandidates = @(
-    (Join-Path $env:ChocolateyInstall "bin\cmake.exe"),
-    "C:\Program Files\CMake\bin\cmake.exe"
-)
-$cmakePath = $cmakeCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-if ($null -eq $cmakePath) {
-    throw "Pinned CMake 4.4.2 was not found. Install it before running the local preflight."
+$cmakeCandidates = @($env:DOVAHLINK_CMAKE_PATH)
+if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
+    $cmakeCandidates += Join-Path $env:ChocolateyInstall "bin\cmake.exe"
 }
+$programFiles = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFiles)
+if (-not [string]::IsNullOrWhiteSpace($programFiles)) {
+    $cmakeCandidates += Join-Path $programFiles "CMake\bin\cmake.exe"
+}
+$cmakeCandidates += Get-ExecutablePathsFromPath -Name "cmake.exe"
+$cmakePath = Resolve-PinnedExecutablePath `
+    -ToolName "CMake" `
+    -CandidatePaths $cmakeCandidates `
+    -ExpectedVersion "cmake version 4.4.2" `
+    -OverrideVariable "DOVAHLINK_CMAKE_PATH"
 
-$ninjaCandidates = @(
-    (Join-Path $env:ChocolateyInstall "bin\ninja.exe"),
+$ninjaCandidates = @($env:DOVAHLINK_NINJA_PATH)
+if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
+    $ninjaCandidates += Join-Path $env:ChocolateyInstall "bin\ninja.exe"
+}
+$ninjaCandidates += @(
     "C:\ProgramData\chocolatey\bin\ninja.exe",
     "C:\Program Files\Ninja\ninja.exe"
 )
-$ninjaPath = $ninjaCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-if ($null -eq $ninjaPath) {
-    throw "Pinned Ninja 1.13.2 was not found. Install it before running the local preflight."
-}
+$ninjaCandidates += Get-ExecutablePathsFromPath -Name "ninja.exe"
+$ninjaPath = Resolve-PinnedExecutablePath `
+    -ToolName "Ninja" `
+    -CandidatePaths $ninjaCandidates `
+    -ExpectedVersion "1.13.2" `
+    -OverrideVariable "DOVAHLINK_NINJA_PATH"
 
 $env:PATH = "$(Split-Path -Parent $cmakePath);$(Split-Path -Parent $ninjaPath);$env:PATH"
-
-$cmakeOutput = @(& cmake --version)
-if ($LASTEXITCODE -ne 0) {
-    throw "CMake version check failed with exit code $LASTEXITCODE."
-}
-$cmakeVersion = ($cmakeOutput | Select-Object -First 1).Trim()
-if ($cmakeVersion -ne "cmake version 4.4.2") {
-    throw "Expected CMake 4.4.2, but found '$cmakeVersion'."
-}
-
-$ninjaOutput = @(& ninja --version)
-if ($LASTEXITCODE -ne 0) {
-    throw "Ninja version check failed with exit code $LASTEXITCODE."
-}
-$ninjaVersion = ($ninjaOutput | Select-Object -First 1).Trim()
-if ($ninjaVersion -ne "1.13.2") {
-    throw "Expected Ninja 1.13.2, but found '$ninjaVersion'."
-}
+Write-Host "Using pinned CMake 4.4.2: $cmakePath"
+Write-Host "Using pinned Ninja 1.13.2: $ninjaPath"
 
 $pythonOutput = @(& python --version 2>&1)
 if ($LASTEXITCODE -ne 0) {
@@ -289,8 +293,8 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList
     "--output", "host/DovahLink.Host/bin/publish/win-x64"
 )
 $adapterDirectory = Join-Path $repoRoot "adapter"
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--build", "--preset", "windows-x64-debug")
 # Runs the complete native Adapter suite -- IPC, pairing notification, trust-admin, Papyrus
 # registration, plugin, and the real Host<->Adapter process integration tests -- in one pass.
 # AssembleRealAdapterHostPackage and its dependent [package]-labeled test are discovered here too,
@@ -301,8 +305,8 @@ Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -Argum
 # defines a ctest testPreset only for windows-x64-debug, matching the retired native plugin's identical convention.
 # Release also provides the Release-named runtime DLLs (fmt.dll/spdlog.dll, unlike Debug's
 # debug-suffixed names) the real-package-layout test below requires.
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--build", "--preset", "windows-x64-release")
 # The one test genuinely tied to Release: AssembleRealAdapterHostPackage's CTest fixture requires
 # Release-named runtime DLLs, so it self-skips against Debug's build instead of failing there.
 # -L package runs only the tests adapter/CMakeLists.txt labeled "package", not the full suite the
