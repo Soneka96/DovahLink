@@ -360,7 +360,7 @@ class DeterministicBaselineCaptureRouter final
             CharacterEventKey::kCharacterLevelChanged) {
             return false;
         }
-        levelChangedRegistered_ = true;
+        levelChangedRegistered_.store(true, std::memory_order_relaxed);
         return true;
     }
 
@@ -385,7 +385,9 @@ class DeterministicBaselineCaptureRouter final
     ///  `EmitLevelChanged` below enters through a real registration rather
     ///  than firing unconditionally.
     ///  @return `true` once `RegisterEvent` has accepted `CharacterLevelChanged`.
-    bool IsLevelChangedRegistered() const { return levelChangedRegistered_; }
+    bool IsLevelChangedRegistered() const {
+        return levelChangedRegistered_.load(std::memory_order_relaxed);
+    }
 
     ///  Test-only stand-in for the real `RE::LevelIncrease::Event` sink's
     ///  `ProcessEvent`, enqueuing the exact same `AdapterCaptureWorkItem`
@@ -393,8 +395,8 @@ class DeterministicBaselineCaptureRouter final
     ///  fixture drains onto `SendCaptureResult`.
     ///  @param newLevel The simulated new character level.
     void EmitLevelChanged(std::uint16_t newLevel) {
-        if (!levelChangedRegistered_ || captureQueue_ == nullptr ||
-            playContextState_ == nullptr) {
+        if (!levelChangedRegistered_.load(std::memory_order_relaxed) ||
+            captureQueue_ == nullptr || playContextState_ == nullptr) {
             throw std::logic_error(
                 "EmitLevelChanged called before CharacterLevelChanged was "
                 "registered and attached.");
@@ -414,7 +416,10 @@ class DeterministicBaselineCaptureRouter final
 
   private:
     ///  Whether `RegisterEvent` has ever accepted `CharacterLevelChanged`.
-    bool levelChangedRegistered_ = false;
+    ///  Atomic: written from the private IPC session's own execution thread
+    ///  inside `RegisterEvent`, read from the test thread by
+    ///  `IsLevelChangedRegistered` and `EmitLevelChanged`.
+    std::atomic<bool> levelChangedRegistered_{false};
     ///  The real capture queue `EmitLevelChanged` enqueues into. Not owned;
     ///  set once by `AttachLevelChangedEmitter`.
     IAdapterCaptureHandoffQueue* captureQueue_ = nullptr;
