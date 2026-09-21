@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text.Json;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
@@ -746,6 +747,93 @@ public class AdapterIpcConnectionTests
         connection.TrySendResynchronizeRequest();
 
         Assert.Equal([42UL], fakeSession.CancelledPendingResynchronizeCorrelationIds);
+    }
+
+    /// <summary>
+    /// Verifies the fix for the deadline/write ordering race: a matching result processed at the
+    /// earliest possible moment relative to admission -- deterministically forced via
+    /// <see cref="ResynchronizeInterceptingCodec"/> instead of a real hardware race -- must never leave
+    /// a stale deadline armed. Fails under the pre-fix ordering (deadline armed only after the write),
+    /// where this same interception would find no deadline yet to cancel.
+    /// </summary>
+    [Fact]
+    public async Task TryEnqueueResynchronizeRequest_ResultProcessedBeforeWriteReturns_DeadlineNeverStaysArmed()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new ResynchronizeInterceptingCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        MethodInfo cancelIfMatching = typeof(AdapterIpcConnection)
+            .GetMethod("CancelResynchronizeDeadlineIfMatching", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        codec.OnEncodingResynchronizeRequest = correlationId => cancelIfMatching.Invoke(connection, [correlationId]);
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // resynchronize request (correlation 2)
+
+        // Only the deadline this fix installs before the write, and this test's interception then
+        // cancels during it, can keep the connection open past its own timeout.
+        await Task.Delay(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(2));
+
+        Assert.False(runTask.IsCompleted);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies the "important concurrency requirement" the fix calls out: admission-failure cleanup
+    /// must cancel only the exact deadline belonging to the failing request's own correlation id, never
+    /// a newer, already-superseding request's deadline. <see cref="ResynchronizeInterceptingCodec"/>
+    /// deterministically reproduces a request (correlation 3) superseding the one currently being
+    /// admitted (correlation 2) in the instant between that request's own deadline being armed and its
+    /// write being attempted -- the same window a genuinely concurrent supersession would use -- and
+    /// pre-fills the queue so only the superseding request's write can succeed.
+    /// </summary>
+    [Fact]
+    public void TryEnqueueResynchronizeRequest_SupersededDuringAdmission_AdmissionFailureDoesNotCancelNewerDeadline()
+    {
+        var codec = new ResynchronizeInterceptingCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(new MemoryStream(), codec, fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages - 1; i++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        bool supersessionTriggered = false;
+        codec.OnEncodingResynchronizeRequest = correlationId =>
+        {
+            if (supersessionTriggered)
+            {
+                return;
+            }
+
+            supersessionTriggered = true;
+            fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+            Assert.True(connection.TrySendResynchronizeRequest()); // Takes the one remaining queue slot.
+        };
+
+        bool enqueued = connection.TrySendResynchronizeRequest(); // Correlation 2: its own write now fails.
+
+        Assert.False(enqueued);
+        Assert.Equal([2UL], fakeSession.CancelledPendingResynchronizeCorrelationIds);
+
+        var deadlineField = typeof(AdapterIpcConnection).GetField("resynchronizeDeadline", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var correlationField = typeof(AdapterIpcConnection).GetField("resynchronizeDeadlineCorrelationId", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        Assert.NotNull(deadlineField.GetValue(connection));
+        Assert.Equal(3UL, correlationField.GetValue(connection));
     }
 
     /// <summary>Verifies that a successfully enqueued resynchronize request never withdraws its own correlation.</summary>
@@ -2507,5 +2595,39 @@ public class AdapterIpcConnectionTests
 
             base.Dispose(disposing);
         }
+    }
+
+    /// <summary>
+    /// A codec wrapper that synchronously invokes <see cref="OnEncodingResynchronizeRequest"/> exactly
+    /// when encoding an <see cref="IpcResynchronizeRequestMessage"/> -- the same point
+    /// <c>AdapterIpcConnection</c>'s admission path reaches between arming that request's deadline and
+    /// making it observable to the outbound writer. This lets a test deterministically force what
+    /// would otherwise be a nanosecond-wide hardware race, without adding any seam to production code.
+    /// </summary>
+    private sealed class ResynchronizeInterceptingCodec : IIpcFrameCodec
+    {
+        /// <summary>The real codec every call delegates to.</summary>
+        private readonly IIpcFrameCodec inner = new IpcFrameCodec();
+
+        /// <summary>Invoked with a resynchronize request's correlation id immediately before it is encoded.</summary>
+        public Action<ulong>? OnEncodingResynchronizeRequest { get; set; }
+
+        /// <inheritdoc/>
+        public byte[] Encode(IpcMessage message)
+        {
+            if (message is IpcResynchronizeRequestMessage request)
+            {
+                OnEncodingResynchronizeRequest?.Invoke(request.CorrelationId);
+            }
+
+            return inner.Encode(message);
+        }
+
+        /// <inheritdoc/>
+        public bool TryReadFrameLength(ReadOnlySpan<byte> lengthPrefix, out int frameLength) =>
+            inner.TryReadFrameLength(lengthPrefix, out frameLength);
+
+        /// <inheritdoc/>
+        public IpcDecodeResult Decode(ReadOnlySpan<byte> frame) => inner.Decode(frame);
     }
 }

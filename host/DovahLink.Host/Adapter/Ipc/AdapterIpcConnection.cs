@@ -1018,20 +1018,30 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <summary>
-    /// Enqueues a resynchronization request and arms its bounded deadline, withdrawing the pending
-    /// correlation when the outbound queue cannot admit the request.
+    /// Arms this request's bounded deadline and then enqueues it, withdrawing that same deadline and
+    /// the pending correlation when the outbound queue cannot admit the request.
     /// </summary>
+    /// <remarks>
+    /// The deadline must be armed before the request becomes observable to <see cref="WriterLoopAsync"/>:
+    /// arming it afterward would let an adapter that answers faster than this method returns have its
+    /// result processed by <see cref="ReadLoopAsync"/> before <see cref="resynchronizeDeadline"/> even
+    /// exists to cancel, leaving a stale deadline armed for an already-completed request.
+    /// </remarks>
     /// <param name="request">The prepared resynchronization request.</param>
     /// <returns><see langword="true"/> when the request was queued.</returns>
     private bool TryEnqueueResynchronizeRequest(IpcResynchronizeRequestMessage request)
     {
+        ArmResynchronizeDeadline(request.CorrelationId);
+
         if (!outbound.Writer.TryWrite(codec.Encode(request)))
         {
+            // Correlation-matched, not unconditional: a newer request may already have superseded and
+            // now owns the deadline slot, and this cleanup must never cancel that one.
+            CancelResynchronizeDeadlineIfMatching(request.CorrelationId);
             session.CancelPendingResynchronize(request.CorrelationId);
             return false;
         }
 
-        ArmResynchronizeDeadline(request.CorrelationId);
         return true;
     }
 
