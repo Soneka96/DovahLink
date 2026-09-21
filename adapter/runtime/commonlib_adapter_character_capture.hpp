@@ -1,7 +1,5 @@
 #pragma once
 
-#include "RE/Skyrim.h"
-
 #include <cstdint>
 #include <optional>
 
@@ -49,45 +47,5 @@ std::optional<float> CaptureCharacterXp();
 ///  @return The level, or `std::nullopt` if the player is not currently
 ///  available.
 std::optional<std::uint16_t> CaptureCharacterLevel();
-
-//  TODO(stage4-file-extraction): Move these definitions back to their own
-//  runtime/commonlib_adapter_character_capture.cpp in the post-Stage-4
-//  structural cleanup PR. Temporarily header-only to hold this PR's
-//  changed-file count down; extraction only, no behavior change.
-inline std::optional<CharacterVitalsCapture> CaptureCharacterVitals() {
-    auto* player = RE::PlayerCharacter::GetSingleton();
-    if (!player) {
-        return std::nullopt;
-    }
-    auto* actorValues = player->AsActorValueOwner();
-    if (!actorValues) {
-        return std::nullopt;
-    }
-    return CharacterVitalsCapture{
-        .health = actorValues->GetActorValue(RE::ActorValue::kHealth),
-        .magicka = actorValues->GetActorValue(RE::ActorValue::kMagicka),
-        .stamina = actorValues->GetActorValue(RE::ActorValue::kStamina),
-    };
-}
-
-inline std::optional<float> CaptureCharacterXp() {
-    auto* player = RE::PlayerCharacter::GetSingleton();
-    if (!player) {
-        return std::nullopt;
-    }
-    auto* skills = player->GetInfoRuntimeData().skills;
-    if (!skills || !skills->data) {
-        return std::nullopt;
-    }
-    return skills->data->xp;
-}
-
-inline std::optional<std::uint16_t> CaptureCharacterLevel() {
-    auto* player = RE::PlayerCharacter::GetSingleton();
-    if (!player) {
-        return std::nullopt;
-    }
-    return player->GetLevel();
-}
 
 } //  namespace dovahlink::adapter::runtime
