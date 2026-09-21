@@ -25,14 +25,19 @@ inline constexpr std::size_t kMaxCapturedPayloadBytes = 12;
 
 ///  The number of immediate, non-blocking lock attempts
 ///  `AdapterCaptureHandoffQueue::TryEnqueue` makes before treating an item as
-///  rejected, with no yield or wait between attempts. The worker thread
-///  holds the same mutex only for the brief span of removing one item from
-///  the ring buffer, so a handful of immediate retries all but eliminates a
-///  spurious rejection from transient contention with it -- for example
-///  three baseline samples enqueued back to back during resynchronization --
-///  without ever making the calling game-thread callback actually wait for
-///  the lock or surrender its scheduler timeslice: a genuinely full or
-///  stopped queue still fails on the very first attempt.
+///  rejected; it never voluntarily yields, sleeps, or waits between them. The
+///  worker thread's own critical section is intentionally extremely short --
+///  it holds the same mutex only to remove one item from the ring buffer --
+///  so a handful of immediate retries can absorb ordinary, brief concurrent
+///  contention with it, for example three baseline samples enqueued back to
+///  back during resynchronization, without the calling game-thread callback
+///  ever waiting for the lock or surrendering its scheduler timeslice.
+///  Admission stays deliberately bounded and non-blocking, so a
+///  contention-only rejection remains possible if the worker happens to be
+///  preempted mid-critical-section; that tradeoff is preferred over risking
+///  scheduler-dependent latency on this Skyrim producer path. A genuinely
+///  full or stopped queue still rejects immediately, on the very first
+///  attempt that acquires the mutex.
 inline constexpr int kCaptureQueueEnqueueLockAttempts = 4;
 
 } //  namespace dovahlink::adapter::capture

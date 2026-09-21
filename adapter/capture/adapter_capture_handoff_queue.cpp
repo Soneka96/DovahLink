@@ -18,17 +18,21 @@ AdapterCaptureHandoffQueue::~AdapterCaptureHandoffQueue() { Stop(); }
 
 bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
     bool accepted = false;
-    //  A handful of immediate, non-blocking attempts, with no yield between
-    //  them: the worker thread only ever holds this same mutex for the brief
-    //  span of removing one item below -- a few instructions, no I/O, no
-    //  allocation -- so it never needs scheduler help to release it, and an
-    //  immediate retry absorbs the same transient contention (for example
-    //  three baseline samples enqueued back to back during
+    //  A handful of immediate, non-blocking attempts: this call never
+    //  voluntarily yields, sleeps, or waits. The worker thread's own critical
+    //  section is intentionally extremely short -- a few instructions to
+    //  remove one item, no I/O, no allocation -- so a handful of immediate
+    //  retries can absorb ordinary, brief concurrent contention with it (for
+    //  example three baseline samples enqueued back to back during
     //  resynchronization) without ever surrendering this call's own
-    //  scheduler timeslice, which `std::this_thread::yield()` can do for a
+    //  scheduler timeslice the way `std::this_thread::yield()` would, for a
     //  scheduler-dependent duration this Skyrim game-thread callback must
-    //  not risk. A genuinely full or stopped queue still fails on the very
-    //  first attempt.
+    //  not risk. Admission stays deliberately bounded and non-blocking, so a
+    //  contention-only rejection remains possible if the worker is preempted
+    //  mid-critical-section; that tradeoff is preferred over letting this
+    //  call wait for the scheduler. A genuinely full or stopped queue still
+    //  rejects immediately, on the very first attempt that acquires the
+    //  mutex.
     for (int attempt = 0; attempt < kCaptureQueueEnqueueLockAttempts;
          ++attempt) {
         std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
