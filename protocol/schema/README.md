@@ -51,8 +51,8 @@ independent protocol-generation number carried on every message — see
 }
 ```
 
-- `stateArea` is a canonical identifier assigned when a state area is registered. No state area is
-  currently registered; see "Registered state areas" below.
+- `stateArea` is a canonical identifier assigned when a state area is registered; see "Registered
+  state areas" below for the five areas currently registered.
 - `revision` is a non-negative integer, monotonically increasing within one
   `(stateAuthorityId, playContextId, stateArea)`.
 - A revision belongs to that authority continuity epoch, play context, and state area rather
@@ -84,11 +84,138 @@ area.
 
 ## Registered state areas
 
-No state area is currently registered. The previous `character` aggregate (player level and three
-resource pools bundled into one state area) is retired: a future phase may register a composed
-character view, or focused progression-specific areas, without reviving this shape. Until a state
-area is registered, `subscribe` and `snapshot_request` reject every requested area explicitly (see
-their sections below) and both endpoints' `capabilities` list is empty.
+The Host currently registers five Character state areas, each independently authoritative:
+
+| State area | Value meaning | Public `data` value type | Delivery mode | Capture policy | Unavailable behavior |
+|---|---|---|---|---|---|
+| `character_xp` | Current character experience/progression value | JSON number (single-precision reading) | Snapshot | Sampled on its own, at Medium cadence | `"value": null` |
+| `character_health` | Current health | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, as part of one coherent Vitals capture together with magicka and stamina | `"value": null` |
+| `character_magicka` | Current magicka | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
+| `character_stamina` | Current stamina | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
+| `character_level` | Current level | JSON number (integer-valued, 0-65535) | Snapshot for the initial/recovery baseline, then Event for each subsequent change | Baseline established by a dedicated resynchronization-only sample; native level-up occurrences publish as Events | `"value": null` |
+
+Every one of the five areas uses the same public `data` shape, with `value` as its only field:
+
+```json
+{
+  "value": 42.5
+}
+```
+
+`value` is `null` when the state is legitimately unavailable -- the fail-closed default; capture
+never substitutes a plausible default such as `0`, full health, or level `1`. A malformed or
+unrecognized private capture is a distinct case from a legitimate unavailable reading: it never
+reaches the public contract as a null value either, and instead produces no publication at all for
+that update.
+
+`character_xp`, `character_health`, `character_magicka`, and `character_stamina` are Snapshot-only:
+the Host has no Event-domain update for them, and only ever revises their value at a new `revision`
+via `state_snapshot`, through the normal subscribe/snapshot_request/recovery rules above.
+
+`character_level` establishes its initial or recovery value the same way, as a `state_snapshot`, but
+subsequent native level changes are delivered as `state_event`: `revision` equals `baseRevision + 1`,
+and `data` carries the complete post-change value, not a delta, per the general event rule above. A
+client must not treat `character_level` as usable before it has received a baseline Snapshot; the
+Event stream alone is not a valid starting point.
+
+The retired `character` aggregate (player level and three resource pools bundled into one state
+area) is not revived by this. `character_xp`, `character_health`, `character_magicka`,
+`character_stamina`, and `character_level` are five independent, separately-subscribable state
+areas, not facets of one composed view.
+
+Host/Adapter resynchronization establishes a fresh authoritative baseline for these areas after
+continuity recovery or an active play-context transition; this is why a `state_snapshot` for an
+already-subscribed area can arrive without a client-initiated `snapshot_request`. The client always
+receives an authoritative Snapshot from the Host -- it never reads Skyrim state directly.
+
+An area requested by `subscribe` or `snapshot_request` that is not one of these five remains
+explicitly rejected (see their sections below).
+
+### Registered state area examples
+
+`character_xp` snapshot:
+
+```json
+{
+  "messageType": "state_snapshot",
+  "messageId": "b3f1a2c4-6d5e-4a1b-9c3d-7e8f9a0b1c2d",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "payload": {
+    "stateArea": "character_xp",
+    "revision": 7,
+    "occurredAt": "2026-08-10T12:00:03Z",
+    "data": { "value": 1280.0 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
+
+`character_health` snapshot, one member of the same coherent Vitals capture as `character_magicka`
+and `character_stamina`:
+
+```json
+{
+  "messageType": "state_snapshot",
+  "messageId": "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "payload": {
+    "stateArea": "character_health",
+    "revision": 12,
+    "occurredAt": "2026-08-10T12:00:03Z",
+    "data": { "value": 87.5 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
+
+`character_level` initial/recovery baseline snapshot, correlated to the `subscribe` that requested
+it:
+
+```json
+{
+  "messageType": "state_snapshot",
+  "messageId": "d5e6f7a8-9b0c-4d1e-8f2a-3b4c5d6e7f80",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "payload": {
+    "stateArea": "character_level",
+    "revision": 4,
+    "occurredAt": "2026-08-10T12:00:03Z",
+    "data": { "value": 10 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
+
+The subsequent native level-up, delivered as an unsolicited Event with `revision == baseRevision +
+1` and the complete post-change value:
+
+```json
+{
+  "messageType": "state_event",
+  "messageId": "e6f7a8b9-0c1d-4e2f-8a3b-4c5d6e7f8091",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": null,
+  "payload": {
+    "stateArea": "character_level",
+    "baseRevision": 4,
+    "revision": 5,
+    "occurredAt": "2026-08-10T12:05:41Z",
+    "data": { "value": 11 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
 
 ## Message types
 
@@ -401,9 +528,9 @@ without it.
 
 Required payload field: `capabilities`. Each capability requires `id` and `version`.
 
-Both endpoints send `capabilities`. No capability is currently registered (see "Registered state
-areas" above); both the host and the client send an empty list, and any non-empty list is
-rejected as `unsupported_capability`.
+Both endpoints send `capabilities`. No capability is currently registered -- this is a separate,
+still-empty registry, independent of the registered state areas below; both the host and the client
+send an empty list, and any non-empty list is rejected as `unsupported_capability`.
 
 ### `subscribe`
 
@@ -422,9 +549,9 @@ available yet is never a dead end: its baseline is delivered automatically, stil
 `subscribe` message, as soon as one becomes available, or answered with a `temporarily_unavailable`
 `error` if none does before a bounded deadline elapses.
 
-Required payload field: `stateAreas`. The host responds with `subscription_ack`. No state area is
-currently registered (see "Registered state areas" above), so every requested area is rejected into
-`subscription_ack.rejectedStateAreas`.
+Required payload field: `stateAreas`. The host responds with `subscription_ack`. A requested area
+that is one of the five registered state areas above is accepted; any other requested area is
+rejected into `subscription_ack.rejectedStateAreas`.
 
 ### `subscription_ack`
 
@@ -437,9 +564,9 @@ Confirms accepted and rejected state areas:
 }
 ```
 
-Both arrays are required. The host sends snapshots only for accepted areas. No state area is
-currently registered, so `acceptedStateAreas` is always empty and every requested area appears in
-`rejectedStateAreas`.
+Both arrays are required. The host sends snapshots only for accepted areas. A requested area among
+the five registered state areas above appears in `acceptedStateAreas`; any other requested area
+appears in `rejectedStateAreas`.
 
 `subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. Each initial snapshot also uses the `subscribe` message ID as its `correlationId`; later snapshots use the `snapshot_request` message ID that caused them.
 
