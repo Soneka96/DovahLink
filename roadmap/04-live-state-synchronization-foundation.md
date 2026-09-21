@@ -550,4 +550,48 @@ behind them.
   stamped with that context at capture time, per the Host's own staleness-rejection contract.
 - Reliable native-Event delivery under sustained capture-queue pressure remains the same open,
   documented risk named above -- `character_level`'s real event now exercises that path for the
-  first time, but no additional mitigation was added in this slice.
+  first time, but no additional mitigation was added in this slice. The queue itself is bounded and
+  covered by deterministic tests; sustained real-Skyrim load/profiling behavior remains
+  evidence-driven work, not something this slice redesigns or production-profiles.
+- Host: the generic dispatch path is domain-agnostic. `LiveCaptureSink` routes a captured value by
+  its registered capture identity to the handler registered for it; `CharacterCaptureHandler` owns
+  Character-specific payload decoding and mapping to state-area values, and `LiveStateApplication`
+  owns the shared authority/resynchronization/publication application logic once a value has been
+  decoded. `LiveStateScheduler`'s ordinary sampling and the Adapter-driven resynchronization path
+  are gated separately, so ordinary sampling does not race through an adapter generation or
+  resynchronization transition. The Host derives its resynchronization plan
+  (`ResynchronizationPlan`: persistent event keys registered before baseline sample tokens) from
+  `LiveStateCatalog` rather than hardcoding it in the generic Host/Adapter resync plumbing.
+- Adapter: bounded fixed-size `CapturedPayload` construction rejects oversized runtime input rather
+  than truncating it; event and sample execution stay behind `IAdapterNativeCaptureRouter`/the
+  CommonLib implementation, so the Adapter never fabricates a value for an unavailable capture.
+
+**Deterministic automated process-level E2E proof.** `adapter/tests/process/adapter_host_real_process_test.cpp`
+proves the full real cross-process pipeline -- a real C++ `AdapterIpcConnection`, `AdapterIpcSession`,
+and `AdapterCaptureHandoffQueue`, over real private IPC, against a real launched C# Host, observed
+only through a real public WebSocket client -- using a synthetic, deterministic native capture source
+in place of Skyrim:
+
+- a synthetic XP baseline of `42.5` reaches a real public WebSocket client as a `character_xp`
+  `state_snapshot` of `42.5`, driven entirely by the real Host-driven resynchronization plan;
+- a `character_level` baseline of `10` reaches the client as an initial `state_snapshot`, then a
+  synthetic native `LevelChanged(11)` -- entering only through a real
+  `RegisterEvent(CharacterLevelChanged)` registration, not a test bypass -- reaches the client as a
+  `character_level` `state_event` of `11` with a newer revision under the same play context.
+
+This is deterministic automated process-level E2E coverage of the real Adapter/Host/public-client
+pipeline. It is not live Skyrim validation, real gameplay validation, or CommonLib runtime proof
+inside Skyrim: the native capture source in these tests is synthetic, not a running Skyrim process.
+Live Skyrim runtime validation by the maintainer remains a separate, outstanding requirement that
+this automated proof does not satisfy.
+
+**Manual Skyrim runtime validation checklist (outstanding).** None of the following has been run
+against a real Skyrim `1.6.1170` session; this list is what "live Skyrim runtime validation" in the
+acceptance criteria above still requires before this slice can be marked Complete:
+
+- health/magicka/stamina ordinary current values, and drain/regeneration behavior;
+- death/downed/essential-actor behavior, including negative-health edge cases;
+- XP gain behavior and the native level-up event;
+- load save A; transition to and load save B; reload of the same save; new game;
+- Host restart while a save is loaded; Adapter/private IPC reconnect;
+- main menu / no active context; shutdown / quit.
