@@ -1136,24 +1136,26 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
-        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
         PlayContextId contextA = PlayContextId.NewId();
         PlayContextId contextB = PlayContextId.NewId();
 
-        coordinator.AcquireToken(instanceId, 1, contextA, 1); // Arms A's watchdog (200ms from now).
+        coordinator.AcquireToken(instanceId, 1, contextA, 1); // Arms A's watchdog (due at t=300ms).
 
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         tracker.RearmResynchronizationForPlayContextTransition();
-        coordinator.AcquireToken(instanceId, 1, contextB, 2); // Supersedes A; arms B's own 200ms watchdog.
+        coordinator.AcquireToken(instanceId, 1, contextB, 2); // Supersedes A; arms B's own watchdog (due at t=500ms).
 
-        // t=210ms: past A's original 200ms deadline (measured from t=0), but before B's own fresh
-        // 200ms deadline (measured from t=50, so due at t=250ms). Nothing has fired yet.
-        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        // t=400ms: roughly 100ms past A's own deadline (t=300ms) and roughly 100ms before B's own
+        // deadline (t=500ms) -- a wide margin on both sides to tolerate Windows/GitHub Actions
+        // scheduling jitter. Nothing has fired yet.
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Assert.Empty(continuityRecovery.RecoveryRequests);
 
-        // t=360ms: past B's own independent deadline (t=250ms). B never completed, so it must still
-        // fire on its own bound -- proving the newer transaction was never left without one of its own.
-        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        // t=600ms: roughly 100ms past B's own independent deadline (t=500ms). B never completed, so it
+        // must still fire on its own bound -- proving the newer transaction was never left without one
+        // of its own.
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Assert.Equal([1L], continuityRecovery.RecoveryRequests);
     }
 
@@ -1170,19 +1172,23 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
-        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
         PlayContextId context = PlayContextId.NewId();
 
-        coordinator.AcquireToken(instanceId, 1, context, 1); // Arms generation 1's watchdog.
+        coordinator.AcquireToken(instanceId, 1, context, 1); // Arms generation 1's watchdog (due at t=300ms).
 
-        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Connect(tracker, instanceId, 2); // Simulates the adapter reconnecting on a new generation.
-        coordinator.AcquireToken(instanceId, 2, context, 1); // Supersedes generation 1; arms generation 2's own watchdog.
+        coordinator.AcquireToken(instanceId, 2, context, 1); // Supersedes generation 1; arms generation 2's own watchdog (due at t=500ms).
 
-        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        // t=400ms: roughly 100ms past generation 1's own deadline (t=300ms) and roughly 100ms before
+        // generation 2's own deadline (t=500ms) -- the same wide margin as
+        // NewerPlayContextTransaction_CancelsOldWatchdog_DoesNotRecoverNewerTransaction.
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Assert.Empty(continuityRecovery.RecoveryRequests);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        // t=600ms: roughly 100ms past generation 2's own independent deadline (t=500ms).
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
         Assert.Equal([2L], continuityRecovery.RecoveryRequests);
     }
 
