@@ -1160,14 +1160,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             elif heading == "4. Live State Synchronization Foundation":
                 # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line, the
                 # Host/Adapter continuation's "Host-owned state, publication, and bounded delivery"
-                # subsection's own, and the still-undone "Real capture and host integration"
-                # subsection's "Planned" line, since these are subsections of this stage rather
-                # than independent headings the way 3.1-3.3 are.
+                # subsection's own, and the "Real capture and host integration" subsection's own
+                # status line -- code-complete pending the maintainer's live Skyrim verification --
+                # since these are subsections of this stage rather than independent headings the
+                # way 3.1-3.3 are.
                 expected_statuses = [
                     phase_4_status,
                     "**Status:** Complete",
                     "**Status:** Complete",
-                    "**Status:** Planned — follows Host-owned state/publication/delivery",
+                    "**Status:** Implementation complete on Host and Adapter. Every acceptance "
+                    "criterion below is met",
                 ]
             elif heading == "3A. Host/Adapter Production Migration":
                 # 3A.1, 3A.2, and 3A.3 each carry their own "**Status:** Complete" line now that
