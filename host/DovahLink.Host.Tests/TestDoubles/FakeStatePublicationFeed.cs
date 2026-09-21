@@ -103,6 +103,9 @@ public sealed class FakeResynchronizationTransactionCoordinator : IResynchroniza
     /// <summary>Every call to <see cref="RecordAdapterPlanAccepted"/>, in call order.</summary>
     public List<(bool Accepted, AdapterInstanceId InstanceId, long ConnectionGeneration, PlayContextId PlayContextId, long PlayContextGeneration)> RecordAdapterPlanAcceptedCalls { get; } = [];
 
+    /// <summary>Every call to <see cref="BeginTransaction"/>, in call order.</summary>
+    public List<(AdapterInstanceId InstanceId, long ConnectionGeneration, PlayContextId PlayContextId, long PlayContextGeneration)> BeginTransactionCalls { get; } = [];
+
     /// <inheritdoc/>
     public IAdapterResynchronizationToken? AcquireToken(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration)
     {
@@ -117,6 +120,10 @@ public sealed class FakeResynchronizationTransactionCoordinator : IResynchroniza
     /// <inheritdoc/>
     public void RecordAdapterPlanAccepted(bool accepted, AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration) =>
         RecordAdapterPlanAcceptedCalls.Add((accepted, instanceId, connectionGeneration, playContextId, playContextGeneration));
+
+    /// <inheritdoc/>
+    public void BeginTransaction(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration) =>
+        BeginTransactionCalls.Add((instanceId, connectionGeneration, playContextId, playContextGeneration));
 }
 
 /// <summary>A controllable stand-in for <see cref="IAdapterContinuityRecovery"/>.</summary>

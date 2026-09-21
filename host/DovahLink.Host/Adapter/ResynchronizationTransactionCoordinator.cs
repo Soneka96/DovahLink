@@ -68,6 +68,24 @@ public interface IResynchronizationTransactionCoordinator
     /// <param name="playContextId">The play context that was current when the request was sent.</param>
     /// <param name="playContextGeneration">The play-context transition generation that was current when the request was sent.</param>
     void RecordAdapterPlanAccepted(bool accepted, AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration);
+
+    /// <summary>
+    /// Starts tracking the given tuple as the current transaction if it is strictly newer than
+    /// whatever this coordinator currently tracks, immediately superseding and discarding any older
+    /// transaction's progress and disarming its watchdog -- the same replacement
+    /// <see cref="AcquireToken"/> already performs, without claiming a token. Lets a caller
+    /// (<c>PlayContextResynchronizationTrigger</c>) that has just sent a fresh resynchronize request
+    /// invalidate the previous transaction the moment the request goes out, instead of only once the
+    /// new transaction's own first baseline or result arrives -- closing the window in which the
+    /// previous transaction's watchdog could otherwise still expire and recover the connection the
+    /// new transaction now owns. A no-op for a tuple that is not strictly newer than the one already
+    /// tracked.
+    /// </summary>
+    /// <param name="instanceId">The adapter instance the new resynchronize request was sent to.</param>
+    /// <param name="connectionGeneration">The adapter connection generation the request was sent under.</param>
+    /// <param name="playContextId">The play context the request was sent for.</param>
+    /// <param name="playContextGeneration">The play-context transition generation the request was sent under.</param>
+    void BeginTransaction(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration);
 }
 
 /// <inheritdoc cref="IResynchronizationTransactionCoordinator"/>
@@ -225,6 +243,21 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
         }
     }
 
+    /// <inheritdoc/>
+    public void BeginTransaction(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration)
+    {
+        CancellationTokenSource? armedWatchdog;
+        CancellationTokenSource? supersededWatchdog;
+        long trackedConnectionGeneration;
+        lock (gate)
+        {
+            EnsureTrackingLocked(instanceId, connectionGeneration, playContextId, playContextGeneration, out armedWatchdog, out supersededWatchdog);
+            trackedConnectionGeneration = transactionConnectionGeneration;
+        }
+
+        ActivateWatchdog(armedWatchdog, supersededWatchdog, trackedConnectionGeneration);
+    }
+
     /// <summary>
     /// Matches the given tuple against the currently tracked transaction, replacing it with a fresh
     /// one when the tuple is strictly newer (by connection generation, then play-context generation),
@@ -351,6 +384,15 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
     /// same reasoning <see cref="AdapterIpcConnection"/>'s own per-request resynchronize deadline
     /// relies on.
     /// </summary>
+    /// <remarks>
+    /// <see cref="Task.Delay(TimeSpan,CancellationToken)"/> completing does not, by itself, prove this
+    /// watchdog is still current: this continuation can be descheduled between the delay completing
+    /// and reaching <see cref="gate"/>, during which a newer transaction can supersede and cancel this
+    /// same watchdog. Ownership is therefore claimed atomically under the lock -- only the caller that
+    /// still finds itself the current watchdog at that exact moment may recover; recovering
+    /// unconditionally after the delay would let a stale watchdog still close a newer transaction's
+    /// own valid connection.
+    /// </remarks>
     /// <param name="watchdog">The watchdog armed for this exact transaction.</param>
     /// <param name="connectionGeneration">The transaction's connection generation.</param>
     private async Task WaitAndRecoverOnTimeoutAsync(CancellationTokenSource watchdog, long connectionGeneration)
@@ -358,18 +400,21 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
         try
         {
             await Task.Delay(transactionTimeout, watchdog.Token).ConfigureAwait(false);
-            // Cleared here, under the same lock every other mutator of transactionWatchdog uses, so a
-            // concurrently completing or superseding call never observes this about-to-fire watchdog
-            // as still current.
+            // Claims ownership under the same lock every other mutator of transactionWatchdog uses.
+            bool shouldRecover;
             lock (gate)
             {
-                if (ReferenceEquals(transactionWatchdog, watchdog))
+                shouldRecover = ReferenceEquals(transactionWatchdog, watchdog);
+                if (shouldRecover)
                 {
                     transactionWatchdog = null;
                 }
             }
 
-            continuityRecovery.RequestRecovery(connectionGeneration);
+            if (shouldRecover)
+            {
+                continuityRecovery.RequestRecovery(connectionGeneration);
+            }
         }
         catch (OperationCanceledException)
         {

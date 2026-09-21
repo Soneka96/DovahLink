@@ -1187,6 +1187,149 @@ public class ResynchronizationTransactionCoordinatorTests
     }
 
     /// <summary>
+    /// Verifies that <see cref="ResynchronizationTransactionCoordinator.BeginTransaction"/> is a
+    /// harmless no-op for a tuple that is not strictly newer than the one already tracked -- it never
+    /// arms a watchdog of its own and never disturbs the currently tracked transaction's own watchdog,
+    /// mirroring the same stale-tuple rejection <see cref="OlderPlayContextGeneration_IsIgnoredAndCannotCompleteTheNewerTransaction"/>
+    /// already proves for <see cref="ResynchronizationTransactionCoordinator.AcquireToken"/>.
+    /// </summary>
+    [Fact]
+    public async Task BeginTransaction_OlderTuple_IsIgnoredAndDoesNotDisturbTrackedTransaction()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(80));
+        PlayContextId contextA = PlayContextId.NewId();
+        PlayContextId contextB = PlayContextId.NewId();
+
+        coordinator.AcquireToken(instanceId, 1, contextB, 2); // B (generation 2) is tracked and arms its own watchdog.
+        coordinator.BeginTransaction(instanceId, 1, contextA, 1); // A stale tuple (generation 1) must be ignored outright.
+
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+
+        // Only B's own watchdog could ever fire; the stale BeginTransaction call armed nothing and
+        // superseded nothing.
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>Verifies that a watchdog still tracking the current, un-superseded transaction fires normally and requests recovery -- the baseline case the race fix must not regress.</summary>
+    [Fact]
+    public async Task WatchdogTimeout_StillCurrent_RequestsRecovery()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(60));
+        PlayContextId context = PlayContextId.NewId();
+
+        coordinator.AcquireToken(instanceId, 1, context, 1);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Verifies <see cref="ResynchronizationTransactionCoordinator.BeginTransaction"/> immediately
+    /// supersedes a tracked transaction -- the narrow API <c>PlayContextResynchronizationTrigger</c>
+    /// calls the moment it sends a fresh resynchronize request -- so A's own watchdog can never recover
+    /// B's connection, even without any capture for B ever having arrived at this coordinator. Covers
+    /// "a timeout that has technically elapsed but loses ownership to B before recovery" and "context
+    /// B superseding A on the same connection generation prevents A from closing B" together: B is
+    /// tracked on the exact same connection generation as A, and the assertion runs past A's own
+    /// original deadline before B's independent one has fired.
+    /// </summary>
+    [Fact]
+    public async Task BeginTransaction_SupersedesTrackedTransaction_OldWatchdogCannotRecoverNewerConnectionGeneration()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+        PlayContextId contextA = PlayContextId.NewId();
+        PlayContextId contextB = PlayContextId.NewId();
+
+        coordinator.AcquireToken(instanceId, 1, contextA, 1); // Arms A's watchdog (200ms from now).
+
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        // No capture for B has arrived yet -- BeginTransaction alone must still supersede A.
+        coordinator.BeginTransaction(instanceId, 1, contextB, 2);
+
+        // Past A's original 200ms deadline (measured from t=0), but before B's own fresh 200ms
+        // deadline (measured from t=50, due at t=250ms).
+        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+
+        // Past B's own independent deadline: B never completed, so it must still fire on its own
+        // bound, proving BeginTransaction armed a real watchdog for B rather than leaving it unbounded.
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Verifies that a transaction which completes at almost exactly its own watchdog deadline never
+    /// recovers afterward: completion clears <c>transactionWatchdog</c> under the same lock the
+    /// watchdog's own claim uses, so even a concurrently elapsing watchdog finds it already gone.
+    /// </summary>
+    [Fact]
+    public async Task TransactionCompletesAsTimeoutElapses_DoesNotRecoverAfterward()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(80));
+        PlayContextId context = PlayContextId.NewId();
+
+        foreach (StateAreaId area in AllFiveAreas)
+        {
+            coordinator.AcquireToken(instanceId, 1, context, 1);
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        // Completes right around the watchdog's own 80ms deadline.
+        await Task.Delay(TimeSpan.FromMilliseconds(75));
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Verifies that repeated supersession -- several transactions started back-to-back, each
+    /// cancelling the previous watchdog -- remains idempotent: only the very last transaction's own
+    /// watchdog can ever fire, and no earlier one ever double-recovers or throws from a redundant
+    /// cancel/dispose.
+    /// </summary>
+    [Fact]
+    public async Task RepeatedSupersession_IsIdempotent_NeverDoubleRecovers()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(150));
+        PlayContextId contextA = PlayContextId.NewId();
+        PlayContextId contextB = PlayContextId.NewId();
+        PlayContextId contextC = PlayContextId.NewId();
+        PlayContextId contextD = PlayContextId.NewId();
+
+        coordinator.AcquireToken(instanceId, 1, contextA, 1);
+        coordinator.BeginTransaction(instanceId, 1, contextB, 2);
+        coordinator.BeginTransaction(instanceId, 1, contextC, 3);
+        coordinator.AcquireToken(instanceId, 1, contextD, 4); // Only D's watchdog should ever fire.
+
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
     /// Verifies that completion winning a race against the watchdog leaves no trace of the race: no
     /// recovery is requested, and the tracker is still notified exactly once.
     /// </summary>
