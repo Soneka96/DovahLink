@@ -2432,3 +2432,162 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     CHECK(ExtractJsonStringField(snapshot, "playContextId") ==
           expectedPlayContextId);
 }
+
+TEST_CASE("a synthetic native LevelChanged event reaches a real public "
+          "WebSocket client as a character_level state_event, distinct from "
+          "its own Sample baseline Snapshot",
+          "[process][integration]") {
+    //  The second half of the live-state E2E proof: this test's synthetic
+    //  native LevelChanged callback (DeterministicBaselineCaptureRouter::
+    //  EmitLevelChanged, mirroring the real
+    //  CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink) crosses
+    //  the same real AdapterCaptureHandoffQueue, private IPC connection,
+    //  launched Host process, and public WebSocket transport the XP E2E
+    //  above already proves for a Sample -- but for the Event path: Level's
+    //  baseline (source = Sample) publishes as a Snapshot, while the later
+    //  LevelChanged (source = Event) publishes as a state_event, per
+    //  CharacterCaptureHandler::ApplyLevel's explicit source-to-mode split.
+    constexpr std::uint16_t kPublicListenerPort = 58433;
+    const std::array<std::byte, 16> playContextId = {
+        std::byte{0xAB}, std::byte{0xCD}, std::byte{0xEF}, std::byte{0x01},
+        std::byte{0x23}, std::byte{0x45}, std::byte{0x67}, std::byte{0x89},
+        std::byte{0xAB}, std::byte{0xCD}, std::byte{0xEF}, std::byte{0x01},
+        std::byte{0x23}, std::byte{0x45}, std::byte{0x67}, std::byte{0x89}};
+    RecordingPairingNotificationSink pairingSink;
+    RealHostLiveStateFixture fixture(std::byte{0xAB}, playContextId,
+                                     kPublicListenerPort, pairingSink);
+
+    //  The real Host's own reaction to the real native adapter's replayed
+    //  active context: a fresh resynchronization request against the
+    //  current catalog-derived plan, executed by the real
+    //  AdapterIpcSession -- not asked for by this test. This is also what
+    //  actually calls RegisterEvent(CharacterLevelChanged) on the router.
+    const std::string clientId = "abababab-abab-abab-abab-abababababab";
+    MinimalPublicWebSocketClient client(kPublicListenerPort);
+    client.SendText(
+        R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+        R"("correlationId":null,"payload":{"endpoint":"client",)"
+        R"("clientId":")" +
+        clientId +
+        R"(","auth":{"method":"unpaired"}},)"
+        R"("playContextId":null,"clientId":null})");
+    std::string helloAck = client.ReceiveText();
+    REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+    std::string sessionId = ExtractJsonStringField(helloAck, "sessionId");
+    REQUIRE_FALSE(sessionId.empty());
+    std::string capabilities = client.ReceiveText();
+    REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+            std::string::npos);
+
+    //  A Restricted-tier session may not subscribe -- only Full trust may --
+    //  so this client must complete real pairing first, reusing the same
+    //  real cross-language pairing/trust flow as the XP E2E above.
+    client.SendText(
+        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                      std::chrono::seconds(10)));
+    auto displayed = pairingSink.Displayed();
+    REQUIRE(displayed.size() == 1);
+    const std::string code = displayed.front().first;
+    REQUIRE_FALSE(code.empty());
+    std::string pairingStatus = client.ReceiveText();
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+
+    client.SendText(
+        R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"code":")" + code +
+        R"(","displayName":"Level Event E2E PC"},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    std::string confirmOutcome = client.ReceiveText();
+    REQUIRE(confirmOutcome.find(R"("outcome":"credential_issued")") !=
+            std::string::npos);
+    std::string credential = ExtractJsonStringField(confirmOutcome, "credential");
+    REQUIRE_FALSE(credential.empty());
+
+    client.SendText(
+        R"({"messageType":"pairing_ack","messageId":"m4","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"credential":")" +
+        credential + R"("},"playContextId":null,)" + R"("clientId":")" +
+        clientId + R"("})");
+    std::string ackOutcome = client.ReceiveText();
+    REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
+
+    //  Full trust now: subscribe to exactly the one state area this test
+    //  cares about.
+    client.SendText(
+        R"({"messageType":"subscribe","messageId":"m5","sessionId":")" +
+        sessionId +
+        R"(","correlationId":null,"payload":{"stateAreas":["character_level"]},)"
+        R"("playContextId":null,"clientId":")" +
+        clientId + R"("})");
+    std::string subscriptionAck = client.ReceiveText();
+    REQUIRE(subscriptionAck.find(R"("messageType":"subscription_ack")") !=
+            std::string::npos);
+    REQUIRE(subscriptionAck.find(R"("acceptedStateAreas":["character_level"])") !=
+            std::string::npos);
+
+    //  The Host's own pending-baseline mechanism answers this subscribe with
+    //  the baseline state_snapshot once the real resynchronization --
+    //  already in flight from this adapter's own active-context replay
+    //  above -- actually completes; no manual trigger.
+    std::string snapshot =
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15));
+
+    //  Proves this is specifically the character_level baseline Snapshot
+    //  (source = Sample), not merely a frame containing "10" somewhere, and
+    //  captures its revision to compare the later Event's revision against.
+    CHECK(ExtractJsonStringField(snapshot, "stateArea") == "character_level");
+    CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
+    std::optional<double> baselineRevision =
+        ExtractJsonNumberField(snapshot, "revision");
+    REQUIRE(baselineRevision.has_value());
+    CHECK(*baselineRevision >= 1.0);
+    std::optional<double> baselineValue = ExtractJsonNumberField(snapshot, "value");
+    REQUIRE(baselineValue.has_value());
+    CHECK(*baselineValue == 10.0);
+    std::string expectedPlayContextId =
+        "abcdef01-2345-6789-abcd-ef0123456789";
+    CHECK(ExtractJsonStringField(snapshot, "playContextId") ==
+          expectedPlayContextId);
+
+    //  Registration must matter: this test's own EmitLevelChanged below must
+    //  enter through a real Host-driven RegisterEvent(CharacterLevelChanged)
+    //  call, not fire unconditionally. The baseline Snapshot above already
+    //  implies the same resynchronization round completed, but this proves
+    //  the registration explicitly rather than assuming it.
+    REQUIRE(WaitUntil([&] { return fixture.IsLevelChangedRegistered(); },
+                      std::chrono::seconds(10)));
+
+    //  Only now -- registration confirmed and the Sample baseline already
+    //  observed -- simulate the real native LevelChanged callback. This
+    //  enters only through the router/native-event boundary: the real
+    //  AdapterCaptureHandoffQueue, the real AdapterIpcSession::
+    //  SendCaptureResult, the real private IPC connection, and the real
+    //  Host's CharacterCaptureHandler Event path, exactly like the real
+    //  RE::LevelIncrease::Event sink would.
+    fixture.EmitLevelChanged(11);
+
+    //  No other subscribed area can ever produce a state_event on this
+    //  connection, so matching on messageType alone is already unambiguous
+    //  proof this is the Level Event, not another Snapshot.
+    std::string event = ReceiveUntil(client, "state_event", std::chrono::seconds(15));
+
+    CHECK(ExtractJsonStringField(event, "stateArea") == "character_level");
+    //  Unsolicited: a real Event is never a reply to a specific client
+    //  request, unlike the correlated baseline Snapshot above.
+    CHECK(ExtractJsonStringField(event, "correlationId").empty());
+    std::optional<double> baseRevision =
+        ExtractJsonNumberField(event, "baseRevision");
+    REQUIRE(baseRevision.has_value());
+    CHECK(*baseRevision == *baselineRevision);
+    std::optional<double> eventRevision = ExtractJsonNumberField(event, "revision");
+    REQUIRE(eventRevision.has_value());
+    CHECK(*eventRevision > *baselineRevision);
+    std::optional<double> eventValue = ExtractJsonNumberField(event, "value");
+    REQUIRE(eventValue.has_value());
+    CHECK(*eventValue == 11.0);
+    CHECK(ExtractJsonStringField(event, "playContextId") ==
+          expectedPlayContextId);
+}
