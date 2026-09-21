@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 <#
 .SYNOPSIS
-Finds a complete Visual Studio 2022 C++ toolchain through Visual Studio Installer.
+Finds a complete Visual Studio 2022 or Visual Studio 2026 C++ toolchain through Visual Studio Installer.
 
 .PARAMETER LocatorPath
 The path to Visual Studio Installer's vswhere executable.
@@ -24,19 +24,19 @@ function Find-VisualStudioToolchain {
     $installations = @(& $LocatorPath `
             -latest `
             -products * `
-            -version '[17.0,18.0)' `
+            -version '[17.0,19.0)' `
             -requires `
             Microsoft.VisualStudio.Workload.NativeDesktop `
             Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
             Microsoft.VisualStudio.Component.VC.CMake.Project `
             -property installationPath)
     if ($LASTEXITCODE -ne 0) {
-        throw "vswhere failed with exit code $LASTEXITCODE while locating Visual Studio 2022. Repair or update Visual Studio Installer."
+        throw "vswhere failed with exit code $LASTEXITCODE while locating a supported Visual Studio installation. Repair or update Visual Studio Installer."
     }
 
     $installationPath = $installations | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
     if ($null -eq $installationPath) {
-        throw "No complete Visual Studio 2022 installation has the Desktop development with C++ workload, MSVC x64/x86 tools, and CMake tools. Add them in Visual Studio Installer."
+        throw "No complete Visual Studio 2022 or Visual Studio 2026 installation has the Desktop development with C++ workload, MSVC x64/x86 tools, and CMake tools. Add them in Visual Studio Installer."
     }
     $installationPath = $installationPath.Trim()
 

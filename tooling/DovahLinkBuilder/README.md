@@ -39,11 +39,13 @@ Build page also keeps a local history of recent builds, and can copy a
 plain-text diagnostics report (environment checks, git status, and the last
 build's outcome) to the clipboard.
 
-The builder uses Visual Studio 2022's bundled x64 toolchain and vcpkg. The
-first build can take longer while vcpkg verifies or installs pinned packages;
-later builds normally reuse them. Packaging also requires `python` to be
-resolvable on `PATH` (the same interpreter this repository's other `tooling/*.py`
-scripts and local CI already depend on).
+The builder supports Visual Studio 2022 and Visual Studio 2026, using the
+installation's bundled x64 toolchain and vcpkg. It checks `VSINSTALLDIR` first,
+then the standard installation paths for both versions. The first build can
+take longer while vcpkg verifies or installs pinned packages; later builds
+normally reuse them. Packaging also requires `python` to be resolvable on
+`PATH` (the same interpreter this repository's other `tooling/*.py` scripts and
+local CI already depend on).
 
 The builder also compiles `console-admin/DovahLinkAdmin.psc` with Creation
 Kit's Papyrus Compiler and passes `console-admin/dovahlink.yaml` through to

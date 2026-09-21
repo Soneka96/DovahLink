@@ -9,13 +9,13 @@ public static class VisualStudioToolchainLocator
     private const string ToolName = "Visual Studio";
 
     /// <summary>
-    /// Locates the first supported Visual Studio 2022 toolchain from the configured and standard installation paths.
+    /// Locates the first supported Visual Studio toolchain from the configured and standard installation paths.
     /// </summary>
     /// <returns>The located Visual Studio toolchain.</returns>
     public static VisualStudioToolchain Find() => Find(GetDefaultInstallationRoots());
 
     /// <summary>
-    /// Locates the first supported Visual Studio 2022 installation among the specified roots.
+    /// Locates the first supported Visual Studio installation among the specified roots.
     /// </summary>
     /// <param name="installationRoots">The installation roots to search.</param>
     /// <returns>The toolchain for the first root containing both the Visual Studio environment script and bundled vcpkg.</returns>
@@ -32,7 +32,7 @@ public static class VisualStudioToolchainLocator
         }
 
         throw new InvalidOperationException(
-            "Could not find a supported Visual Studio 2022 installation with vcvarsall.bat and bundled vcpkg.");
+            "Could not find a supported Visual Studio installation with vcvarsall.bat and bundled vcpkg.");
     }
 
     /// <summary>Validates and normalizes the toolchain paths before any shell boundary is entered.</summary>
@@ -56,14 +56,14 @@ public static class VisualStudioToolchainLocator
     }
 
     /// <summary>
-    /// Locates the first supported Visual Studio 2022 toolchain from the configured and standard
+    /// Locates the first supported Visual Studio toolchain from the configured and standard
     /// installation paths, reporting the result instead of throwing.
     /// </summary>
     /// <returns>A <see cref="ToolchainCheckResult"/> describing whether Visual Studio was found.</returns>
     public static ToolchainCheckResult TryFind() => TryFind(GetDefaultInstallationRoots());
 
     /// <summary>
-    /// Locates the first supported Visual Studio 2022 installation among the specified roots,
+    /// Locates the first supported Visual Studio installation among the specified roots,
     /// reporting the result instead of throwing.
     /// </summary>
     /// <param name="installationRoots">The installation roots to search.</param>
@@ -85,16 +85,30 @@ public static class VisualStudioToolchainLocator
         }
     }
 
-    /// <summary>Gets the configured and standard Visual Studio 2022 installation roots to search.</summary>
-    private static IEnumerable<string> GetDefaultInstallationRoots()
-    {
-        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        string? visualStudioInstall = Environment.GetEnvironmentVariable("VSINSTALLDIR");
+    /// <summary>Gets the configured and standard Visual Studio 2022 and 2026 installation roots to search.</summary>
+    /// <returns>The configured root followed by standard Visual Studio 2026 and 2022 roots.</returns>
+    private static IEnumerable<string> GetDefaultInstallationRoots() => GetDefaultInstallationRoots(
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        Environment.GetEnvironmentVariable("VSINSTALLDIR"));
 
+    /// <summary>Gets the configured and standard Visual Studio 2022 and 2026 installation roots to search.</summary>
+    /// <param name="programFiles">The Program Files directory used by standard Visual Studio installations.</param>
+    /// <param name="programFilesX86">The Program Files (x86) directory used by standard Visual Studio 2022 Build Tools installations.</param>
+    /// <param name="visualStudioInstall">The configured Visual Studio installation root, if present.</param>
+    /// <returns>The configured root followed by standard Visual Studio 2026 and 2022 roots.</returns>
+    internal static IEnumerable<string> GetDefaultInstallationRoots(
+        string programFiles,
+        string programFilesX86,
+        string? visualStudioInstall)
+    {
         return new[]
         {
             visualStudioInstall,
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "Community"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "Professional"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "Enterprise"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "BuildTools"),
             Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Community"),
             Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Professional"),
             Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Enterprise"),

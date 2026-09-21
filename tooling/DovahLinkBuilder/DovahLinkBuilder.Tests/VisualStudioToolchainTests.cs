@@ -5,6 +5,35 @@ namespace DovahLink.DovahLinkBuilder.Tests;
 /// <summary>Verifies Visual Studio toolchain discovery.</summary>
 public sealed class VisualStudioToolchainTests
 {
+    /// <summary>Returns the configured root first, then every supported standard edition path.</summary>
+    [Fact]
+    public void ReturnsConfiguredAndStandardInstallationRootsInSearchOrder()
+    {
+        const string configuredInstallation = @"D:\Custom Visual Studio";
+        const string programFiles = @"C:\Program Files";
+        const string programFilesX86 = @"C:\Program Files (x86)";
+
+        IEnumerable<string> roots = VisualStudioToolchainLocator.GetDefaultInstallationRoots(
+            programFiles,
+            programFilesX86,
+            configuredInstallation);
+
+        string[] expectedRoots =
+        [
+            configuredInstallation,
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "Community"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "Professional"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "Enterprise"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "18", "BuildTools"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Community"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Professional"),
+            Path.Combine(programFiles, "Microsoft Visual Studio", "2022", "Enterprise"),
+            Path.Combine(programFilesX86, "Microsoft Visual Studio", "2022", "BuildTools"),
+        ];
+
+        Assert.Equal(expectedRoots, roots);
+    }
+
     /// <summary>Finds an installation containing the required toolchain files.</summary>
     [Fact]
     public void FindsTheFirstInstallationWithTheRequiredFiles()
@@ -21,6 +50,48 @@ public sealed class VisualStudioToolchainTests
 
         Assert.Equal(vcvarsallPath, toolchain.VcvarsallPath);
         Assert.Equal(vcpkgRoot, toolchain.VcpkgRoot);
+    }
+
+    /// <summary>Finds the default Visual Studio 2026 installation under the version 18 directory.</summary>
+    [Fact]
+    public void FindsTheDefaultVisualStudio2026Installation()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string programFiles = Path.Combine(temporaryDirectory.Path, "Program Files");
+        string programFilesX86 = Path.Combine(temporaryDirectory.Path, "Program Files (x86)");
+        string installationName = Path.Combine("Microsoft Visual Studio", "18", "Community");
+        VisualStudioToolchain expected = Fixtures.BuildVisualStudioToolchain(programFiles, installationName);
+
+        IEnumerable<string> roots = VisualStudioToolchainLocator.GetDefaultInstallationRoots(
+            programFiles,
+            programFilesX86,
+            visualStudioInstall: null);
+
+        VisualStudioToolchain actual = VisualStudioToolchainLocator.Find(roots);
+
+        Assert.Equal(expected.VcvarsallPath, actual.VcvarsallPath);
+        Assert.Equal(expected.VcpkgRoot, actual.VcpkgRoot);
+    }
+
+    /// <summary>Finds the default Visual Studio 2022 installation when Visual Studio 2026 is unavailable.</summary>
+    [Fact]
+    public void FindsTheDefaultVisualStudio2022InstallationWhenVisualStudio2026IsUnavailable()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string programFiles = Path.Combine(temporaryDirectory.Path, "Program Files");
+        string programFilesX86 = Path.Combine(temporaryDirectory.Path, "Program Files (x86)");
+        string installationName = Path.Combine("Microsoft Visual Studio", "2022", "Community");
+        VisualStudioToolchain expected = Fixtures.BuildVisualStudioToolchain(programFiles, installationName);
+
+        IEnumerable<string> roots = VisualStudioToolchainLocator.GetDefaultInstallationRoots(
+            programFiles,
+            programFilesX86,
+            visualStudioInstall: null);
+
+        VisualStudioToolchain actual = VisualStudioToolchainLocator.Find(roots);
+
+        Assert.Equal(expected.VcvarsallPath, actual.VcvarsallPath);
+        Assert.Equal(expected.VcpkgRoot, actual.VcpkgRoot);
     }
 
     /// <summary>Rejects installations missing required toolchain files.</summary>

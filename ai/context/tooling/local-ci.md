@@ -4,6 +4,12 @@
 before a push, using a pinned, disposable toolchain -- a vcpkg checkout cloned at a pinned baseline
 commit, plus pinned CMake and Ninja versions -- kept under `%LOCALAPPDATA%\Temp\DovahLink\`.
 
+The local bootstrap discovers Visual Studio 2022 and Visual Studio 2026 through Visual Studio
+Installer's `vswhere`, selecting the latest complete installation in the 17.x or 18.x version range.
+It requires the Desktop development with C++ workload, MSVC x64/x86 tools, and CMake tools, plus the
+installation's `vcvarsall.bat`, vcpkg directory, CMake, and Ninja files. Hosted Adapter CI continues
+to use its pinned Visual Studio 2022 runner environment.
+
 ## Disposable state vs. genuine failures
 
 That pinned toolchain state is entirely disposable: the script (re)creates it deterministically from
