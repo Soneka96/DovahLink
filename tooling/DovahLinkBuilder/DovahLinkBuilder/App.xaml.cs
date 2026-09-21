@@ -30,7 +30,7 @@ public partial class App : Application
         var outputPathContext = new OutputPathContext(settings.OutputPath);
         var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(settings.OpenOutputFolderAfterSuccessfulBuild, settings.AutoScrollLogs);
         ICommandRunner commandRunner = new ProcessCommandRunner();
-        var preflightService = new PreflightService(commandRunner);
+        var preflightService = new PreflightService(commandRunner, VisualStudioToolchainLocator.Find);
         var gitStatusService = new GitStatusService(commandRunner);
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
         var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);

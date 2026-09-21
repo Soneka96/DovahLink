@@ -39,13 +39,16 @@ Build page also keeps a local history of recent builds, and can copy a
 plain-text diagnostics report (environment checks, git status, and the last
 build's outcome) to the clipboard.
 
-The builder supports Visual Studio 2022 and Visual Studio 2026, using the
-installation's bundled x64 toolchain and vcpkg. It checks `VSINSTALLDIR` first,
-then the standard installation paths for both versions. The first build can
-take longer while vcpkg verifies or installs pinned packages; later builds
-normally reuse them. Packaging also requires `python` to be resolvable on
-`PATH` (the same interpreter this repository's other `tooling/*.py` scripts and
-local CI already depend on).
+The builder supports Visual Studio 2022 and Visual Studio 2026. It checks
+`VSINSTALLDIR` first, then discovers installed instances through Visual Studio
+Installer's `vswhere.exe`, with standard installation paths as a fallback. The
+selected installation supplies the x64 toolchain, bundled vcpkg, CMake, and
+Ninja used by Adapter builds. CMake is used for both preflight and builds. Set
+`DOVAHLINK_VSWHERE_PATH` if Visual Studio Installer's locator is outside its
+standard location and is not on `PATH`. The first build can take longer while
+vcpkg verifies or installs pinned packages; later builds normally reuse them.
+Packaging also requires `python` to be resolvable on `PATH` (the same interpreter this repository's
+other `tooling/*.py` scripts and local CI already depend on).
 
 The builder also compiles `console-admin/DovahLinkAdmin.psc` with Creation
 Kit's Papyrus Compiler and passes `console-admin/dovahlink.yaml` through to

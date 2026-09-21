@@ -50,13 +50,24 @@ public sealed class PreflightService : IPreflightService
     /// <summary>The runner used to probe version-reporting command-line tools.</summary>
     private readonly ICommandRunner commandRunner;
 
+    /// <summary>The lookup that selects the Visual Studio toolchain used by preflight and builds.</summary>
+    private readonly Func<VisualStudioToolchain> visualStudioToolchainProvider;
+
     /// <summary>The maximum time a version-probe check waits before reporting <see cref="ToolchainAvailability.CouldNotCheck"/>.</summary>
     private readonly TimeSpan versionProbeTimeout;
 
     /// <summary>Creates a preflight service over the given command runner.</summary>
     /// <param name="commandRunner">The runner used to probe version-reporting command-line tools.</param>
     public PreflightService(ICommandRunner commandRunner)
-        : this(commandRunner, Constants.VersionProbeTimeout)
+        : this(commandRunner, VisualStudioToolchainLocator.Find, Constants.VersionProbeTimeout)
+    {
+    }
+
+    /// <summary>Creates a preflight service over the given command runner and Visual Studio lookup.</summary>
+    /// <param name="commandRunner">The runner used to probe version-reporting command-line tools.</param>
+    /// <param name="visualStudioToolchainProvider">The lookup that selects the Visual Studio installation and its tools.</param>
+    public PreflightService(ICommandRunner commandRunner, Func<VisualStudioToolchain> visualStudioToolchainProvider)
+        : this(commandRunner, visualStudioToolchainProvider, Constants.VersionProbeTimeout)
     {
     }
 
@@ -64,8 +75,21 @@ public sealed class PreflightService : IPreflightService
     /// <param name="commandRunner">The runner used to probe version-reporting command-line tools.</param>
     /// <param name="versionProbeTimeout">The maximum time a version-probe check waits before reporting <see cref="ToolchainAvailability.CouldNotCheck"/>.</param>
     internal PreflightService(ICommandRunner commandRunner, TimeSpan versionProbeTimeout)
+        : this(commandRunner, VisualStudioToolchainLocator.Find, versionProbeTimeout)
+    {
+    }
+
+    /// <summary>Creates a preflight service with a controllable toolchain lookup and version-probe timeout.</summary>
+    /// <param name="commandRunner">The runner used to probe version-reporting command-line tools.</param>
+    /// <param name="visualStudioToolchainProvider">The lookup that selects the Visual Studio installation and its tools.</param>
+    /// <param name="versionProbeTimeout">The maximum time a version-probe check waits before reporting <see cref="ToolchainAvailability.CouldNotCheck"/>.</param>
+    internal PreflightService(
+        ICommandRunner commandRunner,
+        Func<VisualStudioToolchain> visualStudioToolchainProvider,
+        TimeSpan versionProbeTimeout)
     {
         this.commandRunner = commandRunner;
+        this.visualStudioToolchainProvider = visualStudioToolchainProvider;
         this.versionProbeTimeout = versionProbeTimeout;
     }
 
@@ -73,14 +97,15 @@ public sealed class PreflightService : IPreflightService
     public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
     {
         ToolchainCheckResult repositoryResult = CheckRepository(startPath, out string? repositoryRoot);
+        ToolchainCheckResult visualStudioResult = VisualStudioToolchainLocator.TryFind(visualStudioToolchainProvider, out VisualStudioToolchain? toolchain);
 
         return
         [
             repositoryResult,
             await CheckVersionProbeAsync("dotnet", ".NET SDK", startPath, cancellationToken),
-            VisualStudioToolchainLocator.TryFind(),
-            await CheckVersionProbeAsync("cmake", "CMake", startPath, cancellationToken),
-            CheckVcpkg(),
+            visualStudioResult,
+            await CheckCMakeAsync(toolchain, visualStudioResult, startPath, cancellationToken),
+            CheckVcpkg(toolchain, visualStudioResult),
             PapyrusToolchainLocator.TryFind(),
             await CheckVersionProbeAsync("python", "Python", startPath, cancellationToken),
             CheckOutputFolder(repositoryRoot, outputPathOverride),
@@ -105,25 +130,57 @@ public sealed class PreflightService : IPreflightService
     }
 
     /// <summary>
-    /// Locates the vcpkg directory bundled with Visual Studio, reporting the result instead of
-    /// throwing. Reported separately from the Visual Studio check because vcpkg is its own required
-    /// build input, even though both are located from the same installation search.
+    /// Reports the vcpkg directory from the same selected Visual Studio installation, preserving
+    /// the separate preflight row because vcpkg is its own required build input.
     /// </summary>
-    private static ToolchainCheckResult CheckVcpkg()
+    private static ToolchainCheckResult CheckVcpkg(VisualStudioToolchain? toolchain, ToolchainCheckResult visualStudioResult)
     {
-        try
+        if (toolchain is not null)
         {
-            VisualStudioToolchain toolchain = VisualStudioToolchainLocator.Find();
             return new ToolchainCheckResult(VcpkgToolName, ToolchainAvailability.Found, toolchain.VcpkgRoot, null);
         }
-        catch (InvalidOperationException exception)
+
+        return new ToolchainCheckResult(
+            VcpkgToolName,
+            visualStudioResult.Availability,
+            null,
+            visualStudioResult.RemediationHint);
+    }
+
+    /// <summary>Checks the CMake executable selected from the located Visual Studio installation.</summary>
+    /// <param name="toolchain">The selected Visual Studio toolchain, or <see langword="null"/> if it could not be located.</param>
+    /// <param name="visualStudioResult">The result explaining why Visual Studio could not be located, if applicable.</param>
+    /// <param name="workingDirectory">The directory in which to run the version probe.</param>
+    /// <param name="cancellationToken">The caller's token; cancelling it cancels the probe.</param>
+    /// <returns>The CMake availability result.</returns>
+    private Task<ToolchainCheckResult> CheckCMakeAsync(
+        VisualStudioToolchain? toolchain,
+        ToolchainCheckResult visualStudioResult,
+        string workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        if (toolchain is null)
         {
-            return new ToolchainCheckResult(VcpkgToolName, ToolchainAvailability.Missing, null, exception.Message);
+            ToolchainAvailability availability = visualStudioResult.Availability == ToolchainAvailability.CouldNotCheck
+                ? ToolchainAvailability.CouldNotCheck
+                : ToolchainAvailability.Missing;
+            return Task.FromResult(new ToolchainCheckResult(
+                "CMake",
+                availability,
+                null,
+                visualStudioResult.RemediationHint ?? "A supported Visual Studio installation is required to locate its bundled CMake."));
         }
-        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+
+        if (!File.Exists(toolchain.CMakePath))
         {
-            return new ToolchainCheckResult(VcpkgToolName, ToolchainAvailability.CouldNotCheck, null, exception.Message);
+            return Task.FromResult(new ToolchainCheckResult(
+                "CMake",
+                ToolchainAvailability.Missing,
+                null,
+                $"The selected Visual Studio installation does not contain CMake at '{toolchain.CMakePath}'. Install C++ CMake tools for Windows in Visual Studio Installer."));
         }
+
+        return CheckVersionProbeAsync(toolchain.CMakePath, "CMake", workingDirectory, cancellationToken);
     }
 
     /// <inheritdoc/>

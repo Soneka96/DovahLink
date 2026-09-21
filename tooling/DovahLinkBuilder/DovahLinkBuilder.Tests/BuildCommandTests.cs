@@ -9,25 +9,30 @@ public sealed class BuildCommandTests
     [Fact]
     public void BuildsStructuredReleaseCommands()
     {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
         var environment = new Dictionary<string, string> { ["VCPKG_ROOT"] = @"C:\VS & tools\vcpkg" };
 
         IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(
             @"C:\repository & workspace\adapter",
             environment,
-            "windows-x64-release");
+            "windows-x64-release",
+            toolchain);
 
         Assert.Collection(
             commands,
             configure =>
             {
-                Assert.Equal("cmake", configure.ExecutablePath);
-                Assert.Equal(["--fresh", "--preset", "windows-x64-release"], configure.Arguments);
+                Assert.Equal(toolchain.CMakePath, configure.ExecutablePath);
+                Assert.Equal(
+                    ["--fresh", "--preset", "windows-x64-release", $"-DCMAKE_MAKE_PROGRAM={toolchain.NinjaPath}"],
+                    configure.Arguments);
                 Assert.Equal(Path.GetFullPath(@"C:\repository & workspace\adapter"), configure.WorkingDirectory);
                 Assert.Same(environment, configure.EnvironmentVariables);
             },
             build =>
             {
-                Assert.Equal("cmake", build.ExecutablePath);
+                Assert.Equal(toolchain.CMakePath, build.ExecutablePath);
                 Assert.Equal(
                     ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_adapter_plugin"],
                     build.Arguments);
@@ -40,16 +45,25 @@ public sealed class BuildCommandTests
     [Fact]
     public void BuildsStructuredCommandsForTheSuppliedPreset()
     {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
         var environment = new Dictionary<string, string>();
 
         IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(
             @"C:\repository\adapter",
             environment,
-            "windows-x64-debug");
+            "windows-x64-debug",
+            toolchain);
 
         Assert.Collection(
             commands,
-            configure => Assert.Equal(["--fresh", "--preset", "windows-x64-debug"], configure.Arguments),
+            configure =>
+            {
+                Assert.Equal(toolchain.CMakePath, configure.ExecutablePath);
+                Assert.Equal(
+                    ["--fresh", "--preset", "windows-x64-debug", $"-DCMAKE_MAKE_PROGRAM={toolchain.NinjaPath}"],
+                    configure.Arguments);
+            },
             build => Assert.Equal(
                 ["--build", "--preset", "windows-x64-debug", "--target", "dovahlink_adapter_plugin"],
                 build.Arguments));
