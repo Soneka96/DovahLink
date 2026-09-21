@@ -58,6 +58,12 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
 - Python conventions are defined in `ai/context/python/python-style.md`.
 - No area may place its implementation types, private fixtures, or infrastructure in another area's directory.
 - `adapter-host-ipc/` is reserved for shared fixtures for the private, local IPC channel between the native Adapter and the C# Host; it is not part of the public client protocol owned by `protocol/`.
+- Licensing: `adapter/` may depend on and be licensed under GPL-3.0-or-later (see `adapter/LICENSE`),
+  since it is the one component that links CommonLibSSE-NG. Every other component (`app/`, `host/`,
+  `sdk/`, `protocol/`, `tooling/`, and the repository root) stays under the root
+  [`LICENSE`](../../LICENSE)'s PolyForm Noncommercial License 1.0.0. Do not introduce a GPL or other
+  copyleft dependency outside `adapter/` without a maintainer decision to relicense that component,
+  and do not weaken `adapter/`'s own license without confirming its dependencies allow it.
 
 ## Behavioral boundaries and test isolation
 
