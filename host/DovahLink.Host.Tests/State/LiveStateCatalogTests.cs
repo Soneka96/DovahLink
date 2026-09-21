@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DovahLink.Host.State;
 
 namespace DovahLink.Host.Tests.State;
@@ -322,5 +323,44 @@ public class LiveStateCatalogTests
 
         Assert.Throws<InvalidOperationException>(() => new LiveStateCatalog(tooManyEvents, []).BuildResynchronizationPlan());
         Assert.Throws<InvalidOperationException>(() => new LiveStateCatalog(tooManySamples, []).BuildResynchronizationPlan());
+    }
+}
+
+// TODO(stage4-file-extraction): Move LiveStateCatalogFixtureTests to its own
+// LiveStateCatalogFixtureTests.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated with the other tests for the same class to hold
+// this PR's changed-file count down; extraction only, no behavior change.
+/// <summary>
+/// Verifies that the host's hardcoded live-state capture enums remain synchronized with the
+/// shared <c>adapter-host-ipc/fixtures/live-state-catalog.json</c> contract fixture, the same way
+/// <see cref="Adapter.Ipc.AdapterIpcConnectionTests"/> already does for the private-IPC rate limit.
+/// </summary>
+public class LiveStateCatalogFixtureTests
+{
+    /// <summary>Reads the shared native/host live-state capture catalog fixture.</summary>
+    private static JsonElement ReadFixture()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "adapter-host-ipc", "fixtures", "live-state-catalog.json");
+        return JsonDocument.Parse(File.ReadAllText(path)).RootElement;
+    }
+
+    /// <summary>Verifies that the host's hardcoded sample-token enum values remain synchronized with the shared contract fixture.</summary>
+    [Fact]
+    public void SampleTokens_MatchSharedCatalogFixture()
+    {
+        JsonElement sampleTokens = ReadFixture().GetProperty("sampleTokens");
+
+        Assert.Equal((uint)CharacterSampleToken.CharacterVitals, sampleTokens.GetProperty("characterVitals").GetUInt32());
+        Assert.Equal((uint)CharacterSampleToken.CharacterXp, sampleTokens.GetProperty("characterXp").GetUInt32());
+        Assert.Equal((uint)CharacterSampleToken.CharacterLevelBaseline, sampleTokens.GetProperty("characterLevelBaseline").GetUInt32());
+    }
+
+    /// <summary>Verifies that the host's hardcoded event-key enum values remain synchronized with the shared contract fixture.</summary>
+    [Fact]
+    public void EventKeys_MatchSharedCatalogFixture()
+    {
+        JsonElement eventKeys = ReadFixture().GetProperty("eventKeys");
+
+        Assert.Equal((uint)CharacterEventKey.CharacterLevelChanged, eventKeys.GetProperty("characterLevelChanged").GetUInt32());
     }
 }
