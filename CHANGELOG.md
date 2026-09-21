@@ -31,6 +31,9 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 - Host-owned state subscriptions with baseline snapshots, live updates, recovery, and
   play-context-safe resynchronization.
 - Reserved control and data outbound lanes so state publication cannot starve control traffic.
+- Dual licensing: the repository root and every component except `adapter/` are now licensed under
+  the PolyForm Noncommercial License 1.0.0 (`LICENSE`); `adapter/` is licensed separately under
+  GPL-3.0-or-later (`adapter/LICENSE`) because it links CommonLibSSE-NG.
 
 ### Changed
 

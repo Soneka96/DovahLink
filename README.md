@@ -10,7 +10,7 @@
   <strong>DovahLink is under active development</strong>
 </p>
 
-DovahLink is an open-source companion platform for modded Skyrim. It connects Skyrim's live game state with a second monitor, tablet, or phone so players can build the companion interface that fits their playthrough.
+DovahLink is a source-available companion platform for modded Skyrim. It connects Skyrim's live game state with a second monitor, tablet, or phone so players can build the companion interface that fits their playthrough.
 
 The first supported release will focus on the foundation: a reliable local connection between Skyrim
 and an external client, with read-only character information.
@@ -71,6 +71,14 @@ system boundaries.
 - [ROADMAP.md](ROADMAP.md) is the source of truth for phase status, order, and dependencies.
 - [CONTRIBUTING.md](CONTRIBUTING.md) defines the development and proposal workflow.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) addresses known issues and solutions.
+
+## License
+
+DovahLink is source-available, not open source in the OSI sense: the source is public, but the
+license restricts commercial use. Everything in this repository except `adapter/` is licensed
+under the [PolyForm Noncommercial License 1.0.0](LICENSE). `adapter/`, the native Skyrim SKSE
+plugin, is licensed separately under [GPL-3.0-or-later](adapter/LICENSE) because it links
+[CommonLibSSE-NG](https://github.com/alandtse/CommonLibSSE-NG), which is GPL-licensed.
 
 ## Name
 
