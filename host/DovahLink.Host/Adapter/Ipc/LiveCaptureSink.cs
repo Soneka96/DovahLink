@@ -14,7 +14,7 @@ public interface ILiveCaptureSink
     /// <summary>
     /// Raised at the start of every <see cref="ApplyCaptureResult"/> call, before any of its own
     /// recognition, provenance, or handler checks -- carrying the raw result and the connection
-    /// generation of <paramref name="source"/> as passed to that call, not rediscovered from mutable
+    /// generation of the <c>source</c> passed to that call, not rediscovered from mutable
     /// global availability state. Lets an interested collaborator (for example
     /// <c>LiveStateScheduler</c>, releasing its own per-sample outstanding-request tracking) observe
     /// that a reply arrived at all, independently of whether this sink goes on to actually apply it.
