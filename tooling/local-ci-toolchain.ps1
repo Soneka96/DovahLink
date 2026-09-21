@@ -18,7 +18,7 @@ function Get-ExecutablePathsFromPath {
     param([Parameter(Mandatory = $true)][string]$Name)
 
     @(Get-Command -Name $Name -CommandType Application -All -ErrorAction SilentlyContinue |
-        ForEach-Object { $_.Source })
+            ForEach-Object { $_.Source })
 }
 
 <#
