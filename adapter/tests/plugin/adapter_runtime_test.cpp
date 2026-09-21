@@ -1,6 +1,7 @@
 #include "plugin/adapter_runtime.hpp"
 
 #include "ipc/adapter_task_marshaller_test_support.hpp"
+#include "ipc/ipc_frame_codec.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -10,11 +11,13 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 
@@ -26,6 +29,7 @@ using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::identity::IAdapterPlayContextState;
 using dovahlink::adapter::ipc::IAdapterPairingNotificationSink;
+using dovahlink::adapter::ipc::IpcFrameCodec;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::test_support::FakeAdapterTaskMarshaller;
 using dovahlink::adapter::plugin::AdapterRuntime;
@@ -125,16 +129,26 @@ class LoopbackListener {
     ///  after `AcceptOne()` has returned.
     SOCKET AcceptedSocket() const { return acceptedSocket_; }
 
-    ///  Drains and discards whatever bytes are already waiting on the
-    ///  accepted socket -- for example the Hello the adapter sends
-    ///  immediately upon connecting, before this listener ever replies --
-    ///  so a later close-detection read is never mistaken for leftover
-    ///  handshake bytes still sitting in the receive buffer.
+    ///  Drains and discards exactly one complete IPC frame from the accepted
+    ///  socket -- the Hello the adapter sends immediately upon connecting,
+    ///  before this listener ever replies -- so a later close-detection read
+    ///  is never mistaken for leftover handshake bytes still sitting in the
+    ///  receive buffer, and never itself consumes bytes belonging to
+    ///  whatever the caller sends next. TCP gives no guarantee the whole
+    ///  frame arrives in one `recv()`, so this reads the length prefix and
+    ///  payload each via bounded, poll-gated reads rather than a single
+    ///  best-effort one.
     void DrainAvailableBytes() {
-        WSAPOLLFD pollFd{.fd = acceptedSocket_, .events = POLLRDNORM};
-        REQUIRE(WSAPoll(&pollFd, 1, 5000) > 0);
-        char buffer[4096];
-        REQUIRE(recv(acceptedSocket_, buffer, sizeof(buffer), 0) > 0);
+        std::array<std::byte, sizeof(std::uint32_t)> lengthPrefix{};
+        ReadExactly(lengthPrefix);
+
+        IpcFrameCodec codec;
+        std::optional<std::size_t> frameLength =
+            codec.TryReadFrameLength(lengthPrefix);
+        REQUIRE(frameLength.has_value());
+
+        std::vector<std::byte> frame(*frameLength);
+        ReadExactly(frame);
     }
 
     ///  Blocks, bounded, until one connection is accepted -- the
@@ -158,6 +172,24 @@ class LoopbackListener {
     }
 
   private:
+    ///  Blocks, bounded, until `buffer` is completely filled from the
+    ///  accepted socket -- polling before each `recv()` so a TCP segment
+    ///  that lands short of the whole frame is read to completion instead of
+    ///  being mistaken for it.
+    void ReadExactly(std::span<std::byte> buffer) {
+        std::size_t totalRead = 0;
+        while (totalRead < buffer.size()) {
+            WSAPOLLFD pollFd{.fd = acceptedSocket_, .events = POLLRDNORM};
+            REQUIRE(WSAPoll(&pollFd, 1, 5000) > 0);
+            int received =
+                recv(acceptedSocket_,
+                     reinterpret_cast<char*>(buffer.data()) + totalRead,
+                     static_cast<int>(buffer.size() - totalRead), 0);
+            REQUIRE(received > 0);
+            totalRead += static_cast<std::size_t>(received);
+        }
+    }
+
     SOCKET listenSocket_ = INVALID_SOCKET;
     SOCKET acceptedSocket_ = INVALID_SOCKET;
     std::uint16_t port_ = 0;
