@@ -1038,7 +1038,8 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
 
 TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
           "the supervisor re-establishes a fresh authenticated generation "
-          "against the same real host, with a fresh resync",
+          "against the same real host, replaying the same active play "
+          "context into exactly one fresh resync",
           "[process][integration]") {
     //  AdapterRuntime's own tests (adapter_runtime_test.cpp) already prove
     //  that a rejected reliable Event's onRejected callback calls
@@ -1052,6 +1053,16 @@ TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
     //  leave Start() unable to ever reconnect; this proves RequestReconnect()
     //  instead lets the same still-running host be rediscovered and
     //  re-authenticated, with a fresh resync.
+    //
+    //  A bare Hello/HelloAck never earns a resync by itself -- only the
+    //  authenticated replay of an ACTIVE AdapterPlayContextState does (see
+    //  AdapterIpcSession::ReplayCurrentPlayContextState). So this test
+    //  establishes an active play context A through the normal
+    //  AdapterPlayContextState API before G1 ever connects, and keeps that
+    //  same context A across the reconnect: G2 replays the SAME context A
+    //  again and must still earn its own fresh resync, proving a reconnect
+    //  re-establishes authoritative state even though Skyrim never left the
+    //  same loaded play context.
     const std::filesystem::path hostExecutable{DOVAHLINK_HOST_EXECUTABLE};
     REQUIRE(std::filesystem::exists(hostExecutable));
 
@@ -1071,26 +1082,42 @@ TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
     WinsockAdapterIpcSocket connectionSocket(0);
     IpcFrameCodec codec;
     ImmediateTaskMarshaller taskMarshaller;
-    AdapterNativeCaptureRouter captureRouter;
-    //  The generic core capture router recognizes no event key or sample
-    //  token (that mapping is CommonLib-only, deliberately outside this
-    //  process test), so a real capture queue would never actually drain
-    //  anything here; a no-op queue is the right stand-in, as every other
-    //  test in this file already uses.
+    //  AcceptingCaptureRouter, not the generic production
+    //  AdapterNativeCaptureRouter: this test now actually exercises the
+    //  resync path (an active play context earns a real
+    //  IpcResynchronizeRequestMessage), and per AcceptingCaptureRouter's own
+    //  documentation above, the generic router approves no token at all,
+    //  which comes back declined and makes the real Host close the
+    //  connection on a genuinely declined resync result -- exactly the kind
+    //  of connection churn this test exists to rule out, not exercise.
+    AcceptingCaptureRouter captureRouter;
     NoopCaptureQueue captureQueue;
     NoopPairingNotificationSink pairingNotificationSink;
     AdapterPlayContextState playContextState;
+    //  Deterministic non-zero context A -- the same byte pattern (and
+    //  matching C# GUID 00112233-4455-6677-8899-aabbccddeeff) the
+    //  play-context wire test elsewhere in this file already uses --
+    //  established through the normal AdapterPlayContextState API before
+    //  either generation connects, so both G1 and G2 replay this same active
+    //  context on authentication.
+    const std::array<std::byte, 16> playContextId = {
+        std::byte{0x00}, std::byte{0x11}, std::byte{0x22}, std::byte{0x33},
+        std::byte{0x44}, std::byte{0x55}, std::byte{0x66}, std::byte{0x77},
+        std::byte{0x88}, std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+        std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE}, std::byte{0xFF}};
+    playContextState.SetCurrentPlayContext(playContextId);
     std::unique_ptr<AdapterHostSupervisor> supervisor;
     AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
                               ownerLifetimeId, taskMarshaller, captureRouter,
                               captureQueue, pairingNotificationSink,
                               playContextState);
     std::atomic<int> connectedCount = 0;
-    //  Counts every IpcResynchronizeRequestMessage the real host sends --
-    //  proof of "with a fresh resync" independent of the stub capture
-    //  router's own unsupported-token behavior above.
-    std::atomic<int> resyncRequestsAfterReset = 0;
-    std::atomic<bool> countResyncRequests = false;
+    //  Counts every IpcResynchronizeRequestMessage the real host sends, from
+    //  the very first connection -- proof that G1's own active-context
+    //  replay earns exactly one resync, and that RequestReconnect() below
+    //  earns exactly one *additional* one, not merely "at least one" across
+    //  both.
+    std::atomic<int> resyncRequestCount = 0;
     AdapterIpcConnection connection(
         connectionSocket, codec,
         dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
@@ -1101,11 +1128,10 @@ TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
                 },
             .onMessageReceived =
                 [&](const IpcMessage& message) {
-                    if (countResyncRequests.load() &&
-                        std::holds_alternative<
+                    if (std::holds_alternative<
                             dovahlink::adapter::ipc::IpcResynchronizeRequestMessage>(
                             message)) {
-                        ++resyncRequestsAfterReset;
+                        ++resyncRequestCount;
                     }
                     return session.HandleMessage(message);
                 },
@@ -1122,15 +1148,24 @@ TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
         reader, launcher, connection, std::chrono::milliseconds(50));
     supervisor->Start();
 
-    //  G1: authenticate against the real host.
+    //  G1: authenticate against the real host with active context A already
+    //  established; AdapterIpcSession's own post-authentication replay (not
+    //  this test) is what reports PlayContextChanged(A) to the host.
     REQUIRE(WaitUntil(
         [&] { return connectedCount.load() >= 1 && session.IsHostAvailable(); },
         std::chrono::seconds(10)));
     REQUIRE(IsProcessStillRunning(launcher.ProcessId()));
 
-    //  From here on, count resync requests so the reset below is proven to
-    //  trigger a fresh one, not merely to reuse G1's own initial resync.
-    countResyncRequests.store(true);
+    //  The host's own reaction to that replayed active context is exactly one
+    //  fresh resynchronization request -- proven before the reconnect below,
+    //  so a duplicate here cannot later be misattributed to
+    //  RequestReconnect() instead.
+    REQUIRE(WaitUntil([&] { return resyncRequestCount.load() >= 1; },
+                      std::chrono::seconds(10)));
+    CHECK(resyncRequestCount.load() == 1);
+    CHECK_FALSE(WaitUntil([&] { return resyncRequestCount.load() > 1; },
+                          std::chrono::milliseconds(200)));
+    const int resyncRequestCountAfterG1 = resyncRequestCount.load();
 
     //  Exactly what AdapterRuntime's onRejected callback does for a rejected
     //  reliable Event -- proven to be reached from that callback separately
@@ -1140,18 +1175,30 @@ TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
     //  G2: the same still-running host is rediscovered (same rendezvous
     //  port) and a fresh authenticated generation is established -- proving
     //  RequestReconnect() does not permanently poison Start() the way Stop()
-    //  would.
+    //  would. AdapterPlayContextState still reports the SAME context A (it
+    //  was never cleared or changed), so the normal replay path reports
+    //  PlayContextChanged(A) again on this new generation.
     REQUIRE(WaitUntil(
         [&] { return connectedCount.load() >= 2 && session.IsHostAvailable(); },
         std::chrono::seconds(10)));
     CHECK(IsProcessStillRunning(launcher.ProcessId()));
 
-    //  The real host always requests a fresh resynchronization baseline right
-    //  after a connection authenticates; this is the "with a fresh resync"
-    //  half of this test's own name, not merely that the transport itself
-    //  reconnected.
-    CHECK(WaitUntil([&] { return resyncRequestsAfterReset.load() > 0; },
-                    std::chrono::seconds(10)));
+    //  The reconnect's own replay of the SAME context A earns exactly one
+    //  fresh resynchronization request beyond G1's -- proof that a reconnect
+    //  re-establishes authoritative state even though Skyrim never left the
+    //  same loaded play context, and that authentication plus context replay
+    //  did not each independently trigger their own resync.
+    REQUIRE(WaitUntil(
+        [&] {
+            return resyncRequestCount.load() >= resyncRequestCountAfterG1 + 1;
+        },
+        std::chrono::seconds(10)));
+    CHECK(resyncRequestCount.load() == resyncRequestCountAfterG1 + 1);
+    CHECK_FALSE(WaitUntil(
+        [&] {
+            return resyncRequestCount.load() > resyncRequestCountAfterG1 + 1;
+        },
+        std::chrono::milliseconds(200)));
 
     supervisor->RequestStop();
     connection.Stop();
