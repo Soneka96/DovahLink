@@ -22,6 +22,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Added
 
+- A local development setup guide and prerequisite checker that reports missing CI tools with install and verification guidance.
 - Standalone C# Host process and thin native Adapter, replacing the native Bridge as DovahLink's
   production implementation.
 - Host-owned public client boundary: WebSocket admission, session registry, and pairing continue on
