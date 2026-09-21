@@ -10,6 +10,10 @@ AdapterRuntime::AdapterRuntime(
     AdapterStartupContext startupContext,
     runtime::IAdapterTaskMarshaller& taskMarshaller,
     ipc::IAdapterPairingNotificationSink& pairingNotificationSink,
+    std::function<std::unique_ptr<dispatch::IAdapterNativeCaptureRouter>(
+        capture::IAdapterCaptureHandoffQueue&,
+        identity::IAdapterPlayContextState&)>
+        captureRouterFactory,
     std::function<void(const capture::AdapterCaptureWorkItem&)>
         onCaptureDrained,
     std::function<void(const capture::AdapterCaptureWorkItem&)>
@@ -17,14 +21,51 @@ AdapterRuntime::AdapterRuntime(
     std::function<void()> onGameThreadDispatchRejected)
     : taskMarshaller_(taskMarshaller),
       pairingNotificationSink_(pairingNotificationSink) {
+    //  Captures the diagnostic callback by value into a wrapper that also
+    //  reports the drained item to the host over IPC. The wrapper captures
+    //  `this` rather than `*session_` directly -- `session_` is constructed
+    //  below, after this queue -- but the wrapper only ever runs once the
+    //  queue's worker thread actually drains an enqueued item, which cannot
+    //  happen before Start() is called, well after this constructor and
+    //  `session_` have both finished.
+    playContextState_ = std::make_unique<identity::AdapterPlayContextState>();
+
     captureQueue_ = std::make_unique<capture::AdapterCaptureHandoffQueue>(
-        std::move(onCaptureDrained), std::move(onCaptureQueueRejected));
-    dispatcher_ = std::make_unique<dispatch::AdapterNativeDispatcher>();
+        [this, onCaptureDrained = std::move(onCaptureDrained)](
+            const capture::AdapterCaptureWorkItem& item) {
+            session_->SendCaptureResult(item);
+            if (onCaptureDrained) {
+                onCaptureDrained(item);
+            }
+        },
+        [this, onCaptureQueueRejected = std::move(onCaptureQueueRejected)](
+            const capture::AdapterCaptureWorkItem& item) {
+            //  A rejected reliable Event (for example the level-changed
+            //  event), unlike a rejected Snapshot sample that the next poll
+            //  can simply recapture, can never be silently lost: continuity
+            //  is no longer trustworthy once one is dropped, so the current
+            //  attempt is reset and the adapter's normal reconnect drives a
+            //  fresh resynchronization -- via `RequestReconnect()`, not the
+            //  process-lifetime `Stop()`, so a later `Start()` still runs.
+            //  Called inline rather than dispatched: `RequestReconnect()`
+            //  never blocks (it only publishes an atomic flag), so it is
+            //  always safe to call directly from this callback, including
+            //  when it runs on the Skyrim game thread. Called before the
+            //  diagnostic callback below so an exception from a
+            //  caller-supplied diagnostic can never suppress the reset.
+            if (item.source == capture::CaptureSourceKind::kEvent) {
+                connection_->RequestReconnect();
+            }
+            if (onCaptureQueueRejected) {
+                onCaptureQueueRejected(item);
+            }
+        });
+    captureRouter_ = captureRouterFactory(*captureQueue_, *playContextState_);
 
     session_ = std::make_unique<ipc::AdapterIpcSession>(
         startupContext.instanceId, startupContext.ownerLifetimeId,
-        taskMarshaller_, *dispatcher_, *captureQueue_, pairingNotificationSink_,
-        std::move(onGameThreadDispatchRejected));
+        taskMarshaller_, *captureRouter_, *captureQueue_, pairingNotificationSink_,
+        *playContextState_, std::move(onGameThreadDispatchRejected));
 
     socket_ = std::make_unique<ipc::WinsockAdapterIpcSocket>(0);
     codec_ = std::make_unique<ipc::IpcFrameCodec>();

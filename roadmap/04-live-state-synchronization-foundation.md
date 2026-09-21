@@ -468,7 +468,10 @@ removed merely because they are not real Skyrim data.
 
 #### Real capture and host integration
 
-**Status:** Planned — follows Host-owned state/publication/delivery
+**Status:** Implementation complete on Host and Adapter. Every acceptance criterion below is met
+by the code except the last, which requires the maintainer's own live Skyrim session to verify --
+this environment cannot run Skyrim, so that check has not happened yet. Do not mark this slice
+Complete until it has.
 
 Connect the real adapter capture stream and play-context lifecycle to the host state pipeline. Add
 the first production state flow through the host/adapter boundary, including current-state
@@ -509,5 +512,88 @@ Acceptance criteria:
 - Host restart, adapter restart, game load, save transition, and shutdown do not publish stale state
   as current.
 - The first real state flow is proven over the host, adapter, and client processes.
+- The maintainer validates the real CommonLib capture/lifecycle path in a supported live Skyrim
+  session, covering the manual runtime-validation checklist recorded below.
 
 Not in scope: broad domain expansion beyond the narrow first slice.
+
+**Implementation record.** The slice began on the existing typed private IPC contract
+(`ReadSample`/`ListenEvent`/`CaptureResult`/`ResynchronizeRequest`). The final implementation
+retains those message families while the Host capture path was generalized around catalog-derived
+resynchronization, domain-handler dispatch, and shared application authority.
+
+- Host: `LiveStateScheduler` drives the Fast/Medium `ReadSample` cadence for the vitals and XP
+  capture units from `LiveStateCatalog`, as a third concurrent task in `DovahLinkHostRuntime`. It
+  never sends `ListenEvent`: the level-changed event and every baseline sample (level, vitals, XP)
+  are registered and captured entirely by the Adapter's own resynchronization handling below, not by
+  a Host-sent request. `IpcListenEventMessage`/`TrySendListenEvent` therefore remain unused by
+  production code in this slice -- present on the wire and exercised only by direct
+  `AdapterIpcSession` tests -- rather than dead code to remove, since a future reliable-event domain
+  may still need a Host-initiated registration path independent of resync.
+- Adapter: `CommonLibCharacterCapture` (`adapter/runtime/`) performs the real native reads --
+  health/magicka/stamina via one coherent `RE::ActorValueOwner::GetActorValue` lookup, XP via
+  `PlayerCharacter::GetInfoRuntimeData().skills->data->xp`, and the level baseline via
+  `Actor::GetLevel()` -- each returning `std::nullopt` rather than a fabricated value on any
+  failure. `GetActorValue` (the current-value accessor, not `GetPermanentActorValue`/
+  `GetBaseActorValue`) was a deliberate choice for "current" `character_health`/`character_magicka`/
+  `character_stamina` semantics; it has not been verified in a running Skyrim session, particularly
+  around death, essential/downed actors, and negative health. `CommonLibAdapterNativeCaptureRouter`
+  maps each `CharacterSampleToken` to its read and encodes the little-endian wire payload
+  `LiveCaptureSink.cs` decodes, and owns the `RE::LevelIncrease::Event` sink for
+  `CharacterEventKey::kCharacterLevelChanged` (registration is idempotent because
+  `RE::BSTEventSource::AddEventSink` itself de-duplicates by sink pointer, and the router always
+  registers the same owned instance). `AdapterIpcSession::HandleResynchronizeRequest` registers the
+  level-changed event before reading the level baseline, in the same game-thread task, so there is
+  no window a level-up could land in unobserved; `accepted` is now unconditionally `true` once that
+  path runs, since an individual capture's own unavailability is carried by its own `CaptureResult`,
+  not by rejecting the whole resync. `AdapterPlayContextGenerator` sends a fresh play-context
+  identity, unconditionally, on every `kNewGame` and `kPostLoadGame` SKSE message (including a
+  reload of the same save) through the session's existing `SendPlayContextChanged`; captures are
+  stamped with that context at capture time, per the Host's own staleness-rejection contract.
+- Reliable native-Event delivery under sustained capture-queue pressure remains the same open,
+  documented risk named above -- `character_level`'s real event now exercises that path for the
+  first time, but no additional mitigation was added in this slice. The queue itself is bounded and
+  covered by deterministic tests; sustained real-Skyrim load/profiling behavior remains
+  evidence-driven work, not something this slice redesigns or production-profiles.
+- Host: the generic dispatch path is domain-agnostic. `LiveCaptureSink` routes a captured value by
+  its registered capture identity to the handler registered for it; `CharacterCaptureHandler` owns
+  Character-specific payload decoding and mapping to state-area values, and `LiveStateApplication`
+  owns the shared authority/resynchronization/publication application logic once a value has been
+  decoded. `LiveStateScheduler`'s ordinary sampling and the Adapter-driven resynchronization path
+  are gated separately, so ordinary sampling does not race through an adapter generation or
+  resynchronization transition. The Host derives its resynchronization plan
+  (`ResynchronizationPlan`: persistent event keys registered before baseline sample tokens) from
+  `LiveStateCatalog` rather than hardcoding it in the generic Host/Adapter resync plumbing.
+- Adapter: bounded fixed-size `CapturedPayload` construction rejects oversized runtime input rather
+  than truncating it; event and sample execution stay behind `IAdapterNativeCaptureRouter`/the
+  CommonLib implementation, so the Adapter never fabricates a value for an unavailable capture.
+
+**Deterministic automated process-level E2E proof.** `adapter/tests/process/adapter_host_real_process_test.cpp`
+proves the full real cross-process pipeline -- a real C++ `AdapterIpcConnection`, `AdapterIpcSession`,
+and `AdapterCaptureHandoffQueue`, over real private IPC, against a real launched C# Host, observed
+only through a real public WebSocket client -- using a synthetic, deterministic native capture source
+in place of Skyrim:
+
+- a synthetic XP baseline of `42.5` reaches a real public WebSocket client as a `character_xp`
+  `state_snapshot` of `42.5`, driven entirely by the real Host-driven resynchronization plan;
+- a `character_level` baseline of `10` reaches the client as an initial `state_snapshot`, then a
+  synthetic native `LevelChanged(11)` -- entering only through a real
+  `RegisterEvent(CharacterLevelChanged)` registration, not a test bypass -- reaches the client as a
+  `character_level` `state_event` of `11` with a newer revision under the same play context.
+
+This is deterministic automated process-level E2E coverage of the real Adapter/Host/public-client
+pipeline. It is not live Skyrim validation, real gameplay validation, or CommonLib runtime proof
+inside Skyrim: the native capture source in these tests is synthetic, not a running Skyrim process.
+Live Skyrim runtime validation by the maintainer remains a separate, outstanding requirement that
+this automated proof does not satisfy.
+
+**Manual Skyrim runtime validation checklist (outstanding).** None of the following has been run
+against a real Skyrim `1.6.1170` session; this list is what "live Skyrim runtime validation" in the
+acceptance criteria above still requires before this slice can be marked Complete:
+
+- health/magicka/stamina ordinary current values, and drain/regeneration behavior;
+- death/downed/essential-actor behavior, including negative-health edge cases;
+- XP gain behavior and the native level-up event;
+- load save A; transition to and load save B; reload of the same save; new game;
+- Host restart while a save is loaded; Adapter/private IPC reconnect;
+- main menu / no active context; shutdown / quit.

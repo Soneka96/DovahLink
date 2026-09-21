@@ -287,16 +287,127 @@ public class IpcFrameCodecTests
         Assert.Equal(original.HostProof, decoded.HostProof);
     }
 
-    /// <summary>Verifies that a ResynchronizeRequest round-trips.</summary>
+    /// <summary>Verifies that a ResynchronizeRequest preserves ordered event keys and sample tokens.</summary>
     [Fact]
     public void RoundTrip_ResynchronizeRequest()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcResynchronizeRequestMessage(42);
+        var original = new IpcResynchronizeRequestMessage(
+            42,
+            [0x11223344, 0x11223344, 0x55667788],
+            [0xAABBCCDD, 3, 0xAABBCCDD]);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
-        Assert.Equal(original, result.Message);
+        var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.PersistentEventKeys, decoded.PersistentEventKeys);
+        Assert.Equal(original.BaselineSampleTokens, decoded.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that an empty no-op plan round-trips with both counts set to zero.</summary>
+    [Fact]
+    public void RoundTrip_ResynchronizeRequest_EmptyPlan()
+    {
+        var codec = new IpcFrameCodec();
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, new IpcResynchronizeRequestMessage(42));
+
+        var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+        Assert.Empty(decoded.PersistentEventKeys);
+        Assert.Empty(decoded.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that either ordered intent list can independently form a valid plan.</summary>
+    [Fact]
+    public void RoundTrip_ResynchronizeRequest_OneSidedPlans()
+    {
+        var codec = new IpcFrameCodec();
+        IpcResynchronizeRequestMessage[] requests =
+        [
+            new(42, [11, 12], []),
+            new(43, [], [21, 22]),
+        ];
+
+        foreach (IpcResynchronizeRequestMessage request in requests)
+        {
+            (IpcDecodeResult result, _) = EncodeThenDecode(codec, request);
+
+            var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+            Assert.Equal(request.PersistentEventKeys, decoded.PersistentEventKeys);
+            Assert.Equal(request.BaselineSampleTokens, decoded.BaselineSampleTokens);
+        }
+    }
+
+    /// <summary>Verifies that a maximum-size resynchronization plan round-trips within its small frame bound.</summary>
+    [Fact]
+    public void RoundTrip_ResynchronizeRequest_MaximumPlan()
+    {
+        var codec = new IpcFrameCodec();
+        uint[] eventKeys = Enumerable.Range(1, Constants.MaxResynchronizationEventKeys).Select(value => (uint)value).ToArray();
+        uint[] sampleTokens = Enumerable.Range(101, Constants.MaxResynchronizationSampleTokens).Select(value => (uint)value).ToArray();
+        var original = new IpcResynchronizeRequestMessage(42, eventKeys, sampleTokens);
+
+        byte[] encoded = codec.Encode(original);
+        IpcDecodeResult result = codec.Decode(encoded.AsSpan(4));
+
+        Assert.Equal(4 + Constants.IpcFrameHeaderBytes + 2 + sizeof(uint) * (eventKeys.Length + sampleTokens.Length), encoded.Length);
+        Assert.Null(result.FailureReason);
+        var decoded = Assert.IsType<IpcResynchronizeRequestMessage>(result.Message);
+        Assert.Equal(eventKeys, decoded.PersistentEventKeys);
+        Assert.Equal(sampleTokens, decoded.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that either resynchronization list cannot exceed its configured count bound.</summary>
+    [Fact]
+    public void Encode_ResynchronizeRequest_OverBoundList_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        uint[] eventKeys = Enumerable.Range(1, Constants.MaxResynchronizationEventKeys + 1).Select(value => (uint)value).ToArray();
+        uint[] sampleTokens = Enumerable.Range(101, Constants.MaxResynchronizationSampleTokens + 1).Select(value => (uint)value).ToArray();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, eventKeys, [])));
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [], sampleTokens)));
+    }
+
+    /// <summary>Verifies that a zero event key or sample token cannot be encoded as a useful plan intent.</summary>
+    [Fact]
+    public void Encode_ResynchronizeRequest_ZeroIntentKey_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [0], [])));
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [], [0])));
+    }
+
+    /// <summary>Verifies that null intent lists fail with a controlled argument error.</summary>
+    [Fact]
+    public void Encode_ResynchronizeRequest_NullIntentList_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentNullException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, null!, [])));
+        Assert.Throws<ArgumentNullException>(() => codec.Encode(new IpcResynchronizeRequestMessage(42, [], null!)));
+    }
+
+    /// <summary>Verifies that malformed resynchronization counts, lengths, and zero keys fail closed.</summary>
+    /// <param name="payload">The malformed count-prefixed resynchronization payload.</param>
+    [Theory]
+    [InlineData(new byte[] { 17, 0 })]
+    [InlineData(new byte[] { 0, 33 })]
+    [InlineData(new byte[] { 0 })]
+    [InlineData(new byte[] { 0, 0, 0 })]
+    [InlineData(new byte[] { 1, 0 })]
+    [InlineData(new byte[] { 1, 0, 0, 0, 0, 0 })]
+    [InlineData(new byte[] { 0, 1, 0, 0, 0, 0 })]
+    public void Decode_ResynchronizeRequest_InvalidPlan_FailsClosed(byte[] payload)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ResynchronizeRequest, correlationId: 42, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
     /// <summary>Verifies that a ResynchronizeResult round-trips for both accepted and declined outcomes.</summary>
@@ -384,6 +495,153 @@ public class IpcFrameCodecTests
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
         Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that an available capture result round-trips its source, key, and payload.</summary>
+    [Fact]
+    public void RoundTrip_CaptureResult_Available()
+    {
+        var codec = new IpcFrameCodec();
+        var playContextId = new PlayContextId(Guid.NewGuid());
+        var original = new IpcCaptureResultMessage(7, CaptureSourceKind.Sample, 42, CaptureAvailability.Available, playContextId, [1, 2, 3]);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcCaptureResultMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Source, decoded.Source);
+        Assert.Equal(original.CaptureKey, decoded.CaptureKey);
+        Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.PlayContextId, decoded.PlayContextId);
+        Assert.Equal(original.Payload, decoded.Payload);
+    }
+
+    /// <summary>Verifies that an available capture result round-trips with correlation id zero, matching a future spontaneous native-event capture.</summary>
+    [Fact]
+    public void RoundTrip_CaptureResult_Available_ZeroCorrelationId()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcCaptureResultMessage(0, CaptureSourceKind.Event, 1, CaptureAvailability.Available, default, [9]);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcCaptureResultMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Source, decoded.Source);
+        Assert.Equal(original.CaptureKey, decoded.CaptureKey);
+        Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.PlayContextId, decoded.PlayContextId);
+        Assert.Equal(original.Payload, decoded.Payload);
+    }
+
+    /// <summary>Verifies that an unavailable capture result round-trips with an empty payload, for either source kind, and correlation id zero.</summary>
+    [Theory]
+    [InlineData(CaptureSourceKind.Sample)]
+    [InlineData(CaptureSourceKind.Event)]
+    public void RoundTrip_CaptureResult_Unavailable(CaptureSourceKind source)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcCaptureResultMessage(0, source, 1, CaptureAvailability.Unavailable, default, []);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcCaptureResultMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Source, decoded.Source);
+        Assert.Equal(original.CaptureKey, decoded.CaptureKey);
+        Assert.Equal(original.Availability, decoded.Availability);
+        Assert.Equal(original.PlayContextId, decoded.PlayContextId);
+        Assert.Equal(original.Payload, decoded.Payload);
+    }
+
+    /// <summary>Verifies that encoding a capture result with a zero capture key throws.</summary>
+    [Fact]
+    public void Encode_CaptureResult_ZeroCaptureKey_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 0, CaptureAvailability.Available, default, []);
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
+    }
+
+    /// <summary>Verifies that encoding an unavailable capture result with a nonempty payload throws.</summary>
+    [Fact]
+    public void Encode_CaptureResult_UnavailableWithPayload_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        var message = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, [1]);
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
+    }
+
+    /// <summary>Verifies that a capture result payload shorter than the fixed header fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_TooShort_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[21]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result with a zero capture key fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_ZeroCaptureKey_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, new byte[22]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result marked unavailable with a nonempty payload fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_UnavailableWithPayload_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[23];
+        payload[1] = 1;
+        payload[5] = 1;
+        payload[22] = 9;
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result with an out-of-range source byte fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_OutOfRangeSource_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[22];
+        payload[0] = 2;
+        payload[1] = 1;
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a capture result with an out-of-range availability byte fails closed.</summary>
+    [Fact]
+    public void Decode_CaptureResult_OutOfRangeAvailability_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] payload = new byte[22];
+        payload[1] = 1;
+        payload[5] = 2;
+        byte[] frame = BuildFrame(IpcMessageKind.CaptureResult, 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
     /// <summary>Verifies that capture intents preserve the maximum correlation id.</summary>
@@ -487,12 +745,59 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that a listen-event result round-trips for both outcomes.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RoundTrip_ListenEventResult(bool accepted)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcListenEventResultMessage(7, accepted);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that encoding a listen-event result with a zero correlation id throws.</summary>
+    [Fact]
+    public void Encode_ListenEventResult_ZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcListenEventResultMessage(0, true)));
+    }
+
     /// <summary>Verifies that an attempts-exhausted notification round-trips.</summary>
     [Fact]
     public void RoundTrip_PairingAttemptsExhausted()
     {
         var codec = new IpcFrameCodec();
         var original = new IpcPairingAttemptsExhaustedMessage(0);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a play-context-changed notification round-trips its identity.</summary>
+    [Fact]
+    public void RoundTrip_PlayContextChanged()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcPlayContextChangedMessage(0, PlayContextId.NewId());
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a play-context-ended notification round-trips.</summary>
+    [Fact]
+    public void RoundTrip_PlayContextEnded()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcPlayContextEndedMessage(0);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
@@ -670,6 +975,24 @@ public class IpcFrameCodecTests
         var codec = new IpcFrameCodec();
 
         Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPairingAttemptsExhaustedMessage(1)));
+    }
+
+    /// <summary>Verifies that encoding a play-context-changed notification with a nonzero correlation id throws.</summary>
+    [Fact]
+    public void Encode_PlayContextChanged_NonZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPlayContextChangedMessage(1, PlayContextId.NewId())));
+    }
+
+    /// <summary>Verifies that encoding a play-context-ended notification with a nonzero correlation id throws.</summary>
+    [Fact]
+    public void Encode_PlayContextEnded_NonZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcPlayContextEndedMessage(1)));
     }
 
     /// <summary>Verifies that encoding a trust-admin request with a zero correlation id fails closed.</summary>
@@ -1040,12 +1363,12 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
-    /// <summary>Verifies that a ResynchronizeRequest carrying an unexpected payload fails closed.</summary>
+    /// <summary>Verifies that a ResynchronizeRequest with no plan count bytes fails closed.</summary>
     [Fact]
-    public void Decode_ResynchronizeRequest_NonEmptyPayload_FailsClosed()
+    public void Decode_ResynchronizeRequest_EmptyPayload_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] frame = BuildFrame(IpcMessageKind.ResynchronizeRequest, correlationId: 1, [0]);
+        byte[] frame = BuildFrame(IpcMessageKind.ResynchronizeRequest, correlationId: 1, []);
 
         IpcDecodeResult result = codec.Decode(frame);
 
@@ -1307,6 +1630,106 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a listen-event result with a zero correlation id fails closed.</summary>
+    [Fact]
+    public void Decode_ListenEventResult_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEventResult, correlationId: 0, [1]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a listen-event result with an out-of-range accepted byte fails closed.</summary>
+    [Fact]
+    public void Decode_ListenEventResult_InvalidAcceptedByte_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEventResult, correlationId: 1, [2]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a listen-event result payload of the wrong length fails closed, both shorter and longer than the fixed 1-byte shape.</summary>
+    [Theory]
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 1, 0 })]
+    public void Decode_ListenEventResult_WrongPayloadLength_FailsClosed(byte[] payload)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEventResult, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a play-context-changed notification carrying a correlation id fails closed because it is unsolicited.</summary>
+    [Fact]
+    public void Decode_PlayContextChanged_NonZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextChanged, correlationId: 1, new byte[16]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a play-context-changed notification payload of the wrong length fails closed, both shorter and longer than the fixed 16-byte shape.</summary>
+    [Theory]
+    [InlineData(15)]
+    [InlineData(17)]
+    public void Decode_PlayContextChanged_WrongPayloadLength_FailsClosed(int payloadLength)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextChanged, correlationId: 0, new byte[payloadLength]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a play-context-changed notification with an all-zero identity fails closed: that value is reserved as an invariant no real generated id may ever collide with.</summary>
+    [Fact]
+    public void Decode_PlayContextChanged_AllZeroIdentity_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextChanged, correlationId: 0, new byte[16]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a play-context-ended notification carrying a correlation id fails closed because it is unsolicited.</summary>
+    [Fact]
+    public void Decode_PlayContextEnded_NonZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextEnded, correlationId: 1, Array.Empty<byte>());
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a play-context-ended notification carrying an unexpected payload fails closed.</summary>
+    [Fact]
+    public void Decode_PlayContextEnded_NonEmptyPayload_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.PlayContextEnded, correlationId: 0, [0]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that an attempts-exhausted notification carrying a correlation id fails closed because it is unsolicited.</summary>
     [Fact]
     public void Decode_PairingAttemptsExhausted_NonZeroCorrelationId_FailsClosed()
@@ -1526,7 +1949,8 @@ public class IpcFrameCodecTests
             (new IpcHelloAckMessage(2, true, IpcHelloRejectReason.None),
                 "2B0000000202000000000000000100" +
                 "0000000000000000000000000000000000000000000000000000000000000000"),
-            (new IpcResynchronizeRequestMessage(4), "09000000030400000000000000"),
+            (new IpcResynchronizeRequestMessage(4, [0x11223344, 0x55667788], [0xAABBCCDD, 3]),
+                "1B00000003040000000000000002443322118877665502DDCCBBAA03000000"),
             (new IpcResynchronizeResultMessage(5, Accepted: true), "0A00000004050000000000000001"),
             (new IpcCloseMessage(0, IpcCloseReason.Normal), "0A00000005000000000000000000"),
             (new IpcRejectMessage(6, IpcRejectReason.InvalidIdentity), "0A00000006060000000000000002"),
@@ -1542,6 +1966,18 @@ public class IpcFrameCodecTests
             (new IpcTrustAdminRequestMessage(10, TrustAdminOperation.Revoke, ShortId: "12345"),
                 "0F0000000D0A00000000000000023132333435"),
             (new IpcTrustAdminResultMessage(11, "OK"), "0B0000000E0B000000000000004F4B"),
+            // 24-byte CaptureResult payload: source (Sample=0) + 4-byte captureKey (13) +
+            // availability (Available=0) + 16-byte play-context id (the same big-endian GUID
+            // identity bytes as the PlayContextChanged vector below) + the UTF-8 bytes of "OK".
+            (new IpcCaptureResultMessage(12, CaptureSourceKind.Sample, 13, CaptureAvailability.Available,
+                new PlayContextId(new Guid("00112233-4455-6677-8899-aabbccddeeff")), [0x4F, 0x4B]),
+                "210000000F0C00000000000000000D0000000000112233445566778899AABBCCDDEEFF4F4B"),
+            (new IpcListenEventResultMessage(13, Accepted: true), "0A000000100D0000000000000001"),
+            // 16-byte PlayContextChanged payload: the big-endian GUID identity bytes.
+            (new IpcPlayContextChangedMessage(0, new PlayContextId(new Guid("00112233-4455-6677-8899-aabbccddeeff"))),
+                "1900000011000000000000000000112233445566778899AABBCCDDEEFF"),
+            // No payload.
+            (new IpcPlayContextEndedMessage(0), "09000000120000000000000000"),
         };
 
         foreach ((IpcMessage message, string hex) in vectors)
@@ -1593,9 +2029,26 @@ public class IpcFrameCodecTests
                 case (IpcTrustAdminResultMessage expectedMessage, IpcTrustAdminResultMessage actualMessage):
                     Assert.Equal(expectedMessage.ResultText, actualMessage.ResultText);
                     break;
-                case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
+                case (IpcCaptureResultMessage expectedMessage, IpcCaptureResultMessage actualMessage):
+                    Assert.Equal(expectedMessage.Source, actualMessage.Source);
+                    Assert.Equal(expectedMessage.CaptureKey, actualMessage.CaptureKey);
+                    Assert.Equal(expectedMessage.Availability, actualMessage.Availability);
+                    Assert.Equal(expectedMessage.PlayContextId, actualMessage.PlayContextId);
+                    Assert.Equal(expectedMessage.Payload, actualMessage.Payload);
+                    break;
+                case (IpcListenEventResultMessage expectedMessage, IpcListenEventResultMessage actualMessage):
+                    Assert.Equal(expectedMessage.Accepted, actualMessage.Accepted);
+                    break;
+                case (IpcPlayContextChangedMessage expectedMessage, IpcPlayContextChangedMessage actualMessage):
+                    Assert.Equal(expectedMessage.PlayContextId, actualMessage.PlayContextId);
+                    break;
+                case (IpcResynchronizeRequestMessage expectedMessage, IpcResynchronizeRequestMessage actualMessage):
+                    Assert.Equal(expectedMessage.PersistentEventKeys, actualMessage.PersistentEventKeys);
+                    Assert.Equal(expectedMessage.BaselineSampleTokens, actualMessage.BaselineSampleTokens);
+                    break;
                 case (IpcCancelMessage, IpcCancelMessage):
                 case (IpcPairingAttemptsExhaustedMessage, IpcPairingAttemptsExhaustedMessage):
+                case (IpcPlayContextEndedMessage, IpcPlayContextEndedMessage):
                     break;
                 default:
                     Assert.Fail("The decoded message shape did not match the golden vector.");

@@ -1,4 +1,6 @@
 {
   "maxMessagesPerSecond": 200,
-  "messageRateWindowMilliseconds": 1000
+  "messageRateWindowMilliseconds": 1000,
+  "maxResynchronizationEventKeys": 16,
+  "maxResynchronizationSampleTokens": 32
 }

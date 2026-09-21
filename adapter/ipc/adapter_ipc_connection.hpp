@@ -56,6 +56,19 @@ class IAdapterIpcConnection {
     ///  guarantee).
     virtual bool TrySend(const IpcMessage& message) = 0;
 
+    ///  Aborts the current connect/serve attempt, if one is in progress, so the
+    ///  owning supervisor's normal recovery path re-establishes a fresh
+    ///  authenticated generation -- unlike `Stop()`, this never marks the
+    ///  connection as finally stopped: a later `Start()` still runs normally.
+    ///  Never blocks and never touches the underlying transport, so it is safe
+    ///  to call from any thread, including the Skyrim game thread and this
+    ///  connection's own worker. Idempotent and coalesced: a request observed
+    ///  while no attempt is running, or after the current attempt has already
+    ///  finished, is silently absorbed by the next `Start()`. Bounded by the
+    ///  same short read-poll interval an in-progress attempt already rechecks
+    ///  `Stop()`'s own flag against.
+    virtual void RequestReconnect() = 0;
+
     ///  Requests the socket close, wakes the connection's background thread,
     ///  and waits for it to return. Idempotent.
     virtual void Stop() = 0;
@@ -101,6 +114,9 @@ class AdapterIpcConnection final : public IAdapterIpcConnection {
 
     ///  @copydoc IAdapterIpcConnection::TrySend
     bool TrySend(const IpcMessage& message) override;
+
+    ///  @copydoc IAdapterIpcConnection::RequestReconnect
+    void RequestReconnect() override;
 
     ///  @copydoc IAdapterIpcConnection::Stop
     void Stop() override;
@@ -195,6 +211,13 @@ class AdapterIpcConnection final : public IAdapterIpcConnection {
     ///  other reader only needs the plain "stopped or not" answer and does not
     ///  share that ordering requirement.
     std::atomic<bool> stopping_{false};
+    ///  Set by `RequestReconnect()`; rechecked, alongside `stopping_`, by
+    ///  `ServeConnection`'s and `ReadFully`'s loops so an in-progress attempt
+    ///  unwinds within one short read-poll interval. Unlike `stopping_`, this
+    ///  is a per-attempt signal: `Start()` clears it before spawning a fresh
+    ///  attempt, exactly as it already clears `inboundMessageTimes_`, so a
+    ///  reset requested against one generation can never suppress a later one.
+    std::atomic<bool> resetRequested_{false};
     ///  Guards `outbound_`, `outboundHead_`, `outboundCount_`, and -- jointly
     ///  with `stopping_`'s own atomicity -- the ordering between `Stop()`
     ///  publishing `stopping_` and `TrySend()` rechecking it.

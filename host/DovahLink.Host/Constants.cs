@@ -154,6 +154,12 @@ public static class Constants
     /// <summary>The maximum byte length of an <see cref="Adapter.Ipc.IpcHelloMessage"/> peer-ownership proof token.</summary>
     public const int MaxIpcPeerProofTokenBytes = 64;
 
+    /// <summary>The maximum number of persistent event keys in a resynchronization plan.</summary>
+    public const int MaxResynchronizationEventKeys = 16;
+
+    /// <summary>The maximum number of baseline sample tokens in a resynchronization plan.</summary>
+    public const int MaxResynchronizationSampleTokens = 32;
+
     /// <summary>
     /// The bounded capacity approved for a private IPC send/receive queue; not itself enforced by
     /// this contract's codec.
@@ -189,6 +195,28 @@ public static class Constants
     /// served-connection slot indefinitely.
     /// </summary>
     public static readonly TimeSpan AdapterIpcHandshakeTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// How long a sent <see cref="Adapter.Ipc.IpcResynchronizeRequestMessage"/> may go without its
+    /// matching <see cref="Adapter.Ipc.IpcResynchronizeResultMessage"/> before the connection is
+    /// forced closed, so a stalled or lost game-thread dispatch on the Adapter cannot leave the Host
+    /// waiting for a baseline that will now never arrive. The normal reconnect/resync path then
+    /// starts fresh.
+    /// </summary>
+    public static readonly TimeSpan AdapterIpcResynchronizeTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long a resynchronization transaction may take to genuinely complete -- the adapter's own
+    /// plan accepted and every required baseline area accepted -- before
+    /// <see cref="Adapter.ResynchronizationTransactionCoordinator"/> requests recovery of the exact
+    /// connection generation it was tracked under. Distinct from and longer than
+    /// <see cref="AdapterIpcResynchronizeTimeout"/>: that timeout only bounds the wire-level
+    /// request/result round trip, and is satisfied the moment any result arrives, accepted or not;
+    /// this one bounds the whole transaction, including every baseline capture round trip after an
+    /// accepted result, so a lost or discarded baseline capture cannot leave resynchronization
+    /// pending forever with no timeout left to force recovery.
+    /// </summary>
+    public static readonly TimeSpan ResynchronizationTransactionTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>
     /// The byte length of the adapter-generated random challenge carried in
@@ -501,4 +529,57 @@ public static class Constants
     /// shows otherwise.
     /// </summary>
     public const int MaxHeldRecoveryEventsPerArea = 8;
+
+    /// <summary>
+    /// The bounded deadline a connection's <see cref="Client.Subscription.PublicStateSubscription"/>
+    /// keeps a <c>snapshot_request</c> or accepted <c>subscribe</c> baseline pending for one state
+    /// area while no authoritative value is available yet, before answering with an explicit
+    /// <see cref="PublicProtocolErrorCode.TemporarilyUnavailable"/> error instead of
+    /// leaving the client waiting forever. Matches <see cref="AdapterIpcResynchronizeTimeout"/>'s own
+    /// bound, for the same reason: a real recovery path (resynchronization) that this pending request
+    /// is most often waiting on already completes, or itself times out and resets, well inside this
+    /// window in the ordinary case.
+    /// </summary>
+    public static readonly TimeSpan PendingBaselineDeadline = TimeSpan.FromSeconds(5);
+
+    // ---- Live state ----
+
+    /// <summary>The <c>stateArea</c> id for the current health value.</summary>
+    public const string CharacterHealthStateArea = "character_health";
+
+    /// <summary>The <c>stateArea</c> id for the current magicka value.</summary>
+    public const string CharacterMagickaStateArea = "character_magicka";
+
+    /// <summary>The <c>stateArea</c> id for the current stamina value.</summary>
+    public const string CharacterStaminaStateArea = "character_stamina";
+
+    /// <summary>The <c>stateArea</c> id for the current experience value.</summary>
+    public const string CharacterXpStateArea = "character_xp";
+
+    /// <summary>The <c>stateArea</c> id for the current level value.</summary>
+    public const string CharacterLevelStateArea = "character_level";
+
+    /// <summary>
+    /// The maximum sampling frequency for a <see cref="RateClass.Fast"/> capture unit, per
+    /// <c>roadmap/04-live-state-synchronization-foundation.md</c>'s initial profiling hypothesis (5
+    /// Hz). Controls how often the host directs the adapter to sample, not revision or message
+    /// frequency; not itself a wire field.
+    /// </summary>
+    public static readonly TimeSpan LiveStateFastSampleInterval = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// The maximum sampling frequency for a <see cref="RateClass.Medium"/> capture unit, per
+    /// <c>roadmap/04-live-state-synchronization-foundation.md</c>'s initial profiling hypothesis (1
+    /// Hz).
+    /// </summary>
+    public static readonly TimeSpan LiveStateMediumSampleInterval = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How many consecutive ticks of a capture unit's own cadence a <c>LiveStateScheduler</c> sample
+    /// may stay outstanding with no matching result before it is abandoned: the correlation is
+    /// best-effort cancelled and the unit's one-outstanding-sample slot is released so the very next
+    /// tick can try again, rather than waiting forever for a reply that a dropped result, a failed
+    /// game-thread dispatch, or a disconnect will otherwise never deliver.
+    /// </summary>
+    public const int LiveStateSampleTimeoutTicks = 5;
 }

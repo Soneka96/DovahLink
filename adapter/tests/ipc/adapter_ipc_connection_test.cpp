@@ -41,6 +41,8 @@ using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::kMaxIpcMessagesPerSecond;
 using dovahlink::adapter::ipc::kMaxIpcQueuedMessages;
+using dovahlink::adapter::ipc::kMaxResynchronizationEventKeys;
+using dovahlink::adapter::ipc::kMaxResynchronizationSampleTokens;
 using dovahlink::adapter::ipc::test_support::FakeAdapterIpcSocket;
 using dovahlink::adapter::test_support::ReadSource;
 
@@ -223,6 +225,14 @@ TEST_CASE("AdapterIpcConnection enforces the shared inbound message-rate "
     CHECK(delivered.load() == maxMessages);
 
     connection.Stop();
+}
+
+TEST_CASE("resynchronization plan bounds match the shared private-IPC fixture",
+          "[ipc][adapter_ipc_connection]") {
+    CHECK(ReadPrivateIpcLimit("maxResynchronizationEventKeys") ==
+          kMaxResynchronizationEventKeys);
+    CHECK(ReadPrivateIpcLimit("maxResynchronizationSampleTokens") ==
+          kMaxResynchronizationSampleTokens);
 }
 
 TEST_CASE("AdapterIpcConnection resets inbound rate history for a reconnect") {
@@ -1629,6 +1639,226 @@ TEST_CASE("AdapterIpcConnection::Stop is idempotent") {
 
     connection.Stop();
     connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection::RequestReconnect aborts a connected, "
+          "authenticated attempt without touching the socket's own stop "
+          "flag") {
+    FakeAdapterIpcSocket socket;
+    IpcFrameCodec codec;
+    std::promise<void> authenticatedPromise;
+    std::promise<AdapterIpcAttemptOutcome> outcomePromise;
+    AdapterIpcConnectionCallbacks callbacks{
+        .onMessageReceived =
+            [&](const IpcMessage& message) {
+                if (std::holds_alternative<IpcHelloAckMessage>(message)) {
+                    authenticatedPromise.set_value();
+                    return AdapterIpcMessageDisposition::kAuthenticated;
+                }
+                return AdapterIpcMessageDisposition::kContinue;
+            },
+        .onAttemptFinished =
+            [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+                outcomePromise.set_value(outcome);
+            },
+    };
+    AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+    connection.Start();
+
+    socket.PushReadableBytes(codec.Encode(IpcMessage{
+        IpcHelloAckMessage{.correlationId = 1,
+                           .accepted = true,
+                           .rejectReason = IpcHelloRejectReason::kNone}}));
+    auto authenticatedFuture = authenticatedPromise.get_future();
+    REQUIRE(WaitReady(authenticatedFuture));
+
+    connection.RequestReconnect();
+
+    auto outcomeFuture = outcomePromise.get_future();
+    REQUIRE(WaitReady(outcomeFuture));
+    //  kDisconnected, not kStopped: RequestReconnect leaves the connection's
+    //  own final `stopping_` flag untouched, unlike Stop().
+    CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kDisconnected);
+    //  Unlike Stop(), RequestReconnect never calls socket.RequestStop(): the
+    //  attempt unwinds because ServeConnection/ReadFully reject its own
+    //  resetRequested_ flag, not because the transport was told to stop.
+    CHECK_FALSE(socket.StopRequested());
+
+    connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection::RequestReconnect allows a subsequent Start "
+          "to establish a fresh authenticated generation") {
+    FakeAdapterIpcSocket socket;
+    IpcFrameCodec codec;
+    std::atomic<int> authenticatedCount{0};
+    std::promise<void> firstAuthenticatedPromise;
+    std::promise<void> secondAuthenticatedPromise;
+    std::promise<void> firstFinishedPromise;
+    AdapterIpcConnectionCallbacks callbacks{
+        .onMessageReceived =
+            [&](const IpcMessage& message) {
+                if (std::holds_alternative<IpcHelloAckMessage>(message)) {
+                    if (authenticatedCount.fetch_add(1) == 0) {
+                        firstAuthenticatedPromise.set_value();
+                    } else {
+                        secondAuthenticatedPromise.set_value();
+                    }
+                    return AdapterIpcMessageDisposition::kAuthenticated;
+                }
+                return AdapterIpcMessageDisposition::kContinue;
+            },
+        .onAttemptFinished =
+            [&](std::uint64_t, AdapterIpcAttemptOutcome) {
+                firstFinishedPromise.set_value();
+            },
+    };
+    AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+    connection.Start();
+
+    const std::vector<std::byte> helloAck = codec.Encode(IpcMessage{
+        IpcHelloAckMessage{.correlationId = 1,
+                           .accepted = true,
+                           .rejectReason = IpcHelloRejectReason::kNone}});
+    socket.PushReadableBytes(helloAck);
+    auto firstAuthenticatedFuture = firstAuthenticatedPromise.get_future();
+    REQUIRE(WaitReady(firstAuthenticatedFuture));
+
+    connection.RequestReconnect();
+    auto firstFinishedFuture = firstFinishedPromise.get_future();
+    REQUIRE(WaitReady(firstFinishedFuture));
+
+    //  A reset that left the connection permanently stopped (the way Stop()
+    //  deliberately does) would make every later Start() an immediate no-op,
+    //  so authentication would never happen a second time.
+    connection.Start();
+    socket.PushReadableBytes(helloAck);
+    auto secondAuthenticatedFuture = secondAuthenticatedPromise.get_future();
+    REQUIRE(WaitReady(secondAuthenticatedFuture));
+    CHECK(socket.ConnectCallCount() >= 2);
+
+    connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection::RequestReconnect before any Start is "
+          "absorbed by the next Start rather than aborting it") {
+    FakeAdapterIpcSocket socket;
+    IpcFrameCodec codec;
+    std::promise<void> authenticatedPromise;
+    AdapterIpcConnectionCallbacks callbacks{
+        .onMessageReceived =
+            [&](const IpcMessage& message) {
+                if (std::holds_alternative<IpcHelloAckMessage>(message)) {
+                    authenticatedPromise.set_value();
+                    return AdapterIpcMessageDisposition::kAuthenticated;
+                }
+                return AdapterIpcMessageDisposition::kContinue;
+            },
+    };
+    AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+
+    //  No attempt is running yet; this must not prevent the first Start()
+    //  below from ever connecting.
+    connection.RequestReconnect();
+
+    connection.Start();
+    socket.PushReadableBytes(codec.Encode(IpcMessage{
+        IpcHelloAckMessage{.correlationId = 1,
+                           .accepted = true,
+                           .rejectReason = IpcHelloRejectReason::kNone}}));
+    auto authenticatedFuture = authenticatedPromise.get_future();
+    REQUIRE(WaitReady(authenticatedFuture));
+
+    connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection::RequestReconnect is idempotent when called "
+          "repeatedly against the same attempt") {
+    FakeAdapterIpcSocket socket;
+    IpcFrameCodec codec;
+    std::promise<void> authenticatedPromise;
+    std::promise<AdapterIpcAttemptOutcome> outcomePromise;
+    AdapterIpcConnectionCallbacks callbacks{
+        .onMessageReceived =
+            [&](const IpcMessage& message) {
+                if (std::holds_alternative<IpcHelloAckMessage>(message)) {
+                    authenticatedPromise.set_value();
+                    return AdapterIpcMessageDisposition::kAuthenticated;
+                }
+                return AdapterIpcMessageDisposition::kContinue;
+            },
+        .onAttemptFinished =
+            [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+                //  set_value on an already-satisfied promise throws; a second
+                //  onAttemptFinished call here would fail this test loudly
+                //  rather than silently passing.
+                outcomePromise.set_value(outcome);
+            },
+    };
+    AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+    connection.Start();
+
+    socket.PushReadableBytes(codec.Encode(IpcMessage{
+        IpcHelloAckMessage{.correlationId = 1,
+                           .accepted = true,
+                           .rejectReason = IpcHelloRejectReason::kNone}}));
+    auto authenticatedFuture = authenticatedPromise.get_future();
+    REQUIRE(WaitReady(authenticatedFuture));
+
+    connection.RequestReconnect();
+    connection.RequestReconnect();
+    connection.RequestReconnect();
+
+    auto outcomeFuture = outcomePromise.get_future();
+    REQUIRE(WaitReady(outcomeFuture));
+    CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kDisconnected);
+
+    connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection::Stop remains a final, non-reconnectable "
+          "stop even after a prior RequestReconnect") {
+    FakeAdapterIpcSocket socket;
+    IpcFrameCodec codec;
+    std::promise<void> authenticatedPromise;
+    std::promise<void> firstFinishedPromise;
+    AdapterIpcConnectionCallbacks callbacks{
+        .onMessageReceived =
+            [&](const IpcMessage& message) {
+                if (std::holds_alternative<IpcHelloAckMessage>(message)) {
+                    authenticatedPromise.set_value();
+                    return AdapterIpcMessageDisposition::kAuthenticated;
+                }
+                return AdapterIpcMessageDisposition::kContinue;
+            },
+        .onAttemptFinished =
+            [&](std::uint64_t, AdapterIpcAttemptOutcome) {
+                firstFinishedPromise.set_value();
+            },
+    };
+    AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+    connection.Start();
+
+    socket.PushReadableBytes(codec.Encode(IpcMessage{
+        IpcHelloAckMessage{.correlationId = 1,
+                           .accepted = true,
+                           .rejectReason = IpcHelloRejectReason::kNone}}));
+    auto authenticatedFuture = authenticatedPromise.get_future();
+    REQUIRE(WaitReady(authenticatedFuture));
+
+    connection.RequestReconnect();
+    auto firstFinishedFuture = firstFinishedPromise.get_future();
+    REQUIRE(WaitReady(firstFinishedFuture));
+
+    connection.Stop();
+    const int connectCallCountAfterStop = socket.ConnectCallCount();
+
+    //  Stop()'s own permanent `stopping_` flag must still be set, unaffected
+    //  by the earlier RequestReconnect(): a later Start() must remain a
+    //  no-op, not reconnect.
+    connection.Start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    CHECK(socket.ConnectCallCount() == connectCallCountAfterStop);
 }
 
 TEST_CASE("AdapterIpcConnection contains an exception thrown by "

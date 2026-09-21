@@ -133,8 +133,10 @@ void AdapterIpcConnection::Start() {
         }
     }
     //  Each coordinator-requested attempt is a new peer/session generation;
-    //  rate-limit history must never carry across a reconnect.
+    //  rate-limit history must never carry across a reconnect, and nor may a
+    //  reset requested against the attempt that just finished.
     inboundMessageTimes_.clear();
+    resetRequested_.store(false, std::memory_order_release);
     workerFinished_ = false;
     worker_ = std::thread([this] { RunLoop(); });
     workerThreadId_ = worker_.get_id();
@@ -167,6 +169,10 @@ bool AdapterIpcConnection::TrySend(const IpcMessage& message) {
     outbound_[(outboundHead_ + outboundCount_) % kMaxIpcQueuedMessages] = message;
     ++outboundCount_;
     return true;
+}
+
+void AdapterIpcConnection::RequestReconnect() {
+    resetRequested_.store(true, std::memory_order_release);
 }
 
 void AdapterIpcConnection::Stop() {
@@ -389,7 +395,8 @@ void AdapterIpcConnection::ServeConnection(
     std::chrono::steady_clock::time_point establishmentDeadline,
     bool& authenticated) {
     while (true) {
-        if (stopping_.load(std::memory_order_acquire)) {
+        if (stopping_.load(std::memory_order_acquire) ||
+            resetRequested_.load(std::memory_order_acquire)) {
             return;
         }
 
@@ -481,7 +488,8 @@ bool AdapterIpcConnection::ReadFully(
     std::optional<std::chrono::steady_clock::time_point> deadline) {
     std::size_t totalRead = 0;
     while (totalRead < buffer.size()) {
-        if (stopping_.load(std::memory_order_acquire)) {
+        if (stopping_.load(std::memory_order_acquire) ||
+            resetRequested_.load(std::memory_order_acquire)) {
             return false;
         }
 

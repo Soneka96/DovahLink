@@ -4,9 +4,12 @@
 
 #include "SKSE/SKSE.h"
 
+#include "RE/Skyrim.h"
+
 #include "capture/adapter_capture_work_item.hpp"
 #include "constants.hpp"
 #include "identity/adapter_instance_id_generator.hpp"
+#include "identity/adapter_play_context_generator.hpp"
 #include "ipc/commonlib_adapter_pairing_notification_sink.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
 #include "papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp"
@@ -19,6 +22,7 @@
 #include "runtime/adapter_game_behavior_config_file_reader.hpp"
 #include "runtime/adapter_runtime_guard.hpp"
 #include "runtime/commonlib_adapter_game_behavior_compatibility.hpp"
+#include "runtime/commonlib_adapter_native_capture_router.hpp"
 #include "runtime/commonlib_adapter_task_marshaller.hpp"
 
 #ifndef NOMINMAX
@@ -55,6 +59,40 @@ void SetupLogging() {
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
 }
+
+//  TODO(stage4-file-extraction): Move MainMenuOpenedSink to its own
+//  plugin/commonlib_adapter_main_menu_sink.hpp/.cpp in the post-Stage-4
+//  structural cleanup PR. Temporarily colocated here to hold this PR's
+//  changed-file count down; extraction only, no behavior change.
+///  Detects a return to Skyrim's main menu via the standard CommonLib
+///  `RE::MenuOpenCloseEvent` signal: SKSE's own `MessagingInterface` has no
+///  dedicated message type for it (`kPreLoadGame` fires only for a save
+///  load/new game, not a return to the main menu). Registered once at
+///  `SKSEPluginLoad` and never destroyed, matching every other
+///  process-lifetime allocation there.
+class MainMenuOpenedSink final
+    : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
+  public:
+    ///  @param session Notified with `SendPlayContextEnded` every time the
+    ///  main menu opens.
+    explicit MainMenuOpenedSink(dovahlink::adapter::ipc::IAdapterIpcSession& session)
+        : session_(session) {}
+
+    ///  @copydoc RE::BSTEventSink::ProcessEvent
+    RE::BSEventNotifyControl
+    ProcessEvent(const RE::MenuOpenCloseEvent* event,
+                 RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override {
+        if (event != nullptr && event->opening &&
+            event->menuName == RE::MainMenu::MENU_NAME) {
+            session_.SendPlayContextEnded();
+        }
+        return RE::BSEventNotifyControl::kContinue;
+    }
+
+  private:
+    ///  Notified with `SendPlayContextEnded` every time the main menu opens.
+    dovahlink::adapter::ipc::IAdapterIpcSession& session_;
+};
 
 ///  Resolves the packaged host executable's path relative to this adapter
 ///  plugin DLL's own installed directory -- only the loaded plugin binary
@@ -212,10 +250,21 @@ SKSEPluginInfo(
     //  require CommonLib, so they are constructed here -- like AdapterRuntime
     //  below, as intentional process-lifetime allocations, never deleted --
     //  and passed into AdapterRuntime, which is otherwise CommonLib-free.
+    //  CommonLibAdapterNativeCaptureRouter also requires CommonLib, but it
+    //  additionally needs AdapterRuntime's own capture queue, which does not
+    //  exist yet at this point -- so it is supplied as a factory instead of
+    //  an already-constructed instance; see AdapterRuntime's own constructor
+    //  doc comment for why.
     static auto* taskMarshaller =
         new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller;
     static auto* pairingNotificationSink =
         new dovahlink::adapter::ipc::CommonLibAdapterPairingNotificationSink;
+    //  Generates a fresh play-context identity for each real New Game/Load
+    //  Game SKSE message below. CommonLib-free, but kept alongside the other
+    //  process-lifetime allocations the messaging listener's own lambda
+    //  captures.
+    static auto* playContextGenerator =
+        new dovahlink::adapter::identity::AdapterPlayContextGenerator;
 
     dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
     dovahlink::adapter::plugin::AdapterStartupContext startupContext{
@@ -230,6 +279,12 @@ SKSEPluginInfo(
     //  documented on AdapterRuntime itself.
     static auto* runtime = new dovahlink::adapter::plugin::AdapterRuntime(
         startupContext, *taskMarshaller, *pairingNotificationSink,
+        [](dovahlink::adapter::capture::IAdapterCaptureHandoffQueue& queue,
+           dovahlink::adapter::identity::IAdapterPlayContextState& playContextState) {
+            return std::make_unique<
+                dovahlink::adapter::runtime::CommonLibAdapterNativeCaptureRouter>(
+                queue, playContextState);
+        },
         [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
             SKSE::log::info("Adapter capture drained for intent key {}.",
                             item.intentKey);
@@ -248,6 +303,12 @@ SKSEPluginInfo(
     dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(
         runtime->Session(), *taskMarshaller);
 
+    //  Detects a return to the main menu; see MainMenuOpenedSink's own doc
+    //  comment for why SKSE's messaging interface cannot signal this itself.
+    static auto* mainMenuOpenedSink =
+        new MainMenuOpenedSink(runtime->Session());
+    RE::UI::GetSingleton()->AddEventSink(mainMenuOpenedSink);
+
     //  SKSE-QUIRK: see
     //  ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin
     //  SKSE allows exactly one MessagingInterface::RegisterListener call per
@@ -258,6 +319,24 @@ SKSEPluginInfo(
             runtime->Start();
             SKSE::log::info(
                 "DovahLink Adapter connecting to the private host IPC channel.");
+        }
+        //  Ends the current context the moment loading starts, before the new
+        //  state is actually loaded: no capture taken during the loading
+        //  window can be attributed to either the old or the not-yet-existing
+        //  new context. This never establishes a context itself -- only
+        //  kNewGame/kPostLoadGame below do that.
+        if (message->type == SKSE::MessagingInterface::kPreLoadGame) {
+            runtime->Session().SendPlayContextEnded();
+        }
+        //  Every genuinely new game and every load -- including a reload of
+        //  the same save file -- gets its own fresh play-context identity
+        //  unconditionally: state captured before a load is not guaranteed
+        //  continuous with state after it, so there is no case where
+        //  deduplicating against the previous identity would be correct here.
+        if (message->type == SKSE::MessagingInterface::kNewGame ||
+            message->type == SKSE::MessagingInterface::kPostLoadGame) {
+            runtime->Session().SendPlayContextChanged(
+                playContextGenerator->Generate());
         }
     });
 

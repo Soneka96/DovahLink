@@ -25,6 +25,9 @@
     <None Include="..\..\adapter-host-ipc\fixtures\private-ipc-limits.json"
           Link="adapter-host-ipc\fixtures\private-ipc-limits.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\adapter-host-ipc\fixtures\live-state-catalog.json"
+          Link="adapter-host-ipc\fixtures\live-state-catalog.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

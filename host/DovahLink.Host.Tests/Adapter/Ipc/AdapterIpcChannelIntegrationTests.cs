@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 
@@ -31,13 +33,15 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken)));
         IpcMessage ack = await ReadOneFrameAsync(adapterStream, codec);
-        var request = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        var request = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
 
         Assert.True(Assert.IsType<IpcHelloAckMessage>(ack).Accepted);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
         Assert.Equal(instanceId, tracker.CurrentInstanceId);
         Assert.True(tracker.NeedsResynchronization);
 
+        // The coordinator's required-area set is empty (see CreateRealStack), so the accepted plan
+        // alone completes the resynchronization once the first play context has been reported.
         await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true)));
         await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
 
@@ -47,7 +51,7 @@ public class AdapterIpcChannelIntegrationTests
 
     /// <summary>Verifies that a declined resynchronization result leaves the tracker still needing resynchronization rather than clearing it.</summary>
     [Fact]
-    public async Task Connect_ValidHelloThenDeclinedResync_TrackerStillNeedsResynchronization()
+    public async Task Connect_ValidHelloThenDeclinedResync_ClosesConnectionAndTrackerStillNeedsResynchronization()
     {
         (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _) = CreateRealStack();
         using IAdapterIpcListener ownedListener = listener;
@@ -59,12 +63,15 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        var request = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        var request = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
         await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false)));
-        await Task.Delay(TimeSpan.FromMilliseconds(200)); // give a wrongly-clearing implementation a chance to show itself
 
+        // A declined result must never leave the connection stuck forever with no retry: the host
+        // closes it, observed here as the tracker reporting the adapter unavailable again -- the
+        // adapter's own normal reconnect is what drives a fresh initial resynchronization from there.
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
         Assert.True(tracker.NeedsResynchronization);
 
         cancellation.Cancel();
@@ -108,7 +115,7 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: true);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        var request = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        var request = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
         await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true)));
         await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
 
@@ -137,7 +144,7 @@ public class AdapterIpcChannelIntegrationTests
         {
             await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken)));
             await ReadOneFrameAsync(firstStream, codec); // acknowledgement
-            var firstRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(firstStream, codec));
+            var firstRequest = await SendActiveContextAndReadResynchronizeAsync(firstStream, codec);
             await firstStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(firstRequest.CorrelationId, Accepted: true)));
             await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
         }
@@ -149,11 +156,198 @@ public class AdapterIpcChannelIntegrationTests
         using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
         await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken)));
         await ReadOneFrameAsync(secondStream, codec); // acknowledgement
-        await ReadOneFrameAsync(secondStream, codec); // fresh resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(secondStream, codec);
 
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
         Assert.Equal(firstGeneration + 1, tracker.CurrentConnectionGeneration);
         Assert.True(tracker.NeedsResynchronization);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a same-context replay on a new connection still sends one fresh baseline request.</summary>
+    [Fact]
+    public async Task Reconnect_SameActiveContextReplay_SendsExactlyOneFreshResynchronizeRequest()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _, IPlayContextTracker playContextTracker) = CreateRealStackWithContext();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PlayContextId context = PlayContextId.NewId();
+
+        using (Socket firstSocket = await ConnectClientAsync(listener.BoundPort))
+        using (var firstStream = new NetworkStream(firstSocket, ownsSocket: false))
+        {
+            await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken)));
+            await ReadOneFrameAsync(firstStream, codec);
+            var firstRequest = await SendActiveContextAndReadResynchronizeAsync(firstStream, codec, context);
+            await firstStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(firstRequest.CorrelationId, Accepted: true)));
+            await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
+        }
+
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
+
+        using Socket secondSocket = await ConnectClientAsync(listener.BoundPort);
+        using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
+        await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken)));
+        await ReadOneFrameAsync(secondStream, codec);
+        var secondRequest = await SendActiveContextAndReadResynchronizeAsync(secondStream, codec, context);
+
+        Assert.Equal(context, playContextTracker.Current);
+        Assert.True(tracker.NeedsResynchronization);
+        await secondStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(secondRequest.CorrelationId, Accepted: true)));
+        await CloseAndAssertNoFrameAsync(secondStream, codec);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that an inactive first replay sends no baseline request.</summary>
+    [Fact]
+    public async Task Connect_InactiveFirstReplay_SendsNoResynchronizeRequest()
+    {
+        (IAdapterIpcListener listener, _, IAdapterPeerProofVerifier verifier, _, IPlayContextTracker playContextTracker) = CreateRealStackWithContext();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec);
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextEndedMessage(0)));
+
+        await CloseAndAssertNoFrameAsync(adapterStream, codec);
+        Assert.Null(playContextTracker.Current);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that an inactive replay on a reconnect also sends no baseline request.</summary>
+    [Fact]
+    public async Task Reconnect_InactiveFirstReplay_SendsNoResynchronizeRequest()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _, IPlayContextTracker playContextTracker) = CreateRealStackWithContext();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+
+        using (Socket firstSocket = await ConnectClientAsync(listener.BoundPort))
+        using (var firstStream = new NetworkStream(firstSocket, ownsSocket: false))
+        {
+            await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken)));
+            await ReadOneFrameAsync(firstStream, codec);
+            var firstRequest = await SendActiveContextAndReadResynchronizeAsync(firstStream, codec);
+            await firstStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(firstRequest.CorrelationId, Accepted: true)));
+            await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
+            await firstStream.WriteAsync(codec.Encode(new IpcPlayContextEndedMessage(0)));
+            await CloseAndAssertNoFrameAsync(firstStream, codec);
+        }
+
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
+
+        using Socket secondSocket = await ConnectClientAsync(listener.BoundPort);
+        using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
+        await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken)));
+        await ReadOneFrameAsync(secondStream, codec);
+        await secondStream.WriteAsync(codec.Encode(new IpcPlayContextEndedMessage(0)));
+
+        await CloseAndAssertNoFrameAsync(secondStream, codec);
+        Assert.Null(playContextTracker.Current);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a real later context transition sends one fresh request while the connection remains alive.</summary>
+    [Fact]
+    public async Task ConnectedContextTransition_SendsExactlyOneFreshResynchronizeRequest()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _, IPlayContextTracker playContextTracker) = CreateRealStackWithContext();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec);
+        var firstRequest = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(firstRequest.CorrelationId, Accepted: true)));
+        await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
+
+        PlayContextId secondContext = PlayContextId.NewId();
+        var secondRequest = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec, secondContext);
+
+        Assert.Equal(secondContext, playContextTracker.Current);
+        Assert.True(tracker.NeedsResynchronization);
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(secondRequest.CorrelationId, Accepted: true)));
+        await CloseAndAssertNoFrameAsync(adapterStream, codec);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a later context supersedes a still-pending earlier resynchronization request.</summary>
+    [Fact]
+    public async Task ConnectedContextTransition_WhilePreviousResyncPending_SendsFreshRequest()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _, _) = CreateRealStackWithContext();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec);
+        var firstRequest = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
+
+        var secondRequest = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
+
+        Assert.NotEqual(firstRequest.CorrelationId, secondRequest.CorrelationId);
+        Assert.True(tracker.NeedsResynchronization);
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(secondRequest.CorrelationId, Accepted: true)));
+        await CloseAndAssertNoFrameAsync(adapterStream, codec);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that ending a context sends no request and a later active context sends one.</summary>
+    [Fact]
+    public async Task ContextEndThenNewContext_SendsOnlyTheNewContextResynchronizeRequest()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, _, IPlayContextTracker playContextTracker) = CreateRealStackWithContext();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec);
+        var firstRequest = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(firstRequest.CorrelationId, Accepted: true)));
+        await WaitUntilAsync(() => !tracker.NeedsResynchronization, runTask);
+
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextEndedMessage(0)));
+
+        PlayContextId newContext = PlayContextId.NewId();
+        var newRequest = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec, newContext);
+        Assert.Equal(newContext, playContextTracker.Current);
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(newRequest.CorrelationId, Accepted: true)));
+        await CloseAndAssertNoFrameAsync(adapterStream, codec);
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -186,12 +380,12 @@ public class AdapterIpcChannelIntegrationTests
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
 
         IpcMessage ack = await ReadOneFrameAsync(adapterStream, codec);
-        IpcMessage resync = await ReadOneFrameAsync(adapterStream, codec);
         IpcMessage normalWork = await ReadOneFrameAsync(adapterStream, codec);
+        IpcMessage resync = await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
 
         Assert.True(Assert.IsType<IpcHelloAckMessage>(ack).Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(resync);
         var listenEvent = Assert.IsType<IpcListenEventMessage>(normalWork);
+        Assert.IsType<IpcResynchronizeRequestMessage>(resync);
         Assert.Equal(42u, listenEvent.EventKey);
         Assert.True(sendAccepted);
 
@@ -217,7 +411,7 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
         IAdapterIpcConnection disconnectingConnection = listener.CurrentConnection!;
@@ -268,7 +462,7 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
         Assert.Equal(1, tracker.CurrentConnectionGeneration);
 
@@ -300,7 +494,7 @@ public class AdapterIpcChannelIntegrationTests
         {
             await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
             await ReadOneFrameAsync(firstStream, codec); // acknowledgement
-            await ReadOneFrameAsync(firstStream, codec); // resynchronize request
+            await SendActiveContextAndReadResynchronizeAsync(firstStream, codec);
             await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
         }
 
@@ -344,7 +538,7 @@ public class AdapterIpcChannelIntegrationTests
         {
             await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken)));
             await ReadOneFrameAsync(firstStream, codec); // acknowledgement
-            await ReadOneFrameAsync(firstStream, codec); // resynchronize request
+            await SendActiveContextAndReadResynchronizeAsync(firstStream, codec);
             await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
             firstConnection = listener.CurrentConnection!;
         }
@@ -355,7 +549,7 @@ public class AdapterIpcChannelIntegrationTests
         using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
         await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken)));
         await ReadOneFrameAsync(secondStream, codec); // acknowledgement
-        await ReadOneFrameAsync(secondStream, codec); // fresh resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(secondStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
         Assert.False(firstConnection.TrySendListenEvent(1, out _));
@@ -385,7 +579,7 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
 
         var request = new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Revoke, ShortId: "12345");
         await adapterStream.WriteAsync(codec.Encode(request));
@@ -419,7 +613,7 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
         Task<bool> notifyTask = notifier.TryNotifyCodeAvailableAsync("123456", CancellationToken.None);
@@ -450,7 +644,7 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
         Task<bool> notifyTask = notifier.TryNotifyRedisplayAsync("654321", CancellationToken.None);
@@ -480,7 +674,7 @@ public class AdapterIpcChannelIntegrationTests
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
-        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(adapterStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
         await notifier.NotifyAttemptsExhaustedAsync(CancellationToken.None);
@@ -516,7 +710,7 @@ public class AdapterIpcChannelIntegrationTests
         {
             await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
             await ReadOneFrameAsync(firstStream, codec); // acknowledgement
-            await ReadOneFrameAsync(firstStream, codec); // resynchronize request
+            await SendActiveContextAndReadResynchronizeAsync(firstStream, codec);
             await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
             firstNotifyTask = notifier.TryNotifyCodeAvailableAsync("111111", CancellationToken.None);
@@ -532,7 +726,7 @@ public class AdapterIpcChannelIntegrationTests
         using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
         await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
         await ReadOneFrameAsync(secondStream, codec); // acknowledgement
-        await ReadOneFrameAsync(secondStream, codec); // fresh resynchronize request
+        await SendActiveContextAndReadResynchronizeAsync(secondStream, codec);
         await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
 
         Task<bool> secondNotifyTask = notifier.TryNotifyCodeAvailableAsync("222222", CancellationToken.None);
@@ -550,14 +744,52 @@ public class AdapterIpcChannelIntegrationTests
     /// <summary>Composes the real production private-IPC graph over a listener bound to an OS-assigned loopback port.</summary>
     private static (IAdapterIpcListener Listener, IAdapterAvailabilityTracker Tracker, IAdapterPeerProofVerifier Verifier, FakeAdapterTrustAdminRequestHandler TrustAdminRequestHandler) CreateRealStack()
     {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier, FakeAdapterTrustAdminRequestHandler trustAdminRequestHandler, _) = CreateRealStackWithContext();
+        return (listener, tracker, verifier, trustAdminRequestHandler);
+    }
+
+    /// <summary>Composes the real stack while exposing its Host-lifetime play-context tracker for sequencing tests.</summary>
+    private static (IAdapterIpcListener Listener, IAdapterAvailabilityTracker Tracker, IAdapterPeerProofVerifier Verifier, FakeAdapterTrustAdminRequestHandler TrustAdminRequestHandler, IPlayContextTracker PlayContextTracker) CreateRealStackWithContext()
+    {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
+        var playContextTracker = new PlayContextTracker();
         var trustAdminRequestHandler = new FakeAdapterTrustAdminRequestHandler();
+        // An empty catalog's required-area set is trivially satisfied, so the real coordinator
+        // completes resynchronization from the wire-level accept alone -- this class proves
+        // handshake/connection-level wiring, not the catalog-specific baseline-transaction semantics
+        // LiveCaptureSinkTests and ResynchronizationTransactionCoordinatorTests already cover.
+        var catalog = new LiveStateCatalog([], []);
+        var coordinator = new ResynchronizationTransactionCoordinator(catalog, tracker, new FakeAdapterContinuityRecovery(), TimeSpan.FromSeconds(30));
+        ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, trustAdminRequestHandler), new SystemClock()));
-        return (listener, tracker, verifier, trustAdminRequestHandler);
+            new AdapterIpcConnection(
+                stream,
+                codec,
+                new AdapterIpcSession(
+                    lifecycle,
+                    verifier,
+                    trustAdminRequestHandler,
+                    playContextTracker,
+                    new FakeLiveCaptureSink(),
+                    coordinator,
+                    plan),
+                new SystemClock()));
+        _ = new PlayContextResynchronizationTrigger(playContextTracker, tracker, listener, new FakeResynchronizationTransactionCoordinator());
+        return (listener, tracker, verifier, trustAdminRequestHandler, playContextTracker);
+    }
+
+    /// <summary>Reports an active Adapter context and reads the one request it must cause.</summary>
+    private static Task<IpcResynchronizeRequestMessage> SendActiveContextAndReadResynchronizeAsync(Stream stream, IIpcFrameCodec codec) =>
+        SendActiveContextAndReadResynchronizeAsync(stream, codec, PlayContextId.NewId());
+
+    /// <summary>Reports a specific active Adapter context and reads the one request it must cause.</summary>
+    private static async Task<IpcResynchronizeRequestMessage> SendActiveContextAndReadResynchronizeAsync(Stream stream, IIpcFrameCodec codec, PlayContextId context)
+    {
+        await stream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(0, context)));
+        return Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(stream, codec));
     }
 
     /// <summary>Connects a plain client socket to the listener's bound loopback port, standing in for the adapter.</summary>
@@ -591,6 +823,15 @@ public class AdapterIpcChannelIntegrationTests
             Assert.True(read > 0, "Unexpected end of stream while reading a test frame.");
             totalRead += read;
         }
+    }
+
+    /// <summary>Closes the peer and asserts that no additional outbound frame was queued first.</summary>
+    private static async Task CloseAndAssertNoFrameAsync(Stream stream, IIpcFrameCodec codec)
+    {
+        await stream.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
+        byte[] lengthPrefix = new byte[sizeof(uint)];
+        int read = await stream.ReadAsync(lengthPrefix).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, read);
     }
 
     /// <summary>

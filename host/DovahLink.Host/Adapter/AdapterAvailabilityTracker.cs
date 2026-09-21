@@ -73,10 +73,49 @@ public interface IAdapterAvailabilityTracker
     /// <param name="transition">The transition returned by <see cref="CommitConnected"/> or <see cref="CommitDisconnected"/>.</param>
     void PublishTransition(AdapterAvailabilityTransition transition);
 
-    /// <summary>Records that the specified adapter's resynchronization handshake has completed.</summary>
+    /// <summary>
+    /// Records that the specified adapter's resynchronization handshake has completed. Completion is
+    /// accepted only when <paramref name="token"/> is still this connection's own live, claimed
+    /// resynchronization token, validated atomically with clearing the requirement -- a token claimed
+    /// for an earlier transaction that a later play-context transition has since re-armed (minting a
+    /// fresh token) must never be able to clear that newer requirement. See
+    /// <see cref="RearmResynchronizationForPlayContextTransition"/> for the re-arming this guards
+    /// against.
+    /// </summary>
     /// <param name="instanceId">The adapter instance that completed resynchronization.</param>
     /// <param name="connectionGeneration">The connection generation that resynchronized.</param>
-    void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration);
+    /// <param name="token">The resynchronization token the completing transaction was claimed under.</param>
+    void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration, IAdapterResynchronizationToken token);
+
+    /// <summary>
+    /// Re-arms resynchronization for a play-context transition while the current connection stays
+    /// connected: mints a fresh claimable token and marks resynchronization needed again, without
+    /// touching <see cref="Current"/>, <see cref="CurrentInstanceId"/>, or
+    /// <see cref="CurrentConnectionGeneration"/> -- a play-context transition is a new-context
+    /// baseline requirement, not an adapter connection/availability change, so it never publishes an
+    /// <see cref="AvailabilityChanged"/> transition. A no-op while no adapter is currently connected:
+    /// there is no live connection generation for a play-context trigger to arm a fresh baseline
+    /// requirement against.
+    /// </summary>
+    void RearmResynchronizationForPlayContextTransition();
+
+    /// <summary>
+    /// Runs one bounded ordinary-sample queue admission while the tracker still proves that the
+    /// Adapter is available, resynchronized, and on <paramref name="connectionGeneration"/>.
+    /// The admission linearizes under the same lock as connection commits and resynchronization
+    /// re-arms, so one of them must happen first.
+    /// </summary>
+    /// <param name="connectionGeneration">The generation the sample would be sent on.</param>
+    /// <param name="tryAdmission">
+    /// A synchronous, bounded, non-blocking queue admission. It runs while this tracker is locked
+    /// and must not call back into this tracker or perform waits or network I/O.
+    /// </param>
+    /// <returns>
+    /// <see langword="true"/> only when the state allowed ordinary sampling and the queue admitted
+    /// the sample; otherwise <see langword="false"/>.
+    /// </returns>
+    /// <exception cref="Exception">Propagated if <paramref name="tryAdmission"/> throws.</exception>
+    bool TryExecuteWhileOrdinarySamplingAllowed(long connectionGeneration, Func<bool> tryAdmission);
 
     /// <summary>
     /// Reads all availability, identity, and generation fields together as one
@@ -236,12 +275,17 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
-    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration)
+    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration, IAdapterResynchronizationToken token)
     {
         bool resynchronized;
         lock (gate)
         {
-            resynchronized = current == AdapterAvailability.Available && currentInstanceId == instanceId && currentConnectionGeneration == connectionGeneration;
+            resynchronized = current == AdapterAvailability.Available
+                && currentInstanceId == instanceId
+                && currentConnectionGeneration == connectionGeneration
+                && needsResynchronization
+                && resynchronizationTokenClaimed
+                && ReferenceEquals(currentResynchronizationToken, token);
             if (resynchronized)
             {
                 needsResynchronization = false;
@@ -253,6 +297,41 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
         if (resynchronized)
         {
             Resynchronized?.Invoke(instanceId, connectionGeneration);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RearmResynchronizationForPlayContextTransition()
+    {
+        lock (gate)
+        {
+            if (current != AdapterAvailability.Available)
+            {
+                return;
+            }
+
+            needsResynchronization = true;
+            currentResynchronizationToken = new AdapterResynchronizationToken();
+            resynchronizationTokenClaimed = false;
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryExecuteWhileOrdinarySamplingAllowed(long connectionGeneration, Func<bool> tryAdmission)
+    {
+        ArgumentNullException.ThrowIfNull(tryAdmission);
+
+        lock (gate)
+        {
+            if (current != AdapterAvailability.Available
+                || currentInstanceId is null
+                || needsResynchronization
+                || currentConnectionGeneration != connectionGeneration)
+            {
+                return false;
+            }
+
+            return tryAdmission();
         }
     }
 

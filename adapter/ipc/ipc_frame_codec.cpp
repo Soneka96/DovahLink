@@ -3,6 +3,7 @@
 #include "constants.hpp"
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -57,7 +58,7 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-    return value >= 1 && value <= 14;
+    return value >= 1 && value <= 18;
 }
 
 ///  Whether `value` is one of `TrustAdminOperation`'s contiguous defined
@@ -225,6 +226,50 @@ IpcFrameCodec::EncodeHelloAck(const IpcHelloAckMessage& helloAck) {
     return payload;
 }
 
+std::vector<std::byte> IpcFrameCodec::EncodeResynchronizeRequest(
+    const IpcResynchronizeRequestMessage& request) {
+    if (request.persistentEventKeys.size() >
+            kMaxResynchronizationEventKeys ||
+        request.baselineSampleTokens.size() >
+            kMaxResynchronizationSampleTokens ||
+        std::ranges::find(request.persistentEventKeys, 0) !=
+            request.persistentEventKeys.end() ||
+        std::ranges::find(request.baselineSampleTokens, 0) !=
+            request.baselineSampleTokens.end()) {
+        throw std::invalid_argument(
+            "The resynchronization plan exceeds its bounds or contains a zero "
+            "intent key.");
+    }
+
+    const std::size_t sampleCountOffset =
+        1 + request.persistentEventKeys.size() * sizeof(std::uint32_t);
+    std::vector<std::byte> payload(
+        sampleCountOffset + 1 +
+        request.baselineSampleTokens.size() * sizeof(std::uint32_t));
+    payload[0] =
+        static_cast<std::byte>(request.persistentEventKeys.size());
+    std::size_t offset = 1;
+    for (std::uint32_t eventKey : request.persistentEventKeys) {
+        WriteUInt32LittleEndian(
+            std::span<std::byte, 4>(payload.data() + offset,
+                                    sizeof(std::uint32_t)),
+            eventKey);
+        offset += sizeof(std::uint32_t);
+    }
+
+    payload[offset++] =
+        static_cast<std::byte>(request.baselineSampleTokens.size());
+    for (std::uint32_t sampleToken : request.baselineSampleTokens) {
+        WriteUInt32LittleEndian(
+            std::span<std::byte, 4>(payload.data() + offset,
+                                    sizeof(std::uint32_t)),
+            sampleToken);
+        offset += sizeof(std::uint32_t);
+    }
+
+    return payload;
+}
+
 std::vector<std::byte>
 IpcFrameCodec::EncodeListenEvent(const IpcListenEventMessage& listenEvent) {
     if (listenEvent.correlationId == 0 || listenEvent.eventKey == 0) {
@@ -384,6 +429,115 @@ std::vector<std::byte> IpcFrameCodec::EncodeTrustAdminResult(
     return payload;
 }
 
+std::vector<std::byte> IpcFrameCodec::EncodeCaptureResult(
+    const IpcCaptureResultMessage& captureResult) {
+    if (captureResult.captureKey == 0) {
+        throw std::invalid_argument(
+            "A capture result must identify a nonzero capture key.");
+    }
+    if (captureResult.availability ==
+            capture::CaptureAvailability::kUnavailable &&
+        !captureResult.payload.empty()) {
+        throw std::invalid_argument(
+            "An unavailable capture result must carry an empty payload.");
+    }
+
+    std::vector<std::byte> payload(22 + captureResult.payload.size());
+    payload[0] =
+        static_cast<std::byte>(std::to_underlying(captureResult.source));
+    WriteUInt32LittleEndian(std::span<std::byte, 4>(payload.data() + 1, 4),
+                            captureResult.captureKey);
+    payload[5] = static_cast<std::byte>(
+        std::to_underlying(captureResult.availability));
+    std::ranges::copy(captureResult.playContextId, payload.begin() + 6);
+    std::ranges::copy(captureResult.payload, payload.begin() + 22);
+    return payload;
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeCaptureResult(std::uint64_t correlationId,
+                                   std::span<const std::byte> payload) {
+    if (payload.size() < 22) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const auto sourceByte = std::to_integer<std::uint8_t>(payload[0]);
+    const auto captureKey = ReadUInt32LittleEndian(
+        std::span<const std::byte, 4>(payload.data() + 1, 4));
+    const auto availabilityByte = std::to_integer<std::uint8_t>(payload[5]);
+    if (sourceByte > 1 || captureKey == 0 || availabilityByte > 1) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const auto availability =
+        static_cast<capture::CaptureAvailability>(availabilityByte);
+    std::array<std::byte, 16> playContextId{};
+    std::ranges::copy(payload.subspan(6, 16), playContextId.begin());
+    const std::span<const std::byte> valueBytes = payload.subspan(22);
+    if (availability == capture::CaptureAvailability::kUnavailable &&
+        !valueBytes.empty()) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    return IpcMessage{IpcCaptureResultMessage{
+        .correlationId = correlationId,
+        .source = static_cast<capture::CaptureSourceKind>(sourceByte),
+        .captureKey = captureKey,
+        .availability = availability,
+        .playContextId = playContextId,
+        .payload =
+            std::vector<std::byte>(valueBytes.begin(), valueBytes.end()),
+    }};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeListenEventResult(std::uint64_t correlationId,
+                                       std::span<const std::byte> payload) {
+    if (correlationId == 0 || payload.size() != 1) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const auto acceptedByte = std::to_integer<std::uint8_t>(payload[0]);
+    if (acceptedByte > 1) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    return IpcMessage{IpcListenEventResultMessage{
+        .correlationId = correlationId, .accepted = acceptedByte == 1}};
+}
+
+std::vector<std::byte> IpcFrameCodec::EncodePlayContextChanged(
+    const IpcPlayContextChangedMessage& playContextChanged) {
+    if (playContextChanged.correlationId != 0) {
+        throw std::invalid_argument(
+            "A play-context-changed notification must have correlation id "
+            "zero.");
+    }
+
+    std::vector<std::byte> payload(playContextChanged.playContextId.size());
+    std::ranges::copy(playContextChanged.playContextId, payload.begin());
+    return payload;
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodePlayContextChanged(std::uint64_t correlationId,
+                                        std::span<const std::byte> payload) {
+    if (correlationId != 0 || payload.size() != 16) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    IpcPlayContextChangedMessage message{.correlationId = correlationId};
+    std::ranges::copy(payload, message.playContextId.begin());
+    if (message.playContextId == std::array<std::byte, 16>{}) {
+        //  All-zero is reserved as an invariant no real generated id may ever
+        //  collide with (see AdapterPlayContextGenerator::Generate); a peer
+        //  sending it is a protocol violation, not a legitimate empty
+        //  identity.
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+    return IpcMessage{message};
+}
+
 std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeTrustAdminRequest(std::uint64_t correlationId,
                                        std::span<const std::byte> payload) {
@@ -485,6 +639,7 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage& message) const {
             } else if constexpr (std::is_same_v<T,
                                                 IpcResynchronizeRequestMessage>) {
                 kind = IpcMessageKind::kResynchronizeRequest;
+                payload = EncodeResynchronizeRequest(value);
             } else if constexpr (std::is_same_v<T, IpcResynchronizeResultMessage>) {
                 kind = IpcMessageKind::kResynchronizeResult;
                 payload = {static_cast<std::byte>(value.accepted ? 1 : 0)};
@@ -535,6 +690,29 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage& message) const {
             } else if constexpr (std::is_same_v<T, IpcTrustAdminResultMessage>) {
                 kind = IpcMessageKind::kTrustAdminResult;
                 payload = EncodeTrustAdminResult(value);
+            } else if constexpr (std::is_same_v<T, IpcCaptureResultMessage>) {
+                kind = IpcMessageKind::kCaptureResult;
+                payload = EncodeCaptureResult(value);
+            } else if constexpr (std::is_same_v<T,
+                                                IpcListenEventResultMessage>) {
+                if (value.correlationId == 0) {
+                    throw std::invalid_argument(
+                        "A listen-event result must identify a nonzero "
+                        "request correlation id.");
+                }
+                kind = IpcMessageKind::kListenEventResult;
+                payload = {static_cast<std::byte>(value.accepted ? 1 : 0)};
+            } else if constexpr (std::is_same_v<T,
+                                                IpcPlayContextChangedMessage>) {
+                kind = IpcMessageKind::kPlayContextChanged;
+                payload = EncodePlayContextChanged(value);
+            } else if constexpr (std::is_same_v<T, IpcPlayContextEndedMessage>) {
+                if (value.correlationId != 0) {
+                    throw std::invalid_argument(
+                        "A play-context-ended notification must have "
+                        "correlation id zero.");
+                }
+                kind = IpcMessageKind::kPlayContextEnded;
             }
         },
         message);
@@ -630,6 +808,66 @@ IpcFrameCodec::DecodeHelloAck(std::uint64_t correlationId,
     std::ranges::copy(payload.subspan(2, kIpcHostProofBytes),
                       helloAck.hostProof.begin());
     return IpcMessage{helloAck};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeResynchronizeRequest(
+    std::uint64_t correlationId, std::span<const std::byte> payload) {
+    if (payload.size() < 2) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const std::size_t eventCount =
+        std::to_integer<std::uint8_t>(payload[0]);
+    if (eventCount > kMaxResynchronizationEventKeys) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const std::size_t sampleCountOffset =
+        1 + eventCount * sizeof(std::uint32_t);
+    if (payload.size() <= sampleCountOffset) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    const std::size_t sampleCount =
+        std::to_integer<std::uint8_t>(payload[sampleCountOffset]);
+    if (sampleCount > kMaxResynchronizationSampleTokens ||
+        payload.size() != sampleCountOffset + 1 +
+                              sampleCount * sizeof(std::uint32_t)) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+
+    std::vector<std::uint32_t> eventKeys;
+    eventKeys.reserve(eventCount);
+    for (std::size_t index = 0; index < eventCount; ++index) {
+        const std::uint32_t eventKey = ReadUInt32LittleEndian(
+            std::span<const std::byte, 4>(
+                payload.data() + 1 + index * sizeof(std::uint32_t),
+                sizeof(std::uint32_t)));
+        if (eventKey == 0) {
+            return std::unexpected(IpcRejectReason::kMalformedPayload);
+        }
+        eventKeys.push_back(eventKey);
+    }
+
+    std::vector<std::uint32_t> sampleTokens;
+    sampleTokens.reserve(sampleCount);
+    std::size_t offset = sampleCountOffset + 1;
+    for (std::size_t index = 0; index < sampleCount; ++index) {
+        const std::uint32_t sampleToken = ReadUInt32LittleEndian(
+            std::span<const std::byte, 4>(payload.data() + offset,
+                                          sizeof(std::uint32_t)));
+        if (sampleToken == 0) {
+            return std::unexpected(IpcRejectReason::kMalformedPayload);
+        }
+        sampleTokens.push_back(sampleToken);
+        offset += sizeof(std::uint32_t);
+    }
+
+    return IpcMessage{IpcResynchronizeRequestMessage{
+        .correlationId = correlationId,
+        .persistentEventKeys = std::move(eventKeys),
+        .baselineSampleTokens = std::move(sampleTokens)}};
 }
 
 std::expected<IpcMessage, IpcRejectReason>
@@ -782,11 +1020,7 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
     case IpcMessageKind::kHelloAck:
         return DecodeHelloAck(correlationId, payload);
     case IpcMessageKind::kResynchronizeRequest:
-        if (!payload.empty()) {
-            return std::unexpected(IpcRejectReason::kMalformedPayload);
-        }
-        return IpcMessage{
-            IpcResynchronizeRequestMessage{.correlationId = correlationId}};
+        return DecodeResynchronizeRequest(correlationId, payload);
     case IpcMessageKind::kResynchronizeResult:
         return DecodeResynchronizeResult(correlationId, payload);
     case IpcMessageKind::kClose:
@@ -816,6 +1050,18 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
         return DecodeTrustAdminRequest(correlationId, payload);
     case IpcMessageKind::kTrustAdminResult:
         return DecodeTrustAdminResult(correlationId, payload);
+    case IpcMessageKind::kCaptureResult:
+        return DecodeCaptureResult(correlationId, payload);
+    case IpcMessageKind::kListenEventResult:
+        return DecodeListenEventResult(correlationId, payload);
+    case IpcMessageKind::kPlayContextChanged:
+        return DecodePlayContextChanged(correlationId, payload);
+    case IpcMessageKind::kPlayContextEnded:
+        if (correlationId != 0 || !payload.empty()) {
+            return std::unexpected(IpcRejectReason::kMalformedPayload);
+        }
+        return IpcMessage{
+            IpcPlayContextEndedMessage{.correlationId = correlationId}};
     }
 
     return std::unexpected(IpcRejectReason::kUnknownMessageKind);

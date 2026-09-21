@@ -12,3 +12,6 @@ recorded in `ai/context/host/architecture.md`'s "Host-to-adapter IPC contract".
 - `fixtures/private-ipc-limits.json` -- the shared inbound message-rate limit both the adapter
   (native) and the host (C#) test against, so neither side's hardcoded constant can silently drift
   from the other's.
+- `fixtures/live-state-catalog.json` -- the shared sample tokens and event keys the host directs
+  captures with and the adapter maps to a native operation, tested against both sides' hardcoded
+  constants the same way.

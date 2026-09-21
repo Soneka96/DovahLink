@@ -65,8 +65,35 @@ public sealed class FakePlayContextTracker : IPlayContextTracker
             PlayContextTransition transition;
             lock (gate)
             {
+                if (current == newPlayContextId)
+                {
+                    return;
+                }
+
                 transition = new PlayContextTransition(current, newPlayContextId);
                 current = newPlayContextId;
+                transitionGeneration++;
+            }
+
+            Transitioned?.Invoke(transition);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void ClearCurrent()
+    {
+        lock (publicationGate)
+        {
+            PlayContextTransition transition;
+            lock (gate)
+            {
+                if (current is null)
+                {
+                    return;
+                }
+
+                transition = new PlayContextTransition(current, null);
+                current = null;
                 transitionGeneration++;
             }
 

@@ -40,12 +40,31 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   Bridge ZIP.
 - Host composition now resolves every service through dependency injection instead of manual
   object-graph assembly in `Program.cs`.
+- The Adapter executes the Host's bounded resynchronization plan for event registrations and baseline samples.
+- Live capture routing now dispatches through explicit domain handlers, keeping generic Host capture handling free of Character-specific payload logic.
 
 ### Fixed
 
+- Ordinary Host live-state samples now pause while Adapter resynchronization is pending.
+- The Host now ends a superseded pending `snapshot_request` with a retryable error instead of dropping its correlation.
+- The Host now waits for the Adapter's post-authentication play-context replay before issuing one
+  initial resynchronization for an active context, and issues none while the Adapter is inactive.
 - The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast when a required
   `clientId` cannot be resolved, instead of proceeding silently.
 - The app no longer keeps observing a stale connection status after its session is invalidated.
+- A rejected reliable Event capture, a lost play-context transition, a lost resynchronization
+  baseline or terminal result, or an unexpected exception mid-resynchronization now all reset the
+  Adapter's current private IPC attempt and let the supervisor reconnect, instead of either
+  permanently stopping the connection or silently leaving the Host waiting forever.
+- The Adapter now announces the play context ending -- loading a save has started, or the player
+  returned to the main menu -- instead of only ever announcing a new one; the Host clears its
+  tracked play context and stops live sampling until a fresh one is established, instead of
+  continuing to treat a stale context as current.
+- The Adapter's generated play-context identity can never be all-zero, and the Host now rejects an
+  all-zero identity outright instead of accepting it as a valid (if never actually issued) context.
+- A resynchronization request that never receives its matching result now forces the private IPC
+  connection closed after a bounded deadline, instead of leaving the Host waiting for a baseline
+  that will never arrive.
 
 ### Removed
 

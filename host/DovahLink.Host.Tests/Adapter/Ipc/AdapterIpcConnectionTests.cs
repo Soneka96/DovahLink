@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text.Json;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
@@ -11,31 +12,50 @@ namespace DovahLink.Host.Tests.Adapter.Ipc;
 /// <summary>Tests for <see cref="AdapterIpcConnection"/>.</summary>
 public class AdapterIpcConnectionTests
 {
-    /// <summary>Reads the shared native/host private-IPC rate-limit fixture.</summary>
-    private static (int MaxMessagesPerSecond, TimeSpan MessageRateWindow) ReadPrivateIpcLimitsFixture()
+    /// <summary>Reads the shared native/host private-IPC limits fixture.</summary>
+    /// <returns>The rate window and resynchronization plan bounds shared by the Host and Adapter.</returns>
+    private static (
+        int MaxMessagesPerSecond,
+        TimeSpan MessageRateWindow,
+        int MaxResynchronizationEventKeys,
+        int MaxResynchronizationSampleTokens) ReadPrivateIpcLimitsFixture()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "adapter-host-ipc", "fixtures", "private-ipc-limits.json");
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
         int maxMessages = document.RootElement.GetProperty("maxMessagesPerSecond").GetInt32();
         int windowMilliseconds = document.RootElement.GetProperty("messageRateWindowMilliseconds").GetInt32();
-        return (maxMessages, TimeSpan.FromMilliseconds(windowMilliseconds));
+        int maxEventKeys = document.RootElement.GetProperty("maxResynchronizationEventKeys").GetInt32();
+        int maxSampleTokens = document.RootElement.GetProperty("maxResynchronizationSampleTokens").GetInt32();
+        return (maxMessages, TimeSpan.FromMilliseconds(windowMilliseconds), maxEventKeys, maxSampleTokens);
     }
 
     /// <summary>Verifies that the host constants remain synchronized with the shared contract fixture.</summary>
     [Fact]
     public void InboundRateLimit_MatchesSharedPrivateIpcFixture()
     {
-        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+        var limits = ReadPrivateIpcLimitsFixture();
 
-        Assert.Equal(Constants.MaxIpcMessagesPerSecond, maxMessages);
-        Assert.Equal(Constants.IpcMessageRateWindow, window);
+        Assert.Equal(Constants.MaxIpcMessagesPerSecond, limits.MaxMessagesPerSecond);
+        Assert.Equal(Constants.IpcMessageRateWindow, limits.MessageRateWindow);
+    }
+
+    /// <summary>
+    /// Verifies that Host resynchronization-plan bounds match the shared private-IPC fixture.
+    /// </summary>
+    [Fact]
+    public void ResynchronizationPlanBounds_MatchSharedPrivateIpcFixture()
+    {
+        var limits = ReadPrivateIpcLimitsFixture();
+
+        Assert.Equal(Constants.MaxResynchronizationEventKeys, limits.MaxResynchronizationEventKeys);
+        Assert.Equal(Constants.MaxResynchronizationSampleTokens, limits.MaxResynchronizationSampleTokens);
     }
 
     // ---- Handshake and resynchronization, over a real connected stream pair ----
 
-    /// <summary>Verifies that a successful handshake sends the acknowledgement then the resynchronization request, and that disconnecting after notifies the session.</summary>
+    /// <summary>Verifies that a successful handshake sends only the acknowledgement until the Adapter reports its play context.</summary>
     [Fact]
-    public async Task RunAsync_ValidHello_SendsAckThenResynchronizeRequestThenNotifiesDisconnect()
+    public async Task RunAsync_ValidHello_SendsAckThenWaitsForPlayContextBeforeResynchronize()
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var codec = new IpcFrameCodec();
@@ -49,17 +69,217 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         IpcMessage ack = await ReadOneFrameAsync(client, codec);
-        IpcMessage resync = await ReadOneFrameAsync(client, codec);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.IsType<IpcHelloAckMessage>(ack);
-        Assert.IsType<IpcResynchronizeRequestMessage>(resync);
         Assert.Single(fakeSession.HandshakeCalls);
         Assert.Equal(1, fakeSession.CommitHandshakeCalls);
         Assert.Equal(
-            new[] { nameof(FakeAdapterIpcSession.Handshake), nameof(FakeAdapterIpcSession.PrepareResynchronizeRequest), nameof(FakeAdapterIpcSession.CommitHandshake) },
+            new[] { nameof(FakeAdapterIpcSession.Handshake), nameof(FakeAdapterIpcSession.CommitHandshake) },
             fakeSession.LifecycleCalls);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    // ---- Resynchronize deadline ----
+
+    /// <summary>Verifies that the connection is forced closed if the resynchronize result never arrives within the deadline.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizeResultNeverArrives_ClosesAfterDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+
+        // No result is ever written back; only the deadline itself can end this run.
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies that a matching resynchronize result cancels the deadline, so the connection stays open well past when it would otherwise have fired.</summary>
+    [Fact]
+    public async Task RunAsync_MatchingResynchronizeResultArrives_StaysOpenPastTheDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await client.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(2, Accepted: true)));
+
+        await Task.Delay(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(2));
+
+        Assert.False(runTask.IsCompleted);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a resynchronize result carrying a foreign correlation id never cancels the deadline armed for the actual outstanding request.</summary>
+    [Fact]
+    public async Task RunAsync_ResynchronizeResultWithMismatchedCorrelationId_StillClosesAfterDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // resynchronize request (correlation 2)
+        await client.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(999, Accepted: true))); // foreign correlation id
+
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies that a later, superseding resynchronize request cancels the previous still-outstanding request's own deadline, so only the newest request's deadline can ever fire.</summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Superseding_CancelsThePreviousDeadline()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // first resynchronize request (correlation 2), armed at 0T
+
+        // 60% of the timeout per step keeps the required geometry explicit without hard-coding
+        // Constants.AdapterIpcResynchronizeTimeout's own value: first request at 0T, second request
+        // at 0.6T, assertion at 1.2T, first deadline at 1.0T, second deadline at 1.6T.
+        TimeSpan step = Constants.AdapterIpcResynchronizeTimeout * 0.6;
+
+        await Task.Delay(step);
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+        bool enqueued = connection.TrySendResynchronizeRequest();
+        await ReadOneFrameAsync(client, codec); // second resynchronize request (correlation 3), armed at 0.6T
+
+        // 1.2T: past the first deadline's own 1.0T fire time, but well before the second request's own
+        // 1.6T fire time -- the connection can only still be open here because superseding cancelled
+        // the first deadline instead of merely leaving it to fire alongside the second.
+        await Task.Delay(step);
+        Assert.True(enqueued);
+        Assert.False(runTask.IsCompleted);
+
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a superseding resynchronize request's own deadline still closes the connection
+    /// normally when nothing ever resolves it -- proving supersession rearms a real, live deadline of
+    /// its own rather than leaving the connection unbounded once the previous deadline is cancelled.
+    /// </summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Superseding_NewDeadlineStillClosesWhenUnresolved()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // first resynchronize request (correlation 2)
+
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+        Assert.True(connection.TrySendResynchronizeRequest()); // Supersedes; arms the second deadline.
+        await ReadOneFrameAsync(client, codec); // second resynchronize request (correlation 3)
+
+        // Nothing ever resolves the second request; only its own deadline can end this run.
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>
+    /// Verifies that several requests superseding each other in quick succession remain idempotent:
+    /// only the very last request's own deadline can ever close the connection, no earlier deadline
+    /// closes it, and no redundant cancel/dispose from the chain of supersessions throws.
+    /// </summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_RepeatedSupersession_OnlyLastDeadlineCanClose()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // correlation 2, armed at 0T
+
+        // 60% of the timeout per step, matching this file's own established geometry: third request
+        // at 1.2T, assertion at 1.8T (past the first two requests' own 1.0T/1.6T deadlines, before the
+        // third's own 2.2T deadline), final close by 2.4T.
+        TimeSpan step = Constants.AdapterIpcResynchronizeTimeout * 0.6;
+
+        await Task.Delay(step);
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // correlation 3, armed at 0.6T, supersedes correlation 2
+
+        await Task.Delay(step);
+        fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(4);
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // correlation 4, armed at 1.2T, supersedes correlation 3
+
+        await Task.Delay(step);
+        Assert.False(runTask.IsCompleted);
+
+        // Past the third deadline's own 2.2T fire time: only it -- the very last one -- can close.
+        await runTask.WaitAsync(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(5));
         Assert.Equal(1, fakeSession.DisconnectedCalls);
     }
 
@@ -88,9 +308,9 @@ public class AdapterIpcConnectionTests
         client.Dispose();
     }
 
-    /// <summary>Verifies that a full outbound queue prevents handshake commitment when the acknowledgement cannot be queued.</summary>
+    /// <summary>Verifies that a full outbound queue can drain before handshake processing continues.</summary>
     [Fact]
-    public async Task RunAsync_FullOutboundQueue_SkipsHandshakeCommit()
+    public async Task RunAsync_FullOutboundQueue_HandshakeCommitsAfterQueueDrains()
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var blockingStream = new BlockingWriteStream(server);
@@ -108,12 +328,48 @@ public class AdapterIpcConnectionTests
         }
 
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
-        Task runTask = connection.RunAsync(CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = connection.RunAsync(cancellation.Token);
 
         await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(1, fakeSession.CommitHandshakeCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that an initial replay request rejected by a full queue withdraws its correlation and closes the connection.</summary>
+    [Fact]
+    public async Task RunAsync_InitialReplayResynchronizeQueueFull_WithdrawsRequestAndCloses()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 1);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            InitialResynchronizeRequest = new IpcResynchronizeRequestMessage(42),
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // acknowledgement
+        Assert.True(connection.TrySendListenEvent(1, out _));
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        for (int index = 0; index < Constants.MaxIpcQueuedMessages; index++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        await client.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(0, PlayContextId.NewId())));
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(0, fakeSession.CommitHandshakeCalls);
+        Assert.Equal([42UL], fakeSession.CancelledPendingResynchronizeCorrelationIds);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
         client.Dispose();
     }
 
@@ -200,7 +456,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         await client.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
         int trailingByte = await client.ReadAsync(new byte[1]).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -216,7 +471,7 @@ public class AdapterIpcConnectionTests
     public async Task RunAsync_PostHandshakeClose_ForceClosesBlockedWriter()
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 2);
+        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 1);
         var codec = new IpcFrameCodec();
         var fakeSession = new FakeAdapterIpcSession
         {
@@ -228,7 +483,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // acknowledgement
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendListenEvent(42, out _));
         await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
         await client.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
@@ -351,7 +605,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         bool enqueued = connection.TrySendListenEvent(42, out ulong correlationId);
         IpcMessage delivered = await ReadOneFrameAsync(client, codec);
         client.Dispose();
@@ -375,7 +628,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         bool enqueued = connection.TrySendReadSample(42, out ulong correlationId);
         IpcMessage delivered = await ReadOneFrameAsync(client, codec);
         client.Dispose();
@@ -385,6 +637,259 @@ public class AdapterIpcConnectionTests
         Assert.Equal(9UL, correlationId);
         var readSample = Assert.IsType<IpcReadSampleMessage>(delivered);
         Assert.Equal(42u, readSample.SampleToken);
+    }
+
+    /// <summary>Verifies that a prepared sample is admitted and retains its prepared correlation on the expected connection generation.</summary>
+    [Fact]
+    public void TrySendPreparedReadSample_MatchingGeneration_QueuesAndReportsCorrelation()
+    {
+        var session = new FakeAdapterIpcSession { ConnectionGeneration = 4 };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), session, new SystemClock());
+
+        bool enqueued = connection.TrySendPreparedReadSample(new IpcReadSampleMessage(9, 42), 4, out ulong correlationId);
+
+        Assert.True(enqueued);
+        Assert.Equal(9UL, correlationId);
+    }
+
+    /// <summary>Verifies that a prepared sample cannot be admitted by a connection from another generation.</summary>
+    [Fact]
+    public void TrySendPreparedReadSample_MismatchedGeneration_ReturnsFalseWithoutCorrelation()
+    {
+        var session = new FakeAdapterIpcSession { ConnectionGeneration = 5 };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), session, new SystemClock());
+
+        bool enqueued = connection.TrySendPreparedReadSample(new IpcReadSampleMessage(9, 42), 4, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+    }
+
+    /// <summary>
+    /// Verifies that a fresh resynchronize request requested after handshake
+    /// is written to the peer once the connection has committed.
+    /// </summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Committed_DeliversFrameToPeer()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(9, [998], [999]),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        bool enqueued = connection.TrySendResynchronizeRequest();
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        var request = Assert.IsType<IpcResynchronizeRequestMessage>(delivered);
+        Assert.Equal(9UL, request.CorrelationId);
+        Assert.Equal([998u], request.PersistentEventKeys);
+        Assert.Equal([999u], request.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that a resynchronize request is refused before this connection's handshake has committed.</summary>
+    [Fact]
+    public void TrySendResynchronizeRequest_NotCommitted_ReturnsFalse()
+    {
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        bool enqueued = connection.TrySendResynchronizeRequest();
+
+        Assert.False(enqueued);
+    }
+
+    /// <summary>Verifies that a full outbound queue refuses a resynchronize request, rather than growing without limit.</summary>
+    [Fact]
+    public void TrySendResynchronizeRequest_QueueFull_ReturnsFalse()
+    {
+        var fakeSession = new FakeAdapterIpcSession { ConnectionGeneration = 1, ListenEventResult = new IpcListenEventMessage(1, 1) };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        bool enqueued = connection.TrySendResynchronizeRequest();
+
+        Assert.False(enqueued);
+    }
+
+    /// <summary>
+    /// Verifies that a full outbound queue withdraws the pending resynchronize correlation it just
+    /// prepared, so a request that was never actually sent does not remain registered as pending --
+    /// otherwise a stray later result reusing that correlation id could be mistaken for a reply to a
+    /// request the adapter was never asked to answer.
+    /// </summary>
+    [Fact]
+    public void TrySendResynchronizeRequest_QueueFull_WithdrawsPendingCorrelation()
+    {
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(42),
+        };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        connection.TrySendResynchronizeRequest();
+
+        Assert.Equal([42UL], fakeSession.CancelledPendingResynchronizeCorrelationIds);
+    }
+
+    /// <summary>
+    /// Verifies the fix for the deadline/write ordering race: a matching result processed at the
+    /// earliest possible moment relative to admission -- deterministically forced via
+    /// <see cref="ResynchronizeInterceptingCodec"/> instead of a real hardware race -- must never leave
+    /// a stale deadline armed. Fails under the pre-fix ordering (deadline armed only after the write),
+    /// where this same interception would find no deadline yet to cancel.
+    /// </summary>
+    [Fact]
+    public async Task TryEnqueueResynchronizeRequest_ResultProcessedBeforeWriteReturns_DeadlineNeverStaysArmed()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new ResynchronizeInterceptingCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        MethodInfo cancelIfMatching = typeof(AdapterIpcConnection)
+            .GetMethod("CancelResynchronizeDeadlineIfMatching", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        codec.OnEncodingResynchronizeRequest = correlationId => cancelIfMatching.Invoke(connection, [correlationId]);
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        Assert.True(connection.TrySendResynchronizeRequest());
+        await ReadOneFrameAsync(client, codec); // resynchronize request (correlation 2)
+
+        // Only the deadline this fix installs before the write, and this test's interception then
+        // cancels during it, can keep the connection open past its own timeout.
+        await Task.Delay(Constants.AdapterIpcResynchronizeTimeout + TimeSpan.FromSeconds(2));
+
+        Assert.False(runTask.IsCompleted);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies the "important concurrency requirement" the fix calls out: admission-failure cleanup
+    /// must cancel only the exact deadline belonging to the failing request's own correlation id, never
+    /// a newer, already-superseding request's deadline. <see cref="ResynchronizeInterceptingCodec"/>
+    /// deterministically reproduces a request (correlation 3) superseding the one currently being
+    /// admitted (correlation 2) in the instant between that request's own deadline being armed and its
+    /// write being attempted -- the same window a genuinely concurrent supersession would use -- and
+    /// pre-fills the queue so only the superseding request's write can succeed.
+    /// </summary>
+    [Fact]
+    public void TryEnqueueResynchronizeRequest_SupersededDuringAdmission_AdmissionFailureDoesNotCancelNewerDeadline()
+    {
+        var codec = new ResynchronizeInterceptingCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+        };
+        var connection = new AdapterIpcConnection(new MemoryStream(), codec, fakeSession, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages - 1; i++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        bool supersessionTriggered = false;
+        codec.OnEncodingResynchronizeRequest = correlationId =>
+        {
+            if (supersessionTriggered)
+            {
+                return;
+            }
+
+            supersessionTriggered = true;
+            fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
+            Assert.True(connection.TrySendResynchronizeRequest()); // Takes the one remaining queue slot.
+        };
+
+        bool enqueued = connection.TrySendResynchronizeRequest(); // Correlation 2: its own write now fails.
+
+        Assert.False(enqueued);
+        Assert.Equal([2UL], fakeSession.CancelledPendingResynchronizeCorrelationIds);
+
+        var deadlineField = typeof(AdapterIpcConnection).GetField("resynchronizeDeadline", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var correlationField = typeof(AdapterIpcConnection).GetField("resynchronizeDeadlineCorrelationId", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        Assert.NotNull(deadlineField.GetValue(connection));
+        Assert.Equal(3UL, correlationField.GetValue(connection));
+    }
+
+    /// <summary>Verifies that a successfully enqueued resynchronize request never withdraws its own correlation.</summary>
+    [Fact]
+    public async Task TrySendResynchronizeRequest_Committed_DoesNotWithdrawItsOwnCorrelation()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession { ConnectionGeneration = 1, ResynchronizeRequest = new IpcResynchronizeRequestMessage(9) };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        bool enqueued = connection.TrySendResynchronizeRequest();
+        await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        Assert.Empty(fakeSession.CancelledPendingResynchronizeCorrelationIds);
+    }
+
+    /// <summary>Verifies that RequestClose forces a running connection to end, the same as a transport fault or cancellation.</summary>
+    [Fact]
+    public async Task RunAsync_RequestClose_EndsWithoutHanging()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        connection.RequestClose();
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that RequestClose called before RunAsync starts still ends the connection promptly, rather than requiring it to be called only after the connection is already running.</summary>
+    [Fact]
+    public async Task RequestClose_CalledBeforeRunAsync_ConnectionEndsPromptly()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(server, new IpcFrameCodec(), fakeSession, new SystemClock());
+
+        connection.RequestClose();
+        Task runTask = connection.RunAsync(CancellationToken.None);
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
     }
 
     /// <summary>Verifies that a queued cancellation is actually written to the peer once connected.</summary>
@@ -399,7 +904,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         bool enqueued = connection.TryCancel(7);
         IpcMessage delivered = await ReadOneFrameAsync(client, codec);
         client.Dispose();
@@ -423,7 +927,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(cancellation.Token);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask).WaitAsync(TimeSpan.FromSeconds(5));
@@ -529,7 +1032,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ClosesAfterLimit()
     {
-        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
+        int maxMessages = ReadPrivateIpcLimitsFixture().MaxMessagesPerSecond;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -539,7 +1042,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // acknowledgement
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
         int acceptedPostHandshakeMessages = maxMessages - 1;
@@ -559,7 +1061,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ForceClosesBlockedWriter()
     {
-        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
+        int maxMessages = ReadPrivateIpcLimitsFixture().MaxMessagesPerSecond;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var blockingStream = new BlockingWriteStream(server);
         var session = new FakeAdapterIpcSession();
@@ -587,7 +1089,9 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_AllowsMessagesAfterWindowExpires()
     {
-        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+        var limits = ReadPrivateIpcLimitsFixture();
+        int maxMessages = limits.MaxMessagesPerSecond;
+        TimeSpan window = limits.MessageRateWindow;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -597,7 +1101,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // acknowledgement
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
         int acceptedPostHandshakeMessages = maxMessages - 1;
@@ -619,7 +1122,9 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ExactWindowBoundaryRemainsLimited()
     {
-        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+        var limits = ReadPrivateIpcLimitsFixture();
+        int maxMessages = limits.MaxMessagesPerSecond;
+        TimeSpan window = limits.MessageRateWindow;
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -629,7 +1134,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // acknowledgement
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
         int acceptedPostHandshakeMessages = maxMessages - 1;
@@ -806,7 +1310,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -837,7 +1340,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         bool enqueued = connection.TrySendListenEvent(42, out ulong correlationId);
         await client.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
         IpcMessage delivered = await ReadOneFrameAsync(client, codec);
@@ -889,7 +1391,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         bool enqueued = connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId);
         IpcMessage delivered = await ReadOneFrameAsync(client, codec);
         client.Dispose();
@@ -914,7 +1415,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         bool enqueued = connection.TrySendPairingAttemptsExhausted();
         IpcMessage delivered = await ReadOneFrameAsync(client, codec);
         client.Dispose();
@@ -956,7 +1456,7 @@ public class AdapterIpcConnectionTests
     public async Task AwaitPairingDisplayAckAsync_ForceClosedBlockedWriter_ReturnsFalse()
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 2);
+        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 1);
         var codec = new IpcFrameCodec();
         var fakeSession = new FakeAdapterIpcSession
         {
@@ -967,7 +1467,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // acknowledgement
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
         await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1000,7 +1499,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
         Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -1050,7 +1548,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
 
@@ -1082,7 +1579,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
         using var cancellation = new CancellationTokenSource();
@@ -1112,7 +1608,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
         Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -1145,7 +1640,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
         Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromMilliseconds(200), CancellationToken.None);
@@ -1182,7 +1676,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
         Task<bool> awaitTask = connection.AwaitPairingDisplayAckAsync(correlationId, TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -1215,7 +1708,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
 
@@ -1248,7 +1740,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
         using var cancellation = new CancellationTokenSource();
@@ -1285,7 +1776,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
 
@@ -1317,7 +1807,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
         Assert.True(connection.TrySendPairingDisplay("123456", PairingDisplayMode.Initial, out ulong correlationId));
         await ReadOneFrameAsync(client, codec); // the display request itself
 
@@ -1343,7 +1832,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         var request = new IpcTrustAdminRequestMessage(9, TrustAdminOperation.Revoke, ShortId: "12345");
         await client.WriteAsync(codec.Encode(request));
@@ -1375,7 +1863,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
         await ReadOneFrameAsync(client, codec); // the trust-admin result
@@ -1417,7 +1904,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
 
@@ -1475,7 +1961,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
         Assert.True(handlerEntered.Wait(TimeSpan.FromSeconds(5)));
@@ -1525,7 +2010,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         foreach (ulong correlationId in gates.Keys)
         {
@@ -1571,7 +2055,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Help)));
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.Help)));
@@ -1602,7 +2085,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(2, TrustAdminOperation.Help)));
@@ -1649,7 +2131,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Help)));
 
@@ -1684,7 +2165,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
         await ReadOneFrameAsync(client, codec); // already completed and removed by the time this returns
@@ -1717,7 +2197,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
 
@@ -1762,7 +2241,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
 
@@ -1804,7 +2282,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
 
@@ -1840,7 +2317,6 @@ public class AdapterIpcConnectionTests
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        await ReadOneFrameAsync(client, codec); // resynchronize request
 
         await client.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help)));
         var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(client, codec));
@@ -2119,5 +2595,39 @@ public class AdapterIpcConnectionTests
 
             base.Dispose(disposing);
         }
+    }
+
+    /// <summary>
+    /// A codec wrapper that synchronously invokes <see cref="OnEncodingResynchronizeRequest"/> exactly
+    /// when encoding an <see cref="IpcResynchronizeRequestMessage"/> -- the same point
+    /// <c>AdapterIpcConnection</c>'s admission path reaches between arming that request's deadline and
+    /// making it observable to the outbound writer. This lets a test deterministically force what
+    /// would otherwise be a nanosecond-wide hardware race, without adding any seam to production code.
+    /// </summary>
+    private sealed class ResynchronizeInterceptingCodec : IIpcFrameCodec
+    {
+        /// <summary>The real codec every call delegates to.</summary>
+        private readonly IIpcFrameCodec inner = new IpcFrameCodec();
+
+        /// <summary>Invoked with a resynchronize request's correlation id immediately before it is encoded.</summary>
+        public Action<ulong>? OnEncodingResynchronizeRequest { get; set; }
+
+        /// <inheritdoc/>
+        public byte[] Encode(IpcMessage message)
+        {
+            if (message is IpcResynchronizeRequestMessage request)
+            {
+                OnEncodingResynchronizeRequest?.Invoke(request.CorrelationId);
+            }
+
+            return inner.Encode(message);
+        }
+
+        /// <inheritdoc/>
+        public bool TryReadFrameLength(ReadOnlySpan<byte> lengthPrefix, out int frameLength) =>
+            inner.TryReadFrameLength(lengthPrefix, out frameLength);
+
+        /// <inheritdoc/>
+        public IpcDecodeResult Decode(ReadOnlySpan<byte> frame) => inner.Decode(frame);
     }
 }

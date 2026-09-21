@@ -18,11 +18,31 @@ AdapterCaptureHandoffQueue::~AdapterCaptureHandoffQueue() { Stop(); }
 
 bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
     bool accepted = false;
-    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
-    if (lock.owns_lock()) {
-        if (!stopping_ && queue_.size() < kMaxAdapterCaptureQueueItems) {
-            queue_.push_back(std::move(item));
-            accepted = true;
+    //  A handful of immediate, non-blocking attempts: this call never
+    //  voluntarily yields, sleeps, or waits. The worker thread's own critical
+    //  section is intentionally extremely short -- a few instructions to
+    //  remove one item, no I/O, no allocation -- so a handful of immediate
+    //  retries can absorb ordinary, brief concurrent contention with it (for
+    //  example three baseline samples enqueued back to back during
+    //  resynchronization) without ever surrendering this call's own
+    //  scheduler timeslice the way `std::this_thread::yield()` would, for a
+    //  scheduler-dependent duration this Skyrim game-thread callback must
+    //  not risk. Admission stays deliberately bounded and non-blocking, so a
+    //  contention-only rejection remains possible if the worker is preempted
+    //  mid-critical-section; that tradeoff is preferred over letting this
+    //  call wait for the scheduler. A genuinely full or stopped queue still
+    //  rejects immediately, on the very first attempt that acquires the
+    //  mutex.
+    for (int attempt = 0; attempt < kCaptureQueueEnqueueLockAttempts;
+         ++attempt) {
+        std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+        if (lock.owns_lock()) {
+            if (!stopping_ && count_ < buffer_.size()) {
+                buffer_[(head_ + count_) % buffer_.size()] = std::move(item);
+                ++count_;
+                accepted = true;
+            }
+            break;
         }
     }
 
@@ -63,15 +83,16 @@ void AdapterCaptureHandoffQueue::WorkerLoop() {
         {
             std::unique_lock<std::mutex> lock(mutex_);
             itemAvailable_.wait(lock,
-                                [this] { return stopping_ || !queue_.empty(); });
-            if (queue_.empty()) {
+                                [this] { return stopping_ || count_ > 0; });
+            if (count_ == 0) {
                 //  The wait predicate only admits an empty queue once `stopping_` is
                 //  set, so there is nothing left to drain.
                 return;
             }
 
-            item = std::move(queue_.front());
-            queue_.pop_front();
+            item = std::move(buffer_[head_]);
+            head_ = (head_ + 1) % buffer_.size();
+            --count_;
         }
 
         try {

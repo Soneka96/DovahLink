@@ -1,6 +1,8 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
+#include "capture/live_state_sample_codec.hpp"
 #include "constants.hpp"
-#include "dispatch/adapter_native_dispatcher.hpp"
+#include "dispatch/adapter_native_capture_router.hpp"
+#include "enums.hpp"
 #include "identity/adapter_instance_id_generator.hpp"
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_session.hpp"
@@ -25,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -49,14 +52,29 @@
 #include <utility>
 #include <vector>
 
+using dovahlink::adapter::capture::AdapterCaptureHandoffQueue;
 using dovahlink::adapter::capture::AdapterCaptureWorkItem;
+using dovahlink::adapter::capture::CaptureAvailability;
+using dovahlink::adapter::capture::CapturedPayload;
+using dovahlink::adapter::capture::CaptureSourceKind;
+using dovahlink::adapter::capture::CharacterEventKey;
+using dovahlink::adapter::capture::CharacterSampleToken;
+using dovahlink::adapter::capture::EncodeFloatLittleEndian;
+using dovahlink::adapter::capture::EncodeUInt16LittleEndian;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
-using dovahlink::adapter::dispatch::AdapterNativeDispatcher;
+using dovahlink::adapter::capture::MakeCapturedPayload;
+using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
+using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
+using dovahlink::adapter::dispatch::SampleCaptureResult;
+using dovahlink::adapter::dispatch::SampleCaptureStatus;
 using dovahlink::adapter::identity::AdapterInstanceIdGenerator;
+using dovahlink::adapter::identity::AdapterPlayContextState;
+using dovahlink::adapter::identity::IAdapterPlayContextState;
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcSession;
 using dovahlink::adapter::ipc::AdapterIpcTarget;
 using dovahlink::adapter::ipc::IpcFrameCodec;
+using dovahlink::adapter::ipc::IpcListenEventMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider;
 using dovahlink::adapter::ipc::TrustAdminListScope;
@@ -271,6 +289,143 @@ class NoopCaptureQueue final : public IAdapterCaptureHandoffQueue {
   public:
     bool TryEnqueue(AdapterCaptureWorkItem) override { return true; }
     void Stop() override {}
+};
+
+///  Accepts every registration and reports every sample unavailable, since
+///  this cross-process test is concerned with IPC connection recovery, not
+///  resync outcome. The generic, production `AdapterNativeCaptureRouter`
+///  approves no token at all, which makes every resynchronize request this
+///  fixture's automatic post-handshake send and any later trigger produce
+///  come back declined -- and the Host closes the connection on a genuinely
+///  declined resync result. Every test built on this fixture that assumes
+///  the connection stays open would otherwise be racing that close.
+class AcceptingCaptureRouter final
+    : public dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter {
+  public:
+    dovahlink::adapter::dispatch::SampleCaptureResult
+    CaptureSample(std::uint32_t) override {
+        return dovahlink::adapter::dispatch::SampleCaptureResult{
+            .status =
+                dovahlink::adapter::dispatch::SampleCaptureStatus::kUnavailable};
+    }
+    bool RegisterEvent(std::uint32_t) override { return true; }
+};
+
+///  A deterministic, TEST-ONLY stand-in for a real Skyrim capture, used only
+///  by the live-state E2E tests below. Mirrors
+///  `CommonLibAdapterNativeCaptureRouter::CaptureSample`'s exact switch
+///  shape and wire encoding (via the same production
+///  `EncodeFloatLittleEndian`/`EncodeUInt16LittleEndian`/`MakeCapturedPayload`
+///  helpers) so the real Host's real resynchronization plan -- which
+///  currently requires the full Character baseline, not XP alone -- actually
+///  completes. `EmitLevelChanged` additionally mirrors
+///  `CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink::ProcessEvent`,
+///  the real `RE::LevelIncrease::Event` sink, so the Level Event E2E test can
+///  simulate that native callback without touching Skyrim/CommonLib/SKSE,
+///  keeping CI deterministic.
+class DeterministicBaselineCaptureRouter final
+    : public IAdapterNativeCaptureRouter {
+  public:
+    SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override {
+        switch (static_cast<CharacterSampleToken>(sampleToken)) {
+        case CharacterSampleToken::kCharacterVitals: {
+            std::array<std::byte, 4> health = EncodeFloatLittleEndian(100.0f);
+            std::array<std::byte, 4> magicka = EncodeFloatLittleEndian(80.0f);
+            std::array<std::byte, 4> stamina = EncodeFloatLittleEndian(90.0f);
+            CapturedPayload payload;
+            std::ranges::copy(health, payload.bytes.begin());
+            std::ranges::copy(magicka, payload.bytes.begin() + 4);
+            std::ranges::copy(stamina, payload.bytes.begin() + 8);
+            payload.size = 12;
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = payload};
+        }
+        case CharacterSampleToken::kCharacterXp: {
+            std::array<std::byte, 4> encoded = EncodeFloatLittleEndian(42.5f);
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = MakeCapturedPayload(encoded)};
+        }
+        case CharacterSampleToken::kCharacterLevelBaseline: {
+            std::array<std::byte, 2> encoded = EncodeUInt16LittleEndian(10);
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = MakeCapturedPayload(encoded)};
+        }
+        default:
+            return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
+        }
+    }
+
+    bool RegisterEvent(std::uint32_t eventKey) override {
+        if (static_cast<CharacterEventKey>(eventKey) !=
+            CharacterEventKey::kCharacterLevelChanged) {
+            return false;
+        }
+        levelChangedRegistered_.store(true, std::memory_order_relaxed);
+        return true;
+    }
+
+    ///  Wires the real collaborators `EmitLevelChanged` enqueues into,
+    ///  mirroring `LevelChangedEventSink`'s own constructor-injected
+    ///  collaborators. Called once, from the owning fixture's constructor
+    ///  body, after its capture queue and play-context state are fully
+    ///  constructed -- the same after-construction attachment pattern
+    ///  `AdapterIpcSession::AttachConnection` already uses in this file, so
+    ///  no member-declaration reordering is needed.
+    ///  @param captureQueue The real queue `EmitLevelChanged` enqueues into.
+    ///  @param playContextState The real play-context state `EmitLevelChanged`
+    ///  stamps its work item from.
+    void AttachLevelChangedEmitter(IAdapterCaptureHandoffQueue& captureQueue,
+                                   IAdapterPlayContextState& playContextState) {
+        captureQueue_ = &captureQueue;
+        playContextState_ = &playContextState;
+    }
+
+    ///  Whether the real Host-driven resynchronization plan has actually
+    ///  registered `CharacterLevelChanged` through `RegisterEvent`, proving
+    ///  `EmitLevelChanged` below enters through a real registration rather
+    ///  than firing unconditionally.
+    ///  @return `true` once `RegisterEvent` has accepted `CharacterLevelChanged`.
+    bool IsLevelChangedRegistered() const {
+        return levelChangedRegistered_.load(std::memory_order_relaxed);
+    }
+
+    ///  Test-only stand-in for the real `RE::LevelIncrease::Event` sink's
+    ///  `ProcessEvent`, enqueuing the exact same `AdapterCaptureWorkItem`
+    ///  shape into the same real `AdapterCaptureHandoffQueue` the owning
+    ///  fixture drains onto `SendCaptureResult`.
+    ///  @param newLevel The simulated new character level.
+    void EmitLevelChanged(std::uint16_t newLevel) {
+        if (!levelChangedRegistered_.load(std::memory_order_relaxed) ||
+            captureQueue_ == nullptr || playContextState_ == nullptr) {
+            throw std::logic_error(
+                "EmitLevelChanged called before CharacterLevelChanged was "
+                "registered and attached.");
+        }
+        std::array<std::byte, 2> encoded = EncodeUInt16LittleEndian(newLevel);
+        captureQueue_->TryEnqueue(AdapterCaptureWorkItem{
+            .intentKey =
+                static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged),
+            .capturedValue = MakeCapturedPayload(encoded),
+            .correlationId = 0,
+            .source = CaptureSourceKind::kEvent,
+            .availability = CaptureAvailability::kAvailable,
+            .playContextId = playContextState_->CurrentPlayContext().value_or(
+                std::array<std::byte, 16>{}),
+        });
+    }
+
+  private:
+    ///  Whether `RegisterEvent` has ever accepted `CharacterLevelChanged`.
+    ///  Atomic: written from the private IPC session's own execution thread
+    ///  inside `RegisterEvent`, read from the test thread by
+    ///  `IsLevelChangedRegistered` and `EmitLevelChanged`.
+    std::atomic<bool> levelChangedRegistered_{false};
+    ///  The real capture queue `EmitLevelChanged` enqueues into. Not owned;
+    ///  set once by `AttachLevelChangedEmitter`.
+    IAdapterCaptureHandoffQueue* captureQueue_ = nullptr;
+    ///  The real play-context state `EmitLevelChanged` stamps its work item
+    ///  from. Not owned; set once by `AttachLevelChangedEmitter`.
+    IAdapterPlayContextState* playContextState_ = nullptr;
 };
 
 ///  Presents nothing, since this cross-process test is concerned with IPC
@@ -700,6 +855,9 @@ class RecordingAdapterIpcConnection final
     ///  The fallback test never sends through this connection.
     bool TrySend(const IpcMessage&) override { return true; }
 
+    ///  The fallback test never resets this connection.
+    void RequestReconnect() override {}
+
     ///  The fallback test has no connection worker to stop.
     void Stop() override {}
 
@@ -763,6 +921,35 @@ std::string ExtractJsonStringField(const std::string& json,
     return json.substr(start, end - start);
 }
 
+///  Extracts a top-level JSON numeric field's value by key from `json`,
+///  using the same plain substring search as `ExtractJsonStringField` --
+///  sufficient for this test's own real, well-formed server responses.
+///  Returns `std::nullopt` if `key` is absent or its value is not a bare
+///  numeric literal.
+std::optional<double> ExtractJsonNumberField(const std::string& json,
+                                             const std::string& key) {
+    const std::string marker = "\"" + key + "\":";
+    std::size_t start = json.find(marker);
+    if (start == std::string::npos) {
+        return std::nullopt;
+    }
+    start += marker.size();
+    std::size_t end = start;
+    while (end < json.size() &&
+           (std::isdigit(static_cast<unsigned char>(json[end])) != 0 ||
+            json[end] == '.' || json[end] == '-' || json[end] == '+')) {
+        ++end;
+    }
+    if (end == start) {
+        return std::nullopt;
+    }
+    try {
+        return std::stod(json.substr(start, end - start));
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
 ///  Waits for a bounded asynchronous process condition without busy spinning.
 template <typename Predicate>
 bool WaitUntil(Predicate predicate, std::chrono::milliseconds timeout) {
@@ -774,6 +961,28 @@ bool WaitUntil(Predicate predicate, std::chrono::milliseconds timeout) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     return predicate();
+}
+
+///  Receives text frames from `client` until one whose top-level
+///  `"messageType"` field equals `expectedMessageType`, skipping any
+///  legitimate protocol message that may legitimately precede it (for
+///  example a subscription_ack before its own baseline state_snapshot),
+///  bounded by `timeout` rather than looping unboundedly. Each individual
+///  `ReceiveText()` call already carries its own bounded socket receive
+///  timeout; this additionally bounds the total number of skippable frames
+///  this helper will wait through.
+std::string ReceiveUntil(MinimalPublicWebSocketClient& client,
+                         const std::string& expectedMessageType,
+                         std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::string frame = client.ReceiveText();
+        if (ExtractJsonStringField(frame, "messageType") == expectedMessageType) {
+            return frame;
+        }
+    }
+    throw std::runtime_error("Timed out waiting for a \"" + expectedMessageType +
+                             "\" message from the real Host's public listener.");
 }
 
 ///  Returns whether a real loopback port no longer accepts connections.
@@ -918,13 +1127,15 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
     WinsockAdapterIpcSocket connectionSocket(0);
     IpcFrameCodec codec;
     ImmediateTaskMarshaller taskMarshaller;
-    AdapterNativeDispatcher dispatcher;
+    AdapterNativeCaptureRouter captureRouter;
     NoopCaptureQueue captureQueue;
     NoopPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
     std::unique_ptr<AdapterHostSupervisor> supervisor;
     AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
-                              ownerLifetimeId, taskMarshaller, dispatcher,
-                              captureQueue, pairingNotificationSink);
+                              ownerLifetimeId, taskMarshaller, captureRouter,
+                              captureQueue, pairingNotificationSink,
+                              playContextState);
     std::atomic<int> connectedCount = 0;
     std::mutex targetMutex;
     std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> connectedTarget;
@@ -1007,6 +1218,176 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
     supervisor.reset();
 }
 
+TEST_CASE("AdapterIpcConnection::RequestReconnect resets the connection and "
+          "the supervisor re-establishes a fresh authenticated generation "
+          "against the same real host, replaying the same active play "
+          "context into exactly one fresh resync",
+          "[process][integration]") {
+    //  AdapterRuntime's own tests (adapter_runtime_test.cpp) already prove
+    //  that a rejected reliable Event's onRejected callback calls
+    //  RequestReconnect() (and that a rejected Snapshot sample does not);
+    //  this test proves the other half -- what RequestReconnect() itself
+    //  actually does end to end against a real host -- so it calls it
+    //  directly rather than re-deriving a queue rejection. Unlike a host
+    //  restart (the test above), this never kills the real host process: it
+    //  only resets this one connection's current attempt. Stopping the
+    //  connection permanently instead (as Stop() deliberately does) would
+    //  leave Start() unable to ever reconnect; this proves RequestReconnect()
+    //  instead lets the same still-running host be rediscovered and
+    //  re-authenticated, with a fresh resync.
+    //
+    //  A bare Hello/HelloAck never earns a resync by itself -- only the
+    //  authenticated replay of an ACTIVE AdapterPlayContextState does (see
+    //  AdapterIpcSession::ReplayCurrentPlayContextState). So this test
+    //  establishes an active play context A through the normal
+    //  AdapterPlayContextState API before G1 ever connects, and keeps that
+    //  same context A across the reconnect: G2 replays the SAME context A
+    //  again and must still earn its own fresh resync, proving a reconnect
+    //  re-establishes authoritative state even though Skyrim never left the
+    //  same loaded play context.
+    const std::filesystem::path hostExecutable{DOVAHLINK_HOST_EXECUTABLE};
+    REQUIRE(std::filesystem::exists(hostExecutable));
+
+    const auto ownerLifetimeId = LifetimeIdWithMarker(std::byte{0xC4});
+    auto rendezvousPath = ResolveDefaultRendezvousFilePath(ownerLifetimeId);
+    REQUIRE(rendezvousPath.has_value());
+    ScopedRendezvousCleanup rendezvousCleanup(*rendezvousPath);
+    std::error_code removeError;
+    std::filesystem::remove(*rendezvousPath, removeError);
+
+    Win32AdapterHostProcessLauncher launcher(hostExecutable, ownerLifetimeId,
+                                             std::chrono::seconds(10));
+    auto endpoint = launcher.Launch();
+    REQUIRE(endpoint.has_value());
+
+    FileAdapterHostRendezvousReader reader(*rendezvousPath);
+    WinsockAdapterIpcSocket connectionSocket(0);
+    IpcFrameCodec codec;
+    ImmediateTaskMarshaller taskMarshaller;
+    //  AcceptingCaptureRouter, not the generic production
+    //  AdapterNativeCaptureRouter: this test now actually exercises the
+    //  resync path (an active play context earns a real
+    //  IpcResynchronizeRequestMessage), and per AcceptingCaptureRouter's own
+    //  documentation above, the generic router approves no token at all,
+    //  which comes back declined and makes the real Host close the
+    //  connection on a genuinely declined resync result -- exactly the kind
+    //  of connection churn this test exists to rule out, not exercise.
+    AcceptingCaptureRouter captureRouter;
+    NoopCaptureQueue captureQueue;
+    NoopPairingNotificationSink pairingNotificationSink;
+    AdapterPlayContextState playContextState;
+    //  Deterministic non-zero context A -- the same byte pattern (and
+    //  matching C# GUID 00112233-4455-6677-8899-aabbccddeeff) the
+    //  play-context wire test elsewhere in this file already uses --
+    //  established through the normal AdapterPlayContextState API before
+    //  either generation connects, so both G1 and G2 replay this same active
+    //  context on authentication.
+    const std::array<std::byte, 16> playContextId = {
+        std::byte{0x00}, std::byte{0x11}, std::byte{0x22}, std::byte{0x33},
+        std::byte{0x44}, std::byte{0x55}, std::byte{0x66}, std::byte{0x77},
+        std::byte{0x88}, std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+        std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE}, std::byte{0xFF}};
+    playContextState.SetCurrentPlayContext(playContextId);
+    std::unique_ptr<AdapterHostSupervisor> supervisor;
+    AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
+                              ownerLifetimeId, taskMarshaller, captureRouter,
+                              captureQueue, pairingNotificationSink,
+                              playContextState);
+    std::atomic<int> connectedCount = 0;
+    //  Counts every IpcResynchronizeRequestMessage the real host sends, from
+    //  the very first connection -- proof that G1's own active-context
+    //  replay earns exactly one resync, and that RequestReconnect() below
+    //  earns exactly one *additional* one, not merely "at least one" across
+    //  both.
+    std::atomic<int> resyncRequestCount = 0;
+    AdapterIpcConnection connection(
+        connectionSocket, codec,
+        dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
+            .onTargetConnected =
+                [&](const AdapterIpcTarget& target) {
+                    ++connectedCount;
+                    session.HandleConnected(target);
+                },
+            .onMessageReceived =
+                [&](const IpcMessage& message) {
+                    if (std::holds_alternative<
+                            dovahlink::adapter::ipc::IpcResynchronizeRequestMessage>(
+                            message)) {
+                        ++resyncRequestCount;
+                    }
+                    return session.HandleMessage(message);
+                },
+            .onDecodeFailure = [&] { session.HandleDecodeFailure(); },
+            .onDisconnected = [&] { session.HandleDisconnected(); },
+            .onAttemptFinished =
+                [&](std::uint64_t targetGeneration,
+                    dovahlink::adapter::ipc::AdapterIpcAttemptOutcome outcome) {
+                    supervisor->NotifyConnectionLost(targetGeneration, outcome);
+                },
+        });
+    session.AttachConnection(connection);
+    supervisor = std::make_unique<AdapterHostSupervisor>(
+        reader, launcher, connection, std::chrono::milliseconds(50));
+    supervisor->Start();
+
+    //  G1: authenticate against the real host with active context A already
+    //  established; AdapterIpcSession's own post-authentication replay (not
+    //  this test) is what reports PlayContextChanged(A) to the host.
+    REQUIRE(WaitUntil(
+        [&] { return connectedCount.load() >= 1 && session.IsHostAvailable(); },
+        std::chrono::seconds(10)));
+    REQUIRE(IsProcessStillRunning(launcher.ProcessId()));
+
+    //  The host's own reaction to that replayed active context is exactly one
+    //  fresh resynchronization request -- proven before the reconnect below,
+    //  so a duplicate here cannot later be misattributed to
+    //  RequestReconnect() instead.
+    REQUIRE(WaitUntil([&] { return resyncRequestCount.load() >= 1; },
+                      std::chrono::seconds(10)));
+    CHECK(resyncRequestCount.load() == 1);
+    CHECK_FALSE(WaitUntil([&] { return resyncRequestCount.load() > 1; },
+                          std::chrono::milliseconds(200)));
+    const int resyncRequestCountAfterG1 = resyncRequestCount.load();
+
+    //  Exactly what AdapterRuntime's onRejected callback does for a rejected
+    //  reliable Event -- proven to be reached from that callback separately
+    //  by adapter_runtime_test.cpp's own queue-rejection tests.
+    connection.RequestReconnect();
+
+    //  G2: the same still-running host is rediscovered (same rendezvous
+    //  port) and a fresh authenticated generation is established -- proving
+    //  RequestReconnect() does not permanently poison Start() the way Stop()
+    //  would. AdapterPlayContextState still reports the SAME context A (it
+    //  was never cleared or changed), so the normal replay path reports
+    //  PlayContextChanged(A) again on this new generation.
+    REQUIRE(WaitUntil(
+        [&] { return connectedCount.load() >= 2 && session.IsHostAvailable(); },
+        std::chrono::seconds(10)));
+    CHECK(IsProcessStillRunning(launcher.ProcessId()));
+
+    //  The reconnect's own replay of the SAME context A earns exactly one
+    //  fresh resynchronization request beyond G1's -- proof that a reconnect
+    //  re-establishes authoritative state even though Skyrim never left the
+    //  same loaded play context, and that authentication plus context replay
+    //  did not each independently trigger their own resync.
+    REQUIRE(WaitUntil(
+        [&] {
+            return resyncRequestCount.load() >= resyncRequestCountAfterG1 + 1;
+        },
+        std::chrono::seconds(10)));
+    CHECK(resyncRequestCount.load() == resyncRequestCountAfterG1 + 1);
+    CHECK_FALSE(WaitUntil(
+        [&] {
+            return resyncRequestCount.load() > resyncRequestCountAfterG1 + 1;
+        },
+        std::chrono::milliseconds(200)));
+
+    supervisor->RequestStop();
+    connection.Stop();
+    launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0));
+    supervisor.reset();
+}
+
 ///  Drives the real native `AdapterIpcSession`/`AdapterIpcConnection` pair
 ///  through a full Hello/HelloAck handshake against a real launched
 ///  `DovahLink.Host.exe`, connecting directly to the endpoint
@@ -1037,12 +1418,13 @@ class RealHostFixture {
           ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
           launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
           session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
-                   taskMarshaller_, dispatcher_, captureQueue_,
+                   taskMarshaller_, captureRouter_, captureQueue_,
                    pairingSink != nullptr
                        ? *pairingSink
                        : static_cast<dovahlink::adapter::ipc::
                                          IAdapterPairingNotificationSink&>(
-                             noopPairingNotificationSink_)),
+                             noopPairingNotificationSink_),
+                   playContextState_),
           connection_(
               connectionSocket_, codec_,
               dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
@@ -1115,9 +1497,149 @@ class RealHostFixture {
     WinsockAdapterIpcSocket connectionSocket_{0};
     IpcFrameCodec codec_;
     ImmediateTaskMarshaller taskMarshaller_;
-    AdapterNativeDispatcher dispatcher_;
+    AcceptingCaptureRouter captureRouter_;
     NoopCaptureQueue captureQueue_;
     NoopPairingNotificationSink noopPairingNotificationSink_;
+    AdapterPlayContextState playContextState_;
+    AdapterIpcSession session_;
+    AdapterIpcConnection connection_;
+};
+
+///  Extends `RealHostFixture`'s real Hello/HelloAck proof with a real,
+///  draining `AdapterCaptureHandoffQueue` (the production queue, not
+///  `NoopCaptureQueue`) whose drain callback is wired to
+///  `AdapterIpcSession::SendCaptureResult` exactly the way `AdapterRuntime`'s
+///  own composition wires it (see `adapter/plugin/adapter_runtime.cpp`) --
+///  so a captured baseline this fixture's `DeterministicBaselineCaptureRouter`
+///  produces during a real Host-driven resynchronization actually crosses
+///  the real private IPC connection, rather than being silently accepted and
+///  dropped. Used only by the live-state E2E test below.
+class RealHostLiveStateFixture {
+  public:
+    ///  Launches a real host under a fresh, uniquely marked owner-lifetime
+    ///  id and a fixed public listener port, establishes `playContextId` as
+    ///  the active play context before connecting, then connects and
+    ///  authenticates a real native session against it -- the same
+    ///  active-context-before-authentication ordering
+    ///  `AdapterIpcSession::ReplayCurrentPlayContextState` requires for its
+    ///  post-authentication replay to report it.
+    RealHostLiveStateFixture(std::byte ownerLifetimeMarker,
+                             std::array<std::byte, 16> playContextId,
+                             std::uint16_t publicListenerPort,
+                             dovahlink::adapter::ipc::IAdapterPairingNotificationSink&
+                                 pairingSink)
+        : publicListenerPort_(publicListenerPort),
+          hostExecutable_(DOVAHLINK_HOST_EXECUTABLE),
+          ownerLifetimeId_(LifetimeIdWithMarker(ownerLifetimeMarker)),
+          launcher_(hostExecutable_, ownerLifetimeId_, std::chrono::seconds(10)),
+          session_(AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId_,
+                   taskMarshaller_, captureRouter_, captureQueue_, pairingSink,
+                   playContextState_),
+          connection_(
+              connectionSocket_, codec_,
+              dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
+                  .onTargetConnected =
+                      [this](const AdapterIpcTarget& target) {
+                          session_.HandleConnected(target);
+                      },
+                  .onMessageReceived =
+                      [this](const IpcMessage& message) {
+                          return session_.HandleMessage(message);
+                      },
+                  .onDecodeFailure = [this] { session_.HandleDecodeFailure(); },
+                  .onDisconnected = [this] { session_.HandleDisconnected(); },
+                  .onAttemptFinished =
+                      [](std::uint64_t,
+                         dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) {},
+              }) {
+        if (!std::filesystem::exists(hostExecutable_)) {
+            throw std::runtime_error("DovahLink.Host.exe was not found at " +
+                                     hostExecutable_.string());
+        }
+
+        //  Deferred to the constructor body -- like `session_.AttachConnection`
+        //  below -- rather than the initializer list, since `captureRouter_` is
+        //  declared before `captureQueue_`/`playContextState_` and only needs
+        //  to reach them once EmitLevelChanged is actually called, well after
+        //  this constructor returns.
+        captureRouter_.AttachLevelChangedEmitter(captureQueue_, playContextState_);
+
+        //  Established before the private connection ever starts, so the
+        //  normal post-authentication replay (not this test) reports it to
+        //  the real Host, which then requests its own generic
+        //  resynchronization plan.
+        playContextState_.SetCurrentPlayContext(playContextId);
+
+        auto endpoint = launcher_.Launch();
+        if (!endpoint.has_value()) {
+            throw std::runtime_error("Unable to launch a real Host process.");
+        }
+
+        session_.AttachConnection(connection_);
+        connection_.ConfigureTarget(
+            AdapterIpcTarget{.port = endpoint->port,
+                             .proofToken = endpoint->proofToken,
+                             .hostProofKey = endpoint->hostProofKey,
+                             .targetGeneration = 1});
+        connection_.Start();
+
+        if (!WaitUntil([this] { return session_.IsHostAvailable(); },
+                       std::chrono::seconds(10))) {
+            throw std::runtime_error(
+                "The real host never completed Hello/HelloAck authentication.");
+        }
+    }
+
+    ///  Stops the draining capture queue first -- joining its worker thread,
+    ///  so no further drained item can ever call back into `session_` --
+    ///  before any member destructor runs, since plain reverse-declaration-
+    ///  order destruction would otherwise destroy `session_` while the
+    ///  queue's worker thread could still be mid-drain.
+    ~RealHostLiveStateFixture() {
+        captureQueue_.Stop();
+        connection_.Stop();
+        launcher_.AwaitExitOrTerminate(std::chrono::seconds(5));
+    }
+
+    RealHostLiveStateFixture(const RealHostLiveStateFixture&) = delete;
+    RealHostLiveStateFixture& operator=(const RealHostLiveStateFixture&) = delete;
+
+    ///  @copydoc DeterministicBaselineCaptureRouter::IsLevelChangedRegistered
+    bool IsLevelChangedRegistered() const {
+        return captureRouter_.IsLevelChangedRegistered();
+    }
+
+    ///  @copydoc DeterministicBaselineCaptureRouter::EmitLevelChanged
+    void EmitLevelChanged(std::uint16_t newLevel) {
+        captureRouter_.EmitLevelChanged(newLevel);
+    }
+
+  private:
+    //  Declared first so it sets DOVAHLINK_TEST_TRUST_STORE_PATH before
+    //  launcher_.Launch() runs in the constructor body below, mirroring
+    //  RealHostFixture's own ordering rationale.
+    ScopedTestTrustStorePathEnvironmentVariable trustStorePath_;
+    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort_;
+    std::filesystem::path hostExecutable_;
+    std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
+        ownerLifetimeId_;
+    Win32AdapterHostProcessLauncher launcher_;
+    WinsockAdapterIpcSocket connectionSocket_{0};
+    IpcFrameCodec codec_;
+    ImmediateTaskMarshaller taskMarshaller_;
+    DeterministicBaselineCaptureRouter captureRouter_;
+    //  The real production queue, draining onto SendCaptureResult exactly
+    //  the way AdapterRuntime's own composition wires it -- captures `this`
+    //  rather than `&session_` directly, since session_ is declared (and
+    //  constructed) after this member, but the drain callback cannot run
+    //  until this queue's worker thread actually drains an enqueued item,
+    //  which happens well after this constructor finishes.
+    AdapterCaptureHandoffQueue captureQueue_{
+        [this](const AdapterCaptureWorkItem& item) {
+            session_.SendCaptureResult(item);
+        },
+        [](const AdapterCaptureWorkItem&) {}};
+    AdapterPlayContextState playContextState_;
     AdapterIpcSession session_;
     AdapterIpcConnection connection_;
 };
@@ -1681,4 +2203,396 @@ TEST_CASE("a real native adapter completes Hello/HelloAck against a real "
         std::filesystem::path(DOVAHLINK_HOST_EXECUTABLE_SELFCONTAINED));
 
     CHECK(fixture.Session().IsHostAvailable());
+}
+
+TEST_CASE("a real native adapter's capture result is accepted by a real "
+          "launched Host without closing the connection",
+          "[process][integration]") {
+    //  Proves the real adapter-to-host wire encoding for
+    //  IpcCaptureResultMessage and that a real Host accepts it and keeps
+    //  serving the connection, even though no live capture sink is wired in
+    //  yet on the Host side (see AdapterIpcSession::HandleFrame's own
+    //  documentation there).
+    RealHostFixture fixture(std::byte{0xF1});
+
+    fixture.Session().SendCaptureResult(AdapterCaptureWorkItem{
+        .intentKey = 1,
+        .capturedValue = {},
+        .correlationId = 0,
+        .source = CaptureSourceKind::kSample,
+        .availability = CaptureAvailability::kUnavailable,
+    });
+
+    //  The connection stays open and authenticated: a follow-up trust-admin
+    //  request still completes normally.
+    auto resultPromise =
+        std::make_shared<std::promise<TrustAdminRequestResult>>();
+    std::future<TrustAdminRequestResult> resultFuture =
+        resultPromise->get_future();
+    fixture.Session().SendTrustAdminRequest(
+        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+        [resultPromise](TrustAdminRequestResult result) {
+            resultPromise->set_value(std::move(result));
+        });
+
+    REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kCompleted);
+}
+
+TEST_CASE("a real native adapter's listen-event registration reply is "
+          "accepted by a real launched Host without closing the connection",
+          "[process][integration]") {
+    //  Proves the real adapter-to-host wire encoding for
+    //  IpcListenEventResultMessage and that a real Host accepts it and keeps
+    //  serving the connection, even though no production caller of
+    //  PrepareListenEvent exists yet on the Host side (see
+    //  AdapterIpcSession::HandleFrame's own documentation there).
+    RealHostFixture fixture(std::byte{0xF2});
+
+    fixture.Session().HandleMessage(
+        IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 1}});
+
+    //  The connection stays open and authenticated: a follow-up trust-admin
+    //  request still completes normally.
+    auto resultPromise =
+        std::make_shared<std::promise<TrustAdminRequestResult>>();
+    std::future<TrustAdminRequestResult> resultFuture =
+        resultPromise->get_future();
+    fixture.Session().SendTrustAdminRequest(
+        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+        [resultPromise](TrustAdminRequestResult result) {
+            resultPromise->set_value(std::move(result));
+        });
+
+    REQUIRE(resultFuture.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    CHECK(resultFuture.get().outcome == TrustAdminRequestOutcome::kCompleted);
+}
+
+TEST_CASE("a real native adapter's play-context-changed notification is "
+          "accepted by a real launched Host without closing the connection",
+          "[process][integration]") {
+    //  Proves the real adapter-to-host wire encoding for
+    //  IpcPlayContextChangedMessage and that a real Host accepts it and keeps
+    //  serving the connection. HandleFrame's real IPlayContextTracker wiring
+    //  (rather than only accepting the frame) is proven at the host-side
+    //  unit level in AdapterIpcSessionTests.cs, since this fixture has no
+    //  wire-level way to query the real Host's internal tracker state.
+    RealHostFixture fixture(std::byte{0xF3});
+
+    fixture.Session().SendPlayContextChanged(
+        {std::byte{0x00}, std::byte{0x11}, std::byte{0x22}, std::byte{0x33},
+         std::byte{0x44}, std::byte{0x55}, std::byte{0x66}, std::byte{0x77},
+         std::byte{0x88}, std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+         std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE}, std::byte{0xFF}});
+
+    //  The connection stays open and authenticated: a follow-up trust-admin
+    //  request still completes normally.
+    auto secondResultPromise =
+        std::make_shared<std::promise<TrustAdminRequestResult>>();
+    std::future<TrustAdminRequestResult> secondResultFuture =
+        secondResultPromise->get_future();
+    fixture.Session().SendTrustAdminRequest(
+        TrustAdminOperation::kHelp, std::nullopt, std::nullopt, std::nullopt,
+        [secondResultPromise](TrustAdminRequestResult result) {
+            secondResultPromise->set_value(std::move(result));
+        });
+
+    REQUIRE(secondResultFuture.wait_for(std::chrono::seconds(10)) ==
+            std::future_status::ready);
+    CHECK(secondResultFuture.get().outcome ==
+          TrustAdminRequestOutcome::kCompleted);
+}
+
+TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
+          "reaches a real public WebSocket client as a character_xp "
+          "Snapshot",
+          "[process][integration]") {
+    //  The end-to-end live-state proof: a synthetic native capture in this
+    //  real Adapter test process crosses the real AdapterIpcSession, the
+    //  real AdapterCaptureHandoffQueue, the real private IPC connection, a
+    //  real launched Host process, its real LiveCaptureSink/
+    //  CharacterCaptureHandler/LiveStateApplication/StatePublisher/
+    //  publication feed, and finally the real public WebSocket transport --
+    //  observed here only through a real public client, never by inspecting
+    //  Host-internal services directly. XP = 42.5 travels only because
+    //  DeterministicBaselineCaptureRouter reported it from the real
+    //  Host-driven resynchronization plan this fixture never asks for
+    //  directly: the normal active-context replay below is what earns it.
+    constexpr std::uint16_t kPublicListenerPort = 58432;
+    const std::array<std::byte, 16> playContextId = {
+        std::byte{0xF9}, std::byte{0xE8}, std::byte{0xD7}, std::byte{0xC6},
+        std::byte{0xB5}, std::byte{0xA4}, std::byte{0x93}, std::byte{0x82},
+        std::byte{0x71}, std::byte{0x60}, std::byte{0x5F}, std::byte{0x4E},
+        std::byte{0x3D}, std::byte{0x2C}, std::byte{0x1B}, std::byte{0x0A}};
+    RecordingPairingNotificationSink pairingSink;
+    RealHostLiveStateFixture fixture(std::byte{0xF9}, playContextId,
+                                     kPublicListenerPort, pairingSink);
+
+    //  The real Host's own reaction to the real native adapter's replayed
+    //  active context: a fresh resynchronization request against the
+    //  current catalog-derived plan, executed by the real
+    //  AdapterIpcSession -- not asked for by this test.
+    const std::string clientId = "f9f9f9f9-f9f9-f9f9-f9f9-f9f9f9f9f9f9";
+    MinimalPublicWebSocketClient client(kPublicListenerPort);
+    client.SendText(
+        R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+        R"("correlationId":null,"payload":{"endpoint":"client",)"
+        R"("clientId":")" +
+        clientId +
+        R"(","auth":{"method":"unpaired"}},)"
+        R"("playContextId":null,"clientId":null})");
+    std::string helloAck = client.ReceiveText();
+    REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+    std::string sessionId = ExtractJsonStringField(helloAck, "sessionId");
+    REQUIRE_FALSE(sessionId.empty());
+    std::string capabilities = client.ReceiveText();
+    REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+            std::string::npos);
+
+    //  A Restricted-tier session may not subscribe -- only Full trust may
+    //  (see PublicHelloAdmissionHandler::IsAllowedForTier) -- so this client
+    //  must complete real pairing first, exactly like the pairing E2Es
+    //  above, reusing that same real cross-language pairing/trust flow
+    //  rather than a test-only bypass. UpgradeToFullTrust upgrades this same
+    //  session's tier in place once pairing_ack resolves, so no reconnect is
+    //  needed before subscribing below.
+    client.SendText(
+        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                      std::chrono::seconds(10)));
+    auto displayed = pairingSink.Displayed();
+    REQUIRE(displayed.size() == 1);
+    const std::string code = displayed.front().first;
+    REQUIRE_FALSE(code.empty());
+    std::string pairingStatus = client.ReceiveText();
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+
+    client.SendText(
+        R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"code":")" + code +
+        R"(","displayName":"Live-State E2E PC"},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    std::string confirmOutcome = client.ReceiveText();
+    REQUIRE(confirmOutcome.find(R"("outcome":"credential_issued")") !=
+            std::string::npos);
+    std::string credential = ExtractJsonStringField(confirmOutcome, "credential");
+    REQUIRE_FALSE(credential.empty());
+
+    client.SendText(
+        R"({"messageType":"pairing_ack","messageId":"m4","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"credential":")" +
+        credential + R"("},"playContextId":null,)" + R"("clientId":")" +
+        clientId + R"("})");
+    std::string ackOutcome = client.ReceiveText();
+    REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
+
+    //  Full trust now: subscribe to exactly the one state area this test
+    //  cares about. subscription_ack accepts it immediately -- registration
+    //  (RegisteredStateAreaPolicy) is independent of whether a baseline
+    //  value is available yet -- so acceptance alone does not prove the
+    //  resynchronization baseline arrived; the state_snapshot below does.
+    client.SendText(
+        R"({"messageType":"subscribe","messageId":"m5","sessionId":")" +
+        sessionId +
+        R"(","correlationId":null,"payload":{"stateAreas":["character_xp"]},)"
+        R"("playContextId":null,"clientId":")" +
+        clientId + R"("})");
+    std::string subscriptionAck = client.ReceiveText();
+    REQUIRE(subscriptionAck.find(R"("messageType":"subscription_ack")") !=
+            std::string::npos);
+    REQUIRE(subscriptionAck.find(R"("acceptedStateAreas":["character_xp"])") !=
+            std::string::npos);
+
+    //  The Host's own pending-baseline mechanism (Constants.PendingBaselineDeadline
+    //  = 5s) answers this subscribe with the baseline state_snapshot once the
+    //  real resynchronization -- already in flight from this adapter's own
+    //  active-context replay above -- actually completes; no manual trigger.
+    //  A well-formed hello_ack/capabilities/subscription_ack may legitimately
+    //  precede it, so this waits for the specific expected message type
+    //  rather than assuming the very next frame.
+    std::string snapshot =
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15));
+
+    //  Proves this is specifically the character_xp Snapshot, not merely a
+    //  frame containing the substring "42.5" somewhere.
+    CHECK(ExtractJsonStringField(snapshot, "stateArea") == "character_xp");
+    CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
+    std::optional<double> revision = ExtractJsonNumberField(snapshot, "revision");
+    REQUIRE(revision.has_value());
+    CHECK(*revision >= 1.0);
+    //  42.5 is exactly representable in both float and double, so this
+    //  compares exactly rather than needing an epsilon.
+    std::optional<double> value = ExtractJsonNumberField(snapshot, "value");
+    REQUIRE(value.has_value());
+    CHECK(*value == 42.5);
+
+    //  The active play context this adapter replayed is the one the Host
+    //  captured the baseline under.
+    std::string expectedPlayContextId =
+        "f9e8d7c6-b5a4-9382-7160-5f4e3d2c1b0a";
+    CHECK(ExtractJsonStringField(snapshot, "playContextId") ==
+          expectedPlayContextId);
+}
+
+TEST_CASE("a synthetic native LevelChanged event reaches a real public "
+          "WebSocket client as a character_level state_event, distinct from "
+          "its own Sample baseline Snapshot",
+          "[process][integration]") {
+    //  The second half of the live-state E2E proof: this test's synthetic
+    //  native LevelChanged callback (DeterministicBaselineCaptureRouter::
+    //  EmitLevelChanged, mirroring the real
+    //  CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink) crosses
+    //  the same real AdapterCaptureHandoffQueue, private IPC connection,
+    //  launched Host process, and public WebSocket transport the XP E2E
+    //  above already proves for a Sample -- but for the Event path: Level's
+    //  baseline (source = Sample) publishes as a Snapshot, while the later
+    //  LevelChanged (source = Event) publishes as a state_event, per
+    //  CharacterCaptureHandler::ApplyLevel's explicit source-to-mode split.
+    constexpr std::uint16_t kPublicListenerPort = 58433;
+    const std::array<std::byte, 16> playContextId = {
+        std::byte{0xAB}, std::byte{0xCD}, std::byte{0xEF}, std::byte{0x01},
+        std::byte{0x23}, std::byte{0x45}, std::byte{0x67}, std::byte{0x89},
+        std::byte{0xAB}, std::byte{0xCD}, std::byte{0xEF}, std::byte{0x01},
+        std::byte{0x23}, std::byte{0x45}, std::byte{0x67}, std::byte{0x89}};
+    RecordingPairingNotificationSink pairingSink;
+    RealHostLiveStateFixture fixture(std::byte{0xAB}, playContextId,
+                                     kPublicListenerPort, pairingSink);
+
+    //  The real Host's own reaction to the real native adapter's replayed
+    //  active context: a fresh resynchronization request against the
+    //  current catalog-derived plan, executed by the real
+    //  AdapterIpcSession -- not asked for by this test. This is also what
+    //  actually calls RegisterEvent(CharacterLevelChanged) on the router.
+    const std::string clientId = "abababab-abab-abab-abab-abababababab";
+    MinimalPublicWebSocketClient client(kPublicListenerPort);
+    client.SendText(
+        R"({"messageType":"hello","messageId":"m1","sessionId":null,)"
+        R"("correlationId":null,"payload":{"endpoint":"client",)"
+        R"("clientId":")" +
+        clientId +
+        R"(","auth":{"method":"unpaired"}},)"
+        R"("playContextId":null,"clientId":null})");
+    std::string helloAck = client.ReceiveText();
+    REQUIRE(helloAck.find(R"("messageType":"hello_ack")") != std::string::npos);
+    std::string sessionId = ExtractJsonStringField(helloAck, "sessionId");
+    REQUIRE_FALSE(sessionId.empty());
+    std::string capabilities = client.ReceiveText();
+    REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
+            std::string::npos);
+
+    //  A Restricted-tier session may not subscribe -- only Full trust may --
+    //  so this client must complete real pairing first, reusing the same
+    //  real cross-language pairing/trust flow as the XP E2E above.
+    client.SendText(
+        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
+                      std::chrono::seconds(10)));
+    auto displayed = pairingSink.Displayed();
+    REQUIRE(displayed.size() == 1);
+    const std::string code = displayed.front().first;
+    REQUIRE_FALSE(code.empty());
+    std::string pairingStatus = client.ReceiveText();
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+
+    client.SendText(
+        R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"code":")" + code +
+        R"(","displayName":"Level Event E2E PC"},)" +
+        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    std::string confirmOutcome = client.ReceiveText();
+    REQUIRE(confirmOutcome.find(R"("outcome":"credential_issued")") !=
+            std::string::npos);
+    std::string credential = ExtractJsonStringField(confirmOutcome, "credential");
+    REQUIRE_FALSE(credential.empty());
+
+    client.SendText(
+        R"({"messageType":"pairing_ack","messageId":"m4","sessionId":")" +
+        sessionId + R"(","correlationId":null,"payload":{"credential":")" +
+        credential + R"("},"playContextId":null,)" + R"("clientId":")" +
+        clientId + R"("})");
+    std::string ackOutcome = client.ReceiveText();
+    REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
+
+    //  Full trust now: subscribe to exactly the one state area this test
+    //  cares about.
+    client.SendText(
+        R"({"messageType":"subscribe","messageId":"m5","sessionId":")" +
+        sessionId +
+        R"(","correlationId":null,"payload":{"stateAreas":["character_level"]},)"
+        R"("playContextId":null,"clientId":")" +
+        clientId + R"("})");
+    std::string subscriptionAck = client.ReceiveText();
+    REQUIRE(subscriptionAck.find(R"("messageType":"subscription_ack")") !=
+            std::string::npos);
+    REQUIRE(subscriptionAck.find(R"("acceptedStateAreas":["character_level"])") !=
+            std::string::npos);
+
+    //  The Host's own pending-baseline mechanism answers this subscribe with
+    //  the baseline state_snapshot once the real resynchronization --
+    //  already in flight from this adapter's own active-context replay
+    //  above -- actually completes; no manual trigger.
+    std::string snapshot =
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15));
+
+    //  Proves this is specifically the character_level baseline Snapshot
+    //  (source = Sample), not merely a frame containing "10" somewhere, and
+    //  captures its revision to compare the later Event's revision against.
+    CHECK(ExtractJsonStringField(snapshot, "stateArea") == "character_level");
+    CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
+    std::optional<double> baselineRevision =
+        ExtractJsonNumberField(snapshot, "revision");
+    REQUIRE(baselineRevision.has_value());
+    CHECK(*baselineRevision >= 1.0);
+    std::optional<double> baselineValue = ExtractJsonNumberField(snapshot, "value");
+    REQUIRE(baselineValue.has_value());
+    CHECK(*baselineValue == 10.0);
+    std::string expectedPlayContextId =
+        "abcdef01-2345-6789-abcd-ef0123456789";
+    CHECK(ExtractJsonStringField(snapshot, "playContextId") ==
+          expectedPlayContextId);
+
+    //  Registration must matter: this test's own EmitLevelChanged below must
+    //  enter through a real Host-driven RegisterEvent(CharacterLevelChanged)
+    //  call, not fire unconditionally. The baseline Snapshot above already
+    //  implies the same resynchronization round completed, but this proves
+    //  the registration explicitly rather than assuming it.
+    REQUIRE(WaitUntil([&] { return fixture.IsLevelChangedRegistered(); },
+                      std::chrono::seconds(10)));
+
+    //  Only now -- registration confirmed and the Sample baseline already
+    //  observed -- simulate the real native LevelChanged callback. This
+    //  enters only through the router/native-event boundary: the real
+    //  AdapterCaptureHandoffQueue, the real AdapterIpcSession::
+    //  SendCaptureResult, the real private IPC connection, and the real
+    //  Host's CharacterCaptureHandler Event path, exactly like the real
+    //  RE::LevelIncrease::Event sink would.
+    fixture.EmitLevelChanged(11);
+
+    //  No other subscribed area can ever produce a state_event on this
+    //  connection, so matching on messageType alone is already unambiguous
+    //  proof this is the Level Event, not another Snapshot.
+    std::string event = ReceiveUntil(client, "state_event", std::chrono::seconds(15));
+
+    CHECK(ExtractJsonStringField(event, "stateArea") == "character_level");
+    //  Unsolicited: a real Event is never a reply to a specific client
+    //  request, unlike the correlated baseline Snapshot above.
+    CHECK(ExtractJsonStringField(event, "correlationId").empty());
+    std::optional<double> baseRevision =
+        ExtractJsonNumberField(event, "baseRevision");
+    REQUIRE(baseRevision.has_value());
+    CHECK(*baseRevision == *baselineRevision);
+    std::optional<double> eventRevision = ExtractJsonNumberField(event, "revision");
+    REQUIRE(eventRevision.has_value());
+    CHECK(*eventRevision > *baselineRevision);
+    std::optional<double> eventValue = ExtractJsonNumberField(event, "value");
+    REQUIRE(eventValue.has_value());
+    CHECK(*eventValue == 11.0);
+    CHECK(ExtractJsonStringField(event, "playContextId") ==
+          expectedPlayContextId);
 }

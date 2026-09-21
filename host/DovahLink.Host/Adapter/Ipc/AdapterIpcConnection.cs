@@ -12,13 +12,23 @@ namespace DovahLink.Host.Adapter.Ipc;
 public interface IAdapterIpcConnection
 {
     /// <summary>
-    /// Runs the connection to completion: performs the handshake, requests a fresh
-    /// resynchronization baseline on success, then serves inbound frames until the peer closes, the
-    /// transport fails, or <paramref name="cancellationToken"/> is cancelled. Always notifies the
-    /// availability tracker of disconnection and disposes the underlying stream before returning.
+    /// Runs the connection to completion: performs the handshake, then serves inbound frames until
+    /// the peer closes, the transport fails, or <paramref name="cancellationToken"/> is cancelled.
+    /// The Adapter's guaranteed first play-context report decides whether the connection needs an
+    /// initial resynchronization baseline. Always notifies the availability tracker of disconnection
+    /// and disposes the underlying stream before returning.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop the connection.</param>
     Task RunAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// This connection's own generation once its handshake has committed, or <see langword="null"/>
+    /// before then -- the same value <see cref="IAdapterIpcSession.ConnectionGeneration"/> reports for
+    /// the session this connection owns. Lets a caller (for example <c>LiveStateScheduler</c>) that
+    /// only holds this connection reference stamp a request with the generation it was sent under,
+    /// without needing its own separate reference to the underlying session.
+    /// </summary>
+    long? ConnectionGeneration { get; }
 
     /// <summary>Attempts to enqueue a host-directed event-listening intent.</summary>
     /// <param name="eventKey">The host-owned event key.</param>
@@ -31,6 +41,38 @@ public interface IAdapterIpcConnection
     /// <param name="correlationId">The intent's correlation id when enqueued; otherwise zero.</param>
     /// <returns><see langword="true"/> when the intent was accepted onto the outbound queue.</returns>
     bool TrySendReadSample(uint sampleToken, out ulong correlationId);
+
+    /// <summary>
+    /// Prepares a host-directed sample-read intent without enqueueing it. The returned message can
+    /// then be admitted under the availability tracker's ordinary-sampling gate without reacquiring
+    /// the connection lifecycle lock.
+    /// </summary>
+    /// <param name="sampleToken">The host-owned sample token.</param>
+    /// <returns>The prepared intent, or <see langword="null"/> when this connection cannot prepare it.</returns>
+    IpcReadSampleMessage? PrepareReadSample(uint sampleToken);
+
+    /// <summary>
+    /// Attempts to enqueue a sample intent prepared by this connection, provided this connection's
+    /// generation still matches the expected generation. This method performs only a bounded
+    /// outbound queue admission and does not acquire the connection lifecycle lock.
+    /// </summary>
+    /// <param name="message">The intent previously prepared by this connection.</param>
+    /// <param name="expectedConnectionGeneration">The generation verified by the caller's availability gate.</param>
+    /// <param name="correlationId">The intent's correlation id when enqueued; otherwise zero.</param>
+    /// <returns><see langword="true"/> when the intent was accepted onto the outbound queue.</returns>
+    bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId);
+
+    /// <summary>
+    /// Attempts to enqueue a fresh resynchronize request on this already-authenticated connection
+    /// for a play-context transition that needs a new baseline without the connection itself having
+    /// dropped. A no-op, returning
+    /// <see langword="false"/>, before this connection's handshake has committed. A successfully
+    /// enqueued request arms a bounded <see cref="Constants.AdapterIpcResynchronizeTimeout"/> deadline
+    /// that forces the connection closed if its matching result never arrives, superseding (and so
+    /// cancelling) whatever deadline an earlier still-outstanding request had armed.
+    /// </summary>
+    /// <returns><see langword="true"/> when the request was accepted onto the outbound queue.</returns>
+    bool TrySendResynchronizeRequest();
 
     /// <summary>Attempts to enqueue a cancellation for a previously issued correlation id.</summary>
     /// <param name="correlationId">The nonzero correlation id of the request to cancel.</param>
@@ -62,6 +104,16 @@ public interface IAdapterIpcConnection
     /// <param name="timeout">The maximum time to wait for the acknowledgement.</param>
     /// <param name="cancellationToken">The token used to stop waiting early.</param>
     Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Forces this connection to end, as if the peer had disconnected or a transport fault occurred --
+    /// for a caller (for example <see cref="PlayContextResynchronizationTrigger"/>) that could not
+    /// admit an essential control frame onto the outbound queue and needs a fresh connection to
+    /// establish a clean baseline instead of leaving this one silently stuck. Idempotent, and safe to
+    /// call at any point in this connection's lifecycle, including before <see cref="RunAsync"/>
+    /// starts or after it has already completed.
+    /// </summary>
+    void RequestClose();
 }
 
 /// <inheritdoc cref="IAdapterIpcConnection"/>
@@ -91,6 +143,13 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <summary>Whether the peer ended or faulted the inbound transport.</summary>
     private bool peerDisconnected;
 
+    /// <summary>
+    /// Cancelled by <see cref="RequestClose"/> and linked into every attempt's own cancellation in
+    /// <see cref="RunAsync"/>, so a forced close is observed and torn down exactly like a transport
+    /// fault.
+    /// </summary>
+    private readonly CancellationTokenSource closeRequested = new();
+
     /// <summary>The bounded outbound frame queue drained by <see cref="WriterLoopAsync"/>.</summary>
     private readonly Channel<byte[]> outbound = Channel.CreateBounded<byte[]>(
         new BoundedChannelOptions(Constants.MaxIpcQueuedMessages) { SingleReader = true, SingleWriter = false });
@@ -112,6 +171,19 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// </summary>
     private readonly Dictionary<ulong, TrustAdminDispatch> pendingTrustAdminRequests = [];
 
+    /// <summary>Guards <see cref="resynchronizeDeadline"/> and <see cref="resynchronizeDeadlineCorrelationId"/>.</summary>
+    private readonly object resynchronizeDeadlineGate = new();
+
+    /// <summary>
+    /// The bounded deadline armed for the currently outstanding resynchronize request, if any. Linked
+    /// to <see cref="closeRequested"/> so it is abandoned harmlessly once the connection itself ends,
+    /// without needing its own explicit teardown call.
+    /// </summary>
+    private CancellationTokenSource? resynchronizeDeadline;
+
+    /// <summary>The correlation id <see cref="resynchronizeDeadline"/> is currently armed for.</summary>
+    private ulong resynchronizeDeadlineCorrelationId;
+
     /// <summary>Creates a connection over an already-accepted transport.</summary>
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="codec">The codec used to encode outbound frames and decode inbound ones.</param>
@@ -126,21 +198,18 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <inheritdoc/>
+    public long? ConnectionGeneration => session.ConnectionGeneration;
+
+    /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, closeRequested.Token);
         Task writerTask = WriterLoopAsync(ioCancellation);
         try
         {
             bool handshakeAccepted = await HandshakeAsync(ioCancellation.Token).ConfigureAwait(false);
             if (handshakeAccepted)
             {
-                bool resynchronizeQueued = outbound.Writer.TryWrite(codec.Encode(session.PrepareResynchronizeRequest()));
-                if (!resynchronizeQueued)
-                {
-                    return;
-                }
-
                 session.CommitHandshake();
                 await ReadLoopAsync(ioCancellation.Token).ConfigureAwait(false);
             }
@@ -155,6 +224,11 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             // writes once a subscriber could observe Unavailable(N): Channel<T> guarantees TryWrite
             // fails once TryComplete has run, so nothing sent during teardown can land in the channel.
             outbound.Writer.TryComplete();
+            // A still-armed deadline is otherwise never cancelled by a normal peer disconnect or an
+            // external cancellationToken (only RequestClose() cancels closeRequested directly), leaving
+            // its background wait to run for up to its own full timeout after this connection has
+            // already ended.
+            CancelResynchronizeDeadline();
             session.HandleDisconnected();
             FailAllPendingPairingDisplayAcks();
             await CancelAndDrainPendingTrustAdminRequestsAsync().ConfigureAwait(false);
@@ -221,7 +295,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <inheritdoc/>
     public bool TrySendReadSample(uint sampleToken, out ulong correlationId)
     {
-        IpcReadSampleMessage? message = session.PrepareReadSample(sampleToken);
+        IpcReadSampleMessage? message = PrepareReadSample(sampleToken);
         if (message is null)
         {
             correlationId = 0;
@@ -237,6 +311,45 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
         correlationId = message.CorrelationId;
         return true;
+    }
+
+    /// <inheritdoc/>
+    public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => session.PrepareReadSample(sampleToken);
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId)
+    {
+        if (session.ConnectionGeneration != expectedConnectionGeneration)
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        byte[] frame = codec.Encode(message);
+        if (!outbound.Writer.TryWrite(frame))
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        correlationId = message.CorrelationId;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendResynchronizeRequest()
+    {
+        if (session.ConnectionGeneration is null)
+        {
+            return false;
+        }
+
+        IpcResynchronizeRequestMessage message = session.PrepareResynchronizeRequest();
+        if (TryEnqueueResynchronizeRequest(message))
+        {
+            return true;
+        }
+        return false;
     }
 
     /// <inheritdoc/>
@@ -324,6 +437,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
     }
 
+    /// <inheritdoc/>
+    public void RequestClose() => closeRequested.Cancel();
+
     /// <summary>
     /// Best-effort enqueues a remote cancellation for a pairing-display request whose acknowledgement
     /// wait ended by timeout or caller cancellation. Never called after an explicit accepted or
@@ -340,6 +456,133 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         {
             // Best-effort: a failed send here must not change the timeout/cancellation result already
             // decided by the caller.
+        }
+    }
+
+    /// <summary>
+    /// Arms a bounded deadline for the resynchronize request just sent under
+    /// <paramref name="correlationId"/>: forces the connection closed if
+    /// <see cref="Constants.AdapterIpcResynchronizeTimeout"/> elapses without the matching result ever
+    /// arriving, so a stalled or lost game-thread dispatch on the Adapter cannot leave the Host waiting
+    /// forever. Superseding a still-outstanding previous deadline cancels it first, so only the most
+    /// recently sent resynchronize request's own timeout can ever fire.
+    /// </summary>
+    /// <param name="correlationId">The just-sent resynchronize request's correlation id.</param>
+    private void ArmResynchronizeDeadline(ulong correlationId)
+    {
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(closeRequested.Token);
+        CancellationTokenSource? superseded;
+        lock (resynchronizeDeadlineGate)
+        {
+            superseded = resynchronizeDeadline;
+            resynchronizeDeadline = deadline;
+            resynchronizeDeadlineCorrelationId = correlationId;
+        }
+
+        TryCancelDeadline(superseded);
+        _ = WaitAndCloseOnTimeoutAsync(deadline);
+    }
+
+    /// <summary>
+    /// Cancels the currently armed resynchronize deadline if it was armed for
+    /// <paramref name="correlationId"/>; a stale or foreign correlation id is a harmless no-op, since
+    /// it can never be the deadline's own outstanding request.
+    /// </summary>
+    /// <param name="correlationId">The received resynchronize result's correlation id.</param>
+    private void CancelResynchronizeDeadlineIfMatching(ulong correlationId)
+    {
+        CancellationTokenSource? deadline = null;
+        lock (resynchronizeDeadlineGate)
+        {
+            if (resynchronizeDeadline is not null && resynchronizeDeadlineCorrelationId == correlationId)
+            {
+                deadline = resynchronizeDeadline;
+                resynchronizeDeadline = null;
+            }
+        }
+
+        TryCancelDeadline(deadline);
+    }
+
+    /// <summary>
+    /// Unconditionally cancels the currently armed resynchronize deadline, if any, regardless of its
+    /// correlation id. Called as part of this connection's own teardown, since no later matching
+    /// result can ever arrive once the connection has ended.
+    /// </summary>
+    private void CancelResynchronizeDeadline()
+    {
+        CancellationTokenSource? deadline;
+        lock (resynchronizeDeadlineGate)
+        {
+            deadline = resynchronizeDeadline;
+            resynchronizeDeadline = null;
+        }
+
+        TryCancelDeadline(deadline);
+    }
+
+    /// <summary>
+    /// Best-effort cancels <paramref name="deadline"/>, containing the case where
+    /// <see cref="WaitAndCloseOnTimeoutAsync"/>'s own <c>finally</c> has already disposed this same
+    /// instance concurrently -- its underlying token is linked to <see cref="closeRequested"/>, so a
+    /// connection-ending cancellation can reach both that method's own wakeup and a caller here at
+    /// nearly the same time.
+    /// </summary>
+    /// <param name="deadline">The deadline to cancel, or <see langword="null"/> for a harmless no-op.</param>
+    private static void TryCancelDeadline(CancellationTokenSource? deadline)
+    {
+        try
+        {
+            deadline?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Waits <see cref="Constants.AdapterIpcResynchronizeTimeout"/> and forces the connection closed if
+    /// <paramref name="deadline"/> is not cancelled first -- by a matching result, a superseding
+    /// resynchronize request, or the connection itself ending.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Task.Delay(TimeSpan,CancellationToken)"/> completing does not, by itself, prove this
+    /// deadline is still the outstanding one: this continuation can be descheduled between the delay
+    /// completing and reaching <see cref="resynchronizeDeadlineGate"/>, during which a superseding
+    /// request can replace and cancel this same deadline. Ownership is therefore claimed atomically
+    /// under the lock -- only the caller that still finds itself the current deadline at that exact
+    /// moment may close the connection; closing unconditionally after the delay would let a stale
+    /// deadline still close a connection a newer request now owns.
+    /// </remarks>
+    /// <param name="deadline">The deadline armed by <see cref="ArmResynchronizeDeadline"/>.</param>
+    private async Task WaitAndCloseOnTimeoutAsync(CancellationTokenSource deadline)
+    {
+        try
+        {
+            await Task.Delay(Constants.AdapterIpcResynchronizeTimeout, deadline.Token).ConfigureAwait(false);
+            // Claims ownership under the same lock every other mutator of resynchronizeDeadline uses.
+            bool shouldClose;
+            lock (resynchronizeDeadlineGate)
+            {
+                shouldClose = ReferenceEquals(resynchronizeDeadline, deadline);
+                if (shouldClose)
+                {
+                    resynchronizeDeadline = null;
+                }
+            }
+
+            if (shouldClose)
+            {
+                RequestClose();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded, resolved, or the connection itself ended; nothing to do.
+        }
+        finally
+        {
+            deadline.Dispose();
         }
     }
 
@@ -437,8 +680,23 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 TryCancelPendingTrustAdminRequest(trustAdminCancel.CorrelationId);
             }
 
+            if (decodeResult.Message is IpcResynchronizeResultMessage resynchronizeResult)
+            {
+                // Falls through to the generic handling below unchanged: this only disarms the
+                // deadline, and the session's own HandleFrame still needs to run its stale/foreign
+                // correlation-id check and record the outcome.
+                CancelResynchronizeDeadlineIfMatching(resynchronizeResult.CorrelationId);
+            }
+
             AdapterIpcOutcome outcome = session.HandleFrame(decodeResult.Message!);
             EnqueueOutcome(outcome);
+            IpcResynchronizeRequestMessage? initialResynchronizeRequest = session.TryPrepareInitialResynchronizeRequest();
+            if (initialResynchronizeRequest is not null && !TryEnqueueResynchronizeRequest(initialResynchronizeRequest))
+            {
+                RequestClose();
+                return;
+            }
+
             if (outcome.ShouldClose)
             {
                 return;
@@ -757,6 +1015,34 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         {
             outbound.Writer.TryWrite(codec.Encode(message));
         }
+    }
+
+    /// <summary>
+    /// Arms this request's bounded deadline and then enqueues it, withdrawing that same deadline and
+    /// the pending correlation when the outbound queue cannot admit the request.
+    /// </summary>
+    /// <remarks>
+    /// The deadline must be armed before the request becomes observable to <see cref="WriterLoopAsync"/>:
+    /// arming it afterward would let an adapter that answers faster than this method returns have its
+    /// result processed by <see cref="ReadLoopAsync"/> before <see cref="resynchronizeDeadline"/> even
+    /// exists to cancel, leaving a stale deadline armed for an already-completed request.
+    /// </remarks>
+    /// <param name="request">The prepared resynchronization request.</param>
+    /// <returns><see langword="true"/> when the request was queued.</returns>
+    private bool TryEnqueueResynchronizeRequest(IpcResynchronizeRequestMessage request)
+    {
+        ArmResynchronizeDeadline(request.CorrelationId);
+
+        if (!outbound.Writer.TryWrite(codec.Encode(request)))
+        {
+            // Correlation-matched, not unconditional: a newer request may already have superseded and
+            // now owns the deadline slot, and this cleanup must never cancel that one.
+            CancelResynchronizeDeadlineIfMatching(request.CorrelationId);
+            session.CancelPendingResynchronize(request.CorrelationId);
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>

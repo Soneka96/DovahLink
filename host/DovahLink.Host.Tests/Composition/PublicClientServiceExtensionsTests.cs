@@ -37,7 +37,9 @@ public class PublicClientServiceExtensionsTests
         using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
 
         Assert.NotNull(provider.GetRequiredService<IRegisteredStateAreaPolicy>());
+        Assert.NotNull(provider.GetRequiredService<LiveStateCatalog>());
         Assert.NotNull(provider.GetRequiredService<IStatePublicationFeed>());
+        Assert.NotNull(provider.GetRequiredService<IStatePublicationSink>());
         Assert.NotNull(provider.GetRequiredService<IPublicWebSocketTransportDiagnostics>());
         Assert.NotNull(provider.GetRequiredService<ILocalConnectionTokenAuthenticator>());
         Assert.NotNull(provider.GetRequiredService<ITrustedCredentialFailureThrottle>());
@@ -45,6 +47,32 @@ public class PublicClientServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IPublicConnectionFactory>());
         Assert.NotNull(provider.GetRequiredService<PublicListenerOptions>());
         Assert.NotNull(provider.GetRequiredService<IPublicWebSocketListener>());
+    }
+
+    /// <summary>Verifies that every state area the default live-state catalog defines is registered at composition.</summary>
+    [Fact]
+    public async Task AddPublicClientServices_RegistersEveryDefaultCatalogStateArea()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+        var registeredAreaPolicy = provider.GetRequiredService<IRegisteredStateAreaPolicy>();
+
+        foreach (StateAreaDefinition area in LiveStateCatalog.Default.StateAreas)
+        {
+            Assert.True(registeredAreaPolicy.IsRegistered(area.Id));
+        }
+
+        Assert.Equal(LiveStateCatalog.Default.StateAreas.Count, registeredAreaPolicy.Count);
+    }
+
+    /// <summary>Verifies that IStatePublicationFeed and IStatePublicationSink resolve to the same shared instance, so a publish reaches the same feed subscribers read from.</summary>
+    [Fact]
+    public async Task AddPublicClientServices_StatePublicationFeedAndSink_ResolveToSameInstance()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+
+        Assert.Same(provider.GetRequiredService<IStatePublicationFeed>(), provider.GetRequiredService<IStatePublicationSink>());
     }
 
     /// <summary>
@@ -127,7 +155,10 @@ public class PublicClientServiceExtensionsTests
         IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec)).Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
+        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPlayContextChangedMessage(
+            0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
+        var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
+        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
 
         IPublicWebSocketListener listener = provider.GetRequiredService<IPublicWebSocketListener>();
         Task publicRunTask = listener.RunAsync(shutdown.Token);
@@ -180,7 +211,9 @@ public class PublicClientServiceExtensionsTests
         services.AddAdapterIpcServices(listenerPort: 0, ownerLifetimeId);
         services.AddPublicClientServices(publicListenerPort);
 
-        return services.BuildServiceProvider();
+        ServiceProvider provider = services.BuildServiceProvider();
+        _ = provider.GetRequiredService<IPlayContextResynchronizationTrigger>();
+        return provider;
     }
 
     /// <summary>Connects a plain client socket to the listener's bound loopback port, standing in for the adapter.</summary>

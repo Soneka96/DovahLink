@@ -74,9 +74,15 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   as retained engineering evidence, but the Bridge implementation path they describe was not
   continued once Stage 3A completed. Stage 4 continues exclusively on Host + Adapter, per that
   document's "Host/Adapter continuation (post-3A)" section.
-- **Next Host/Adapter slice:** "Host-owned state, publication, and bounded delivery" is complete;
-  that document's "Host/Adapter continuation (post-3A)" section names "Real capture and host
-  integration" as the active next Stage 4 implementation work.
+- **Host/Adapter continuation status:** both "Host-owned state, publication, and bounded delivery"
+  and "Real capture and host integration" are implementation-complete on Host + Adapter. Real
+  native capture (health/magicka/stamina/XP/level baseline, plus the level-up native event) is
+  wired end to end, and a deterministic automated process-level test proves the full path —
+  synthetic native capture through the real Adapter, private IPC, a real launched Host, and a real
+  public WebSocket client — for both a `character_xp` Snapshot and a `character_level` Event. That
+  automated proof is not a substitute for live Skyrim runtime validation, which the maintainer has
+  not yet performed; Stage 4 remains Active, not Complete, pending that validation and any
+  remaining phase-close/version-audit requirement (see Phase 4.5).
 
 Activating the replacement in production and removing `bridge/` were governed by
 [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md),
@@ -93,7 +99,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 2 | Complete | [Stage 2 — Bridge Identity and Authoritative State](roadmap/02-bridge-identity-and-authoritative-state.md) |
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
-| 4 | Active. Phase 4.1 and the Host-owned state/publication/bounded-delivery continuation are complete; Phase 4.2 (Bridge live publication and bounded transport) and the remaining Bridge-authored phases are permanently superseded, not next. Stage 4 continues on Host + Adapter. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
+| 4 | Active. Phase 4.1 and both Host/Adapter continuation slices (state/publication/bounded-delivery, and real capture and host integration) are implementation-complete, with deterministic automated process-level E2E proof; live Skyrim runtime validation and any remaining phase-close/version-audit work are outstanding. Phase 4.2 (Bridge live publication and bounded transport) and the remaining Bridge-authored phases are permanently superseded, not next. Stage 4 continues on Host + Adapter. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
 | 5 | Planned. The package scaffold, protocol/transport layer, and persistence boundary are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |

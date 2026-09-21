@@ -1,0 +1,444 @@
+using DovahLink.Host.Adapter.Ipc;
+using DovahLink.Host.Identity;
+using DovahLink.Host.State;
+
+namespace DovahLink.Host.Adapter;
+
+/// <summary>
+/// Tracks one in-progress resynchronization transaction -- keyed by the exact
+/// (<see cref="AdapterInstanceId"/>, connection generation, <see cref="PlayContextId"/>,
+/// play-context generation) tuple it was requested under -- and completes it on
+/// <see cref="IAdapterAvailabilityTracker"/> only once both halves have landed: every required
+/// baseline area accepted (not merely attempted, per <see cref="StateApplyResult.Accepted"/>) and
+/// the adapter's own wire-level plan admitted (every requested event registration succeeded and
+/// every requested sample token was recognized). A strictly newer tuple always replaces an older
+/// tracked transaction outright, discarding its partial progress; a call for an older tuple than the
+/// one currently tracked is ignored rather than resurrecting stale progress. "Newer" is decided by
+/// connection generation first, then play-context generation -- both monotonically increasing for
+/// the host process's own lifetime, so this ordering alone is enough without this type separately
+/// consulting the live trackers.
+/// </summary>
+/// <remarks>
+/// The adapter's own wire-level result arriving accepted only satisfies the per-request
+/// <c>AdapterIpcResynchronizeTimeout</c> deadline that <c>AdapterIpcConnection</c> arms while
+/// waiting for that result -- it does not mean the transaction this type tracks is complete, since
+/// every required baseline area might still be outstanding. This type arms its own, separate
+/// per-transaction watchdog for exactly that gap: bounded by
+/// <see cref="Constants.ResynchronizationTransactionTimeout"/>, tied to the same tracked tuple this
+/// type already keys everything else on, and requesting <see cref="IAdapterContinuityRecovery"/>'s
+/// generation-checked recovery if the transaction is not genuinely complete before it elapses. A
+/// newer tuple replacing the tracked transaction, or the tracked transaction actually completing,
+/// both disarm the watchdog the same way they already discard or consume its other per-transaction
+/// state.
+/// </remarks>
+public interface IResynchronizationTransactionCoordinator
+{
+    /// <summary>
+    /// Returns the resynchronization token to apply one baseline area's capture under, claiming it
+    /// once for the tracked transaction and retaining it for every later call under the same tuple.
+    /// </summary>
+    /// <param name="instanceId">The adapter instance the baseline was captured from.</param>
+    /// <param name="connectionGeneration">The adapter connection generation the baseline was captured under.</param>
+    /// <param name="playContextId">The play context that was current when the baseline was captured.</param>
+    /// <param name="playContextGeneration">The play-context transition generation that was current when the baseline was captured.</param>
+    /// <returns>The token to apply the baseline with, or <see langword="null"/> for a stale tuple or when no token could be claimed.</returns>
+    IAdapterResynchronizationToken? AcquireToken(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration);
+
+    /// <summary>
+    /// Records that <paramref name="areaId"/>'s baseline was accepted -- not merely attempted -- for
+    /// the given tuple, completing the transaction if this was the last piece it needed.
+    /// </summary>
+    /// <param name="areaId">The state area whose baseline was accepted.</param>
+    /// <param name="instanceId">The adapter instance the baseline was captured from.</param>
+    /// <param name="connectionGeneration">The adapter connection generation the baseline was captured under.</param>
+    /// <param name="playContextId">The play context that was current when the baseline was captured.</param>
+    /// <param name="playContextGeneration">The play-context transition generation that was current when the baseline was captured.</param>
+    void RecordAreaAccepted(StateAreaId areaId, AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration);
+
+    /// <summary>
+    /// Records the adapter's own wire-level admission result for the given tuple's resynchronize
+    /// request, completing the transaction if this was the last piece it needed.
+    /// </summary>
+    /// <param name="accepted">
+    /// Whether the adapter's resynchronize result reported every requested event registration
+    /// succeeded and every requested sample token was recognized.
+    /// </param>
+    /// <param name="instanceId">The adapter instance the request was sent to.</param>
+    /// <param name="connectionGeneration">The adapter connection generation the request was sent under.</param>
+    /// <param name="playContextId">The play context that was current when the request was sent.</param>
+    /// <param name="playContextGeneration">The play-context transition generation that was current when the request was sent.</param>
+    void RecordAdapterPlanAccepted(bool accepted, AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration);
+
+    /// <summary>
+    /// Starts tracking the given tuple as the current transaction if it is strictly newer than
+    /// whatever this coordinator currently tracks, immediately superseding and discarding any older
+    /// transaction's progress and disarming its watchdog -- the same replacement
+    /// <see cref="AcquireToken"/> already performs, without claiming a token. Lets a caller
+    /// (<c>PlayContextResynchronizationTrigger</c>) that has just sent a fresh resynchronize request
+    /// invalidate the previous transaction the moment the request goes out, instead of only once the
+    /// new transaction's own first baseline or result arrives -- closing the window in which the
+    /// previous transaction's watchdog could otherwise still expire and recover the connection the
+    /// new transaction now owns. A no-op for a tuple that is not strictly newer than the one already
+    /// tracked.
+    /// </summary>
+    /// <param name="instanceId">The adapter instance the new resynchronize request was sent to.</param>
+    /// <param name="connectionGeneration">The adapter connection generation the request was sent under.</param>
+    /// <param name="playContextId">The play context the request was sent for.</param>
+    /// <param name="playContextGeneration">The play-context transition generation the request was sent under.</param>
+    void BeginTransaction(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration);
+}
+
+/// <inheritdoc cref="IResynchronizationTransactionCoordinator"/>
+public sealed class ResynchronizationTransactionCoordinator : IResynchronizationTransactionCoordinator
+{
+    /// <summary>The tracker this coordinator claims tokens from and completes resynchronization through.</summary>
+    private readonly IAdapterAvailabilityTracker adapterAvailabilityTracker;
+
+    /// <summary>Requests generation-checked recovery when the tracked transaction's watchdog expires.</summary>
+    private readonly IAdapterContinuityRecovery continuityRecovery;
+
+    /// <summary>How long a tracked transaction may take to genuinely complete before its watchdog requests recovery.</summary>
+    private readonly TimeSpan transactionTimeout;
+
+    /// <summary>Every state area a complete baseline transaction must accept, derived once from the catalog's BaselineSample units.</summary>
+    private readonly IReadOnlySet<StateAreaId> requiredAreas;
+
+    /// <summary>Guards every field below against concurrent access.</summary>
+    private readonly object gate = new();
+
+    /// <summary>Whether a transaction is currently tracked at all.</summary>
+    private bool hasTransaction;
+
+    /// <summary>The tracked transaction's adapter instance.</summary>
+    private AdapterInstanceId transactionInstanceId;
+
+    /// <summary>The tracked transaction's connection generation.</summary>
+    private long transactionConnectionGeneration;
+
+    /// <summary>The tracked transaction's play context.</summary>
+    private PlayContextId transactionPlayContextId;
+
+    /// <summary>The tracked transaction's play-context generation.</summary>
+    private long transactionPlayContextGeneration;
+
+    /// <summary>The token claimed for the tracked transaction, if any yet.</summary>
+    private IAdapterResynchronizationToken? transactionToken;
+
+    /// <summary>The state areas accepted so far for the tracked transaction.</summary>
+    private readonly HashSet<StateAreaId> transactionAcceptedAreas = [];
+
+    /// <summary>The adapter's own wire-level plan-acceptance result for the tracked transaction, if reported yet.</summary>
+    private bool? transactionAdapterPlanAccepted;
+
+    /// <summary>Whether the tracked transaction has already been completed, so it is never re-notified.</summary>
+    private bool transactionCompleted;
+
+    /// <summary>The bounded watchdog armed for the tracked transaction, if it has not yet completed or been superseded.</summary>
+    private CancellationTokenSource? transactionWatchdog;
+
+    /// <summary>Creates a coordinator whose required-area set is derived from <paramref name="catalog"/>.</summary>
+    /// <param name="catalog">The catalog this coordinator derives its required baseline areas from.</param>
+    /// <param name="adapterAvailabilityTracker">The tracker this coordinator claims tokens from and completes resynchronization through.</param>
+    /// <param name="continuityRecovery">Requests generation-checked recovery when a tracked transaction's watchdog expires.</param>
+    /// <param name="transactionTimeout">How long a tracked transaction may take to genuinely complete before its watchdog requests recovery.</param>
+    public ResynchronizationTransactionCoordinator(
+        LiveStateCatalog catalog,
+        IAdapterAvailabilityTracker adapterAvailabilityTracker,
+        IAdapterContinuityRecovery continuityRecovery,
+        TimeSpan transactionTimeout)
+    {
+        this.adapterAvailabilityTracker = adapterAvailabilityTracker;
+        this.continuityRecovery = continuityRecovery;
+        this.transactionTimeout = transactionTimeout;
+        requiredAreas = catalog.CaptureUnits
+            .Where(unit => unit.SynchronizationRole == SynchronizationRole.BaselineSample)
+            .SelectMany(unit => unit.StateAreas)
+            .ToHashSet();
+    }
+
+    /// <inheritdoc/>
+    public IAdapterResynchronizationToken? AcquireToken(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration)
+    {
+        CancellationTokenSource? armedWatchdog;
+        CancellationTokenSource? supersededWatchdog;
+        long trackedConnectionGeneration;
+        IAdapterResynchronizationToken? result;
+        lock (gate)
+        {
+            if (!EnsureTrackingLocked(instanceId, connectionGeneration, playContextId, playContextGeneration, out armedWatchdog, out supersededWatchdog))
+            {
+                return null;
+            }
+
+            trackedConnectionGeneration = transactionConnectionGeneration;
+            transactionToken ??= adapterAvailabilityTracker.TryClaimResynchronizationToken();
+            result = transactionToken;
+        }
+
+        ActivateWatchdog(armedWatchdog, supersededWatchdog, trackedConnectionGeneration);
+        return result;
+    }
+
+    /// <inheritdoc/>
+    public void RecordAreaAccepted(StateAreaId areaId, AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration)
+    {
+        bool shouldComplete;
+        AdapterInstanceId completingInstanceId;
+        long completingConnectionGeneration;
+        IAdapterResynchronizationToken? completingToken;
+        CancellationTokenSource? armedWatchdog;
+        CancellationTokenSource? supersededWatchdog;
+        CancellationTokenSource? completedWatchdog;
+        long trackedConnectionGeneration;
+        lock (gate)
+        {
+            if (!EnsureTrackingLocked(instanceId, connectionGeneration, playContextId, playContextGeneration, out armedWatchdog, out supersededWatchdog))
+            {
+                return;
+            }
+
+            trackedConnectionGeneration = transactionConnectionGeneration;
+            transactionAcceptedAreas.Add(areaId);
+            shouldComplete = TryMarkCompletedLocked(out completingInstanceId, out completingConnectionGeneration, out completingToken, out completedWatchdog);
+        }
+
+        ActivateWatchdog(armedWatchdog, supersededWatchdog, trackedConnectionGeneration);
+        TryCancelWatchdog(completedWatchdog);
+
+        if (shouldComplete && completingToken is not null)
+        {
+            adapterAvailabilityTracker.NotifyResynchronized(completingInstanceId, completingConnectionGeneration, completingToken);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RecordAdapterPlanAccepted(bool accepted, AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration)
+    {
+        bool shouldComplete;
+        AdapterInstanceId completingInstanceId;
+        long completingConnectionGeneration;
+        IAdapterResynchronizationToken? completingToken;
+        CancellationTokenSource? armedWatchdog;
+        CancellationTokenSource? supersededWatchdog;
+        CancellationTokenSource? completedWatchdog;
+        long trackedConnectionGeneration;
+        lock (gate)
+        {
+            if (!EnsureTrackingLocked(instanceId, connectionGeneration, playContextId, playContextGeneration, out armedWatchdog, out supersededWatchdog))
+            {
+                return;
+            }
+
+            trackedConnectionGeneration = transactionConnectionGeneration;
+            transactionAdapterPlanAccepted = accepted;
+            shouldComplete = TryMarkCompletedLocked(out completingInstanceId, out completingConnectionGeneration, out completingToken, out completedWatchdog);
+        }
+
+        ActivateWatchdog(armedWatchdog, supersededWatchdog, trackedConnectionGeneration);
+        TryCancelWatchdog(completedWatchdog);
+
+        if (shouldComplete && completingToken is not null)
+        {
+            adapterAvailabilityTracker.NotifyResynchronized(completingInstanceId, completingConnectionGeneration, completingToken);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void BeginTransaction(AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration)
+    {
+        CancellationTokenSource? armedWatchdog;
+        CancellationTokenSource? supersededWatchdog;
+        long trackedConnectionGeneration;
+        lock (gate)
+        {
+            EnsureTrackingLocked(instanceId, connectionGeneration, playContextId, playContextGeneration, out armedWatchdog, out supersededWatchdog);
+            trackedConnectionGeneration = transactionConnectionGeneration;
+        }
+
+        ActivateWatchdog(armedWatchdog, supersededWatchdog, trackedConnectionGeneration);
+    }
+
+    /// <summary>
+    /// Matches the given tuple against the currently tracked transaction, replacing it with a fresh
+    /// one when the tuple is strictly newer (by connection generation, then play-context generation),
+    /// and rejecting a call for a tuple older than the one already tracked. Arms a fresh watchdog for
+    /// a newly tracked transaction and reports the watchdog it superseded, if any; both are
+    /// <see langword="null"/> when the caller's tuple was already the tracked transaction (no
+    /// re-arm) or was rejected as stale. Must be called with <see cref="gate"/> already held.
+    /// </summary>
+    /// <param name="instanceId">The adapter instance the caller's tuple was captured from.</param>
+    /// <param name="connectionGeneration">The adapter connection generation the caller's tuple was captured under.</param>
+    /// <param name="playContextId">The play context the caller's tuple was captured under.</param>
+    /// <param name="playContextGeneration">The play-context transition generation the caller's tuple was captured under.</param>
+    /// <param name="armedWatchdog">The watchdog just armed for a newly tracked transaction, or <see langword="null"/>.</param>
+    /// <param name="supersededWatchdog">The watchdog the newly armed one replaced, or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when the caller's tuple is (now) the tracked transaction; <see langword="false"/> for a stale tuple.</returns>
+    private bool EnsureTrackingLocked(
+        AdapterInstanceId instanceId, long connectionGeneration, PlayContextId playContextId, long playContextGeneration,
+        out CancellationTokenSource? armedWatchdog, out CancellationTokenSource? supersededWatchdog)
+    {
+        armedWatchdog = null;
+        supersededWatchdog = null;
+
+        if (hasTransaction
+            && transactionInstanceId == instanceId
+            && transactionConnectionGeneration == connectionGeneration
+            && transactionPlayContextId == playContextId
+            && transactionPlayContextGeneration == playContextGeneration)
+        {
+            return true;
+        }
+
+        bool isNewer = !hasTransaction
+            || connectionGeneration > transactionConnectionGeneration
+            || (connectionGeneration == transactionConnectionGeneration && playContextGeneration > transactionPlayContextGeneration);
+        if (!isNewer)
+        {
+            return false;
+        }
+
+        hasTransaction = true;
+        transactionInstanceId = instanceId;
+        transactionConnectionGeneration = connectionGeneration;
+        transactionPlayContextId = playContextId;
+        transactionPlayContextGeneration = playContextGeneration;
+        transactionToken = null;
+        transactionAcceptedAreas.Clear();
+        transactionAdapterPlanAccepted = null;
+        transactionCompleted = false;
+
+        supersededWatchdog = transactionWatchdog;
+        armedWatchdog = new CancellationTokenSource();
+        transactionWatchdog = armedWatchdog;
+        return true;
+    }
+
+    /// <summary>
+    /// Checks whether the tracked transaction is now fully accepted -- every required area accepted
+    /// and the adapter's own plan admitted -- and marks it completed exactly once if so, so a
+    /// redundant later call can never re-fire completion. Disarms the tracked transaction's own
+    /// watchdog the moment it completes. Must be called with <see cref="gate"/> already held.
+    /// </summary>
+    /// <param name="instanceId">The tracked transaction's adapter instance.</param>
+    /// <param name="connectionGeneration">The tracked transaction's connection generation.</param>
+    /// <param name="token">
+    /// The token completion must be reported under, claimed here if <see cref="requiredAreas"/> is
+    /// empty and no area ever claimed one through <see cref="AcquireToken"/>; <see langword="null"/>
+    /// when this call does not complete the transaction, or when completion is otherwise satisfied
+    /// but no token could be claimed.
+    /// </param>
+    /// <param name="completedWatchdog">
+    /// The watchdog disarmed by this call completing the transaction, or <see langword="null"/> when
+    /// this call does not complete it.
+    /// </param>
+    /// <returns><see langword="true"/> exactly once, the call that completes the transaction.</returns>
+    private bool TryMarkCompletedLocked(
+        out AdapterInstanceId instanceId, out long connectionGeneration, out IAdapterResynchronizationToken? token,
+        out CancellationTokenSource? completedWatchdog)
+    {
+        instanceId = transactionInstanceId;
+        connectionGeneration = transactionConnectionGeneration;
+        token = null;
+        completedWatchdog = null;
+        if (transactionCompleted || transactionAdapterPlanAccepted != true || !requiredAreas.IsSubsetOf(transactionAcceptedAreas))
+        {
+            return false;
+        }
+
+        transactionToken ??= adapterAvailabilityTracker.TryClaimResynchronizationToken();
+        token = transactionToken;
+        if (token is null)
+        {
+            return false;
+        }
+
+        transactionCompleted = true;
+        completedWatchdog = transactionWatchdog;
+        transactionWatchdog = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Starts the just-armed transaction watchdog's bounded wait, if any, and cancels whichever
+    /// watchdog it superseded, if any -- both done outside <see cref="gate"/> so cancelling a
+    /// superseded watchdog's continuation, or scheduling the new wait, never runs while this
+    /// coordinator's own lock is held.
+    /// </summary>
+    /// <param name="armedWatchdog">The watchdog just armed for a newly tracked transaction, or <see langword="null"/> when no new transaction was tracked by this call.</param>
+    /// <param name="supersededWatchdog">The watchdog <paramref name="armedWatchdog"/> replaced, or <see langword="null"/>.</param>
+    /// <param name="connectionGeneration">The tracked transaction's connection generation, reported to <see cref="continuityRecovery"/> if the watchdog fires.</param>
+    private void ActivateWatchdog(CancellationTokenSource? armedWatchdog, CancellationTokenSource? supersededWatchdog, long connectionGeneration)
+    {
+        TryCancelWatchdog(supersededWatchdog);
+        if (armedWatchdog is not null)
+        {
+            _ = WaitAndRecoverOnTimeoutAsync(armedWatchdog, connectionGeneration);
+        }
+    }
+
+    /// <summary>
+    /// Waits <see cref="transactionTimeout"/> and requests generation-checked recovery of
+    /// <paramref name="connectionGeneration"/> unless <paramref name="watchdog"/> is cancelled first
+    /// -- by the transaction it was armed for actually completing, or a newer transaction replacing
+    /// it. Reaching the recovery request therefore deterministically means neither happened, the
+    /// same reasoning <see cref="AdapterIpcConnection"/>'s own per-request resynchronize deadline
+    /// relies on.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Task.Delay(TimeSpan,CancellationToken)"/> completing does not, by itself, prove this
+    /// watchdog is still current: this continuation can be descheduled between the delay completing
+    /// and reaching <see cref="gate"/>, during which a newer transaction can supersede and cancel this
+    /// same watchdog. Ownership is therefore claimed atomically under the lock -- only the caller that
+    /// still finds itself the current watchdog at that exact moment may recover; recovering
+    /// unconditionally after the delay would let a stale watchdog still close a newer transaction's
+    /// own valid connection.
+    /// </remarks>
+    /// <param name="watchdog">The watchdog armed for this exact transaction.</param>
+    /// <param name="connectionGeneration">The transaction's connection generation.</param>
+    private async Task WaitAndRecoverOnTimeoutAsync(CancellationTokenSource watchdog, long connectionGeneration)
+    {
+        try
+        {
+            await Task.Delay(transactionTimeout, watchdog.Token).ConfigureAwait(false);
+            // Claims ownership under the same lock every other mutator of transactionWatchdog uses.
+            bool shouldRecover;
+            lock (gate)
+            {
+                shouldRecover = ReferenceEquals(transactionWatchdog, watchdog);
+                if (shouldRecover)
+                {
+                    transactionWatchdog = null;
+                }
+            }
+
+            if (shouldRecover)
+            {
+                continuityRecovery.RequestRecovery(connectionGeneration);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Completed or superseded; nothing to do.
+        }
+        finally
+        {
+            watchdog.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Best-effort cancels <paramref name="watchdog"/>, containing a benign dispose race with
+    /// <see cref="WaitAndRecoverOnTimeoutAsync"/>'s own <c>finally</c>.
+    /// </summary>
+    /// <param name="watchdog">The watchdog to cancel, or <see langword="null"/> for a harmless no-op.</param>
+    private static void TryCancelWatchdog(CancellationTokenSource? watchdog)
+    {
+        try
+        {
+            watchdog?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+}

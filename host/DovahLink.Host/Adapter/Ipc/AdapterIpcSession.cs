@@ -1,15 +1,18 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
+using DovahLink.Host.State;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
 /// <summary>
 /// The per-connection private IPC protocol decisions for one adapter connection attempt: handshake
 /// acceptance, resynchronization request/response correlation, host-directed capture-intent
-/// preparation, and disconnect notification. Holds no transport state of its own; a new instance is
-/// created for each accepted connection and consumed by that connection's <see cref="IAdapterIpcConnection"/>.
+/// preparation, and disconnect notification. Every prepared resynchronization request carries the
+/// same Host-catalog plan. Holds no transport state of its own; a new instance is created for each
+/// accepted connection and consumed by that connection's <see cref="IAdapterIpcConnection"/>.
 /// </summary>
 public interface IAdapterIpcSession
 {
@@ -26,8 +29,27 @@ public interface IAdapterIpcSession
     /// </summary>
     void CommitHandshake();
 
-    /// <summary>Builds the resynchronization request to send immediately after a successful handshake.</summary>
+    /// <summary>Builds a resynchronization request for the current connection and play context.</summary>
     IpcResynchronizeRequestMessage PrepareResynchronizeRequest();
+
+    /// <summary>
+    /// Takes the one initial resynchronization request required by the first active play-context
+    /// report on this connection, when the tracker treated that report as an idempotent replay.
+    /// Returns <see langword="null"/> for an inactive first report, a first report that already
+    /// raised the normal transition trigger, or any later report.
+    /// </summary>
+    /// <returns>The prepared initial request, or <see langword="null"/>.</returns>
+    IpcResynchronizeRequestMessage? TryPrepareInitialResynchronizeRequest();
+
+    /// <summary>
+    /// Withdraws a previously prepared resynchronization request that could not actually be sent (for
+    /// example a full outbound queue), so a stray later result carrying the same correlation id is
+    /// never mistaken for a reply to a request the adapter was never asked to answer. A no-op when
+    /// <paramref name="correlationId"/> no longer matches the currently pending request -- for
+    /// example because a later request has already replaced it.
+    /// </summary>
+    /// <param name="correlationId">The correlation id of the request to withdraw.</param>
+    void CancelPendingResynchronize(ulong correlationId);
 
     /// <summary>Processes one message received after a successful handshake and decides how to respond.</summary>
     /// <param name="message">The decoded message.</param>
@@ -119,6 +141,18 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The reusable authority this session forwards adapter-originated trust-administration requests to.</summary>
     private readonly IAdapterTrustAdminRequestHandler trustAdminRequestHandler;
 
+    /// <summary>The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</summary>
+    private readonly IPlayContextTracker playContextTracker;
+
+    /// <summary>The domain-facing sink this session routes decoded capture results into.</summary>
+    private readonly ILiveCaptureSink liveCaptureSink;
+
+    /// <summary>The coordinator this session reports its own resynchronize request's wire-level admission result to.</summary>
+    private readonly IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator;
+
+    /// <summary>The Host-catalog plan shared by every resynchronization request this session prepares.</summary>
+    private readonly ResynchronizationPlan resynchronizationPlan;
+
     /// <summary>
     /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
     /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
@@ -146,6 +180,12 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The correlation id of the resynchronization request currently awaiting a result, if any.</summary>
     private ulong? pendingResynchronizeCorrelationId;
 
+    /// <summary>Whether this connection has received its first Adapter play-context state report.</summary>
+    private bool initialPlayContextStateReported;
+
+    /// <summary>Whether the first active replay needs a request because it was tracker-idempotent.</summary>
+    private bool initialResynchronizePending;
+
     /// <summary>The most recently issued outbound correlation id.</summary>
     private long nextCorrelationId;
 
@@ -162,6 +202,10 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <param name="lifecycle">The sole gateway for this session's connection-lifecycle mutations.</param>
     /// <param name="peerProofVerifier">The verifier this session checks a connecting adapter's peer-ownership proof against.</param>
     /// <param name="trustAdminRequestHandler">The reusable authority this session forwards adapter-originated trust-administration requests to.</param>
+    /// <param name="playContextTracker">The Host-lifetime tracker this session notifies of adapter-reported play-context transitions.</param>
+    /// <param name="liveCaptureSink">The domain-facing sink this session routes decoded capture results into.</param>
+    /// <param name="resynchronizationTransactionCoordinator">The coordinator this session reports its own resynchronize request's wire-level admission result to.</param>
+    /// <param name="resynchronizationPlan">The bounded native intent plan derived from the Host's live-state catalog.</param>
     /// <param name="expectedOwnerLifetimeId">
     /// The owning Skyrim process's lifetime identity this host process was launched with, or
     /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
@@ -171,11 +215,19 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         IAdapterConnectionLifecycle lifecycle,
         IAdapterPeerProofVerifier peerProofVerifier,
         IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
+        IPlayContextTracker playContextTracker,
+        ILiveCaptureSink liveCaptureSink,
+        IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
+        ResynchronizationPlan resynchronizationPlan,
         OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
         this.lifecycle = lifecycle;
         this.peerProofVerifier = peerProofVerifier;
         this.trustAdminRequestHandler = trustAdminRequestHandler;
+        this.playContextTracker = playContextTracker;
+        this.liveCaptureSink = liveCaptureSink;
+        this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
+        this.resynchronizationPlan = resynchronizationPlan;
         this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
@@ -225,7 +277,31 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     {
         ulong correlationId = NextCorrelationId();
         pendingResynchronizeCorrelationId = correlationId;
-        return new IpcResynchronizeRequestMessage(correlationId);
+        return new IpcResynchronizeRequestMessage(
+            correlationId,
+            resynchronizationPlan.PersistentEventKeys,
+            resynchronizationPlan.BaselineSampleTokens);
+    }
+
+    /// <inheritdoc/>
+    public IpcResynchronizeRequestMessage? TryPrepareInitialResynchronizeRequest()
+    {
+        if (!initialResynchronizePending)
+        {
+            return null;
+        }
+
+        initialResynchronizePending = false;
+        return PrepareResynchronizeRequest();
+    }
+
+    /// <inheritdoc/>
+    public void CancelPendingResynchronize(ulong correlationId)
+    {
+        if (pendingResynchronizeCorrelationId == correlationId)
+        {
+            pendingResynchronizeCorrelationId = null;
+        }
     }
 
     /// <inheritdoc/>
@@ -234,8 +310,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         switch (message)
         {
             case IpcResynchronizeResultMessage resynchronizeResult:
-                HandleResynchronizeResult(resynchronizeResult);
-                return AdapterIpcOutcome.None;
+                return HandleResynchronizeResult(resynchronizeResult);
 
             case IpcCloseMessage:
                 return AdapterIpcOutcome.Close;
@@ -244,6 +319,44 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
                 return AdapterIpcOutcome.None;
 
             case IpcCancelMessage:
+                return AdapterIpcOutcome.None;
+
+            case IpcCaptureResultMessage captureResult:
+                if (instanceId is not null && lease is not null)
+                {
+                    liveCaptureSink.ApplyCaptureResult(captureResult, new AdapterCaptureSource(instanceId.Value, lease.Generation));
+                }
+
+                return AdapterIpcOutcome.None;
+
+            case IpcListenEventResultMessage:
+                //  No production caller of PrepareListenEvent exists yet; the
+                //  frame is accepted and discarded so the adapter's real reply
+                //  path can already be proved end to end before a scheduler
+                //  needs to correlate it against a pending request.
+                return AdapterIpcOutcome.None;
+
+            case IpcPlayContextChangedMessage playContextChanged:
+                PlayContextSnapshot beforeChanged = playContextTracker.GetSnapshot();
+                playContextTracker.NotifyTransition(playContextChanged.PlayContextId);
+                PlayContextSnapshot afterChanged = playContextTracker.GetSnapshot();
+                if (!initialPlayContextStateReported)
+                {
+                    initialPlayContextStateReported = true;
+                    initialResynchronizePending = afterChanged.Current is not null
+                        && afterChanged.TransitionGeneration == beforeChanged.TransitionGeneration;
+                }
+
+                return AdapterIpcOutcome.None;
+
+            case IpcPlayContextEndedMessage:
+                playContextTracker.ClearCurrent();
+                if (!initialPlayContextStateReported)
+                {
+                    initialPlayContextStateReported = true;
+                    initialResynchronizePending = false;
+                }
+
                 return AdapterIpcOutcome.None;
 
             default:
@@ -365,20 +478,43 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         return message;
     }
 
-    /// <summary>Validates and applies a resynchronization result against the pending request and current generation.</summary>
+    /// <summary>
+    /// Validates a resynchronization result against the pending request and current generation, then
+    /// reports its wire-level admission to <see cref="resynchronizationTransactionCoordinator"/>. This
+    /// alone never completes resynchronization -- the coordinator also requires every required
+    /// baseline area to have been separately accepted; see its own documentation. A declined result
+    /// must never leave the tracked transaction stuck forever with no retry, so it closes the
+    /// connection instead: the adapter's normal reconnect then drives a fresh initial
+    /// resynchronization. A result that does not match a genuinely pending, still-current request --
+    /// a stray, superseded, or repeated correlation, or one arriving before this connection has a
+    /// lease or an established play context -- is silently ignored instead, since it was never a
+    /// real answer to a request this session is still tracking.
+    /// </summary>
     /// <param name="resynchronizeResult">The received resynchronization result.</param>
-    private void HandleResynchronizeResult(IpcResynchronizeResultMessage resynchronizeResult)
+    /// <returns><see cref="AdapterIpcOutcome.Close"/> for a genuinely declined result; otherwise <see cref="AdapterIpcOutcome.None"/>.</returns>
+    private AdapterIpcOutcome HandleResynchronizeResult(IpcResynchronizeResultMessage resynchronizeResult)
     {
         if (pendingResynchronizeCorrelationId != resynchronizeResult.CorrelationId)
         {
-            return;
+            return AdapterIpcOutcome.None;
         }
 
         pendingResynchronizeCorrelationId = null;
-        if (resynchronizeResult.Accepted && lease is not null)
+        if (lease is null || instanceId is null)
         {
-            lifecycle.TryCompleteResynchronization(lease);
+            return AdapterIpcOutcome.None;
         }
+
+        PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
+        if (contextSnapshot.Current is not PlayContextId currentContext)
+        {
+            return AdapterIpcOutcome.None;
+        }
+
+        resynchronizationTransactionCoordinator.RecordAdapterPlanAccepted(
+            resynchronizeResult.Accepted, instanceId.Value, lease.Generation, currentContext, contextSnapshot.TransitionGeneration);
+
+        return resynchronizeResult.Accepted ? AdapterIpcOutcome.None : AdapterIpcOutcome.Close;
     }
 
     /// <summary>Issues the next monotonic outbound correlation id, starting at 1.</summary>

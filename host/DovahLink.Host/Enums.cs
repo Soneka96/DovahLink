@@ -297,6 +297,113 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the host in response to a trust-administration command. See <see cref="Adapter.Ipc.IpcTrustAdminResultMessage"/>.</summary>
     TrustAdminResult = 14,
+
+    /// <summary>Sent by the adapter to report one captured value, or its unavailability. See <see cref="Adapter.Ipc.IpcCaptureResultMessage"/>.</summary>
+    CaptureResult = 15,
+
+    /// <summary>Sent by the adapter in response to a listen-event request. See <see cref="Adapter.Ipc.IpcListenEventResultMessage"/>.</summary>
+    ListenEventResult = 16,
+
+    /// <summary>Sent by the adapter to notify the host of a new play context. See <see cref="Adapter.Ipc.IpcPlayContextChangedMessage"/>.</summary>
+    PlayContextChanged = 17,
+
+    /// <summary>Sent by the adapter to notify the host the play context has ended. See <see cref="Adapter.Ipc.IpcPlayContextEndedMessage"/>.</summary>
+    PlayContextEnded = 18,
+}
+
+/// <summary>Which host-owned key namespace a captured value's key belongs to.</summary>
+public enum CaptureSourceKind : byte
+{
+    /// <summary>A host-owned sample token, read synchronously in response to a <see cref="Adapter.Ipc.IpcReadSampleMessage"/>.</summary>
+    Sample = 0,
+
+    /// <summary>A host-owned event key, captured asynchronously once a registered native event fires.</summary>
+    Event = 1,
+}
+
+/// <summary>Whether a captured value was actually produced.</summary>
+public enum CaptureAvailability : byte
+{
+    /// <summary>The captured value is present and valid.</summary>
+    Available = 0,
+
+    /// <summary>No value could be captured; the payload is empty.</summary>
+    Unavailable = 1,
+}
+
+/// <summary>
+/// A host-owned <see cref="Adapter.Ipc.IpcReadSampleMessage.SampleToken"/>, shared with the
+/// adapter's own hardcoded enum through <c>adapter-host-ipc/fixtures/live-state-catalog.json</c>.
+/// </summary>
+public enum CharacterSampleToken : uint
+{
+    /// <summary>One coherent health/magicka/stamina read.</summary>
+    CharacterVitals = 1,
+
+    /// <summary>An experience read.</summary>
+    CharacterXp = 2,
+
+    /// <summary>
+    /// The current-level baseline read used to establish a resynchronization baseline; the live
+    /// value is otherwise delivered by <see cref="CharacterEventKey.CharacterLevelChanged"/>.
+    /// </summary>
+    CharacterLevelBaseline = 3,
+}
+
+/// <summary>A host-owned <see cref="Adapter.Ipc.IpcListenEventMessage.EventKey"/>.</summary>
+public enum CharacterEventKey : uint
+{
+    /// <summary>The native level-increase event.</summary>
+    CharacterLevelChanged = 1,
+}
+
+/// <summary>
+/// The maximum frequency at which the host directs the adapter to sample a
+/// <see cref="State.CaptureUnitDefinition"/>, not the frequency of resulting revisions or network
+/// messages. Not itself a wire field; see <c>Constants</c>'s matching interval for each value.
+/// </summary>
+public enum RateClass
+{
+    /// <summary>Sampled at most once every <see cref="Constants.LiveStateFastSampleInterval"/>.</summary>
+    Fast,
+
+    /// <summary>Sampled at most once every <see cref="Constants.LiveStateMediumSampleInterval"/>.</summary>
+    Medium,
+}
+
+/// <summary>
+/// A <see cref="State.CaptureUnitDefinition"/>'s role in resynchronization, independent of
+/// <see cref="RateClass"/>: a unit polled on an ordinary cadence (like Vitals or XP) is still a
+/// required baseline the very first time it is captured after a connection or play-context
+/// transition, and a unit with no <see cref="RateClass"/> (like the level baseline sample) is still
+/// only a sample, not a persistent registration. Neither property can be inferred from the other.
+/// </summary>
+public enum SynchronizationRole
+{
+    /// <summary>
+    /// A <c>ReadSample</c> capture required to establish a fresh authoritative baseline for the
+    /// state area(s) it feeds.
+    /// </summary>
+    BaselineSample,
+
+    /// <summary>
+    /// A <c>ListenEvent</c> registration for a native event that delivers its own later, ordered
+    /// updates; registering it produces no baseline value of its own.
+    /// </summary>
+    PersistentEvent,
+}
+
+/// <summary>
+/// The canonical live-delivery mode a <see cref="State.StateAreaDefinition"/> declares. A consumer
+/// does not choose between them per subscription; the state area's own definition fixes it.
+/// </summary>
+public enum UpdateMode
+{
+    /// <summary>Replaceable latest state: every update is complete current state.</summary>
+    Snapshot,
+
+    /// <summary>An ordered complete post-change state, reliable within one authenticated session.</summary>
+    Event,
 }
 
 /// <summary>Why a private IPC channel is being closed.</summary>
@@ -668,6 +775,16 @@ public enum PublicProtocolErrorCode
 
     /// <summary>The sender exceeded a rate or attempt limit.</summary>
     RateLimited,
+
+    /// <summary>
+    /// A registered state area's authoritative baseline is not currently available -- for example a
+    /// resynchronization is in progress, or no play context is active yet -- but the request itself
+    /// was valid. Always sent with <see cref="Client.Protocol.ErrorPayload.Retryable"/> <see langword="true"/>: this
+    /// is a temporary Host-side readiness gap, never a client-caused violation, and is also what a
+    /// pending <c>snapshot_request</c>/<c>subscribe</c> baseline receives if no authoritative value
+    /// becomes available before its own bounded deadline elapses.
+    /// </summary>
+    TemporarilyUnavailable,
 
     /// <summary>An unexpected internal failure occurred; no further detail is disclosed.</summary>
     InternalError,

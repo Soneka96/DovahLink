@@ -51,8 +51,8 @@ independent protocol-generation number carried on every message — see
 }
 ```
 
-- `stateArea` is a canonical identifier assigned when a state area is registered. No state area is
-  currently registered; see "Registered state areas" below.
+- `stateArea` is a canonical identifier assigned when a state area is registered; see "Registered
+  state areas" below for the five areas currently registered.
 - `revision` is a non-negative integer, monotonically increasing within one
   `(stateAuthorityId, playContextId, stateArea)`.
 - A revision belongs to that authority continuity epoch, play context, and state area rather
@@ -84,11 +84,142 @@ area.
 
 ## Registered state areas
 
-No state area is currently registered. The previous `character` aggregate (player level and three
-resource pools bundled into one state area) is retired: a future phase may register a composed
-character view, or focused progression-specific areas, without reviving this shape. Until a state
-area is registered, `subscribe` and `snapshot_request` reject every requested area explicitly (see
-their sections below) and both endpoints' `capabilities` list is empty.
+The Host currently registers five Character state areas, each independently authoritative:
+
+| State area | Value meaning | Public `data` value type | Delivery mode | Capture policy | Unavailable behavior |
+|---|---|---|---|---|---|
+| `character_xp` | Current character experience/progression value | JSON number (single-precision reading) | Snapshot | Sampled on its own, at Medium cadence | `"value": null` |
+| `character_health` | Current health | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, as part of one coherent Vitals capture together with magicka and stamina | `"value": null` |
+| `character_magicka` | Current magicka | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
+| `character_stamina` | Current stamina | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
+| `character_level` | Current level | JSON number (integer-valued, 0-65535) | Event | Its initial/recovery baseline is established by a dedicated resynchronization-only sample, delivered as a `state_snapshot`; native level-up occurrences then publish as `state_event` | `"value": null` |
+
+Every one of the five areas uses the same public `data` shape, with `value` as its only field:
+
+```json
+{
+  "value": 42.5
+}
+```
+
+`value` is `null` when the state is legitimately unavailable -- the fail-closed default; capture
+never substitutes a plausible default such as `0`, full health, or level `1`. A malformed or
+unrecognized private capture is a distinct case from a legitimate unavailable reading: it never
+reaches the public contract as a null value either, and instead produces no publication at all for
+that update.
+
+`character_xp`, `character_health`, `character_magicka`, and `character_stamina` are Snapshot-only:
+the Host has no Event-domain update for them, and only ever revises their value at a new `revision`
+via `state_snapshot`, through the normal subscribe/snapshot_request/recovery rules above.
+
+`character_level`'s canonical delivery mode is Event, but native level changes are not its only
+source of state: its initial or recovery value is established the same way as the four Snapshot-only
+areas above, as a `state_snapshot`, before any Event is delivered. This baseline delivery does not
+change the area's canonical Event mode -- it is how an Event-mode area still gives a client a
+starting value to apply Events against. Once established, subsequent native level changes are
+delivered as `state_event`: `revision` equals `baseRevision + 1`, and `data` carries the complete
+post-change value, not a delta, per the general event rule above. A client must not treat
+`character_level` as usable before it has received a baseline Snapshot; the Event stream alone is
+not a valid starting point.
+
+The retired `character` aggregate (player level and three resource pools bundled into one state
+area) is not revived by this. `character_xp`, `character_health`, `character_magicka`,
+`character_stamina`, and `character_level` are five independent, separately-subscribable state
+areas, not facets of one composed view.
+
+Host/Adapter resynchronization establishes a fresh authoritative baseline for these areas after
+continuity recovery or an active play-context transition; this is why a `state_snapshot` for an
+already-subscribed area can arrive without a client-initiated `snapshot_request`. The client always
+receives an authoritative Snapshot from the Host -- it never reads Skyrim state directly.
+
+An area requested by `subscribe` or `snapshot_request` that is not one of these five remains
+explicitly rejected (see their sections below).
+
+### Registered state area examples
+
+`character_xp` snapshot:
+
+```json
+{
+  "messageType": "state_snapshot",
+  "messageId": "b3f1a2c4-6d5e-4a1b-9c3d-7e8f9a0b1c2d",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "payload": {
+    "stateArea": "character_xp",
+    "revision": 7,
+    "occurredAt": "2026-08-10T12:00:03Z",
+    "data": { "value": 1280.0 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
+
+`character_health` snapshot, one member of the same coherent Vitals capture as `character_magicka`
+and `character_stamina`:
+
+```json
+{
+  "messageType": "state_snapshot",
+  "messageId": "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "payload": {
+    "stateArea": "character_health",
+    "revision": 12,
+    "occurredAt": "2026-08-10T12:00:03Z",
+    "data": { "value": 87.5 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
+
+`character_level` initial/recovery baseline snapshot, correlated to the `subscribe` that requested
+it:
+
+```json
+{
+  "messageType": "state_snapshot",
+  "messageId": "d5e6f7a8-9b0c-4d1e-8f2a-3b4c5d6e7f80",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "payload": {
+    "stateArea": "character_level",
+    "revision": 4,
+    "occurredAt": "2026-08-10T12:00:03Z",
+    "data": { "value": 10 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
+
+The subsequent native level-up, delivered as an unsolicited Event with `revision == baseRevision +
+1` and the complete post-change value:
+
+```json
+{
+  "messageType": "state_event",
+  "messageId": "e6f7a8b9-0c1d-4e2f-8a3b-4c5d6e7f8091",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": null,
+  "payload": {
+    "stateArea": "character_level",
+    "baseRevision": 4,
+    "revision": 5,
+    "occurredAt": "2026-08-10T12:05:41Z",
+    "data": { "value": 11 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
 
 ## Message types
 
@@ -401,9 +532,9 @@ without it.
 
 Required payload field: `capabilities`. Each capability requires `id` and `version`.
 
-Both endpoints send `capabilities`. No capability is currently registered (see "Registered state
-areas" above); both the host and the client send an empty list, and any non-empty list is
-rejected as `unsupported_capability`.
+Both endpoints send `capabilities`. No capability is currently registered -- this is a separate,
+still-empty registry, independent of the registered state areas below; both the host and the client
+send an empty list, and any non-empty list is rejected as `unsupported_capability`.
 
 ### `subscribe`
 
@@ -417,11 +548,14 @@ Requests state areas after capabilities are negotiated.
 
 The host confirms the subscription and sends a `state_snapshot` before sending events only for a
 requested state area that is registered and accepted. When every requested area is rejected, the
-host sends only `subscription_ack` and no snapshot.
+host sends only `subscription_ack` and no snapshot. An accepted area with no authoritative value
+available yet is never a dead end: its baseline is delivered automatically, still correlated to the
+`subscribe` message, as soon as one becomes available, or answered with a `temporarily_unavailable`
+`error` if none does before a bounded deadline elapses.
 
-Required payload field: `stateAreas`. The host responds with `subscription_ack`. No state area is
-currently registered (see "Registered state areas" above), so every requested area is rejected into
-`subscription_ack.rejectedStateAreas`.
+Required payload field: `stateAreas`. The host responds with `subscription_ack`. A requested area
+that is one of the five registered state areas above is accepted; any other requested area is
+rejected into `subscription_ack.rejectedStateAreas`.
 
 ### `subscription_ack`
 
@@ -434,11 +568,20 @@ Confirms accepted and rejected state areas:
 }
 ```
 
-Both arrays are required. The host sends snapshots only for accepted areas. No state area is
-currently registered, so `acceptedStateAreas` is always empty and every requested area appears in
-`rejectedStateAreas`.
+Both arrays are required. The host sends snapshots only for accepted areas. A requested area among
+the five registered state areas above appears in `acceptedStateAreas`; any other requested area
+appears in `rejectedStateAreas`.
 
-`subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. Each initial snapshot also uses the `subscribe` message ID as its `correlationId`; later snapshots use the `snapshot_request` message ID that caused them.
+`subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. An accepted
+area's own baseline snapshot correlates to whichever request is currently establishing it: the
+`subscribe` message ID for its first baseline, or a later `snapshot_request`'s message ID when that
+request is what triggered re-establishing it. An automatic re-baseline the Host starts on its own --
+after a play-context transition, a state-authority rotation, or a bounded recovery buffer
+overflowing -- is not a fresh client request; it reuses whichever message ID (the original
+`subscribe`, or the most recent `snapshot_request`) that area was already correlated to, rather than
+inventing a new one or always attaching to `snapshot_request`. Once an area is live and simply
+receives a newer authoritative value outside of any recovery, that snapshot is unsolicited and its
+`correlationId` is `null`, the same as an Event's.
 
 ### `snapshot_request`
 
@@ -452,9 +595,13 @@ responds with a `state_snapshot` at the current revision; an unregistered area i
 }
 ```
 
-Required payload field: `stateArea`. `knownRevision` is optional and advisory only. A
-`state_snapshot` is returned only when the requested state area is registered and accepted;
-otherwise the request is rejected as `unsupported_capability`.
+Required payload field: `stateArea`. `knownRevision` is optional and advisory only. An unregistered
+area is rejected as `unsupported_capability`. A registered area never silently receives no response:
+if an authoritative value is available, the `state_snapshot` is returned immediately; otherwise the
+request is retained and answered automatically, still correlated to this `snapshot_request`, as soon
+as a value becomes available, or with a `temporarily_unavailable` `error` if none does before a
+bounded deadline elapses. A later `snapshot_request` for the same still-pending area supersedes an
+earlier one rather than queuing a second reply.
 
 ### `state_snapshot`
 
@@ -462,7 +609,7 @@ Contains the complete state for one subscribed state area at a revision.
 
 Required payload fields: `stateArea`, `revision`, `occurredAt`, `data`.
 
-An initial snapshot correlates to `subscribe`; a recovery snapshot correlates to `snapshot_request`.
+See `subscription_ack` above for exactly which request a given snapshot's `correlationId` reflects: a first baseline, a baseline re-established by an explicit `snapshot_request`, an automatic Host-initiated re-baseline, or an unsolicited live update.
 
 ### `state_event`
 
@@ -489,17 +636,20 @@ Required payload fields: `code`, `message`, `retryable`. `details` is nullable a
 
 Canonical error codes are exactly `malformed_message`, `frame_too_large`, `unsupported_capability`,
 `unauthenticated`, `unauthorized`, `revoked`, `blocked`, `replayed_message`, `stale_session`,
-`rate_limited`, and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected
-because the presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never
-paired or wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust".
-`blocked` is an `unpaired` or `trusted_device_credential` hello rejected because the presented
-`clientId` is a currently blocked Known Device -- distinct from `revoked` (blocking prevents both
-authentication and re-pairing, while a revoked device may still re-pair) and never issued for
-`one_time_local_token` (developer-token) authentication, which stays a separate provider unaffected
-by Known Device blocking. Error codes are for branching; diagnostic messages are not. There is no
-Host-version-incompatibility wire error code: a client detects incompatibility itself from
-`hello_ack.hostVersion` and fails without completing the rest of the exchange, per
-`ai/context/protocol/compatibility.md`.
+`rate_limited`, `temporarily_unavailable`, and `internal_error`. `revoked` is a
+`trusted_device_credential` hello rejected because the presented `clientId` was explicitly revoked,
+distinct from `unauthenticated`'s "never paired or wrong credential" per
+`ai/context/protocol/security.md`'s "Persistent local trust". `blocked` is an `unpaired` or
+`trusted_device_credential` hello rejected because the presented `clientId` is a currently blocked
+Known Device -- distinct from `revoked` (blocking prevents both authentication and re-pairing, while
+a revoked device may still re-pair) and never issued for `one_time_local_token` (developer-token)
+authentication, which stays a separate provider unaffected by Known Device blocking.
+`temporarily_unavailable` is always `retryable: true`: a registered state area's authoritative
+baseline was not available before its own bounded deadline elapsed (see `snapshot_request` and
+`subscribe` above) -- a temporary Host-side readiness gap, never a client-caused violation. Error
+codes are for branching; diagnostic messages are not. There is no Host-version-incompatibility wire
+error code: a client detects incompatibility itself from `hello_ack.hostVersion` and fails without
+completing the rest of the exchange, per `ai/context/protocol/compatibility.md`.
 
 If no session has been established on a socket, an `error`'s `sessionId` is `null`; this includes
 authentication failures and violations detected before decoding completes. After a successful

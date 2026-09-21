@@ -1,12 +1,14 @@
 #pragma once
 
+#include <array>
 #include <condition_variable>
-#include <deque>
+#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <thread>
 
 #include "capture/adapter_capture_work_item.hpp"
+#include "constants.hpp"
 
 namespace dovahlink::adapter::capture {
 
@@ -68,14 +70,22 @@ class AdapterCaptureHandoffQueue final : public IAdapterCaptureHandoffQueue {
     std::function<void(const AdapterCaptureWorkItem&)> onDrained_;
     ///  Invoked on the caller's thread when an item is rejected.
     std::function<void(const AdapterCaptureWorkItem&)> onRejected_;
-    ///  Guards `queue_` and `stopping_`.
+    ///  Guards `buffer_`, `head_`, `count_`, and `stopping_`.
     std::mutex mutex_;
     ///  Guards access to `worker_` during shutdown.
     std::mutex lifecycleMutex_;
     ///  Signaled when an item is enqueued or the queue is stopped.
     std::condition_variable itemAvailable_;
-    ///  The bounded FIFO of accepted, not-yet-drained items.
-    std::deque<AdapterCaptureWorkItem> queue_;
+    ///  A preallocated, fixed-capacity ring buffer of accepted,
+    ///  not-yet-drained items -- capacity `kMaxAdapterCaptureQueueItems`,
+    ///  never grown or reallocated after construction. `head_` is the oldest
+    ///  present item's slot; `count_` items are present starting there,
+    ///  wrapping modulo `buffer_.size()`.
+    std::array<AdapterCaptureWorkItem, kMaxAdapterCaptureQueueItems> buffer_{};
+    ///  The oldest present item's slot in `buffer_`.
+    std::size_t head_ = 0;
+    ///  How many items are currently present in `buffer_`.
+    std::size_t count_ = 0;
     ///  Whether `Stop()` has been called.
     bool stopping_ = false;
     ///  The dedicated drain thread.

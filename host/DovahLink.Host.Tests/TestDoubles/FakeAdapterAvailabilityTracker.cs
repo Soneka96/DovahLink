@@ -12,6 +12,9 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     /// <summary>Whether <see cref="currentResynchronizationToken"/> has already been claimed by <see cref="TryClaimResynchronizationToken"/>.</summary>
     private bool resynchronizationTokenClaimed;
 
+    /// <summary>Number of snapshots returned by this fake.</summary>
+    private int snapshotCallCount;
+
     /// <inheritdoc/>
     public AdapterAvailability Current { get; set; } = AdapterAvailability.Unavailable;
 
@@ -29,6 +32,9 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
 
     /// <inheritdoc/>
     public event Action<AdapterInstanceId, long>? Resynchronized;
+
+    /// <summary>Optional one-shot hook invoked by <see cref="GetSnapshot"/> with its call number.</summary>
+    public Action<int>? OnGetSnapshot { get; set; }
 
     /// <inheritdoc/>
     public AdapterAvailabilityTransition? CommitConnected(AdapterInstanceId instanceId, long generation)
@@ -87,15 +93,45 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
-    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration)
+    public void NotifyResynchronized(AdapterInstanceId instanceId, long connectionGeneration, IAdapterResynchronizationToken token)
     {
-        if (Current == AdapterAvailability.Available && CurrentInstanceId == instanceId && CurrentConnectionGeneration == connectionGeneration)
+        bool resynchronized = Current == AdapterAvailability.Available
+            && CurrentInstanceId == instanceId
+            && CurrentConnectionGeneration == connectionGeneration
+            && NeedsResynchronization
+            && resynchronizationTokenClaimed
+            && ReferenceEquals(currentResynchronizationToken, token);
+        if (resynchronized)
         {
             NeedsResynchronization = false;
             currentResynchronizationToken = null;
             resynchronizationTokenClaimed = false;
             Resynchronized?.Invoke(instanceId, connectionGeneration);
         }
+    }
+
+    /// <inheritdoc/>
+    public void RearmResynchronizationForPlayContextTransition()
+    {
+        if (Current != AdapterAvailability.Available)
+        {
+            return;
+        }
+
+        NeedsResynchronization = true;
+        currentResynchronizationToken = new FakeAdapterResynchronizationToken();
+        resynchronizationTokenClaimed = false;
+    }
+
+    /// <inheritdoc/>
+    public bool TryExecuteWhileOrdinarySamplingAllowed(long connectionGeneration, Func<bool> tryAdmission)
+    {
+        ArgumentNullException.ThrowIfNull(tryAdmission);
+        return Current == AdapterAvailability.Available
+            && CurrentInstanceId is not null
+            && !NeedsResynchronization
+            && CurrentConnectionGeneration == connectionGeneration
+            && tryAdmission();
     }
 
     /// <inheritdoc/>
@@ -118,7 +154,12 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
         ReferenceEquals(currentResynchronizationToken, token);
 
     /// <inheritdoc/>
-    public AdapterAvailabilitySnapshot GetSnapshot() => new(Current, CurrentInstanceId, NeedsResynchronization, CurrentConnectionGeneration);
+    public AdapterAvailabilitySnapshot GetSnapshot()
+    {
+        int callNumber = ++snapshotCallCount;
+        OnGetSnapshot?.Invoke(callNumber);
+        return new AdapterAvailabilitySnapshot(Current, CurrentInstanceId, NeedsResynchronization, CurrentConnectionGeneration);
+    }
 
     private sealed class FakeAdapterResynchronizationToken : IAdapterResynchronizationToken
     {

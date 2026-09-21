@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
@@ -38,10 +37,20 @@ public static class PublicClientServiceExtensions
     /// <returns><paramref name="services"/>, for chaining.</returns>
     public static IServiceCollection AddPublicClientServices(this IServiceCollection services, int? publicListenerPort)
     {
-        // No state area is registered and no real domain feed exists, so both placeholders below
-        // reflect this composition root's actual current behavior.
-        services.AddSingleton<IRegisteredStateAreaPolicy, RegisteredStateAreaPolicy>();
-        services.AddSingleton<IStatePublicationFeed>(NullStatePublicationFeed.Instance);
+        services.AddSingleton(LiveStateCatalog.Default);
+        services.AddSingleton<IRegisteredStateAreaPolicy>(_ =>
+        {
+            var policy = new RegisteredStateAreaPolicy();
+            foreach (StateAreaDefinition area in LiveStateCatalog.Default.StateAreas)
+            {
+                policy.TryRegister(area.Id);
+            }
+
+            return policy;
+        });
+        services.AddSingleton<StatePublicationFeed>();
+        services.AddSingleton<IStatePublicationFeed>(sp => sp.GetRequiredService<StatePublicationFeed>());
+        services.AddSingleton<IStatePublicationSink>(sp => sp.GetRequiredService<StatePublicationFeed>());
         services.AddSingleton<IPublicWebSocketTransportDiagnostics>(NullPublicWebSocketTransportDiagnostics.Instance);
 
         services.AddSingleton<ILocalConnectionTokenAuthenticator, LocalConnectionTokenAuthenticator>();
@@ -76,38 +85,4 @@ public static class PublicClientServiceExtensions
         }
     }
 
-    /// <summary>
-    /// A minimal composition-time placeholder for <see cref="IStatePublicationFeed"/>: never has a
-    /// current value and never raises <see cref="IStatePublicationFeed.EventOccurred"/>. Correct
-    /// today's composition root's production behavior, since no state area is registered yet --
-    /// <see cref="IRegisteredStateAreaPolicy.IsRegistered"/> already rejects every area before any
-    /// caller would ever reach this feed, so its own responses are never actually exercised in
-    /// production.
-    /// </summary>
-    private sealed class NullStatePublicationFeed : IStatePublicationFeed
-    {
-        /// <summary>The shared, stateless instance every connection reads through.</summary>
-        public static readonly NullStatePublicationFeed Instance = new();
-
-        /// <inheritdoc/>
-        public event Action<StateEventPublication>? EventOccurred
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public event Action<StateSnapshotPublication>? SnapshotChanged
-        {
-            add { }
-            remove { }
-        }
-
-        /// <inheritdoc/>
-        public bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot)
-        {
-            snapshot = null;
-            return false;
-        }
-    }
 }

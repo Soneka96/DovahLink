@@ -43,9 +43,9 @@ public interface IStatePublisher<TState>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this value was captured.</param>
     /// <param name="areaId">The state area the value belongs to.</param>
     /// <param name="value">The newly captured value.</param>
-    /// <returns><see langword="true"/> when the value was accepted from the current adapter and captured play context.</returns>
+    /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
     /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
-    bool Apply(
+    StateApplyResult Apply(
         AdapterInstanceId sourceInstanceId,
         long sourceConnectionGeneration,
         PlayContextId capturedPlayContextId,
@@ -66,12 +66,36 @@ public interface IStatePublisher<TState>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this baseline was captured.</param>
     /// <param name="areaId">The state area the baseline belongs to.</param>
     /// <param name="value">The baseline value.</param>
-    /// <returns><see langword="true"/> when the baseline was accepted from the current adapter connection and captured play context.</returns>
+    /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
     /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
-    bool ApplyResynchronizationBaseline(
+    StateApplyResult ApplyResynchronizationBaseline(
         IAdapterResynchronizationToken resynchronizationToken,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
+        StateAreaId areaId,
+        TState value);
+
+    /// <summary>
+    /// Applies an Event from the current adapter. The publisher decides under its ordering lock
+    /// whether the current adapter still needs resynchronization: ordinary source authority is used
+    /// when it does not, and the supplied token is required when it does. This keeps the final
+    /// ordinary-vs-resynchronization decision current rather than relying on an older caller snapshot.
+    /// </summary>
+    /// <param name="sourceInstanceId">The adapter instance that produced the Event.</param>
+    /// <param name="sourceConnectionGeneration">The adapter connection generation that produced the Event.</param>
+    /// <param name="capturedPlayContextId">The play context that was current at the moment this Event was captured.</param>
+    /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this Event was captured.</param>
+    /// <param name="resynchronizationToken">The current resynchronization authorization when the adapter is still gated, or <see langword="null"/> when ordinary authority is expected.</param>
+    /// <param name="areaId">The state area the Event belongs to.</param>
+    /// <param name="value">The Event's resulting value.</param>
+    /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
+    /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
+    StateApplyResult ApplyEvent(
+        AdapterInstanceId sourceInstanceId,
+        long sourceConnectionGeneration,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        IAdapterResynchronizationToken? resynchronizationToken,
         StateAreaId areaId,
         TState value);
 }
@@ -175,7 +199,7 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     /// Reads the current play-context generation inside the same lock that a concurrent
     /// transition's <see cref="OnPlayContextTransitioned"/> uses to remove prior-context values.
     /// </remarks>
-    public bool Apply(
+    public StateApplyResult Apply(
         AdapterInstanceId sourceInstanceId,
         long sourceConnectionGeneration,
         PlayContextId capturedPlayContextId,
@@ -185,11 +209,11 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     {
         return ApplyCore(
             sourceInstanceId, sourceConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
-            null, areaId, value, allowResynchronization: false);
+            null, areaId, value, ApplyAuthority.Ordinary);
     }
 
     /// <inheritdoc/>
-    public bool ApplyResynchronizationBaseline(
+    public StateApplyResult ApplyResynchronizationBaseline(
         IAdapterResynchronizationToken resynchronizationToken,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
@@ -198,26 +222,42 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
     {
         return ApplyCore(
             null, null, capturedPlayContextId, capturedPlayContextGeneration,
-            resynchronizationToken, areaId, value, allowResynchronization: true);
+            resynchronizationToken, areaId, value, ApplyAuthority.ResynchronizationBaseline);
+    }
+
+    /// <inheritdoc/>
+    public StateApplyResult ApplyEvent(
+        AdapterInstanceId sourceInstanceId,
+        long sourceConnectionGeneration,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        IAdapterResynchronizationToken? resynchronizationToken,
+        StateAreaId areaId,
+        TState value)
+    {
+        return ApplyCore(
+            sourceInstanceId, sourceConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
+            resynchronizationToken, areaId, value, ApplyAuthority.Event);
     }
 
     /// <summary>
-    /// Shared implementation behind <see cref="Apply"/> and <see cref="ApplyResynchronizationBaseline"/>:
+    /// Shared implementation behind <see cref="Apply"/>, <see cref="ApplyResynchronizationBaseline"/>,
+    /// and <see cref="ApplyEvent"/>:
     /// validates the caller's authority (an ordinary capture's source adapter instance/connection
-    /// generation, or a resynchronization baseline's claimed token) and captured play-context
+    /// generation, or a resynchronization baseline/Event's claimed token) and captured play-context
     /// provenance, then applies the value and advances the revision if it actually changed.
     /// </summary>
     /// <param name="sourceInstanceId">The adapter instance that produced the value; <see langword="null"/> for a resynchronization baseline.</param>
     /// <param name="sourceConnectionGeneration">The adapter connection generation that produced the value; <see langword="null"/> for a resynchronization baseline.</param>
     /// <param name="capturedPlayContextId">The play context that was current at the moment the value was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment the value was captured.</param>
-    /// <param name="resynchronizationToken">The claimed resynchronization authorization; <see langword="null"/> for an ordinary capture.</param>
+    /// <param name="resynchronizationToken">The claimed resynchronization authorization for a baseline or Event; <see langword="null"/> for an ordinary capture.</param>
     /// <param name="areaId">The state area the value belongs to.</param>
     /// <param name="value">The value to apply.</param>
-    /// <param name="allowResynchronization"><see langword="true"/> when validating a resynchronization baseline rather than an ordinary capture.</param>
-    /// <returns><see langword="true"/> when the value was accepted and applied.</returns>
+    /// <param name="authority">The capture authority and current-state policy to validate.</param>
+    /// <returns>The atomic outcome of this call. See <see cref="StateApplyResult"/>.</returns>
     /// <exception cref="InvalidOperationException">No play context has been established yet.</exception>
-    private bool ApplyCore(
+    private StateApplyResult ApplyCore(
         AdapterInstanceId? sourceInstanceId,
         long? sourceConnectionGeneration,
         PlayContextId capturedPlayContextId,
@@ -225,19 +265,39 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
         IAdapterResynchronizationToken? resynchronizationToken,
         StateAreaId areaId,
         TState value,
-        bool allowResynchronization)
+        ApplyAuthority authority)
     {
         lock (gate)
         {
             AdapterAvailabilitySnapshot adapterSnapshot = adapterAvailabilityTracker.GetSnapshot();
-            if (adapterSnapshot.Current != AdapterAvailability.Available ||
-                adapterSnapshot.NeedsResynchronization != allowResynchronization ||
-                (allowResynchronization
-                    ? resynchronizationToken is null || !adapterAvailabilityTracker.IsCurrentResynchronizationToken(resynchronizationToken)
-                    : adapterSnapshot.CurrentInstanceId != sourceInstanceId ||
-                      adapterSnapshot.ConnectionGeneration != sourceConnectionGeneration))
+            if (adapterSnapshot.Current != AdapterAvailability.Available)
             {
-                return false;
+                return StateApplyResult.Rejected;
+            }
+
+            if (authority == ApplyAuthority.Ordinary && adapterSnapshot.NeedsResynchronization)
+            {
+                return StateApplyResult.Rejected;
+            }
+
+            if (authority == ApplyAuthority.ResynchronizationBaseline && !adapterSnapshot.NeedsResynchronization)
+            {
+                return StateApplyResult.Rejected;
+            }
+
+            if (authority != ApplyAuthority.ResynchronizationBaseline
+                && (adapterSnapshot.CurrentInstanceId != sourceInstanceId
+                    || adapterSnapshot.ConnectionGeneration != sourceConnectionGeneration))
+            {
+                return StateApplyResult.Rejected;
+            }
+
+            if ((authority == ApplyAuthority.ResynchronizationBaseline
+                    || (authority == ApplyAuthority.Event && adapterSnapshot.NeedsResynchronization))
+                && (resynchronizationToken is null
+                    || !adapterAvailabilityTracker.IsCurrentResynchronizationToken(resynchronizationToken)))
+            {
+                return StateApplyResult.Rejected;
             }
 
             PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
@@ -249,14 +309,15 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
                 // A capture stamped with a play context or generation other than the one currently
                 // applying state was queued or delayed across a transition; applying it here would
                 // silently misattribute an old context's value to the new one.
-                return false;
+                return StateApplyResult.Rejected;
             }
 
             if (playContextTracker.GetSnapshot().TransitionGeneration != contextSnapshot.TransitionGeneration)
             {
-                return false;
+                return StateApplyResult.Rejected;
             }
 
+            RevisionNumber baseRevision = revisionTracker.Current(currentContext, areaId);
             bool changed = !valuesByArea.TryGetValue(areaId, out StoredValue? existing)
                 || !EqualityComparer<TState>.Default.Equals(existing.Value, value)
                 || existing.PlayContextId != currentContext;
@@ -267,12 +328,11 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
                 adapterSnapshot.CurrentInstanceId!.Value,
                 adapterSnapshot.ConnectionGeneration);
 
-            if (changed)
-            {
-                revisionTracker.AdvanceOnChange(currentContext, areaId);
-            }
+            RevisionNumber revision = changed
+                ? revisionTracker.AdvanceOnChange(currentContext, areaId)
+                : baseRevision;
 
-            return true;
+            return new StateApplyResult(Accepted: true, changed, baseRevision, revision);
         }
     }
 
@@ -333,4 +393,43 @@ public sealed class StatePublisher<TState> : IStatePublisher<TState>
         PlayContextId PlayContextId,
         AdapterInstanceId AdapterInstanceId,
         long ConnectionGeneration);
+
+    /// <summary>Identifies the authority policy one apply operation must validate.</summary>
+    private enum ApplyAuthority
+    {
+        /// <summary>Requires ordinary current-adapter authority outside resynchronization.</summary>
+        Ordinary,
+
+        /// <summary>Requires the claimed token for an explicitly identified baseline.</summary>
+        ResynchronizationBaseline,
+
+        /// <summary>Uses current ordinary authority or current resynchronization Event authority.</summary>
+        Event,
+    }
+}
+
+// TODO(stage4-file-extraction): Move StateApplyResult to its own
+// StateApplyResult.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>
+/// The atomic outcome of one <see cref="IStatePublisher{TState}.Apply"/>,
+/// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/>, or
+/// <see cref="IStatePublisher{TState}.ApplyEvent"/> call, computed inside the
+/// same lock that decides acceptance and assigns the revision -- so a caller deciding whether to
+/// push an unsolicited publication never needs to separately re-read <see cref="RevisionNumber"/>
+/// after the fact, which could otherwise race a concurrent capture for the same area.
+/// </summary>
+/// <param name="Accepted">Whether the value was accepted from the current adapter and captured play context.</param>
+/// <param name="Changed">
+/// Whether the accepted value actually changed the state area's authoritative value, and therefore
+/// advanced <see cref="Revision"/> past <see cref="BaseRevision"/>. Always <see langword="false"/>
+/// when <see cref="Accepted"/> is <see langword="false"/>.
+/// </param>
+/// <param name="BaseRevision">The state area's revision immediately before this call, or <see cref="RevisionNumber.Initial"/> when rejected.</param>
+/// <param name="Revision">The state area's revision immediately after this call: equal to <see cref="BaseRevision"/> unless <see cref="Changed"/> is <see langword="true"/>, or <see cref="RevisionNumber.Initial"/> when rejected.</param>
+public readonly record struct StateApplyResult(bool Accepted, bool Changed, RevisionNumber BaseRevision, RevisionNumber Revision)
+{
+    /// <summary>The result for a call rejected before any revision could be read.</summary>
+    public static StateApplyResult Rejected { get; } = new(Accepted: false, Changed: false, RevisionNumber.Initial, RevisionNumber.Initial);
 }

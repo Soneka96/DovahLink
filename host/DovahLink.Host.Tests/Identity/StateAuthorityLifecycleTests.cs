@@ -133,7 +133,7 @@ public class StateAuthorityLifecycleTests
 
         AdapterInstanceId secondInstanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, secondInstanceId, 2);
-        tracker.NotifyResynchronized(secondInstanceId, 2);
+        Resynchronize(tracker, secondInstanceId, 2);
         PublishDisconnected(tracker, secondInstanceId, 2);
 
         Assert.NotEqual(rotatedValue, lifecycle.Current);
@@ -153,7 +153,7 @@ public class StateAuthorityLifecycleTests
 
         AdapterInstanceId secondInstanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, secondInstanceId, 2);
-        tracker.NotifyResynchronized(secondInstanceId, 2);
+        Resynchronize(tracker, secondInstanceId, 2);
         PublishDisconnected(tracker, secondInstanceId, 2);
 
         Assert.Equal([lifecycle.Current], rotatedValues);
@@ -176,7 +176,7 @@ public class StateAuthorityLifecycleTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, instanceId, 1);
 
-        tracker.NotifyResynchronized(instanceId, 1);
+        Resynchronize(tracker, instanceId, 1);
         Assert.Equal(startupValue, lifecycle.Current);
         Assert.Empty(rotatedValues);
 
@@ -325,6 +325,16 @@ public class StateAuthorityLifecycleTests
         if (transition is not null)
         {
             tracker.PublishTransition(transition);
+        }
+    }
+
+    /// <summary>Claims the current connection's resynchronization token and reports it resynchronized in one call.</summary>
+    private static void Resynchronize(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long connectionGeneration)
+    {
+        IAdapterResynchronizationToken? token = tracker.TryClaimResynchronizationToken();
+        if (token is not null)
+        {
+            tracker.NotifyResynchronized(instanceId, connectionGeneration, token);
         }
     }
 }

@@ -1,8 +1,11 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Adapter.Ipc;
@@ -19,7 +22,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         var hello = new IpcHelloMessage(7, instanceId, verifier.ExpectedToken);
 
@@ -45,7 +48,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         session.Handshake(new IpcHelloMessage(7, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
@@ -67,7 +70,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), ownerLifetimeId);
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator(), ownerLifetimeId);
         byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
@@ -91,7 +94,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), ownerLifetimeId);
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator(), ownerLifetimeId);
         byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
@@ -108,7 +111,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -126,7 +129,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new OwnerLifetimeId(1, 2));
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator(), new OwnerLifetimeId(1, 2));
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: new OwnerLifetimeId(3, 4).ToBytes());
 
@@ -147,7 +150,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), ownerLifetimeId);
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator(), ownerLifetimeId);
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3], ownerLifetimeId: ownerLifetimeId.ToBytes());
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -163,7 +166,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -181,7 +184,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         var hello = new IpcHelloMessage(7, new AdapterInstanceId(Guid.Empty), verifier.ExpectedToken);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -201,7 +204,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         byte[] token = validProof ? verifier.ExpectedToken : [9, 9, 9];
         var hello = new IpcHelloMessage(42, AdapterInstanceId.NewId(), token);
 
@@ -212,18 +215,80 @@ public class AdapterIpcSessionTests
 
     // ---- Resynchronization ----
 
-    /// <summary>Verifies that an accepted resynchronization result matching the pending correlation id resynchronizes the tracker.</summary>
+    /// <summary>
+    /// Verifies that an accepted resynchronization result matching the pending correlation id reports
+    /// its wire-level admission to the coordinator, tagged with the connection's own generation and
+    /// the play context current when the request's ack is handled. This alone no longer completes
+    /// resynchronization on the tracker directly -- see <see cref="IResynchronizationTransactionCoordinator"/>'s
+    /// own documentation for why -- so this test asserts the reported call, not a tracker effect.
+    /// </summary>
     [Fact]
-    public void HandleFrame_ResynchronizeResult_MatchingCorrelationAccepted_NotifiesResynchronized()
+    public void HandleFrame_ResynchronizeResult_MatchingCorrelationAccepted_ReportsPlanAcceptedToCoordinator()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), coordinator);
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        session.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
+        session.CommitHandshake();
+        var context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
 
-        Assert.False(tracker.NeedsResynchronization);
+        Assert.Equal([(true, instanceId, session.ConnectionGeneration!.Value, context, playContextTracker.GetSnapshot().TransitionGeneration)], coordinator.RecordAdapterPlanAcceptedCalls);
         Assert.Empty(outcome.MessagesToSend);
         Assert.False(outcome.ShouldClose);
+    }
+
+    /// <summary>
+    /// Verifies that a genuinely declined resynchronization result -- one matching the pending
+    /// request, with a lease and an established play context -- closes the connection rather than
+    /// leaving the tracked transaction stuck forever with no retry: the adapter's normal reconnect
+    /// then drives a fresh initial resynchronization.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_ResynchronizeResult_MatchingCorrelationDeclined_ClosesConnection()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), coordinator);
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        session.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
+        session.CommitHandshake();
+        var context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
+
+        Assert.Equal([(false, instanceId, session.ConnectionGeneration!.Value, context, playContextTracker.GetSnapshot().TransitionGeneration)], coordinator.RecordAdapterPlanAcceptedCalls);
+        Assert.Equal(AdapterIpcOutcome.Close, outcome);
+    }
+
+    /// <summary>Verifies that an accepted resynchronization result reaching the session before any play context has ever been established reports nothing to the coordinator: there is no provenance to attribute it to.</summary>
+    [Fact]
+    public void HandleFrame_ResynchronizeResult_MatchingCorrelationAcceptedNoPlayContextYet_ReportsNothing()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), coordinator);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
+
+        session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
+
+        Assert.Empty(coordinator.RecordAdapterPlanAcceptedCalls);
     }
 
     /// <summary>Verifies that a resynchronization result with a mismatched correlation id is ignored safely.</summary>
@@ -239,16 +304,22 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
-    /// <summary>Verifies that a declined resynchronization result does not clear the pending requirement.</summary>
+    /// <summary>
+    /// Verifies that a declined resynchronization result does not clear the pending requirement, and
+    /// -- since <see cref="HandshakenSession"/> establishes no play context -- does not close the
+    /// connection either: there is no provenance yet to attribute a genuine decline to, so this never
+    /// reaches the coordinator or the close decision at all.
+    /// </summary>
     [Fact]
     public void HandleFrame_ResynchronizeResult_NotAccepted_DoesNotResynchronize()
     {
         (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
 
-        session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
 
         Assert.True(tracker.NeedsResynchronization);
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
     /// <summary>Verifies that an accepted result is ignored when a newer connection has since superseded this session's own lease.</summary>
@@ -284,13 +355,18 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareResynchronizeRequest_IssuesDistinctNonzeroCorrelationIds()
     {
-        (AdapterIpcSession session, _, _) = HandshakenSession();
+        ResynchronizationPlan plan = BuildFutureCapturePlan();
+        (AdapterIpcSession session, _, _) = HandshakenSession(plan);
 
         IpcResynchronizeRequestMessage first = session.PrepareResynchronizeRequest();
         IpcResynchronizeRequestMessage second = session.PrepareResynchronizeRequest();
 
         Assert.NotEqual(0UL, first.CorrelationId);
         Assert.NotEqual(first.CorrelationId, second.CorrelationId);
+        Assert.Equal(plan.PersistentEventKeys, first.PersistentEventKeys);
+        Assert.Equal(plan.BaselineSampleTokens, first.BaselineSampleTokens);
+        Assert.Equal(plan.PersistentEventKeys, second.PersistentEventKeys);
+        Assert.Equal(plan.BaselineSampleTokens, second.BaselineSampleTokens);
     }
 
     /// <summary>Verifies that issuing a second resynchronization request supersedes the first: a late result for the first is ignored.</summary>
@@ -332,16 +408,97 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
+    /// <summary>Verifies that withdrawing a resynchronize request that was never actually sent makes a later result for its correlation id ignored -- reports nothing to the coordinator -- the same as any other mismatched correlation.</summary>
+    [Fact]
+    public void CancelPendingResynchronize_ThenResultArrives_ReportsNothingToCoordinator()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), coordinator);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
+
+        session.CancelPendingResynchronize(request.CorrelationId);
+        //  Declined, not accepted: proves a withdrawn correlation's later result can never reach the
+        //  close decision either, not just the coordinator report -- the more dangerous failure mode
+        //  if the withdrawal were ever broken.
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
+
+        Assert.Empty(coordinator.RecordAdapterPlanAcceptedCalls);
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+    }
+
+    /// <summary>Verifies that withdrawing an unknown or already-superseded correlation id is a harmless no-op: the real pending request still resolves normally and reports to the coordinator.</summary>
+    [Fact]
+    public void CancelPendingResynchronize_UnknownCorrelationId_DoesNotAffectTheRealPendingRequest()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), coordinator);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
+
+        Exception? exception = Record.Exception(() => session.CancelPendingResynchronize(request.CorrelationId + 1));
+        Assert.Null(exception);
+        session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
+
+        Assert.Single(coordinator.RecordAdapterPlanAcceptedCalls);
+    }
+
     /// <summary>Verifies that a resynchronization result arriving before any handshake is ignored safely.</summary>
     [Fact]
     public void HandleFrame_ResynchronizeResult_BeforeHandshake_IsIgnoredSafely()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(1, Accepted: true));
 
         Assert.Equal(AdapterIpcOutcome.None, outcome);
+    }
+
+    /// <summary>Verifies that a CaptureResult arriving before any handshake is ignored safely, never forwarded to the sink without a real source identity.</summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_BeforeHandshake_IsIgnoredSafely()
+    {
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink, new FakeResynchronizationTransactionCoordinator());
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Empty(liveCaptureSink.Applied);
+    }
+
+    /// <summary>
+    /// Verifies that a CaptureResult arriving after a validated but not-yet-committed handshake --
+    /// where this session's own instance id is set but it has no connection lease yet -- is still
+    /// ignored safely, never forwarded to the sink with an incomplete source.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_HandshakeValidatedButNotCommitted_IsIgnoredSafely()
+    {
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink, new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Empty(liveCaptureSink.Applied);
     }
 
     /// <summary>Verifies that preparing an event-listening intent with a zero key returns null even after handshake.</summary>
@@ -397,6 +554,208 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterIpcOutcome.None, outcome);
     }
 
+    /// <summary>Verifies that a CaptureResult is routed to the live capture sink and does not close the connection.</summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_RoutesToLiveCaptureSinkAndReturnsNoneOutcome()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = CreateSession(
+            lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink,
+            new FakeResynchronizationTransactionCoordinator());
+        AdapterInstanceId connectingInstanceId = AdapterInstanceId.NewId();
+        session.Handshake(new IpcHelloMessage(1, connectingInstanceId, verifier.ExpectedToken));
+        session.CommitHandshake();
+        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []);
+
+        AdapterIpcOutcome outcome = session.HandleFrame(captureResult);
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Equal([captureResult], liveCaptureSink.Applied);
+        Assert.Equal([new AdapterCaptureSource(connectingInstanceId, session.ConnectionGeneration!.Value)], liveCaptureSink.Sources);
+    }
+
+    /// <summary>
+    /// Verifies that the source passed to the live capture sink carries this exact session's own
+    /// instance id and connection generation -- not a value read from mutable global availability
+    /// state, which a differently-configured tracker here proves is never consulted for it.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_CaptureResult_PassesThisSessionsOwnInstanceIdAndGenerationAsSource()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker
+        {
+            // Deliberately different from the connecting adapter below: proves the passed source
+            // comes from this exact session, never rediscovered from this global tracker.
+            CurrentInstanceId = AdapterInstanceId.NewId(),
+            CurrentConnectionGeneration = 999,
+        };
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = CreateSession(
+            lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink,
+            new FakeResynchronizationTransactionCoordinator());
+        AdapterInstanceId connectingInstanceId = AdapterInstanceId.NewId();
+        session.Handshake(new IpcHelloMessage(1, connectingInstanceId, verifier.ExpectedToken));
+        session.CommitHandshake();
+        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 1, CaptureAvailability.Unavailable, default, []);
+
+        session.HandleFrame(captureResult);
+
+        AdapterCaptureSource source = Assert.Single(liveCaptureSink.Sources);
+        Assert.Equal(connectingInstanceId, source.InstanceId);
+        Assert.Equal(session.ConnectionGeneration, source.ConnectionGeneration);
+        Assert.NotEqual(999, source.ConnectionGeneration);
+    }
+
+    /// <summary>Verifies that several sequential CaptureResult frames reach the sink in the same order they were handled.</summary>
+    [Fact]
+    public void HandleFrame_SeveralCaptureResults_RoutesToLiveCaptureSinkInOrder()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var liveCaptureSink = new FakeLiveCaptureSink();
+        var session = CreateSession(
+            lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), liveCaptureSink,
+            new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        var first = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 1, CaptureAvailability.Available, default, [1]);
+        var second = new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, 2, CaptureAvailability.Available, default, [2]);
+        var third = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 3, CaptureAvailability.Unavailable, default, []);
+
+        session.HandleFrame(first);
+        session.HandleFrame(second);
+        session.HandleFrame(third);
+
+        Assert.Equal([first, second, third], liveCaptureSink.Applied);
+        Assert.All(liveCaptureSink.Sources, source => Assert.Equal(session.ConnectionGeneration, source.ConnectionGeneration));
+    }
+
+    /// <summary>
+    /// Verifies that a ListenEventResult is accepted without closing the connection, even though no production
+    /// caller of PrepareListenEvent exists yet.
+    /// </summary>
+    [Fact]
+    public void HandleFrame_ListenEventResult_ReturnsNoneOutcome()
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcListenEventResultMessage(3, true));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+    }
+
+    /// <summary>Verifies that a PlayContextChanged notification is forwarded to the play-context tracker and does not close the connection.</summary>
+    [Fact]
+    public void HandleFrame_PlayContextChanged_NotifiesPlayContextTrackerAndReturnsNoneOutcome()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        PlayContextId playContextId = PlayContextId.NewId();
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcPlayContextChangedMessage(0, playContextId));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Equal(playContextId, playContextTracker.Current);
+    }
+
+    /// <summary>Verifies that a PlayContextEnded notification clears the play-context tracker and does not close the connection.</summary>
+    [Fact]
+    public void HandleFrame_PlayContextEnded_ClearsPlayContextTrackerAndReturnsNoneOutcome()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+
+        AdapterIpcOutcome outcome = session.HandleFrame(new IpcPlayContextEndedMessage(0));
+
+        Assert.Equal(AdapterIpcOutcome.None, outcome);
+        Assert.Null(playContextTracker.Current);
+    }
+
+    /// <summary>Verifies that an idempotent first active replay prepares one initial resynchronization request.</summary>
+    [Fact]
+    public void HandleFrame_FirstActiveSameContextReplay_PreparesOneInitialResynchronizeRequest()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        ResynchronizationPlan plan = BuildFutureCapturePlan();
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        var session = CreateSession(
+            lifecycle,
+            verifier,
+            new FakeAdapterTrustAdminRequestHandler(),
+            playContextTracker,
+            new FakeLiveCaptureSink(),
+            new FakeResynchronizationTransactionCoordinator(),
+            plan: plan);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+
+        Assert.Equal(AdapterIpcOutcome.None, session.HandleFrame(new IpcPlayContextChangedMessage(0, context)));
+
+        IpcResynchronizeRequestMessage request = Assert.IsType<IpcResynchronizeRequestMessage>(session.TryPrepareInitialResynchronizeRequest());
+        Assert.Null(session.TryPrepareInitialResynchronizeRequest());
+        Assert.Equal(plan.PersistentEventKeys, request.PersistentEventKeys);
+        Assert.Equal(plan.BaselineSampleTokens, request.BaselineSampleTokens);
+    }
+
+    /// <summary>Verifies that an inactive first replay never prepares an initial resynchronization request.</summary>
+    [Fact]
+    public void HandleFrame_FirstInactiveReplay_DoesNotPrepareInitialResynchronizeRequest()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+
+        Assert.Equal(AdapterIpcOutcome.None, session.HandleFrame(new IpcPlayContextEndedMessage(0)));
+
+        Assert.Null(session.TryPrepareInitialResynchronizeRequest());
+    }
+
+    /// <summary>Verifies that later same-context reports cannot create another initial request.</summary>
+    [Fact]
+    public void HandleFrame_LaterSameContextReplay_DoesNotPrepareAnotherInitialRequest()
+    {
+        var availabilityTracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(availabilityTracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), playContextTracker, new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+
+        session.HandleFrame(new IpcPlayContextChangedMessage(0, context));
+        Assert.NotNull(session.TryPrepareInitialResynchronizeRequest());
+        session.HandleFrame(new IpcPlayContextChangedMessage(0, context));
+
+        Assert.Null(session.TryPrepareInitialResynchronizeRequest());
+    }
+
     /// <summary>Verifies that a message kind the host never expects to receive is rejected and closes the connection.</summary>
     [Theory]
     [InlineData(typeof(IpcListenEventMessage))]
@@ -449,7 +808,7 @@ public class AdapterIpcSessionTests
     public void PrepareListenEvent_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         Assert.Null(session.PrepareListenEvent(1));
     }
@@ -461,7 +820,7 @@ public class AdapterIpcSessionTests
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
 
         Assert.Null(session.PrepareListenEvent(1));
@@ -488,7 +847,7 @@ public class AdapterIpcSessionTests
     public void PrepareReadSample_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         Assert.Null(session.PrepareReadSample(1));
     }
@@ -523,7 +882,7 @@ public class AdapterIpcSessionTests
     public void PrepareCancel_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         Assert.Null(session.PrepareCancel(1));
     }
@@ -580,7 +939,7 @@ public class AdapterIpcSessionTests
     {
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         session.HandleDisconnected();
 
@@ -595,13 +954,13 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var firstSession = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
         IpcResynchronizeRequestMessage request = firstSession.PrepareResynchronizeRequest();
         firstSession.HandleDisconnected();
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var secondSession = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -617,7 +976,7 @@ public class AdapterIpcSessionTests
     public void PreparePairingDisplay_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         Assert.Null(session.PreparePairingDisplay("123456", PairingDisplayMode.Initial));
     }
@@ -653,7 +1012,7 @@ public class AdapterIpcSessionTests
     public void PreparePairingAttemptsExhausted_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         Assert.Null(session.PreparePairingAttemptsExhausted());
     }
@@ -678,11 +1037,11 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var firstSession = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var secondSession = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -734,7 +1093,7 @@ public class AdapterIpcSessionTests
     public void HandlePairingDisplayAck_BeforeHandshake_ReturnsNull()
     {
         var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
-        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(lifecycle, new AdapterPeerProofVerifier(), new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         Assert.Null(session.HandlePairingDisplayAck(new IpcPairingDisplayAckMessage(1, true)));
     }
@@ -751,12 +1110,12 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        var firstSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var firstSession = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
         firstSession.CommitHandshake();
         IpcPairingDisplayMessage request = firstSession.PreparePairingDisplay("123456", PairingDisplayMode.Initial)!;
 
-        var secondSession = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var secondSession = CreateSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler(), new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
         secondSession.CommitHandshake();
 
@@ -801,7 +1160,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var handler = new FakeAdapterTrustAdminRequestHandler { Result = "Revoked client 12345 (My PC)." };
-        var session = new AdapterIpcSession(lifecycle, verifier, handler);
+        var session = CreateSession(lifecycle, verifier, handler, new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         var request = new IpcTrustAdminRequestMessage(3, TrustAdminOperation.Revoke, ShortId: "12345");
 
         string result = await session.HandleTrustAdminRequestAsync(request);
@@ -819,7 +1178,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var handler = new FakeAdapterTrustAdminRequestHandler();
-        var session = new AdapterIpcSession(lifecycle, verifier, handler);
+        var session = CreateSession(lifecycle, verifier, handler, new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
         using var cancellation = new CancellationTokenSource();
 
         await session.HandleTrustAdminRequestAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help), cancellation.Token);
@@ -836,7 +1195,7 @@ public class AdapterIpcSessionTests
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var handler = new FakeAdapterTrustAdminRequestHandler { Result = "host not ready" };
-        var session = new AdapterIpcSession(lifecycle, verifier, handler);
+        var session = CreateSession(lifecycle, verifier, handler, new FakePlayContextTracker(), new FakeLiveCaptureSink(), new FakeResynchronizationTransactionCoordinator());
 
         string result = await session.HandleTrustAdminRequestAsync(new IpcTrustAdminRequestMessage(1, TrustAdminOperation.Help));
 
@@ -845,16 +1204,65 @@ public class AdapterIpcSessionTests
     }
 
     /// <summary>Creates a session that has already completed and committed a successful handshake against a fresh tracker and lifecycle.</summary>
-    private static (AdapterIpcSession Session, FakeAdapterAvailabilityTracker Tracker, AdapterConnectionLifecycle Lifecycle) HandshakenSession()
+    /// <param name="plan">The plan the session includes in every request, or <see langword="null"/> for a valid no-op plan.</param>
+    /// <returns>The handshaken session and its test-owned availability collaborators.</returns>
+    private static (AdapterIpcSession Session, FakeAdapterAvailabilityTracker Tracker, AdapterConnectionLifecycle Lifecycle) HandshakenSession(
+        ResynchronizationPlan? plan = null)
     {
         var tracker = new FakeAdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(lifecycle, verifier, new FakeAdapterTrustAdminRequestHandler());
+        var session = CreateSession(
+            lifecycle,
+            verifier,
+            new FakeAdapterTrustAdminRequestHandler(),
+            new FakePlayContextTracker(),
+            new FakeLiveCaptureSink(),
+            new FakeResynchronizationTransactionCoordinator(),
+            plan: plan);
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
         return (session, tracker, lifecycle);
     }
+
+    /// <summary>Creates a plan containing arbitrary future event and sample keys for request forwarding tests.</summary>
+    /// <returns>A valid plan containing event key 998 and sample token 999.</returns>
+    private static ResynchronizationPlan BuildFutureCapturePlan() =>
+        new LiveStateCatalog(
+            [
+                new CaptureUnitDefinition(CaptureSourceKind.Event, 998, null, SynchronizationRole.PersistentEvent, []),
+                new CaptureUnitDefinition(CaptureSourceKind.Sample, 999, null, SynchronizationRole.BaselineSample, []),
+            ],
+            []).BuildResynchronizationPlan();
+
+    /// <summary>Creates an isolated AdapterIpcSession with a plan derived from a catalog.</summary>
+    /// <param name="lifecycle">The lifecycle this session controls.</param>
+    /// <param name="peerProofVerifier">The verifier this session checks Hello proofs against.</param>
+    /// <param name="trustAdminRequestHandler">The handler for adapter-originated trust-admin requests.</param>
+    /// <param name="playContextTracker">The tracker this session updates with Adapter play-context reports.</param>
+    /// <param name="liveCaptureSink">The sink for decoded capture results.</param>
+    /// <param name="resynchronizationTransactionCoordinator">The coordinator notified about resynchronization results.</param>
+    /// <param name="expectedOwnerLifetimeId">The expected Skyrim process identity.</param>
+    /// <param name="plan">The plan to use, or <see langword="null"/> for a valid no-op plan.</param>
+    /// <returns>A session with all supplied collaborators.</returns>
+    private static AdapterIpcSession CreateSession(
+        IAdapterConnectionLifecycle lifecycle,
+        IAdapterPeerProofVerifier peerProofVerifier,
+        IAdapterTrustAdminRequestHandler trustAdminRequestHandler,
+        IPlayContextTracker playContextTracker,
+        ILiveCaptureSink liveCaptureSink,
+        IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
+        OwnerLifetimeId expectedOwnerLifetimeId = default,
+        ResynchronizationPlan? plan = null) =>
+        new(
+            lifecycle,
+            peerProofVerifier,
+            trustAdminRequestHandler,
+            playContextTracker,
+            liveCaptureSink,
+            resynchronizationTransactionCoordinator,
+            plan ?? new ResynchronizationPlan([], []),
+            expectedOwnerLifetimeId);
 
     /// <summary>Independently recomputes the expected HostProof, mirroring the production byte layout without calling its private helper.</summary>
     private static byte[] IndependentlyComputedHostProof(IpcHelloMessage hello, byte[] peerProofToken)

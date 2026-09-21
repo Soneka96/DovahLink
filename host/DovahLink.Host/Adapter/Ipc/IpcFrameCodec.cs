@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Linq;
 using System.Text;
 using System.Text.Unicode;
 using DovahLink.Host.Identity;
@@ -45,7 +46,8 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         {
             IpcHelloMessage hello => (IpcMessageKind.Hello, EncodeHello(hello)),
             IpcHelloAckMessage helloAck => (IpcMessageKind.HelloAck, EncodeHelloAck(helloAck)),
-            IpcResynchronizeRequestMessage => (IpcMessageKind.ResynchronizeRequest, Array.Empty<byte>()),
+            IpcResynchronizeRequestMessage resynchronizeRequest =>
+                (IpcMessageKind.ResynchronizeRequest, EncodeResynchronizeRequest(resynchronizeRequest)),
             IpcResynchronizeResultMessage resynchronizeResult =>
                 (IpcMessageKind.ResynchronizeResult, new byte[] { resynchronizeResult.Accepted ? (byte)1 : (byte)0 }),
             IpcCloseMessage close => (IpcMessageKind.Close, EncodeClose(close)),
@@ -59,6 +61,10 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
                 (IpcMessageKind.PairingAttemptsExhausted, EncodePairingAttemptsExhausted(pairingAttemptsExhausted)),
             IpcTrustAdminRequestMessage trustAdminRequest => (IpcMessageKind.TrustAdminRequest, EncodeTrustAdminRequest(trustAdminRequest)),
             IpcTrustAdminResultMessage trustAdminResult => (IpcMessageKind.TrustAdminResult, EncodeTrustAdminResult(trustAdminResult)),
+            IpcCaptureResultMessage captureResult => (IpcMessageKind.CaptureResult, EncodeCaptureResult(captureResult)),
+            IpcListenEventResultMessage listenEventResult => (IpcMessageKind.ListenEventResult, EncodeListenEventResult(listenEventResult)),
+            IpcPlayContextChangedMessage playContextChanged => (IpcMessageKind.PlayContextChanged, EncodePlayContextChanged(playContextChanged)),
+            IpcPlayContextEndedMessage playContextEnded => (IpcMessageKind.PlayContextEnded, EncodePlayContextEnded(playContextEnded)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -112,9 +118,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         {
             IpcMessageKind.Hello => DecodeHello(correlationId, payload),
             IpcMessageKind.HelloAck => DecodeHelloAck(correlationId, payload),
-            IpcMessageKind.ResynchronizeRequest => payload.IsEmpty
-                ? IpcDecodeResult.Success(new IpcResynchronizeRequestMessage(correlationId))
-                : IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload),
+            IpcMessageKind.ResynchronizeRequest => DecodeResynchronizeRequest(correlationId, payload),
             IpcMessageKind.ResynchronizeResult => DecodeResynchronizeResult(correlationId, payload),
             IpcMessageKind.Close => DecodeClose(correlationId, payload),
             IpcMessageKind.Reject => DecodeReject(correlationId, payload),
@@ -128,6 +132,10 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcMessageKind.PairingAttemptsExhausted => DecodePairingAttemptsExhausted(correlationId, payload),
             IpcMessageKind.TrustAdminRequest => DecodeTrustAdminRequest(correlationId, payload),
             IpcMessageKind.TrustAdminResult => DecodeTrustAdminResult(correlationId, payload),
+            IpcMessageKind.CaptureResult => DecodeCaptureResult(correlationId, payload),
+            IpcMessageKind.ListenEventResult => DecodeListenEventResult(correlationId, payload),
+            IpcMessageKind.PlayContextChanged => DecodePlayContextChanged(correlationId, payload),
+            IpcMessageKind.PlayContextEnded => DecodePlayContextEnded(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -227,6 +235,45 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         return payload;
     }
 
+    /// <summary>
+    /// Encodes an event-count byte and little-endian event keys, followed by a sample-count byte and
+    /// little-endian sample tokens.
+    /// </summary>
+    /// <param name="request">The resynchronization request to encode.</param>
+    /// <returns>The bounded resynchronization payload.</returns>
+    /// <exception cref="ArgumentNullException">Either intent list is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">A list exceeds its bound or contains a zero intent key.</exception>
+    private static byte[] EncodeResynchronizeRequest(IpcResynchronizeRequestMessage request)
+    {
+        ArgumentNullException.ThrowIfNull(request.PersistentEventKeys);
+        ArgumentNullException.ThrowIfNull(request.BaselineSampleTokens);
+        if (request.PersistentEventKeys.Count > Constants.MaxResynchronizationEventKeys ||
+            request.BaselineSampleTokens.Count > Constants.MaxResynchronizationSampleTokens ||
+            request.PersistentEventKeys.Contains(0u) || request.BaselineSampleTokens.Contains(0u))
+        {
+            throw new ArgumentException("The resynchronization plan exceeds its bounds or contains a zero intent key.", nameof(request));
+        }
+
+        int sampleCountOffset = 1 + request.PersistentEventKeys.Count * sizeof(uint);
+        byte[] payload = new byte[sampleCountOffset + 1 + request.BaselineSampleTokens.Count * sizeof(uint)];
+        payload[0] = (byte)request.PersistentEventKeys.Count;
+        int offset = 1;
+        foreach (uint eventKey in request.PersistentEventKeys)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(offset, sizeof(uint)), eventKey);
+            offset += sizeof(uint);
+        }
+
+        payload[offset++] = (byte)request.BaselineSampleTokens.Count;
+        foreach (uint sampleToken in request.BaselineSampleTokens)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(offset, sizeof(uint)), sampleToken);
+            offset += sizeof(uint);
+        }
+
+        return payload;
+    }
+
     /// <summary>Validates the common identity rules for host-directed capture intents.</summary>
     /// <param name="correlationId">The request correlation id.</param>
     /// <param name="intentId">The event key or sample token.</param>
@@ -286,6 +333,68 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         byte[] hostProof = payload.Slice(2, Constants.IpcHostProofBytes).ToArray();
         return IpcDecodeResult.Success(
             new IpcHelloAckMessage(correlationId, accepted, (IpcHelloRejectReason)payload[1], hostProof));
+    }
+
+    /// <summary>
+    /// Decodes a bounded resynchronization plan, validating counts, exact length, and nonzero keys
+    /// before allocation.
+    /// </summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The count-prefixed event and sample intent lists.</param>
+    /// <returns>The decoded plan or a malformed-payload failure.</returns>
+    private static IpcDecodeResult DecodeResynchronizeRequest(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 2)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        int eventCount = payload[0];
+        if (eventCount > Constants.MaxResynchronizationEventKeys)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        int sampleCountOffset = 1 + eventCount * sizeof(uint);
+        if (payload.Length <= sampleCountOffset)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        int sampleCount = payload[sampleCountOffset];
+        if (sampleCount > Constants.MaxResynchronizationSampleTokens ||
+            payload.Length != sampleCountOffset + 1 + sampleCount * sizeof(uint))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        uint[] eventKeys = new uint[eventCount];
+        for (int index = 0; index < eventCount; index++)
+        {
+            uint eventKey = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(1 + index * sizeof(uint), sizeof(uint)));
+            if (eventKey == 0)
+            {
+                return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+            }
+
+            eventKeys[index] = eventKey;
+        }
+
+        uint[] sampleTokens = new uint[sampleCount];
+        int offset = sampleCountOffset + 1;
+        for (int index = 0; index < sampleCount; index++)
+        {
+            uint sampleToken = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(offset, sizeof(uint)));
+            if (sampleToken == 0)
+            {
+                return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+            }
+
+            sampleTokens[index] = sampleToken;
+            offset += sizeof(uint);
+        }
+
+        return IpcDecodeResult.Success(new IpcResynchronizeRequestMessage(correlationId, eventKeys, sampleTokens));
     }
 
     /// <summary>Decodes an <see cref="IpcResynchronizeResultMessage"/> payload, validating its boolean field.</summary>
@@ -705,4 +814,215 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
 
         return IpcDecodeResult.Success(new IpcTrustAdminResultMessage(correlationId, Encoding.UTF8.GetString(payload)));
     }
+
+    /// <summary>Encodes a capture result: source byte, four-byte capture key, availability byte, 16-byte play-context id, then the captured payload bytes.</summary>
+    /// <param name="captureResult">The result to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the capture key is zero, or an unavailable result carries a nonempty payload.</exception>
+    private static byte[] EncodeCaptureResult(IpcCaptureResultMessage captureResult)
+    {
+        if (captureResult.CaptureKey == 0)
+        {
+            throw new ArgumentException("A capture result must identify a nonzero capture key.", nameof(captureResult));
+        }
+
+        if (captureResult.Availability == CaptureAvailability.Unavailable && captureResult.Payload.Length != 0)
+        {
+            throw new ArgumentException("An unavailable capture result must carry an empty payload.", nameof(captureResult));
+        }
+
+        var payload = new byte[22 + captureResult.Payload.Length];
+        payload[0] = (byte)captureResult.Source;
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1, 4), captureResult.CaptureKey);
+        payload[5] = (byte)captureResult.Availability;
+        captureResult.PlayContextId.Value.TryWriteBytes(payload.AsSpan(6, 16), bigEndian: true, out _);
+        captureResult.Payload.CopyTo(payload.AsSpan(22));
+        return payload;
+    }
+
+    /// <summary>Decodes a capture result, validating its source and availability enums and minimum payload length.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The source byte, four-byte capture key, availability byte, 16-byte play-context id, then captured payload bytes.</param>
+    private static IpcDecodeResult DecodeCaptureResult(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 22 || !Enum.IsDefined((CaptureSourceKind)payload[0]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        uint captureKey = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(1, 4));
+        if (captureKey == 0 || !Enum.IsDefined((CaptureAvailability)payload[5]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        var availability = (CaptureAvailability)payload[5];
+        var playContextId = new PlayContextId(new Guid(payload.Slice(6, 16), bigEndian: true));
+        ReadOnlySpan<byte> valueBytes = payload[22..];
+        if (availability == CaptureAvailability.Unavailable && !valueBytes.IsEmpty)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(
+            new IpcCaptureResultMessage(correlationId, (CaptureSourceKind)payload[0], captureKey, availability, playContextId, valueBytes.ToArray()));
+    }
+
+    /// <summary>Encodes a listen-event result after enforcing its required request correlation.</summary>
+    /// <param name="listenEventResult">The result to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the result has correlation id zero.</exception>
+    private static byte[] EncodeListenEventResult(IpcListenEventResultMessage listenEventResult)
+    {
+        if (listenEventResult.CorrelationId == 0)
+        {
+            throw new ArgumentException(
+                "A listen-event result must identify a nonzero request correlation id.", nameof(listenEventResult));
+        }
+
+        return [listenEventResult.Accepted ? (byte)1 : (byte)0];
+    }
+
+    /// <summary>Decodes a listen-event result, validating its required nonzero correlation id and boolean field.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed one-byte accepted-flag payload.</param>
+    private static IpcDecodeResult DecodeListenEventResult(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length != 1 || payload[0] > 1)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcListenEventResultMessage(correlationId, payload[0] == 1));
+    }
+
+    /// <summary>Encodes a play-context-changed notification's 16-byte identity payload after enforcing its unsolicited-message correlation rule.</summary>
+    /// <param name="playContextChanged">The notification to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the notification carries a nonzero correlation id.</exception>
+    private static byte[] EncodePlayContextChanged(IpcPlayContextChangedMessage playContextChanged)
+    {
+        if (playContextChanged.CorrelationId != 0)
+        {
+            throw new ArgumentException("A play-context-changed notification must have correlation id zero.", nameof(playContextChanged));
+        }
+
+        var payload = new byte[16];
+        playContextChanged.PlayContextId.Value.TryWriteBytes(payload, bigEndian: true, out _);
+        return payload;
+    }
+
+    /// <summary>Decodes a play-context-changed notification, validating its unsolicited-message correlation rule and fixed payload length.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed 16-byte play-context identity payload.</param>
+    private static IpcDecodeResult DecodePlayContextChanged(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId != 0 || payload.Length != 16)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        var playContextId = new PlayContextId(new Guid(payload, bigEndian: true));
+        if (playContextId.Value == Guid.Empty)
+        {
+            // All-zero is reserved as an invariant no real generated id may ever collide with (see
+            // AdapterPlayContextGenerator::Generate on the Adapter side); a peer sending it is a
+            // protocol violation, not a legitimate empty identity.
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcPlayContextChangedMessage(correlationId, playContextId));
+    }
+
+    /// <summary>Encodes a play-context-ended notification after enforcing its unsolicited-message correlation rule.</summary>
+    /// <param name="playContextEnded">The notification to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the notification carries a nonzero correlation id.</exception>
+    private static byte[] EncodePlayContextEnded(IpcPlayContextEndedMessage playContextEnded)
+    {
+        if (playContextEnded.CorrelationId != 0)
+        {
+            throw new ArgumentException("A play-context-ended notification must have correlation id zero.", nameof(playContextEnded));
+        }
+
+        return Array.Empty<byte>();
+    }
+
+    /// <summary>Decodes a play-context-ended notification, validating its unsolicited-message correlation rule and empty payload.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The (required empty) payload.</param>
+    private static IpcDecodeResult DecodePlayContextEnded(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId != 0 || !payload.IsEmpty)
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        return IpcDecodeResult.Success(new IpcPlayContextEndedMessage(correlationId));
+    }
 }
+
+// TODO(stage4-file-extraction): Move IpcCaptureResultMessage to its own
+// IpcCaptureResultMessage.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>
+/// Reports one captured value, or its unavailability, from the adapter. <paramref name="CorrelationId"/>
+/// matches the originating <see cref="IpcReadSampleMessage"/> for a sampled capture, or is zero for a
+/// capture with no originating host request (for example a future spontaneous native-event capture).
+/// </summary>
+/// <param name="CorrelationId">Matches the originating request, or zero. See the type documentation.</param>
+/// <param name="Source">Which host-owned key namespace <paramref name="CaptureKey"/> belongs to.</param>
+/// <param name="CaptureKey">The host-owned sample token or event key this result was captured for.</param>
+/// <param name="Availability">Whether <paramref name="Payload"/> holds a real captured value.</param>
+/// <param name="PlayContextId">
+/// The play context that was current on the adapter at the moment this value was captured, stamped
+/// at the same callback boundary as the value itself rather than re-derived later -- so a value
+/// captured just before a save transition can never be misattributed to a context it was not
+/// actually captured under. All-zero (<see cref="Guid.Empty"/>) whenever no play context is
+/// currently active on the Adapter: before the first one is ever established, or after one has
+/// ended (loading has started, or the player returned to the main menu) with no later one
+/// established yet.
+/// </param>
+/// <param name="Payload">The captured value, already copied out of Skyrim state; empty when <paramref name="Availability"/> is <see cref="CaptureAvailability.Unavailable"/>.</param>
+public sealed record IpcCaptureResultMessage(
+    ulong CorrelationId,
+    CaptureSourceKind Source,
+    uint CaptureKey,
+    CaptureAvailability Availability,
+    PlayContextId PlayContextId,
+    byte[] Payload) : IpcMessage(CorrelationId);
+
+// TODO(stage4-file-extraction): Move IpcListenEventResultMessage to its own
+// IpcListenEventResultMessage.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>
+/// Sent by the adapter in response to <see cref="IpcListenEventMessage"/>, reporting whether the
+/// event key now has, or already had, an approved persistent registration.
+/// </summary>
+/// <param name="CorrelationId">Matches the <see cref="IpcListenEventMessage"/> this responds to.</param>
+/// <param name="Accepted">Whether the event key was accepted for registration.</param>
+public sealed record IpcListenEventResultMessage(ulong CorrelationId, bool Accepted) : IpcMessage(CorrelationId);
+
+// TODO(stage4-file-extraction): Move IpcPlayContextChangedMessage to its own
+// IpcPlayContextChangedMessage.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>
+/// Sent by the adapter to notify the host of a new Skyrim play context (one save/load lifetime):
+/// starting a new game, loading a save, or announcing the context already current after a
+/// reconnect. Best effort and unsolicited: the host sends no reply.
+/// </summary>
+/// <param name="CorrelationId">Always zero; this notification is unsolicited and expects no reply.</param>
+/// <param name="PlayContextId">The adapter-generated play-context identity.</param>
+public sealed record IpcPlayContextChangedMessage(ulong CorrelationId, PlayContextId PlayContextId) : IpcMessage(CorrelationId);
+
+// TODO(stage4-file-extraction): Move IpcPlayContextEndedMessage to its own
+// IpcPlayContextEndedMessage.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>
+/// Sent by the adapter to notify the host that the current play context has ended: loading has
+/// started (before the new context is established), or the player returned to the main menu. Best
+/// effort and unsolicited: the host sends no reply. No new context is established until a later
+/// <see cref="IpcPlayContextChangedMessage"/>.
+/// </summary>
+/// <param name="CorrelationId">Always zero; this notification is unsolicited and expects no reply.</param>
+public sealed record IpcPlayContextEndedMessage(ulong CorrelationId) : IpcMessage(CorrelationId);

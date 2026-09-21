@@ -70,15 +70,17 @@ AdapterIpcSession::AdapterIpcSession(
     identity::AdapterInstanceId instanceId,
     std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
     runtime::IAdapterTaskMarshaller& taskMarshaller,
-    dispatch::IAdapterNativeDispatcher& dispatcher,
+    dispatch::IAdapterNativeCaptureRouter& captureRouter,
     capture::IAdapterCaptureHandoffQueue& captureQueue,
     IAdapterPairingNotificationSink& pairingNotificationSink,
+    identity::IAdapterPlayContextState& playContextState,
     std::function<void()> onGameThreadDispatchRejected,
     std::chrono::milliseconds trustAdminRequestTimeout)
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
-      taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
+      taskMarshaller_(taskMarshaller), captureRouter_(captureRouter),
       captureQueue_(captureQueue),
       pairingNotificationSink_(pairingNotificationSink),
+      playContextState_(playContextState),
       onGameThreadDispatchRejected_(std::move(onGameThreadDispatchRejected)),
       trustAdminRequestTimeout_(trustAdminRequestTimeout) {}
 
@@ -398,6 +400,9 @@ AdapterIpcSession::HandleMessage(const IpcMessage& message) {
                                                ? AuthenticationState::kAuthenticated
                                                : AuthenticationState::kClosed;
                 }
+                if (authenticated) {
+                    ReplayCurrentPlayContextState();
+                }
                 return authenticated ? AdapterIpcMessageDisposition::kAuthenticated
                                      : AdapterIpcMessageDisposition::kClose;
             } else if constexpr (std::is_same_v<T,
@@ -473,6 +478,88 @@ void AdapterIpcSession::HandleClosing() {
     InvokeAbandonedTrustAdminCallbacks(std::move(abandonedCallbacks));
 }
 
+void AdapterIpcSession::SendCaptureResult(
+    const capture::AdapterCaptureWorkItem& item) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    if (authenticationState_ != AuthenticationState::kAuthenticated ||
+        connection_ == nullptr) {
+        return;
+    }
+    //  A reliable Event or a resync baseline (zero correlation id, unlike a
+    //  host-directed ReadSample's own nonzero one) can never be silently
+    //  lost, so a failed send resets the connection; an ordinary sampled
+    //  result recovers through the Host's own request timeout instead.
+    bool continuityCritical =
+        item.source == capture::CaptureSourceKind::kEvent ||
+        item.correlationId == 0;
+    bool sent = false;
+    try {
+        sent = connection_->TrySend(IpcMessage{IpcCaptureResultMessage{
+            .correlationId = item.correlationId,
+            .source = item.source,
+            .captureKey = item.intentKey,
+            .availability = item.availability,
+            .playContextId = item.playContextId,
+            .payload = std::vector<std::byte>(item.capturedValue.AsSpan().begin(),
+                                              item.capturedValue.AsSpan().end()),
+        }});
+    } catch (...) {
+        //  Best-effort; see SendBestEffortReject's own documentation for why
+        //  a failed or throwing send here must never propagate.
+    }
+    if (!sent && continuityCritical) {
+        connection_->RequestReconnect();
+    }
+}
+
+void AdapterIpcSession::SendPlayContextChanged(
+    std::array<std::byte, 16> playContextId) {
+    std::lock_guard<std::mutex> publicationLock(playContextPublicationMutex_);
+    playContextState_.SetCurrentPlayContext(playContextId);
+    SendPlayContextNotification(IpcMessage{IpcPlayContextChangedMessage{
+        .correlationId = 0, .playContextId = playContextId}});
+}
+
+void AdapterIpcSession::SendPlayContextEnded() {
+    std::lock_guard<std::mutex> publicationLock(playContextPublicationMutex_);
+    playContextState_.ClearCurrentPlayContext();
+    SendPlayContextNotification(
+        IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}});
+}
+
+void AdapterIpcSession::SendPlayContextNotification(const IpcMessage& message) {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    if (authenticationState_ != AuthenticationState::kAuthenticated ||
+        connection_ == nullptr) {
+        return;
+    }
+    bool sent = false;
+    try {
+        sent = connection_->TrySend(message);
+    } catch (...) {
+        //  Best-effort; see SendBestEffortReject's own documentation for why
+        //  a failed or throwing send here must never propagate.
+    }
+    if (!sent) {
+        //  Losing either play-context notification can leave the Host
+        //  attributing later captures to a stale context; both require recovery.
+        connection_->RequestReconnect();
+    }
+}
+
+void AdapterIpcSession::ReplayCurrentPlayContextState() {
+    std::lock_guard<std::mutex> publicationLock(playContextPublicationMutex_);
+    std::optional<std::array<std::byte, 16>> current =
+        playContextState_.CurrentPlayContext();
+    if (current.has_value()) {
+        SendPlayContextNotification(IpcMessage{IpcPlayContextChangedMessage{
+            .correlationId = 0, .playContextId = *current}});
+    } else {
+        SendPlayContextNotification(
+            IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}});
+    }
+}
+
 AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage& request) {
     std::uint64_t correlationId = request.correlationId;
@@ -490,10 +577,18 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
     }
     auto callbackMutex = callbackMutex_;
     auto lifetimeToken = lifetimeToken_;
+    //  The game-thread callback may run after the decoded message is released.
+    //  Own copies of the codec-bounded lists for the callback's full lifetime.
+    std::vector<std::uint32_t> persistentEventKeys =
+        request.persistentEventKeys;
+    std::vector<std::uint32_t> baselineSampleTokens =
+        request.baselineSampleTokens;
     bool admitted = ScheduleGameThreadDispatch(
         [this, callbackMutex = std::move(callbackMutex),
          lifetimeToken = std::move(lifetimeToken), correlationId,
-         connectionGeneration, cancellation] {
+         connectionGeneration, cancellation,
+         persistentEventKeys = std::move(persistentEventKeys),
+         baselineSampleTokens = std::move(baselineSampleTokens)] {
             std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
             if (!lifetimeToken->load()) {
                 return;
@@ -520,23 +615,92 @@ AdapterIpcMessageDisposition AdapterIpcSession::HandleResynchronizeRequest(
                         return;
                     }
                 }
-                //  No approved baseline domain is registered yet. The game-thread
-                //  path is still exercised, but reporting failure prevents the host
-                //  from treating an empty capture as a fresh authoritative baseline.
+                //  Read the play context immediately before the Skyrim reads
+                //  below, rather than caching it earlier or reading it later
+                //  on a different thread; see HandleReadSample's identical
+                //  guard for why. All-zero when no context is currently
+                //  active (resync only reaches this task while the Host
+                //  already has one, so this is a defensive fallback, not the
+                //  expected case).
+                std::array<std::byte, 16> playContextId =
+                    playContextState_.CurrentPlayContext().value_or(
+                        std::array<std::byte, 16>{});
+                //  Register every requested persistent event before any
+                //  baseline read in this same game-thread task, so no update
+                //  can occur in a gap before its baseline sample.
+                bool accepted = true;
+                for (std::uint32_t eventKey : persistentEventKeys) {
+                    if (!captureRouter_.RegisterEvent(eventKey)) {
+                        accepted = false;
+                    }
+                }
+                //  A recognized sample is queued the same way a host-directed
+                //  ReadSample's own result is, per HandleReadSample -- through
+                //  the capture queue's worker thread, not a direct send from
+                //  this game-thread task. correlationId stays zero: none of
+                //  these originates from an IpcReadSampleMessage. An
+                //  unsupported token enqueues nothing at all -- fabricating an
+                //  "unavailable" capture for a token this router does not even
+                //  recognize would hide a protocol/version mismatch as normal
+                //  Skyrim state. A recognized unavailable value can still be
+                //  admitted; the queue's own rejection is a plan failure.
+                auto enqueueBaselineSample = [this, &playContextId](
+                                                 std::uint32_t sampleToken) {
+                    dispatch::SampleCaptureResult captured =
+                        captureRouter_.CaptureSample(sampleToken);
+                    if (captured.status ==
+                        dispatch::SampleCaptureStatus::kUnsupported) {
+                        return false;
+                    }
+                    return captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                        .intentKey = sampleToken,
+                        .capturedValue = std::move(captured.payload),
+                        .correlationId = 0,
+                        .source = capture::CaptureSourceKind::kSample,
+                        .availability =
+                            captured.status == dispatch::SampleCaptureStatus::kAvailable
+                                ? capture::CaptureAvailability::kAvailable
+                                : capture::CaptureAvailability::kUnavailable,
+                        .playContextId = playContextId,
+                    });
+                };
+                for (std::uint32_t sampleToken : baselineSampleTokens) {
+                    if (!enqueueBaselineSample(sampleToken)) {
+                        accepted = false;
+                    }
+                }
                 if (connection_ != nullptr) {
-                    connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
-                        .correlationId = correlationId, .accepted = false}});
+                    //  A dropped terminal result would leave the Host waiting
+                    //  for a resync outcome that will now never arrive:
+                    //  always continuity-critical, unlike an ordinary sampled
+                    //  result.
+                    bool sent = connection_->TrySend(
+                        IpcMessage{IpcResynchronizeResultMessage{
+                            .correlationId = correlationId,
+                            .accepted = accepted}});
+                    if (!sent) {
+                        connection_->RequestReconnect();
+                    }
                 }
             } catch (...) {
                 //  Contained, per ai/context/skse/cpp-style.md's worker-thread
                 //  boundary rule: this task runs on the Skyrim game thread via
                 //  SKSE's own task interface, which must never see an exception
-                //  escape.
+                //  escape. An exception here means the terminal result above
+                //  never sent, which would otherwise leave the Host waiting
+                //  for a resync outcome forever; reset instead.
+                if (connection_ != nullptr) {
+                    connection_->RequestReconnect();
+                }
             }
         });
     if (!admitted) {
         std::lock_guard<std::mutex> lock(availableMutex_);
         UnregisterCancellableDispatchLocked(correlationId, cancellation);
+        //  Unlike ListenEvent/ReadSample/PairingDisplay, nothing on the host
+        //  times out a resynchronize request once sent: a silently dropped
+        //  admission here would wedge it forever. Close instead.
+        return AdapterIpcMessageDisposition::kClose;
     }
     return AdapterIpcMessageDisposition::kContinue;
 }
@@ -593,11 +757,14 @@ AdapterIpcSession::HandleListenEvent(const IpcListenEventMessage& listenEvent) {
                         return;
                     }
                 }
-                std::optional<std::vector<std::byte>> captured =
-                    dispatcher_.TryDispatch(eventKey);
-                if (captured.has_value()) {
-                    captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                        .intentKey = eventKey, .capturedValue = *captured});
+                //  Registration itself produces no captured value: any later
+                //  capture for this event arrives through a separate capture
+                //  path once the registered native event actually fires, not
+                //  from this dispatch's own result.
+                bool accepted = captureRouter_.RegisterEvent(eventKey);
+                if (connection_ != nullptr) {
+                    connection_->TrySend(IpcMessage{IpcListenEventResultMessage{
+                        .correlationId = correlationId, .accepted = accepted}});
                 }
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.
@@ -662,11 +829,32 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                         return;
                     }
                 }
-                std::optional<std::vector<std::byte>> captured =
-                    dispatcher_.TryDispatch(sampleToken);
-                if (captured.has_value()) {
+                //  Read the play context immediately before the Skyrim read
+                //  below, rather than caching it earlier or reading it later
+                //  on a different thread: this is the tightest window
+                //  between observing "this context is current" and actually
+                //  capturing the value under it. All-zero when no context is
+                //  currently active.
+                std::array<std::byte, 16> playContextId =
+                    playContextState_.CurrentPlayContext().value_or(
+                        std::array<std::byte, 16>{});
+                dispatch::SampleCaptureResult captured =
+                    captureRouter_.CaptureSample(sampleToken);
+                //  An unsupported token sends nothing back at all; see
+                //  HandleResynchronizeRequest's identical enqueue guard for
+                //  why fabricating "unavailable" here would be wrong.
+                if (captured.status != dispatch::SampleCaptureStatus::kUnsupported) {
                     captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                        .intentKey = sampleToken, .capturedValue = *captured});
+                        .intentKey = sampleToken,
+                        .capturedValue = std::move(captured.payload),
+                        .correlationId = correlationId,
+                        .source = capture::CaptureSourceKind::kSample,
+                        .availability =
+                            captured.status == dispatch::SampleCaptureStatus::kAvailable
+                                ? capture::CaptureAvailability::kAvailable
+                                : capture::CaptureAvailability::kUnavailable,
+                        .playContextId = playContextId,
+                    });
                 }
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.

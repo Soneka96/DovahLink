@@ -49,6 +49,80 @@ TEST_CASE("the adapter plugin defers host discovery startup to kDataLoaded",
     CHECK(dataLoadedCheck < runtimeStart);
 }
 
+TEST_CASE("the adapter plugin sends a fresh play-context identity on both "
+          "kNewGame and kPostLoadGame",
+          "[plugin][structural]") {
+    std::string rawSource = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+    std::string source = NormalizeWhitespace(rawSource);
+
+    std::size_t newGameCheck =
+        source.find("message->type==SKSE::MessagingInterface::kNewGame");
+    std::size_t postLoadGameCheck =
+        source.find("message->type==SKSE::MessagingInterface::kPostLoadGame");
+    std::string sendCall = NormalizeWhitespace(
+        "SendPlayContextChanged(playContextGenerator->Generate());");
+    std::size_t sendPlayContextChanged = source.find(sendCall);
+
+    REQUIRE(newGameCheck != std::string::npos);
+    REQUIRE(postLoadGameCheck != std::string::npos);
+    REQUIRE(sendPlayContextChanged != std::string::npos);
+    //  Both message-type checks must guard the same one send call, not each
+    //  have their own separate call -- CountOccurrences below proves that.
+    CHECK(CountOccurrences(source, sendCall) == 1);
+}
+
+TEST_CASE("the adapter plugin ends the play context on kPreLoadGame, never "
+          "sending a fresh identity there",
+          "[plugin][structural]") {
+    //  kPreLoadGame fires before the new state is actually loaded, so it ends
+    //  the current context (no capture during the loading window can be
+    //  attributed to either the old or the not-yet-existing new context);
+    //  sending a fresh identity there would wrongly stamp captures with a
+    //  context that does not yet correspond to real loaded state -- only
+    //  kNewGame/kPostLoadGame (checked above) establish one.
+    std::string rawSource = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+    std::string source = NormalizeWhitespace(rawSource);
+
+    std::size_t preLoadGameCheck =
+        source.find("message->type==SKSE::MessagingInterface::kPreLoadGame");
+    REQUIRE(preLoadGameCheck != std::string::npos);
+
+    //  MainMenuOpenedSink's own ProcessEvent also calls SendPlayContextEnded
+    //  earlier in the file; search from kPreLoadGame's own check so this
+    //  finds the call it actually guards, not that unrelated one.
+    std::string endedCall = NormalizeWhitespace("SendPlayContextEnded();");
+    std::size_t sendPlayContextEnded =
+        source.find(endedCall, preLoadGameCheck);
+    REQUIRE(sendPlayContextEnded != std::string::npos);
+    CHECK(sendPlayContextEnded > preLoadGameCheck);
+
+    std::size_t newGameCheck =
+        source.find("message->type==SKSE::MessagingInterface::kNewGame");
+    REQUIRE(newGameCheck != std::string::npos);
+    //  kPreLoadGame's own check and the SendPlayContextEnded() call it guards
+    //  both come strictly before the kNewGame/kPostLoadGame check, matching
+    //  the required "end the old context before a new one exists" ordering.
+    CHECK(preLoadGameCheck < newGameCheck);
+    CHECK(sendPlayContextEnded < newGameCheck);
+}
+
+TEST_CASE("MainMenuOpenedSink only ends the play context for an opening "
+          "Main Menu event, never a closing event or a different menu",
+          "[plugin][structural]") {
+    //  The test target intentionally does not link CommonLibSSE-NG (see
+    //  commonlib_adapter_native_capture_router_test.cpp's identical
+    //  rationale for the same reason), so this pins the guard condition as a
+    //  source-text invariant instead of a runtime assertion against a real
+    //  RE::MenuOpenCloseEvent.
+    std::string source = NormalizeWhitespace(
+        ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE));
+
+    CHECK(source.find(NormalizeWhitespace(
+              "if (event != nullptr && event->opening &&"
+              "event->menuName == RE::MainMenu::MENU_NAME) {")) !=
+          std::string::npos);
+}
+
 TEST_CASE("the adapter plugin calls SKSE::Init before registering the "
           "messaging listener",
           "[plugin][structural]") {

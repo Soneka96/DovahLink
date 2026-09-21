@@ -33,6 +33,9 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     public void ReleaseFailure() => failureRelease.TrySetResult();
 
     /// <inheritdoc/>
+    public long? ConnectionGeneration => null;
+
+    /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         runStarted.TrySetResult();
@@ -59,6 +62,19 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <inheritdoc/>
+    public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => null;
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId)
+    {
+        correlationId = 0;
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendResynchronizeRequest() => false;
+
+    /// <inheritdoc/>
     public bool TryCancel(ulong correlationId) => false;
 
     /// <inheritdoc/>
@@ -74,4 +90,9 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     /// <inheritdoc/>
     public Task<bool> AwaitPairingDisplayAckAsync(ulong correlationId, TimeSpan timeout, CancellationToken cancellationToken) =>
         Task.FromResult(false);
+
+    /// <inheritdoc/>
+    public void RequestClose()
+    {
+    }
 }

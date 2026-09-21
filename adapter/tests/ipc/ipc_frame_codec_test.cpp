@@ -21,8 +21,11 @@
 #include <variant>
 #include <vector>
 
+using dovahlink::adapter::capture::CaptureAvailability;
+using dovahlink::adapter::capture::CaptureSourceKind;
 using dovahlink::adapter::ipc::IIpcFrameCodec;
 using dovahlink::adapter::ipc::IpcCancelMessage;
+using dovahlink::adapter::ipc::IpcCaptureResultMessage;
 using dovahlink::adapter::ipc::IpcCloseMessage;
 using dovahlink::adapter::ipc::IpcCloseReason;
 using dovahlink::adapter::ipc::IpcFrameCodec;
@@ -30,11 +33,14 @@ using dovahlink::adapter::ipc::IpcHelloAckMessage;
 using dovahlink::adapter::ipc::IpcHelloMessage;
 using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcListenEventMessage;
+using dovahlink::adapter::ipc::IpcListenEventResultMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcMessageKind;
 using dovahlink::adapter::ipc::IpcPairingAttemptsExhaustedMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayAckMessage;
 using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
+using dovahlink::adapter::ipc::IpcPlayContextChangedMessage;
+using dovahlink::adapter::ipc::IpcPlayContextEndedMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
@@ -49,6 +55,8 @@ using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxIpcFrameBytes;
 using dovahlink::adapter::ipc::kMaxIpcPeerProofTokenBytes;
 using dovahlink::adapter::ipc::kMaxIpcTrustAdminResultTextBytes;
+using dovahlink::adapter::ipc::kMaxResynchronizationEventKeys;
+using dovahlink::adapter::ipc::kMaxResynchronizationSampleTokens;
 using dovahlink::adapter::ipc::kPairingChallengeCodeDigits;
 using dovahlink::adapter::ipc::PairingDisplayMode;
 using dovahlink::adapter::ipc::TrustAdminListScope;
@@ -296,7 +304,22 @@ TEST_CASE("rejected hello-ack round-trips for every reject reason",
     }
 }
 
-TEST_CASE("resynchronize-request round-trips", "[ipc][ipc_frame_codec]") {
+TEST_CASE("resynchronize-request round-trips ordered intent lists",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcResynchronizeRequestMessage original{
+        .correlationId = 42,
+        .persistentEventKeys = {0x11223344, 0x11223344, 0x55667788},
+        .baselineSampleTokens = {0xAABBCCDD, 3, 0xAABBCCDD}};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("resynchronize-request accepts an empty no-op plan",
+          "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
     IpcResynchronizeRequestMessage original{.correlationId = 42};
 
@@ -304,6 +327,76 @@ TEST_CASE("resynchronize-request round-trips", "[ipc][ipc_frame_codec]") {
 
     REQUIRE(result.has_value());
     CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("resynchronize-request accepts either intent list by itself",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    const std::array<IpcResynchronizeRequestMessage, 2> requests{
+        IpcResynchronizeRequestMessage{.correlationId = 42,
+                                       .persistentEventKeys = {11, 12}},
+        IpcResynchronizeRequestMessage{.correlationId = 43,
+                                       .baselineSampleTokens = {21, 22}},
+    };
+
+    for (const IpcResynchronizeRequestMessage& request : requests) {
+        auto result = EncodeThenDecode(codec, IpcMessage{request});
+
+        REQUIRE(result.has_value());
+        CHECK(*result == IpcMessage{request});
+    }
+}
+
+TEST_CASE("resynchronize-request round-trips at both count bounds",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcResynchronizeRequestMessage original{.correlationId = 42};
+    for (std::size_t index = 0; index < kMaxResynchronizationEventKeys;
+         ++index) {
+        original.persistentEventKeys.push_back(
+            static_cast<std::uint32_t>(index + 1));
+    }
+    for (std::size_t index = 0; index < kMaxResynchronizationSampleTokens;
+         ++index) {
+        original.baselineSampleTokens.push_back(
+            static_cast<std::uint32_t>(index + 101));
+    }
+
+    std::vector<std::byte> encoded = codec.Encode(IpcMessage{original});
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    CHECK(encoded.size() == 4 + kIpcFrameHeaderBytes + 2 +
+                                sizeof(std::uint32_t) *
+                                    (original.persistentEventKeys.size() +
+                                     original.baselineSampleTokens.size()));
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("resynchronize-request encode rejects over-bound lists and zero keys",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::uint32_t> tooManyEventKeys(
+        kMaxResynchronizationEventKeys + 1, 1);
+    std::vector<std::uint32_t> tooManySampleTokens(
+        kMaxResynchronizationSampleTokens + 1, 1);
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .persistentEventKeys = tooManyEventKeys}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .baselineSampleTokens = tooManySampleTokens}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .persistentEventKeys = {0}}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcResynchronizeRequestMessage{
+                        .correlationId = 42,
+                        .baselineSampleTokens = {0}}}),
+                    std::invalid_argument);
 }
 
 TEST_CASE("resynchronize-result round-trips for both outcomes",
@@ -394,6 +487,157 @@ TEST_CASE("read-sample intent round-trips its opaque token",
     }
 }
 
+TEST_CASE("an available capture result round-trips its source, key, and "
+          "payload",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcCaptureResultMessage original{
+        .correlationId = 7,
+        .source = CaptureSourceKind::kSample,
+        .captureKey = 42,
+        .availability = CaptureAvailability::kAvailable,
+        .playContextId = {std::byte{1}, std::byte{2}, std::byte{3},
+                          std::byte{4}, std::byte{5}, std::byte{6},
+                          std::byte{7}, std::byte{8}, std::byte{9},
+                          std::byte{10}, std::byte{11}, std::byte{12},
+                          std::byte{13}, std::byte{14}, std::byte{15},
+                          std::byte{16}},
+        .payload = {std::byte{1}, std::byte{2}, std::byte{3}},
+    };
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("an available capture result round-trips with correlation id "
+          "zero, matching a future spontaneous native-event capture",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcCaptureResultMessage original{
+        .correlationId = 0,
+        .source = CaptureSourceKind::kEvent,
+        .captureKey = 1,
+        .availability = CaptureAvailability::kAvailable,
+        .payload = {std::byte{9}},
+    };
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("an unavailable capture result round-trips with an empty payload, "
+          "for either source kind, and correlation id zero",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (CaptureSourceKind source :
+         {CaptureSourceKind::kSample, CaptureSourceKind::kEvent}) {
+        IpcCaptureResultMessage original{
+            .correlationId = 0,
+            .source = source,
+            .captureKey = 1,
+            .availability = CaptureAvailability::kUnavailable,
+            .payload = {},
+        };
+
+        auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+        REQUIRE(result.has_value());
+        CHECK(*result == IpcMessage{original});
+    }
+}
+
+TEST_CASE("encoding a capture result with a zero capture key throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcCaptureResultMessage{
+                        .correlationId = 1, .captureKey = 0}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("encoding an unavailable capture result with a nonempty payload "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(
+        codec.Encode(IpcMessage{IpcCaptureResultMessage{
+            .correlationId = 1,
+            .captureKey = 1,
+            .availability = CaptureAvailability::kUnavailable,
+            .payload = {std::byte{1}},
+        }}),
+        std::invalid_argument);
+}
+
+TEST_CASE("a capture result payload shorter than the fixed header fails "
+          "closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kCaptureResult, 1,
+                   std::vector<std::byte>(21));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a capture result with a zero capture key fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> payload(22);
+    payload[0] = std::byte{0};
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kCaptureResult, 1, payload);
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a capture result with an out-of-range source or availability "
+          "byte fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    std::vector<std::byte> badSource(22);
+    badSource[0] = std::byte{2};
+    badSource[1] = std::byte{1};
+    CHECK(codec.Decode(BuildFrame(IpcMessageKind::kCaptureResult, 1, badSource))
+              .error() == IpcRejectReason::kMalformedPayload);
+
+    std::vector<std::byte> badAvailability(22);
+    badAvailability[1] = std::byte{1};
+    badAvailability[5] = std::byte{2};
+    CHECK(codec.Decode(BuildFrame(IpcMessageKind::kCaptureResult, 1,
+                                  badAvailability))
+              .error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a capture result marked unavailable with a nonempty payload "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> payload(23);
+    payload[1] = std::byte{1};
+    payload[5] = std::byte{1};
+    payload[22] = std::byte{9};
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kCaptureResult, 1, payload);
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
 TEST_CASE("encoding capture intents with zero identifiers throws",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
@@ -470,6 +714,36 @@ TEST_CASE("attempts-exhausted notification round-trips",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
     IpcPairingAttemptsExhaustedMessage original{.correlationId = 0};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("a play-context-changed notification round-trips its identity",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcPlayContextChangedMessage original{
+        .correlationId = 0,
+        .playContextId = {std::byte{0x00}, std::byte{0x11}, std::byte{0x22},
+                          std::byte{0x33}, std::byte{0x44}, std::byte{0x55},
+                          std::byte{0x66}, std::byte{0x77}, std::byte{0x88},
+                          std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+                          std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE},
+                          std::byte{0xFF}},
+    };
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("a play-context-ended notification round-trips",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    IpcPlayContextEndedMessage original{.correlationId = 0};
 
     auto result = EncodeThenDecode(codec, IpcMessage{original});
 
@@ -624,6 +898,26 @@ TEST_CASE("encoding an attempts-exhausted notification with a nonzero "
 
     CHECK_THROWS_AS(codec.Encode(IpcMessage{
                         IpcPairingAttemptsExhaustedMessage{.correlationId = 1}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("encoding a play-context-changed notification with a nonzero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{
+                        IpcPlayContextChangedMessage{.correlationId = 1}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("encoding a play-context-ended notification with a nonzero "
+          "correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{
+                        IpcPlayContextEndedMessage{.correlationId = 1}}),
                     std::invalid_argument);
 }
 
@@ -814,10 +1108,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    //  15 is the value immediately past the currently highest defined kind
-    //  (kTrustAdminResult = 14); update this alongside any future kind
+    //  19 is the value immediately past the currently highest defined kind
+    //  (kPlayContextEnded = 18); update this alongside any future kind
     //  addition so it keeps testing the actual boundary.
-    for (std::byte kindByte : {std::byte{0}, std::byte{15}, std::byte{250}}) {
+    for (std::byte kindByte : {std::byte{0}, std::byte{19}, std::byte{250}}) {
         std::vector<std::byte> frame =
             codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
         frame[4] = kindByte;
@@ -965,16 +1259,42 @@ TEST_CASE("a hello-ack payload of the wrong length fails closed",
     }
 }
 
-TEST_CASE("a resynchronize-request carrying an unexpected payload fails closed",
+TEST_CASE("a resynchronize-request without count bytes fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
     std::vector<std::byte> frame =
-        BuildFrame(IpcMessageKind::kResynchronizeRequest, 1, {std::byte{0}});
+        BuildFrame(IpcMessageKind::kResynchronizeRequest, 1, {});
 
     auto result = codec.Decode(frame);
 
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a resynchronize-request with malformed bounds, lengths, or keys fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    const std::array<std::vector<std::byte>, 7> payloads{
+        Bytes({static_cast<std::uint8_t>(kMaxResynchronizationEventKeys + 1),
+               0}),
+        Bytes({0, static_cast<std::uint8_t>(
+                      kMaxResynchronizationSampleTokens + 1)}),
+        Bytes({0}),
+        Bytes({0, 0, 0}),
+        Bytes({1, 0}),
+        Bytes({1, 0, 0, 0, 0, 0}),
+        Bytes({0, 1, 0, 0, 0, 0}),
+    };
+
+    for (const std::vector<std::byte>& payload : payloads) {
+        std::vector<std::byte> frame =
+            BuildFrame(IpcMessageKind::kResynchronizeRequest, 1, payload);
+
+        auto result = codec.Decode(frame);
+
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+    }
 }
 
 TEST_CASE("a resynchronize-result payload with an out-of-range accepted byte "
@@ -1283,6 +1603,70 @@ TEST_CASE("a pairing-display acknowledgement payload of the wrong length "
     }
 }
 
+TEST_CASE("a listen-event result round-trips its accepted value",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (bool accepted : {true, false}) {
+        IpcListenEventResultMessage original{.correlationId = 7,
+                                             .accepted = accepted};
+
+        auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+        REQUIRE(result.has_value());
+        CHECK(*result == IpcMessage{original});
+    }
+}
+
+TEST_CASE("encoding a listen-event result with a zero correlation id "
+          "throws",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcListenEventResultMessage{
+                        .correlationId = 0, .accepted = true}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("a listen-event result with a zero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kListenEventResult, 0, {std::byte{1}});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a listen-event result with an out-of-range accepted byte fails "
+          "closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kListenEventResult, 1, {std::byte{2}});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a listen-event result payload of the wrong length fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (std::size_t payloadSize : {std::size_t{0}, std::size_t{2}}) {
+        std::vector<std::byte> frame =
+            BuildFrame(IpcMessageKind::kListenEventResult, 1,
+                       std::vector<std::byte>(payloadSize));
+
+        auto result = codec.Decode(frame);
+
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+    }
+}
+
 TEST_CASE("an attempts-exhausted notification with a nonzero correlation id "
           "fails closed",
           "[ipc][ipc_frame_codec]") {
@@ -1302,6 +1686,76 @@ TEST_CASE("an attempts-exhausted notification carrying an unexpected "
     IpcFrameCodec codec;
     std::vector<std::byte> frame =
         BuildFrame(IpcMessageKind::kPairingAttemptsExhausted, 0, {std::byte{0}});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a play-context-changed notification with a nonzero correlation "
+          "id fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame = BuildFrame(
+        IpcMessageKind::kPlayContextChanged, 1, std::vector<std::byte>(16));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a play-context-changed notification payload of the wrong length "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    for (std::size_t payloadSize : {std::size_t{15}, std::size_t{17}}) {
+        std::vector<std::byte> frame = BuildFrame(
+            IpcMessageKind::kPlayContextChanged, 0,
+            std::vector<std::byte>(payloadSize));
+
+        auto result = codec.Decode(frame);
+
+        REQUIRE_FALSE(result.has_value());
+        CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+    }
+}
+
+TEST_CASE("a play-context-changed notification with an all-zero identity "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    //  All-zero is reserved as an invariant no real generated id may ever
+    //  collide with; see AdapterPlayContextGenerator's own guarantee.
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame = BuildFrame(
+        IpcMessageKind::kPlayContextChanged, 0, std::vector<std::byte>(16));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a play-context-ended notification with a nonzero correlation id "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPlayContextEnded, 1, {});
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a play-context-ended notification carrying an unexpected payload "
+          "fails closed",
+          "[ipc][ipc_frame_codec]") {
+    IpcFrameCodec codec;
+    std::vector<std::byte> frame =
+        BuildFrame(IpcMessageKind::kPlayContextEnded, 0, {std::byte{0}});
 
     auto result = codec.Decode(frame);
 
@@ -1543,9 +1997,14 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})},
-        {IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 4}},
-         Bytes({0x09, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00})},
+        {IpcMessage{IpcResynchronizeRequestMessage{
+             .correlationId = 4,
+             .persistentEventKeys = {0x11223344, 0x55667788},
+             .baselineSampleTokens = {0xAABBCCDD, 3}}},
+         Bytes({0x1B, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x02, 0x44, 0x33, 0x22, 0x11, 0x88, 0x77,
+                0x66, 0x55, 0x02, 0xDD, 0xCC, 0xBB, 0xAA, 0x03, 0x00, 0x00,
+                0x00})},
         {IpcMessage{
              IpcResynchronizeResultMessage{.correlationId = 5, .accepted = true}},
          Bytes({0x0A, 0x00, 0x00, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1596,6 +2055,46 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
              IpcTrustAdminResultMessage{.correlationId = 11, .resultText = "ok"}},
          Bytes({0x0B, 0x00, 0x00, 0x00, 0x0E, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x6F, 0x6B})},
+        //  24-byte payload: source (kSample=0) + 4-byte captureKey (13) +
+        //  availability (kAvailable=0) + 16-byte play-context id (the same
+        //  big-endian identity bytes as the PlayContextChanged vector below)
+        //  + the UTF-8 bytes of "OK".
+        {IpcMessage{IpcCaptureResultMessage{
+             .correlationId = 12,
+             .source = CaptureSourceKind::kSample,
+             .captureKey = 13,
+             .availability = CaptureAvailability::kAvailable,
+             .playContextId = {std::byte{0x00}, std::byte{0x11}, std::byte{0x22},
+                               std::byte{0x33}, std::byte{0x44}, std::byte{0x55},
+                               std::byte{0x66}, std::byte{0x77}, std::byte{0x88},
+                               std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+                               std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE},
+                               std::byte{0xFF}},
+             .payload = {std::byte{0x4F}, std::byte{0x4B}}}},
+         Bytes({0x21, 0x00, 0x00, 0x00, 0x0F, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22,
+                0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
+                0xEE, 0xFF, 0x4F, 0x4B})},
+        {IpcMessage{
+             IpcListenEventResultMessage{.correlationId = 13, .accepted = true}},
+         Bytes({0x0A, 0x00, 0x00, 0x00, 0x10, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x01})},
+        //  16-byte payload: the big-endian GUID identity bytes.
+        {IpcMessage{IpcPlayContextChangedMessage{
+             .correlationId = 0,
+             .playContextId = {std::byte{0x00}, std::byte{0x11}, std::byte{0x22},
+                               std::byte{0x33}, std::byte{0x44}, std::byte{0x55},
+                               std::byte{0x66}, std::byte{0x77}, std::byte{0x88},
+                               std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+                               std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE},
+                               std::byte{0xFF}}}},
+         Bytes({0x19, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF})},
+        //  No payload.
+        {IpcMessage{IpcPlayContextEndedMessage{.correlationId = 0}},
+         Bytes({0x09, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00})},
     };
 
     for (const auto& [message, expected] : vectors) {

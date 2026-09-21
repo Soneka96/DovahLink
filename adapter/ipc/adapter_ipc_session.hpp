@@ -2,9 +2,10 @@
 
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "constants.hpp"
-#include "dispatch/adapter_native_dispatcher.hpp"
+#include "dispatch/adapter_native_capture_router.hpp"
 #include "enums.hpp"
 #include "identity/adapter_instance_id.hpp"
+#include "identity/adapter_play_context_state.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 #include "ipc/adapter_ipc_target.hpp"
 #include "ipc/adapter_pairing_notification_sink.hpp"
@@ -33,13 +34,19 @@ namespace dovahlink::adapter::ipc {
 class IAdapterIpcConnection;
 
 ///  The adapter-side private IPC protocol decisions: builds Hello, tracks
-///  handshake acceptance, and routes every host-directed request through the
-///  same generic pipe -- marshal onto the game thread, translate via
-///  `IAdapterNativeDispatcher`, hand the owned result to
-///  `IAdapterCaptureHandoffQueue`. No per-message-kind service exists; a
+///  handshake acceptance, and marshals every host-directed request onto the
+///  game thread through `IAdapterNativeCaptureRouter`. A read-sample request
+///  captures one value synchronously and hands the owned result to
+///  `IAdapterCaptureHandoffQueue`; a listen-event request only registers
+///  persistent interest in the event -- any later captured value arrives
+///  through a separate capture path, not from this dispatch's own result. A
 ///  resynchronization request is just another marshaled game-thread task
 ///  that reports unavailable, since no approved baseline domain exists yet
-///  (see `IpcResynchronizeResultMessage`'s own documentation). Owns no
+///  (see `IpcResynchronizeResultMessage`'s own documentation). Also writes the
+///  play context most recently announced through `SendPlayContextChanged` into
+///  the shared `IAdapterPlayContextState`, and reads it back to stamp every
+///  capture enqueued afterward, so a value captured just before a later
+///  transition is never misattributed to the context that follows it. Owns no
 ///  transport I/O of its own; every lifecycle event reaches this session
 ///  through `AdapterIpcConnection`'s callbacks.
 class IAdapterIpcSession {
@@ -145,6 +152,30 @@ class IAdapterIpcSession {
     ///  accepted and the connection has not since ended.
     [[nodiscard]] virtual bool IsHostAvailable() const = 0;
 
+    ///  Best-effort sends a capture result built from `item` through the
+    ///  currently attached, authenticated connection; a silent no-op when
+    ///  unauthenticated or disconnected. Runs on the capture handoff queue's
+    ///  own worker thread, independent of any specific request's game-thread
+    ///  dispatch -- there is no pending request to reject or fail when this
+    ///  cannot send.
+    ///  @param item The drained capture to report.
+    virtual void SendCaptureResult(const capture::AdapterCaptureWorkItem& item) = 0;
+
+    ///  Best-effort sends a play-context-changed notification carrying
+    ///  `playContextId` through the currently attached, authenticated
+    ///  connection; a silent no-op when unauthenticated or disconnected.
+    ///  @param playContextId The adapter-generated play-context identity, as
+    ///  16 opaque bytes.
+    virtual void
+    SendPlayContextChanged(std::array<std::byte, 16> playContextId) = 0;
+
+    ///  Best-effort sends a play-context-ended notification through the
+    ///  currently attached, authenticated connection, and always clears the
+    ///  shared play-context state first -- regardless of authentication or
+    ///  connection state -- so a value captured afterward is never
+    ///  misattributed to the context that just ended.
+    virtual void SendPlayContextEnded() = 0;
+
     ///  Handles serving having irreversibly ended for the current generation,
     ///  reached strictly before `HandleDisconnected` (see
     ///  `AdapterIpcConnectionCallbacks::onClosing`). Invalidates this
@@ -169,10 +200,14 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  cryptographic ownership proof.
     ///  @param taskMarshaller Marshals capture work onto the Skyrim game
     ///  thread.
-    ///  @param dispatcher Performs the one generic key-to-Skyrim translation.
+    ///  @param captureRouter Performs the approved sample reads and event
+    ///  registrations.
     ///  @param captureQueue Receives owned captured values for handoff.
     ///  @param pairingNotificationSink Presents host-decided pairing-display
     ///  and attempts-exhausted notifications at the Skyrim-facing display seam.
+    ///  @param playContextState The shared play-context state this session
+    ///  writes on every `SendPlayContextChanged` call and reads when stamping
+    ///  a captured sample or replaying to a newly authenticated connection.
     ///  @param onGameThreadDispatchRejected Invoked when a resynchronization,
     ///  listen-event, or read-sample request is rejected at the
     ///  `kMaxPendingGameThreadDispatches` bound instead of being marshaled onto
@@ -186,9 +221,10 @@ class AdapterIpcSession final : public IAdapterIpcSession {
         identity::AdapterInstanceId instanceId,
         std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
         runtime::IAdapterTaskMarshaller& taskMarshaller,
-        dispatch::IAdapterNativeDispatcher& dispatcher,
+        dispatch::IAdapterNativeCaptureRouter& captureRouter,
         capture::IAdapterCaptureHandoffQueue& captureQueue,
         IAdapterPairingNotificationSink& pairingNotificationSink,
+        identity::IAdapterPlayContextState& playContextState,
         std::function<void()> onGameThreadDispatchRejected = [] {},
         std::chrono::milliseconds trustAdminRequestTimeout =
             kTrustAdminRequestTimeout);
@@ -231,6 +267,15 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  @copydoc IAdapterIpcSession::HandleClosing
     void HandleClosing() override;
 
+    ///  @copydoc IAdapterIpcSession::SendCaptureResult
+    void SendCaptureResult(const capture::AdapterCaptureWorkItem& item) override;
+
+    ///  @copydoc IAdapterIpcSession::SendPlayContextChanged
+    void SendPlayContextChanged(std::array<std::byte, 16> playContextId) override;
+
+    ///  @copydoc IAdapterIpcSession::SendPlayContextEnded
+    void SendPlayContextEnded() override;
+
   private:
     ///  The lifecycle phase that controls which inbound messages are legal.
     enum class AuthenticationState {
@@ -243,17 +288,27 @@ class AdapterIpcSession final : public IAdapterIpcSession {
         kClosed,
     };
 
-    ///  Marshals the resynchronization decision onto the game thread and replies
-    ///  that no baseline is available until an approved domain is registered.
+    ///  Marshals every requested event registration before any requested
+    ///  baseline sample, then reports whether the bounded plan was admitted.
+    ///  Duplicate entries are processed in order; Host-built plans already
+    ///  de-duplicate them.
+    ///  @param request The Host-owned event keys and sample tokens to execute.
     ///  @return `kClose` if `request.correlationId` is already admitted and
     ///  still outstanding on the current generation, after sending
     ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
-    ///  otherwise.
+    ///  otherwise. The result's `accepted` value is false if any event
+    ///  registration fails, a sample is unsupported, or the capture queue
+    ///  rejects a recognized sample. A recognized unavailable sample still
+    ///  counts as admitted when the queue accepts it.
     AdapterIpcMessageDisposition
     HandleResynchronizeRequest(const IpcResynchronizeRequestMessage& request);
 
-    ///  Marshals the dispatcher's translation for `listenEvent.eventKey` onto
-    ///  the game thread and hands any captured value to the capture queue.
+    ///  Marshals a persistent registration for `listenEvent.eventKey` onto
+    ///  the game thread and replies with an `IpcListenEventResultMessage`
+    ///  carrying the router's accepted value. Registration itself produces no
+    ///  captured value to hand to the capture queue; any later captured value
+    ///  for this event arrives through a separate capture path once the
+    ///  registered native event actually fires.
     ///  @return `kClose` if `listenEvent.correlationId` is already admitted and
     ///  still outstanding on the current generation, after sending
     ///  `IpcRejectMessage{kDuplicateCancellableCorrelationId}`; `kContinue`
@@ -261,7 +316,7 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     AdapterIpcMessageDisposition
     HandleListenEvent(const IpcListenEventMessage& listenEvent);
 
-    ///  Marshals the dispatcher's translation for `readSample.sampleToken`
+    ///  Marshals the capture router's sample read for `readSample.sampleToken`
     ///  onto the game thread and hands any captured value to the capture
     ///  queue.
     ///  @return `kClose` if `readSample.correlationId` is already admitted and
@@ -356,6 +411,25 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  Issues the next monotonic outbound correlation id, starting at 1.
     std::uint64_t NextCorrelationId();
 
+    ///  Re-sends the complete current play-context state through the newly
+    ///  authenticated connection, so a host that starts a fresh generation
+    ///  while Skyrim keeps the same save loaded learns whether a context is
+    ///  active instead of waiting for the next transition.
+    ///  Called once, immediately after this generation reaches
+    ///  `AuthenticationState::kAuthenticated`. Sends
+    ///  `PlayContextChanged` when a context exists and `PlayContextEnded`
+    ///  otherwise; it never fabricates an all-zero context identifier. The
+    ///  observation and its outbound notification are serialized with live
+    ///  play-context transitions, and replay never mutates the observed state.
+    void ReplayCurrentPlayContextState();
+
+    ///  Sends one play-context notification through the authenticated
+    ///  connection, requesting reconnect if the continuity-critical send fails.
+    ///  Must be called while holding `playContextPublicationMutex_` so the
+    ///  observed or mutated context cannot be overtaken by another notification.
+    ///  @param message The already-decided play-context notification to send.
+    void SendPlayContextNotification(const IpcMessage& message);
+
     ///  Invalidates the current generation for deferred work exactly once: a
     ///  no-op (returning an empty vector) if `authenticationState_` is already
     ///  `kClosed`, so the generation counter advances only once per logical
@@ -419,13 +493,17 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId_;
     ///  Marshals capture work onto the Skyrim game thread.
     runtime::IAdapterTaskMarshaller& taskMarshaller_;
-    ///  Performs the one generic key-to-Skyrim translation.
-    dispatch::IAdapterNativeDispatcher& dispatcher_;
+    ///  Performs the approved sample reads and event registrations.
+    dispatch::IAdapterNativeCaptureRouter& captureRouter_;
     ///  Receives owned captured values for handoff.
     capture::IAdapterCaptureHandoffQueue& captureQueue_;
     ///  Presents host-decided pairing-display and attempts-exhausted
     ///  notifications at the Skyrim-facing display seam.
     IAdapterPairingNotificationSink& pairingNotificationSink_;
+    ///  The shared play-context state this session writes on every
+    ///  `SendPlayContextChanged` call and reads when stamping a captured
+    ///  sample or replaying to a newly authenticated connection.
+    identity::IAdapterPlayContextState& playContextState_;
     ///  Invoked when a deferred game-thread dispatch is rejected at the
     ///  `kMaxPendingGameThreadDispatches` bound.
     std::function<void()> onGameThreadDispatchRejected_;
@@ -554,6 +632,10 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  its correlated result before resolving it with
     ///  `TrustAdminRequestOutcome::kTimedOut`.
     std::chrono::milliseconds trustAdminRequestTimeout_;
+    ///  Serializes play-context state reads or mutations with their matching
+    ///  outbound notification. Acquired before `availableMutex_`; no path
+    ///  acquires it while already holding `availableMutex_`.
+    std::mutex playContextPublicationMutex_;
 };
 
 } //  namespace dovahlink::adapter::ipc

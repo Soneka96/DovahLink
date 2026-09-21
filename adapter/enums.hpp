@@ -2,6 +2,80 @@
 
 #include <cstdint>
 
+namespace dovahlink::adapter::capture {
+
+//  ---- Capture ----
+
+///  Which host-owned key namespace a captured value's key belongs to.
+enum class CaptureSourceKind : std::uint8_t {
+    ///  A host-owned sample token, read synchronously via
+    ///  `IAdapterNativeCaptureRouter::CaptureSample`.
+    kSample = 0,
+    ///  A host-owned event key, captured asynchronously once a registered
+    ///  native event fires.
+    kEvent = 1,
+};
+
+///  Whether a captured value was actually produced.
+enum class CaptureAvailability : std::uint8_t {
+    ///  The captured value is present and valid.
+    kAvailable = 0,
+    ///  No value could be captured; the payload is empty.
+    kUnavailable = 1,
+};
+
+//  ---- Live state capture ----
+//
+//  Host-owned identifiers, opaque to `IAdapterNativeCaptureRouter`'s own
+//  interface beyond mapping each one to its one approved native operation --
+//  only the CommonLib-backed router implementation switches on their names.
+//  Shared with the host's own hardcoded enum members through
+//  `adapter-host-ipc/fixtures/live-state-catalog.json`, per
+//  `roadmap/04-live-state-synchronization-foundation.md`'s "Real capture and
+//  host integration".
+
+///  A host-owned `IAdapterNativeCaptureRouter::CaptureSample` token.
+enum class CharacterSampleToken : std::uint32_t {
+    ///  One coherent health/magicka/stamina read.
+    kCharacterVitals = 1,
+    ///  An experience read.
+    kCharacterXp = 2,
+    ///  The current-level baseline read used to establish a
+    ///  resynchronization baseline; the live value is otherwise delivered by
+    ///  `CharacterEventKey::kCharacterLevelChanged`.
+    kCharacterLevelBaseline = 3,
+};
+
+///  A host-owned `IAdapterNativeCaptureRouter::RegisterEvent` key.
+enum class CharacterEventKey : std::uint32_t {
+    ///  The native level-increase event.
+    kCharacterLevelChanged = 1,
+};
+
+} //  namespace dovahlink::adapter::capture
+
+namespace dovahlink::adapter::dispatch {
+
+//  ---- Dispatch ----
+
+///  The outcome of one `IAdapterNativeCaptureRouter::CaptureSample` call.
+///  Keeps a known-but-currently-unreadable Skyrim value distinct from a
+///  sample token this router has no approved translation for at all: the
+///  first is normal, expected Skyrim state; the second is a protocol/version
+///  mismatch a caller must never silently treat as authoritative unavailable
+///  state.
+enum class SampleCaptureStatus : std::uint8_t {
+    ///  The value was read and `SampleCaptureResult::payload` holds it.
+    kAvailable = 0,
+    ///  `sampleToken` is a known, approved translation, but the underlying
+    ///  Skyrim read is not currently available.
+    kUnavailable = 1,
+    ///  `sampleToken` has no approved translation in this router.
+    kUnsupported = 2,
+};
+
+} //  namespace dovahlink::adapter::dispatch
+
 namespace dovahlink::adapter::ipc {
 
 //  ---- IPC ----
@@ -47,6 +121,19 @@ enum class IpcMessageKind : std::uint8_t {
     ///  Sent by the host in response to a trust-administration request. See
     ///  `IpcTrustAdminResultMessage`.
     kTrustAdminResult = 14,
+    ///  Sent by the adapter to report one captured value, or its
+    ///  unavailability, to the host. See `IpcCaptureResultMessage`.
+    kCaptureResult = 15,
+    ///  Sent by the adapter in response to a listen-event request. See
+    ///  `IpcListenEventResultMessage`.
+    kListenEventResult = 16,
+    ///  Sent by the adapter to notify the host of a new play context. See
+    ///  `IpcPlayContextChangedMessage`.
+    kPlayContextChanged = 17,
+
+    ///  Sent by the adapter to notify the host the play context has ended.
+    ///  See `IpcPlayContextEndedMessage`.
+    kPlayContextEnded = 18,
 };
 
 ///  Why a private IPC channel is being closed.

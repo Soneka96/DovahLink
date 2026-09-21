@@ -5,6 +5,7 @@ using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Composition;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Process;
+using DovahLink.Host.State;
 using DovahLink.Host.Security;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
@@ -37,9 +38,21 @@ public class AdapterIpcServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IAdapterConnectionLifecycle>());
         Assert.NotNull(provider.GetRequiredService<IAdapterPeerProofVerifier>());
         Assert.NotNull(provider.GetRequiredService<IIpcFrameCodec>());
+        Assert.NotNull(provider.GetRequiredService<IAdapterContinuityRecovery>());
+        ResynchronizationPlan plan = provider.GetRequiredService<ResynchronizationPlan>();
+        ResynchronizationPlan expectedPlan = LiveStateCatalog.Default.BuildResynchronizationPlan();
+        Assert.Equal(expectedPlan.PersistentEventKeys, plan.PersistentEventKeys);
+        Assert.Equal(expectedPlan.BaselineSampleTokens, plan.BaselineSampleTokens);
+        Assert.Same(plan, provider.GetRequiredService<ResynchronizationPlan>());
         Assert.NotNull(provider.GetRequiredService<IAdapterConnectionFactory>());
         Assert.NotNull(provider.GetRequiredService<IAdapterIpcListener>());
         Assert.NotNull(provider.GetRequiredService<IPairingAdapterNotifier>());
+        Assert.IsType<LiveStateApplication>(provider.GetRequiredService<ILiveStateApplication>());
+        ILiveCaptureHandler captureHandler = Assert.Single(provider.GetServices<ILiveCaptureHandler>());
+        Assert.IsType<CharacterCaptureHandler>(captureHandler);
+        Assert.Same(captureHandler, provider.GetRequiredService<CharacterCaptureHandler>());
+        Assert.NotNull(provider.GetRequiredService<ILiveCaptureSink>());
+        Assert.NotNull(provider.GetRequiredService<LiveStateScheduler>());
     }
 
     /// <summary>
@@ -71,7 +84,10 @@ public class AdapterIpcServiceExtensionsTests
         IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, codec)).Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(
+            0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
+        var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
 
         await adapterStream.WriteAsync(codec.Encode(new IpcTrustAdminRequestMessage(7, TrustAdminOperation.List, ListScope: TrustAdminListScope.All)));
         var result = Assert.IsType<IpcTrustAdminResultMessage>(await ReadOneFrameAsync(adapterStream, codec));
@@ -133,7 +149,10 @@ public class AdapterIpcServiceExtensionsTests
         IAdapterPeerProofVerifier verifier = provider.GetRequiredService<IAdapterPeerProofVerifier>();
         await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
         Assert.True(Assert.IsType<IpcHelloAckMessage>(await ReadOneFrameAsync(adapterStream, codec)).Accepted);
-        Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcPlayContextChangedMessage(
+            0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
+        var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, codec));
+        await adapterStream.WriteAsync(codec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
 
         Task<bool> notifyTask = provider.GetRequiredService<IPairingAdapterNotifier>().TryNotifyCodeAvailableAsync("123456", CancellationToken.None);
         var display = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(adapterStream, codec));
@@ -146,7 +165,14 @@ public class AdapterIpcServiceExtensionsTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
-    /// <summary>Builds a real Core/Trust/AdapterIpc container -- the same registrations production composes it with.</summary>
+    /// <summary>
+    /// Builds a real Core/Trust/AdapterIpc/PublicClient container -- the same registrations
+    /// production composes it with. PublicClient is included with no bound listener port because
+    /// <see cref="ILiveCaptureSink"/>'s real composed implementation resolves
+    /// <see cref="DovahLink.Host.State.LiveStateCatalog"/> and
+    /// <see cref="DovahLink.Host.State.IStatePublicationSink"/> from that graph; these tests exercise
+    /// only the AdapterIpc-specific services listed above.
+    /// </summary>
     private static async Task<ServiceProvider> BuildProviderAsync(
         CancellationTokenSource shutdown, ITrustStorePersistence persistence, int listenerPort, OwnerLifetimeId ownerLifetimeId)
     {
@@ -158,8 +184,11 @@ public class AdapterIpcServiceExtensionsTests
         services.AddCoreServices(clock, securityGate, shutdown, new FakeHostSettingsProvider());
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);
+        services.AddPublicClientServices(publicListenerPort: null);
 
-        return services.BuildServiceProvider();
+        ServiceProvider provider = services.BuildServiceProvider();
+        _ = provider.GetRequiredService<IPlayContextResynchronizationTrigger>();
+        return provider;
     }
 
     /// <summary>Connects a plain client socket to the listener's bound loopback port, standing in for the adapter.</summary>

@@ -15,6 +15,31 @@ namespace dovahlink::adapter::capture {
 ///  handoff requirement.
 inline constexpr std::size_t kMaxAdapterCaptureQueueItems = 64;
 
+///  The largest captured value any current capture unit produces (the
+///  12-byte coherent vitals sample), sizing `CapturedPayload`'s fixed buffer
+///  so no capture ever needs a heap allocation to hold its own value. This is
+///  a requirement-driven bound, not an intentional architectural ceiling:
+///  raising it is fine once a real capture unit needs more than 12 bytes, but
+///  it must not be raised speculatively ahead of one.
+inline constexpr std::size_t kMaxCapturedPayloadBytes = 12;
+
+///  The number of immediate, non-blocking lock attempts
+///  `AdapterCaptureHandoffQueue::TryEnqueue` makes before treating an item as
+///  rejected; it never voluntarily yields, sleeps, or waits between them. The
+///  worker thread's own critical section is intentionally extremely short --
+///  it holds the same mutex only to remove one item from the ring buffer --
+///  so a handful of immediate retries can absorb ordinary, brief concurrent
+///  contention with it, for example three baseline samples enqueued back to
+///  back during resynchronization, without the calling game-thread callback
+///  ever waiting for the lock or surrendering its scheduler timeslice.
+///  Admission stays deliberately bounded and non-blocking, so a
+///  contention-only rejection remains possible if the worker happens to be
+///  preempted mid-critical-section; that tradeoff is preferred over risking
+///  scheduler-dependent latency on this Skyrim producer path. A genuinely
+///  full or stopped queue still rejects immediately, on the very first
+///  attempt that acquires the mutex.
+inline constexpr int kCaptureQueueEnqueueLockAttempts = 4;
+
 } //  namespace dovahlink::adapter::capture
 
 namespace dovahlink::adapter::ipc {
@@ -36,6 +61,12 @@ inline constexpr std::size_t kMaxIpcFrameBytes = 65536;
 
 ///  The maximum byte length of an `IpcHelloMessage` peer-ownership proof token.
 inline constexpr std::size_t kMaxIpcPeerProofTokenBytes = 64;
+
+///  The maximum number of persistent event keys in a resynchronization plan.
+inline constexpr std::size_t kMaxResynchronizationEventKeys = 16;
+
+///  The maximum number of baseline sample tokens in a resynchronization plan.
+inline constexpr std::size_t kMaxResynchronizationSampleTokens = 32;
 
 ///  The bounded capacity of `AdapterIpcConnection`'s own outbound queue (see
 ///  `IAdapterIpcConnection::TrySend`).
