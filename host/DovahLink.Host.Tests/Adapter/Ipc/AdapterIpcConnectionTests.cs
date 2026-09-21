@@ -178,17 +178,22 @@ public class AdapterIpcConnectionTests
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
         Assert.True(connection.TrySendResynchronizeRequest());
-        await ReadOneFrameAsync(client, codec); // first resynchronize request (correlation 2), armed at T+0
+        await ReadOneFrameAsync(client, codec); // first resynchronize request (correlation 2), armed at 0T
 
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        // 60% of the timeout per step keeps the required geometry explicit without hard-coding
+        // Constants.AdapterIpcResynchronizeTimeout's own value: first request at 0T, second request
+        // at 0.6T, assertion at 1.2T, first deadline at 1.0T, second deadline at 1.6T.
+        TimeSpan step = Constants.AdapterIpcResynchronizeTimeout * 0.6;
+
+        await Task.Delay(step);
         fakeSession.ResynchronizeRequest = new IpcResynchronizeRequestMessage(3);
         bool enqueued = connection.TrySendResynchronizeRequest();
-        await ReadOneFrameAsync(client, codec); // second resynchronize request (correlation 3), armed at T+3s
+        await ReadOneFrameAsync(client, codec); // second resynchronize request (correlation 3), armed at 0.6T
 
-        // T+6s: past the first deadline's own T+5s fire time, but well before the second request's own
-        // T+8s fire time -- the connection can only still be open here because superseding cancelled
+        // 1.2T: past the first deadline's own 1.0T fire time, but well before the second request's own
+        // 1.6T fire time -- the connection can only still be open here because superseding cancelled
         // the first deadline instead of merely leaving it to fire alongside the second.
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        await Task.Delay(step);
         Assert.True(enqueued);
         Assert.False(runTask.IsCompleted);
 
