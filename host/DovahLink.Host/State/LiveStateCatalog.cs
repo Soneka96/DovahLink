@@ -218,3 +218,15 @@ public sealed record CaptureUnitDefinition(
 /// <param name="Id">The state area's wire <c>stateArea</c> identifier.</param>
 /// <param name="UpdateMode">The canonical live-delivery mode this area always uses.</param>
 public sealed record StateAreaDefinition(StateAreaId Id, UpdateMode UpdateMode);
+
+// TODO(stage4-file-extraction): Move ResynchronizationPlan to its own
+// ResynchronizationPlan.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>The bounded native intents the Adapter executes to re-establish a fresh Host baseline.</summary>
+/// <param name="PersistentEventKeys">Event keys to register before any baseline sample.</param>
+/// <param name="BaselineSampleTokens">Sample tokens to capture after all event registrations.</param>
+/// <remarks>The catalog builder removes duplicates in first-seen order within each key namespace.</remarks>
+public sealed record ResynchronizationPlan(
+    IReadOnlyList<uint> PersistentEventKeys,
+    IReadOnlyList<uint> BaselineSampleTokens);

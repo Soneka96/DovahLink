@@ -3,6 +3,21 @@ using DovahLink.Host.State;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
+// TODO(stage4-file-extraction): Move ILiveCaptureHandler to its own
+// ILiveCaptureHandler.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated with its sole implementer to hold this PR's
+// changed-file count down; extraction only, no behavior change.
+/// <summary>Handles captures for the explicitly declared source and key identities it owns.</summary>
+public interface ILiveCaptureHandler
+{
+    /// <summary>The source and key identities this handler accepts.</summary>
+    IReadOnlyCollection<(CaptureSourceKind Source, uint CaptureKey)> SupportedCaptures { get; }
+
+    /// <summary>Decodes and applies one capture after generic provenance and context validation.</summary>
+    /// <param name="context">The exact capture, catalog unit, and authority snapshots validated by the sink.</param>
+    void Handle(LiveCaptureContext context);
+}
+
 /// <summary>Decodes Character captures and applies them through shared Host authority rules.</summary>
 public sealed class CharacterCaptureHandler : ILiveCaptureHandler
 {

@@ -153,3 +153,24 @@ public sealed class LiveCaptureSink : ILiveCaptureSink
 /// <param name="InstanceId">The adapter instance this capture result was received from.</param>
 /// <param name="ConnectionGeneration">The connection generation the capture result was received on.</param>
 public readonly record struct AdapterCaptureSource(AdapterInstanceId InstanceId, long ConnectionGeneration);
+
+// TODO(stage4-file-extraction): Move LiveCaptureContext to its own
+// LiveCaptureContext.cs in the post-Stage-4 structural cleanup PR.
+// Temporarily colocated here to hold this PR's changed-file count down;
+// extraction only, no behavior change.
+/// <summary>A capture result together with the exact provenance and context validated by the sink.</summary>
+/// <param name="CaptureResult">The decoded adapter result that passed generic sink validation.</param>
+/// <param name="Source">The exact adapter connection that delivered the result.</param>
+/// <param name="CaptureUnit">The catalog unit matching the result's source and key.</param>
+/// <param name="AdapterSnapshot">The adapter availability snapshot used to validate the source.</param>
+/// <param name="PlayContextId">The current play context matched against the result.</param>
+/// <param name="PlayContextGeneration">The transition generation observed with the current play context.</param>
+/// <param name="OccurredAt">The time the sink accepted the result for dispatch.</param>
+public sealed record LiveCaptureContext(
+    IpcCaptureResultMessage CaptureResult,
+    AdapterCaptureSource Source,
+    CaptureUnitDefinition CaptureUnit,
+    AdapterAvailabilitySnapshot AdapterSnapshot,
+    PlayContextId PlayContextId,
+    long PlayContextGeneration,
+    DateTimeOffset OccurredAt);
