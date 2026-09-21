@@ -479,7 +479,7 @@ public class PlayContextResynchronizationTriggerTests
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
         listener.CurrentConnection = connection;
-        _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+        _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
 
         playContextTracker.NotifyTransition(PlayContextId.NewId());
 
@@ -497,7 +497,7 @@ public class PlayContextResynchronizationTriggerTests
         Connect(availabilityTracker, instanceId, 1);
         Resynchronize(availabilityTracker, instanceId, 1);
         var listener = new FakeAdapterIpcListener { CurrentConnection = null };
-        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
 
         Exception? exception = Record.Exception(() => trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId())));
 
@@ -519,7 +519,7 @@ public class PlayContextResynchronizationTriggerTests
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
         listener.CurrentConnection = connection;
-        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
 
         trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId()));
         Resynchronize(availabilityTracker, instanceId, 1);
@@ -547,7 +547,7 @@ public class PlayContextResynchronizationTriggerTests
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = false };
         listener.CurrentConnection = connection;
-        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
 
         Exception? exception = Record.Exception(() => trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId())));
 
@@ -567,7 +567,7 @@ public class PlayContextResynchronizationTriggerTests
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
         listener.CurrentConnection = connection;
-        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
 
         trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId()));
 
@@ -590,13 +590,116 @@ public class PlayContextResynchronizationTriggerTests
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
         listener.CurrentConnection = connection;
-        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener);
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
 
         trigger.HandleTransition(new PlayContextTransition(PlayContextId.NewId(), null));
 
         Assert.False(availabilityTracker.NeedsResynchronization);
         Assert.Equal(0, connection.ResynchronizeRequestCalls);
         Assert.Equal(0, connection.RequestCloseCalls);
+    }
+
+    /// <summary>
+    /// Verifies that a real transition immediately supersedes the coordinator's own tracked
+    /// transaction via <see cref="IResynchronizationTransactionCoordinator.BeginTransaction"/>, using
+    /// the just-rearmed availability snapshot's instance and connection generation together with the
+    /// play-context tracker's own just-committed transition generation.
+    /// </summary>
+    [Fact]
+    public void HandleTransition_ConnectedAdapter_BeginsTransactionWithCurrentTuple()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(availabilityTracker, instanceId, 1);
+        var listener = new FakeAdapterIpcListener();
+        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
+        listener.CurrentConnection = connection;
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, coordinator);
+
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+
+        var call = Assert.Single(coordinator.BeginTransactionCalls);
+        Assert.Equal(instanceId, call.InstanceId);
+        Assert.Equal(1, call.ConnectionGeneration);
+        Assert.Equal(playContextTracker.Current, call.PlayContextId);
+        Assert.Equal(1, call.PlayContextGeneration);
+    }
+
+    /// <summary>Verifies that the coordinator's own transaction is still superseded even when the send itself fails and this trigger closes the connection -- the coordinator's requirement for the new context must not depend on the send succeeding.</summary>
+    [Fact]
+    public void HandleTransition_SendFails_StillBeginsTransactionBeforeClosing()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(availabilityTracker, instanceId, 1);
+        var listener = new FakeAdapterIpcListener();
+        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = false };
+        listener.CurrentConnection = connection;
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, coordinator);
+
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+
+        Assert.Single(coordinator.BeginTransactionCalls);
+        Assert.Equal(1, connection.RequestCloseCalls);
+    }
+
+    /// <summary>Verifies that no adapter connected leaves the coordinator's tracked transaction untouched -- there is no live connection generation for a play-context trigger to supersede anything against.</summary>
+    [Fact]
+    public void HandleTransition_NoAdapterConnected_DoesNotBeginTransaction()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        var listener = new FakeAdapterIpcListener();
+        var coordinator = new FakeResynchronizationTransactionCoordinator();
+        var trigger = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, coordinator);
+
+        trigger.HandleTransition(new PlayContextTransition(null, PlayContextId.NewId()));
+
+        Assert.Empty(coordinator.BeginTransactionCalls);
+    }
+
+    /// <summary>
+    /// Reproduces the play-context-supersession lifecycle gap end to end: without this trigger
+    /// invalidating the coordinator's tracked transaction the moment it sends the new resynchronize
+    /// request, the coordinator would keep tracking context A until B's first baseline or result ever
+    /// reached it -- leaving A's own watchdog free to expire and recover the connection context B now
+    /// owns. With the fix, a real transition from A to B supersedes A immediately: A's watchdog can
+    /// never fire, even though no capture for B ever arrives at the coordinator, while B still gets
+    /// its own live, independent watchdog.
+    /// </summary>
+    [Fact]
+    public async Task HandleTransition_SupersedesTrackedCoordinatorTransaction_OldWatchdogCannotRecoverNewerContext()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(availabilityTracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = new ResynchronizationTransactionCoordinator(
+            LiveStateCatalog.Default, availabilityTracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+        var listener = new FakeAdapterIpcListener();
+        var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
+        listener.CurrentConnection = connection;
+        _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, coordinator);
+
+        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context A: arms its own 200ms watchdog.
+
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context B: supersedes A immediately.
+
+        // Past A's original 200ms deadline (measured from t=0), but before B's own fresh 200ms
+        // deadline (measured from t=50, due at t=250ms). No capture for B ever reached the coordinator.
+        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+
+        // Past B's own independent deadline: B never completed, so it must still fire on its own
+        // bound, proving the trigger armed a real watchdog for B rather than leaving it unbounded.
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
     }
 
     /// <summary>Commits and publishes a connected transition in one call.</summary>

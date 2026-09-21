@@ -777,7 +777,7 @@ public class AdapterIpcChannelIntegrationTests
                     coordinator,
                     plan),
                 new SystemClock()));
-        _ = new PlayContextResynchronizationTrigger(playContextTracker, tracker, listener);
+        _ = new PlayContextResynchronizationTrigger(playContextTracker, tracker, listener, new FakeResynchronizationTransactionCoordinator());
         return (listener, tracker, verifier, trustAdminRequestHandler, playContextTracker);
     }
 

@@ -279,10 +279,15 @@ public interface IPlayContextResynchronizationTrigger
     /// context exists to resynchronize. Otherwise unconditional: every real transition (already
     /// deduplicated for a repeated context by <see cref="IPlayContextTracker.NotifyTransition"/>
     /// itself) re-arms and re-requests, superseding whatever transaction the previous request may
-    /// still be in flight for. An essential resynchronize request must never silently disappear: when
-    /// the send itself fails (for example a full outbound queue), this forces the connection closed
-    /// instead of leaving the re-armed requirement with no request ever having gone out -- the
-    /// adapter's normal reconnect then drives a fresh initial resynchronization.
+    /// still be in flight for. When an adapter is currently connected, this also immediately
+    /// supersedes whatever transaction <see cref="IResynchronizationTransactionCoordinator"/> is still
+    /// tracking for the previous play context, via <see cref="IResynchronizationTransactionCoordinator.BeginTransaction"/>
+    /// -- so that transaction's own watchdog can never expire and recover the connection this new
+    /// transition now owns, even before its first baseline or result ever arrives. An essential
+    /// resynchronize request must never silently disappear: when the send itself fails (for example a
+    /// full outbound queue), this forces the connection closed instead of leaving the re-armed
+    /// requirement with no request ever having gone out -- the adapter's normal reconnect then drives
+    /// a fresh initial resynchronization.
     /// </summary>
     /// <param name="transition">The transition that just committed.</param>
     void HandleTransition(PlayContextTransition transition);
@@ -291,23 +296,33 @@ public interface IPlayContextResynchronizationTrigger
 /// <inheritdoc cref="IPlayContextResynchronizationTrigger"/>
 public sealed class PlayContextResynchronizationTrigger : IPlayContextResynchronizationTrigger
 {
+    /// <summary>The tracker this trigger reads the committed transition's own generation from.</summary>
+    private readonly IPlayContextTracker playContextTracker;
+
     /// <summary>The tracker this trigger re-arms for every play-context transition.</summary>
     private readonly IAdapterAvailabilityTracker adapterAvailabilityTracker;
 
     /// <summary>The listener whose currently active connection this trigger sends the fresh request through.</summary>
     private readonly IAdapterIpcListener listener;
 
+    /// <summary>The coordinator this trigger immediately supersedes the previous transaction on.</summary>
+    private readonly IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator;
+
     /// <summary>Creates a trigger subscribed to <paramref name="playContextTracker"/> for the host process's own lifetime.</summary>
-    /// <param name="playContextTracker">The tracker this trigger subscribes to.</param>
+    /// <param name="playContextTracker">The tracker this trigger subscribes to and reads each transition's own generation from.</param>
     /// <param name="adapterAvailabilityTracker">The tracker this trigger re-arms for every play-context transition.</param>
     /// <param name="listener">The listener whose currently active connection this trigger sends the fresh request through.</param>
+    /// <param name="resynchronizationTransactionCoordinator">The coordinator this trigger immediately supersedes the previous transaction on.</param>
     public PlayContextResynchronizationTrigger(
         IPlayContextTracker playContextTracker,
         IAdapterAvailabilityTracker adapterAvailabilityTracker,
-        IAdapterIpcListener listener)
+        IAdapterIpcListener listener,
+        IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator)
     {
+        this.playContextTracker = playContextTracker;
         this.adapterAvailabilityTracker = adapterAvailabilityTracker;
         this.listener = listener;
+        this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
 
         playContextTracker.Transitioned += HandleTransition;
     }
@@ -323,6 +338,15 @@ public sealed class PlayContextResynchronizationTrigger : IPlayContextResynchron
         }
 
         adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
+
+        AdapterAvailabilitySnapshot availability = adapterAvailabilityTracker.GetSnapshot();
+        if (availability.Current == AdapterAvailability.Available && availability.CurrentInstanceId is not null)
+        {
+            resynchronizationTransactionCoordinator.BeginTransaction(
+                availability.CurrentInstanceId.Value, availability.ConnectionGeneration,
+                transition.NewPlayContextId.Value, playContextTracker.GetSnapshot().TransitionGeneration);
+        }
+
         IAdapterIpcConnection? connection = listener.CurrentConnection;
         if (connection is not null && !connection.TrySendResynchronizeRequest())
         {
