@@ -114,8 +114,8 @@ $originalResult = $env:DOVAHLINK_TEST_VSWHERE_RESULT
 $originalBlankFirst = $env:DOVAHLINK_TEST_VSWHERE_BLANK_FIRST
 $originalExitCode = $env:DOVAHLINK_TEST_VSWHERE_EXIT_CODE
 $originalImported = $env:DOVAHLINK_SCENARIO_TEST
-    $originalVcpkgRoot = $env:VCPKG_ROOT
-    $originalPath = $env:PATH
+$originalVcpkgRoot = $env:VCPKG_ROOT
+$originalPath = $env:PATH
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     $candidateRoot = Join-Path $testRoot "Tool candidates"
