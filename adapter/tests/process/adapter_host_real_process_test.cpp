@@ -69,6 +69,7 @@ using dovahlink::adapter::dispatch::SampleCaptureResult;
 using dovahlink::adapter::dispatch::SampleCaptureStatus;
 using dovahlink::adapter::identity::AdapterInstanceIdGenerator;
 using dovahlink::adapter::identity::AdapterPlayContextState;
+using dovahlink::adapter::identity::IAdapterPlayContextState;
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcSession;
 using dovahlink::adapter::ipc::AdapterIpcTarget;
@@ -311,14 +312,17 @@ class AcceptingCaptureRouter final
 };
 
 ///  A deterministic, TEST-ONLY stand-in for a real Skyrim capture, used only
-///  by the live-state E2E test below. Mirrors
+///  by the live-state E2E tests below. Mirrors
 ///  `CommonLibAdapterNativeCaptureRouter::CaptureSample`'s exact switch
 ///  shape and wire encoding (via the same production
 ///  `EncodeFloatLittleEndian`/`EncodeUInt16LittleEndian`/`MakeCapturedPayload`
 ///  helpers) so the real Host's real resynchronization plan -- which
 ///  currently requires the full Character baseline, not XP alone -- actually
-///  completes. Deliberately never touches Skyrim/CommonLib/SKSE, so CI stays
-///  deterministic.
+///  completes. `EmitLevelChanged` additionally mirrors
+///  `CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink::ProcessEvent`,
+///  the real `RE::LevelIncrease::Event` sink, so the Level Event E2E test can
+///  simulate that native callback without touching Skyrim/CommonLib/SKSE,
+///  keeping CI deterministic.
 class DeterministicBaselineCaptureRouter final
     : public IAdapterNativeCaptureRouter {
   public:
@@ -352,9 +356,71 @@ class DeterministicBaselineCaptureRouter final
     }
 
     bool RegisterEvent(std::uint32_t eventKey) override {
-        return static_cast<CharacterEventKey>(eventKey) ==
-               CharacterEventKey::kCharacterLevelChanged;
+        if (static_cast<CharacterEventKey>(eventKey) !=
+            CharacterEventKey::kCharacterLevelChanged) {
+            return false;
+        }
+        levelChangedRegistered_ = true;
+        return true;
     }
+
+    ///  Wires the real collaborators `EmitLevelChanged` enqueues into,
+    ///  mirroring `LevelChangedEventSink`'s own constructor-injected
+    ///  collaborators. Called once, from the owning fixture's constructor
+    ///  body, after its capture queue and play-context state are fully
+    ///  constructed -- the same after-construction attachment pattern
+    ///  `AdapterIpcSession::AttachConnection` already uses in this file, so
+    ///  no member-declaration reordering is needed.
+    ///  @param captureQueue The real queue `EmitLevelChanged` enqueues into.
+    ///  @param playContextState The real play-context state `EmitLevelChanged`
+    ///  stamps its work item from.
+    void AttachLevelChangedEmitter(IAdapterCaptureHandoffQueue& captureQueue,
+                                   IAdapterPlayContextState& playContextState) {
+        captureQueue_ = &captureQueue;
+        playContextState_ = &playContextState;
+    }
+
+    ///  Whether the real Host-driven resynchronization plan has actually
+    ///  registered `CharacterLevelChanged` through `RegisterEvent`, proving
+    ///  `EmitLevelChanged` below enters through a real registration rather
+    ///  than firing unconditionally.
+    ///  @return `true` once `RegisterEvent` has accepted `CharacterLevelChanged`.
+    bool IsLevelChangedRegistered() const { return levelChangedRegistered_; }
+
+    ///  Test-only stand-in for the real `RE::LevelIncrease::Event` sink's
+    ///  `ProcessEvent`, enqueuing the exact same `AdapterCaptureWorkItem`
+    ///  shape into the same real `AdapterCaptureHandoffQueue` the owning
+    ///  fixture drains onto `SendCaptureResult`.
+    ///  @param newLevel The simulated new character level.
+    void EmitLevelChanged(std::uint16_t newLevel) {
+        if (!levelChangedRegistered_ || captureQueue_ == nullptr ||
+            playContextState_ == nullptr) {
+            throw std::logic_error(
+                "EmitLevelChanged called before CharacterLevelChanged was "
+                "registered and attached.");
+        }
+        std::array<std::byte, 2> encoded = EncodeUInt16LittleEndian(newLevel);
+        captureQueue_->TryEnqueue(AdapterCaptureWorkItem{
+            .intentKey =
+                static_cast<std::uint32_t>(CharacterEventKey::kCharacterLevelChanged),
+            .capturedValue = MakeCapturedPayload(encoded),
+            .correlationId = 0,
+            .source = CaptureSourceKind::kEvent,
+            .availability = CaptureAvailability::kAvailable,
+            .playContextId = playContextState_->CurrentPlayContext().value_or(
+                std::array<std::byte, 16>{}),
+        });
+    }
+
+  private:
+    ///  Whether `RegisterEvent` has ever accepted `CharacterLevelChanged`.
+    bool levelChangedRegistered_ = false;
+    ///  The real capture queue `EmitLevelChanged` enqueues into. Not owned;
+    ///  set once by `AttachLevelChangedEmitter`.
+    IAdapterCaptureHandoffQueue* captureQueue_ = nullptr;
+    ///  The real play-context state `EmitLevelChanged` stamps its work item
+    ///  from. Not owned; set once by `AttachLevelChangedEmitter`.
+    IAdapterPlayContextState* playContextState_ = nullptr;
 };
 
 ///  Presents nothing, since this cross-process test is concerned with IPC
@@ -1486,6 +1552,13 @@ class RealHostLiveStateFixture {
                                      hostExecutable_.string());
         }
 
+        //  Deferred to the constructor body -- like `session_.AttachConnection`
+        //  below -- rather than the initializer list, since `captureRouter_` is
+        //  declared before `captureQueue_`/`playContextState_` and only needs
+        //  to reach them once EmitLevelChanged is actually called, well after
+        //  this constructor returns.
+        captureRouter_.AttachLevelChangedEmitter(captureQueue_, playContextState_);
+
         //  Established before the private connection ever starts, so the
         //  normal post-authentication replay (not this test) reports it to
         //  the real Host, which then requests its own generic
@@ -1525,6 +1598,16 @@ class RealHostLiveStateFixture {
 
     RealHostLiveStateFixture(const RealHostLiveStateFixture&) = delete;
     RealHostLiveStateFixture& operator=(const RealHostLiveStateFixture&) = delete;
+
+    ///  @copydoc DeterministicBaselineCaptureRouter::IsLevelChangedRegistered
+    bool IsLevelChangedRegistered() const {
+        return captureRouter_.IsLevelChangedRegistered();
+    }
+
+    ///  @copydoc DeterministicBaselineCaptureRouter::EmitLevelChanged
+    void EmitLevelChanged(std::uint16_t newLevel) {
+        captureRouter_.EmitLevelChanged(newLevel);
+    }
 
   private:
     //  Declared first so it sets DOVAHLINK_TEST_TRUST_STORE_PATH before
