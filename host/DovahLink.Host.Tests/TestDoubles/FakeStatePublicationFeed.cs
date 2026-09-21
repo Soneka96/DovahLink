@@ -21,8 +21,11 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
     /// <inheritdoc/>
     public event Action? SnapshotAvailabilityChanged;
 
-    /// <summary>Whether any caller currently holds a live registration on <see cref="EventOccurred"/>.</summary>
-    public bool HasSubscribers => EventOccurred is not null;
+    /// <summary>Whether any caller currently holds a live registration on <see cref="EventOccurred"/>, <see cref="SnapshotChanged"/>, or <see cref="SnapshotAvailabilityChanged"/>.</summary>
+    public bool HasSubscribers =>
+        EventOccurred is not null ||
+        SnapshotChanged is not null ||
+        SnapshotAvailabilityChanged is not null;
 
     /// <summary>Sets the value <see cref="TryGetSnapshot"/> returns for <paramref name="areaId"/>.</summary>
     /// <param name="areaId">The state area to set a value for.</param>
