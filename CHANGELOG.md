@@ -35,6 +35,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Changed
 
+- Local CI uses its selected Python and exact pinned clang-format executable, and reports incompatible Visual Studio copies.
 - Trust-admin list-scope vocabulary is now known/trusted/blocked consistently across console admin,
   Host, and Adapter.
 - `tooling/DovahLinkBuilder` now packages the Host/Adapter distribution instead of the retired

@@ -202,7 +202,7 @@ def formatter_commands(
     if grouped["cpp"]:
         commands.append(
             [
-                "clang-format",
+                "clang-format.exe" if os.name == "nt" else "clang-format",
                 *(["--dry-run", "--Werror"] if check else ["-i"]),
                 *grouped["cpp"],
             ]
@@ -210,6 +210,8 @@ def formatter_commands(
     if grouped["python"]:
         commands.append(
             [
+                sys.executable,
+                "-m",
                 "ruff",
                 "format",
                 *(["--check"] if check else []),
@@ -263,6 +265,22 @@ def execute_commands(
         if executable is None:
             missing.add(command[0])
             continue
+        is_ruff_module = command[1:3] == ["-m", "ruff"]
+        if is_ruff_module:
+            try:
+                result = subprocess.run(
+                    [executable, "-m", "ruff", "--version"],
+                    cwd=repository_root,
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+            except OSError:
+                missing.add("Ruff Python module")
+                continue
+            if result.returncode != 0:
+                missing.add("Ruff Python module")
+                continue
         resolved_commands.append([executable, *command[1:]])
     if missing:
         print(

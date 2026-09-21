@@ -102,21 +102,103 @@ class FormatStagedTests(unittest.TestCase):
 
     def test_execute_commands_preflights_all_formatters(self) -> None:
         """Find a missing later formatter before an earlier formatter can modify files."""
+        resolved_python = r"C:\Python313\python.exe"
         with (
             patch.object(
                 format_staged.shutil,
                 "which",
-                side_effect=lambda name: None if name == "ruff" else name,
+                side_effect=lambda name: (
+                    None if name == "clang-format" else resolved_python
+                ),
             ),
-            patch.object(format_staged.subprocess, "run") as run,
+            patch.object(
+                format_staged.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0),
+            ) as run,
         ):
             result = format_staged.execute_commands(
                 Path("."),
-                [["dart", "format", "file.dart"], ["ruff", "format", "file.py"]],
+                [
+                    ["clang-format", "--dry-run", "file.cpp"],
+                    [format_staged.sys.executable, "-m", "ruff", "format", "file.py"],
+                ],
             )
 
         self.assertEqual(result, 127)
-        run.assert_not_called()
+        run.assert_called_once_with(
+            [resolved_python, "-m", "ruff", "--version"],
+            cwd=Path("."),
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def test_execute_commands_rejects_missing_ruff_module_before_formatting(
+        self,
+    ) -> None:
+        """Do not run any formatter if the selected Python cannot import Ruff."""
+        resolved_python = r"C:\Python313\python.exe"
+        with (
+            patch.object(format_staged.shutil, "which", return_value=resolved_python),
+            patch.object(
+                format_staged.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(
+                    [], 1, stderr=b"No module named ruff"
+                ),
+            ) as run,
+        ):
+            result = format_staged.execute_commands(
+                Path("."),
+                [[format_staged.sys.executable, "-m", "ruff", "format", "file.py"]],
+            )
+
+        self.assertEqual(result, 127)
+        run.assert_called_once_with(
+            [resolved_python, "-m", "ruff", "--version"],
+            cwd=Path("."),
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def test_execute_commands_runs_ruff_with_the_active_python_module(self) -> None:
+        """Use the formatter module from the Python interpreter running local CI."""
+        resolved_python = r"C:\Python313\python.exe"
+        with (
+            patch.object(format_staged.shutil, "which", return_value=resolved_python),
+            patch.object(
+                format_staged.subprocess,
+                "run",
+                side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout=b"ruff 0.16.8"),
+                    subprocess.CompletedProcess([], 0),
+                ],
+            ) as run,
+        ):
+            result = format_staged.execute_commands(
+                Path("."),
+                [
+                    [
+                        format_staged.sys.executable,
+                        "-m",
+                        "ruff",
+                        "format",
+                        "--check",
+                        "file.py",
+                    ]
+                ],
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [
+                [resolved_python, "-m", "ruff", "--version"],
+                [resolved_python, "-m", "ruff", "format", "--check", "file.py"],
+            ],
+        )
 
     def test_execute_commands_uses_shell_quoting_for_batch_wrapper_paths(self) -> None:
         """Quote staged metacharacters when launching a Windows batch formatter."""
@@ -199,9 +281,31 @@ class FormatStagedTests(unittest.TestCase):
             commands[0][:4],
             ["dart", "format", "--output=none", "--set-exit-if-changed"],
         )
-        self.assertEqual(commands[1][:3], ["clang-format", "--dry-run", "--Werror"])
-        self.assertEqual(commands[2][:3], ["ruff", "format", "--check"])
+        clang_format_command = (
+            "clang-format.exe" if format_staged.os.name == "nt" else "clang-format"
+        )
+        self.assertEqual(
+            commands[1][:3], [clang_format_command, "--dry-run", "--Werror"]
+        )
+        self.assertEqual(
+            commands[2][:4],
+            [format_staged.sys.executable, "-m", "ruff", "format"],
+        )
+        self.assertEqual(commands[2][4:5], ["--check"])
         self.assertIn("Invoke-Formatter", commands[3][4])
+
+    def test_windows_cpp_formatter_uses_explicit_executable_name(self) -> None:
+        """Avoid PATHEXT wrappers that the Windows prerequisite checker does not validate."""
+        repository_root = Path(".")
+        with patch.object(format_staged.os, "name", "nt"):
+            commands = format_staged.formatter_commands(
+                repository_root, ["adapter/main.cpp"], check=True
+            )
+
+        self.assertEqual(
+            commands,
+            [["clang-format.exe", "--dry-run", "--Werror", "adapter/main.cpp"]],
+        )
 
     def test_csharp_command_is_limited_to_the_nearest_project(self) -> None:
         """Pass only the staged C# file to its owning project formatter."""

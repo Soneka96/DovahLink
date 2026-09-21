@@ -865,7 +865,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", script)
         self.assertNotIn("vcpkg-registries-cache", script)
 
-    
         section_positions = [
             script.index("=== tooling-ci ==="),
             script.index("=== app-ci ==="),
@@ -980,14 +979,20 @@ class RepositoryConsistencyTests(unittest.TestCase):
         guide = self._read("DEVELOPMENT.md")
         local_ci_guide = self._read("ai/context/tooling/local-ci.md")
 
-        check_position = script.index("$prerequisiteReport = Invoke-LocalCiPrerequisiteCheck")
+        check_position = script.index(
+            "$prerequisiteReport = Invoke-LocalCiPrerequisiteCheck"
+        )
         failure_guard_position = script.index("if (-not $prerequisiteReport.IsReady)")
         failure_throw_position = script.index(
             'throw "Local CI prerequisites are missing. Follow DEVELOPMENT.md and rerun the prerequisite check."'
         )
-        import_position = script.index("Import-VisualStudioEnvironment -Toolchain $toolchain")
+        import_position = script.index(
+            "Import-VisualStudioEnvironment -Toolchain $toolchain"
+        )
         cache_position = script.index("$cacheRoot = Join-Path")
-        clone_position = script.index('"clone", "https://github.com/microsoft/vcpkg.git", $vcpkgRoot')
+        clone_position = script.index(
+            '"clone", "https://github.com/microsoft/vcpkg.git", $vcpkgRoot'
+        )
         self.assertEqual(
             [
                 check_position,
@@ -1012,6 +1017,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("InstallCommand", checker)
         self.assertIn("VerifyCommand", checker)
         self.assertIn("InstallUrl", checker)
+        self.assertIn('VerifyCommand  = "python -m ruff --version"', checker)
+        self.assertIn("python -m ruff --version", guide)
+        self.assertIn('VerifyCommand  = "clang-format.exe --version', checker)
+        self.assertIn("clang-format.exe --version", guide)
+        self.assertIn(
+            "Visual Studio-bundled version does not satisfy the CI pin", guide
+        )
         self.assertIn("DEVELOPMENT.md", readme)
         self.assertIn("check-local-prerequisites.ps1", guide)
         self.assertIn("DEVELOPMENT.md", local_ci_guide)

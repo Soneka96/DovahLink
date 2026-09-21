@@ -71,14 +71,14 @@ function Get-LocalCiPrerequisiteDefinitions {
             Id             = "clang-format"
             Name           = "clang-format 19.1.5"
             InstallCommand = "Install clang-format from the official LLVM 19.1.5 release and add its bin directory to PATH."
-            VerifyCommand  = "clang-format --version (must report 19.1.5)"
+            VerifyCommand  = "clang-format.exe --version (must report 19.1.5)"
             InstallUrl     = "https://github.com/llvm/llvm-project/releases/tag/llvmorg-19.1.5"
         }
         [pscustomobject]@{
             Id             = "ruff"
             Name           = "Ruff"
             InstallCommand = "python -m pip install ruff"
-            VerifyCommand  = "ruff --version"
+            VerifyCommand  = "python -m ruff --version"
             InstallUrl     = "https://docs.astral.sh/ruff/installation/"
         }
         [pscustomobject]@{
@@ -139,6 +139,218 @@ function New-LocalCiPrerequisiteResult {
 
 <#
 .SYNOPSIS
+Finds and validates the Python executable used by local CI.
+
+.OUTPUTS
+The validated Python 3.13 executable path and version.
+#>
+function Resolve-LocalCiPythonCommand {
+    $command = Get-Command -Name "python.exe" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $command) {
+        throw "python.exe was not found on PATH."
+    }
+
+    $output = @(& $command.Source --version 2>&1)
+    $version = ($output | Select-Object -First 1).ToString().Trim()
+    if ($LASTEXITCODE -ne 0 -or $version -notmatch "^Python 3\.13\.") {
+        throw "Expected Python 3.13.x, but found '$version' at '$($command.Source)'."
+    }
+
+    return [pscustomobject]@{
+        Path    = $command.Source
+        Version = $version
+    }
+}
+
+<#
+.SYNOPSIS
+Checks Ruff through the validated Python installation rather than requiring ruff.exe on PATH.
+
+.PARAMETER PythonPath
+The Python executable validated for local CI.
+
+.PARAMETER VersionProbe
+An optional test seam returning ExitCode and Version properties.
+
+.OUTPUTS
+A result record describing whether Python can run Ruff as a module.
+#>
+function Test-LocalCiRuffModule {
+    param(
+        [Parameter(Mandatory = $true)][string]$PythonPath,
+        [scriptblock]$VersionProbe
+    )
+
+    try {
+        if ($null -ne $VersionProbe) {
+            $probeResult = & $VersionProbe $PythonPath
+            $exitCode = $probeResult.ExitCode
+            $version = [string]$probeResult.Version
+            $details = [string]$probeResult.Details
+        }
+        else {
+            $output = @(& $PythonPath -m ruff --version 2>&1)
+            $exitCode = $LASTEXITCODE
+            $version = ($output | Select-Object -First 1).ToString().Trim()
+            $details = ($output -join [Environment]::NewLine).Trim()
+        }
+
+        if ($exitCode -ne 0) {
+            if ([string]::IsNullOrWhiteSpace($details)) {
+                $details = "Python could not import Ruff."
+            }
+            throw "Ruff is unavailable through '$PythonPath -m ruff'. $details Install it with 'python -m pip install ruff'."
+        }
+
+        return [pscustomobject]@{
+            Available = $true
+            Version   = $version
+            Details   = "Ruff is available through the validated Python installation."
+            Path      = $PythonPath
+            Value     = $null
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Available = $false
+            Version   = ""
+            Details   = $_.Exception.Message
+            Path      = $PythonPath
+            Value     = $null
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+Finds the selected Visual Studio C++ toolchain for prerequisite diagnostics.
+
+.OUTPUTS
+The supported Visual Studio toolchain returned by Find-VisualStudioToolchain.
+#>
+function Find-LocalCiVisualStudioToolchain {
+    $vswhereCandidates = @($env:DOVAHLINK_VSWHERE_PATH)
+    $programFilesX86 = [System.Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
+        $vswhereCandidates += Join-Path $programFilesX86 "Microsoft Visual Studio\Installer\vswhere.exe"
+    }
+    $vswhereCandidates += Get-ExecutablePathsFromPath -Name "vswhere.exe"
+    $vswherePath = Resolve-ExistingExecutablePath `
+        -ToolName "Visual Studio Installer's vswhere.exe" `
+        -CandidatePaths $vswhereCandidates `
+        -OverrideVariable "DOVAHLINK_VSWHERE_PATH"
+    return Find-VisualStudioToolchain -LocatorPath $vswherePath
+}
+
+<#
+.SYNOPSIS
+Returns the Visual Studio bundled clang-format executable candidates.
+
+.PARAMETER InstallationPath
+The validated Visual Studio installation directory.
+
+.OUTPUTS
+The x64 clang-format executable path within Visual Studio.
+#>
+function Get-VisualStudioClangFormatCandidatePaths {
+    param([Parameter(Mandatory = $true)][string]$InstallationPath)
+
+    return @(
+        (Join-Path $InstallationPath "VC\Tools\Llvm\x64\bin\clang-format.exe")
+    )
+}
+
+<#
+.SYNOPSIS
+Checks PATH clang-format candidates and reports Visual Studio copies for version diagnostics.
+
+.PARAMETER PathCandidates
+clang-format executables that the formatter can resolve from PATH.
+
+.PARAMETER VisualStudioCandidates
+clang-format executables found under the selected Visual Studio installation.
+
+.PARAMETER VersionProbe
+An optional test seam returning ExitCode and Version properties for an executable.
+
+.OUTPUTS
+A result record that accepts only the CI-pinned clang-format version on PATH.
+#>
+function Test-LocalCiClangFormat {
+    param(
+        [string[]]$PathCandidates = @(),
+        [string[]]$VisualStudioCandidates = @(),
+        [scriptblock]$VersionProbe
+    )
+
+    $candidateReports = [System.Collections.Generic.List[string]]::new()
+    foreach ($candidateGroup in @(
+            [pscustomobject]@{ Paths = $PathCandidates; Location = "on PATH"; IsOnPath = $true },
+            [pscustomobject]@{ Paths = $VisualStudioCandidates; Location = "in Visual Studio"; IsOnPath = $false }
+        )) {
+        foreach ($candidatePath in $candidateGroup.Paths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) {
+            try {
+                if ($null -ne $VersionProbe) {
+                    $probeResult = & $VersionProbe $candidatePath
+                    $exitCode = $probeResult.ExitCode
+                    $version = [string]$probeResult.Version
+                }
+                else {
+                    $versionOutput = @(& $candidatePath --version 2>&1)
+                    $exitCode = $LASTEXITCODE
+                    $version = ($versionOutput | Select-Object -First 1).ToString().Trim()
+                }
+            }
+            catch {
+                $candidateReports.Add("'$candidatePath' could not run $($candidateGroup.Location): $($_.Exception.Message)")
+                continue
+            }
+
+            if ($exitCode -eq 0 -and $version -match "^clang-format version 19\.1\.5(?:\s|$)") {
+                if ($candidateGroup.IsOnPath) {
+                    $firstPathCandidate = $PathCandidates |
+                        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                        Select-Object -First 1
+                    if ($candidatePath -ieq $firstPathCandidate) {
+                        return [pscustomobject]@{
+                            Available = $true
+                            Version   = "19.1.5"
+                            Details   = "The pinned formatter resolves first from PATH."
+                            Path      = $candidatePath
+                            Value     = $null
+                        }
+                    }
+                    $candidateReports.Add("Found pinned clang-format 19.1.5 at '$candidatePath' on PATH, but '$firstPathCandidate' resolves first")
+                    continue
+                }
+                $candidateReports.Add("Found pinned clang-format 19.1.5 at '$candidatePath' in Visual Studio, but it is not on PATH")
+            }
+            elseif ($exitCode -eq 0) {
+                $candidateReports.Add("Found clang-format '$version' at '$candidatePath' $($candidateGroup.Location)")
+            }
+            else {
+                $candidateReports.Add("'$candidatePath' exited with code $exitCode $($candidateGroup.Location)")
+            }
+        }
+    }
+
+    $details = if ($candidateReports.Count -gt 0) {
+        "$($candidateReports -join '; '). Local CI requires clang-format 19.1.5 on PATH; install that version side-by-side and put its bin directory first on PATH."
+    }
+    else {
+        "clang-format.exe was not found on PATH or in the selected Visual Studio installation. Install clang-format 19.1.5 and add its bin directory to PATH."
+    }
+    return [pscustomobject]@{
+        Available = $false
+        Version   = ""
+        Details   = $details
+        Path      = ""
+        Value     = $null
+    }
+}
+
+<#
+.SYNOPSIS
 Runs one local CI prerequisite probe and records its result without stopping other probes.
 
 .PARAMETER Requirement
@@ -153,23 +365,13 @@ function Test-LocalCiPrerequisite {
     try {
         switch ($Requirement.Id) {
             "visual-studio" {
-                $vswhereCandidates = @($env:DOVAHLINK_VSWHERE_PATH)
-                $programFilesX86 = [System.Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
-                if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
-                    $vswhereCandidates += Join-Path $programFilesX86 "Microsoft Visual Studio\Installer\vswhere.exe"
-                }
-                $vswhereCandidates += Get-ExecutablePathsFromPath -Name "vswhere.exe"
-                $vswherePath = Resolve-ExistingExecutablePath `
-                    -ToolName "Visual Studio Installer's vswhere.exe" `
-                    -CandidatePaths $vswhereCandidates `
-                    -OverrideVariable "DOVAHLINK_VSWHERE_PATH"
-                $toolchain = Find-VisualStudioToolchain -LocatorPath $vswherePath
+                $toolchain = Find-LocalCiVisualStudioToolchain
                 return New-LocalCiPrerequisiteResult `
                     -Requirement $Requirement `
                     -Available $true `
                     -Version "Supported Visual Studio C++ workload" `
                     -Details $toolchain.InstallationPath `
-                    -Path $vswherePath `
+                    -Path $toolchain.InstallationPath `
                     -Value $toolchain
             }
             "git" {
@@ -218,16 +420,8 @@ function Test-LocalCiPrerequisite {
                 return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version "1.13.2" -Path $path
             }
             "python" {
-                $command = Get-Command -Name "python" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($null -eq $command) {
-                    throw "python was not found on PATH."
-                }
-                $output = @(& $command.Source --version 2>&1)
-                $version = ($output | Select-Object -First 1).ToString().Trim()
-                if ($LASTEXITCODE -ne 0 -or $version -notmatch "^Python 3\.13\.") {
-                    throw "Expected Python 3.13.x, but found '$version'."
-                }
-                return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version $version -Path $command.Source
+                $python = Resolve-LocalCiPythonCommand
+                return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version $python.Version -Path $python.Path
             }
             "dotnet" {
                 $command = Get-Command -Name "dotnet.exe" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -275,27 +469,41 @@ function Test-LocalCiPrerequisite {
                 return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version (($output | Select-Object -First 1).ToString().Trim()) -Path $command.Source
             }
             "clang-format" {
-                $command = Get-Command -Name "clang-format" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($null -eq $command) {
-                    throw "clang-format was not found on PATH."
+                $pathCandidates = @(Get-ExecutablePathsFromPath -Name "clang-format.exe")
+                $visualStudioCandidates = @()
+                $visualStudioDiscoveryError = $null
+                try {
+                    $toolchain = Find-LocalCiVisualStudioToolchain
+                    $visualStudioCandidates = @(
+                        Get-VisualStudioClangFormatCandidatePaths -InstallationPath $toolchain.InstallationPath |
+                            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+                    )
                 }
-                $output = @(& $command.Source --version 2>&1)
-                $version = ($output | Select-Object -First 1).ToString().Trim()
-                if ($LASTEXITCODE -ne 0 -or $version -notmatch "19\.1\.5") {
-                    throw "Expected clang-format 19.1.5, but found '$version'."
+                catch {
+                    $visualStudioDiscoveryError = $_.Exception.Message
                 }
-                return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version $version -Path $command.Source
+                $clangFormatResult = Test-LocalCiClangFormat `
+                    -PathCandidates $pathCandidates `
+                    -VisualStudioCandidates $visualStudioCandidates
+                if ($null -ne $visualStudioDiscoveryError -and $visualStudioCandidates.Count -eq 0) {
+                    $clangFormatResult.Details = "$($clangFormatResult.Details) Visual Studio formatter discovery also failed: $visualStudioDiscoveryError"
+                }
+                return New-LocalCiPrerequisiteResult `
+                    -Requirement $Requirement `
+                    -Available $clangFormatResult.Available `
+                    -Version $clangFormatResult.Version `
+                    -Details $clangFormatResult.Details `
+                    -Path $clangFormatResult.Path
             }
             "ruff" {
-                $command = Get-Command -Name "ruff" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($null -eq $command) {
-                    throw "ruff was not found on PATH."
-                }
-                $output = @(& $command.Source --version 2>&1)
-                if ($LASTEXITCODE -ne 0) {
-                    throw "ruff --version exited with code $LASTEXITCODE."
-                }
-                return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version (($output | Select-Object -First 1).ToString().Trim()) -Path $command.Source
+                $python = Resolve-LocalCiPythonCommand
+                $ruff = Test-LocalCiRuffModule -PythonPath $python.Path
+                return New-LocalCiPrerequisiteResult `
+                    -Requirement $Requirement `
+                    -Available $ruff.Available `
+                    -Version $ruff.Version `
+                    -Details $ruff.Details `
+                    -Path $ruff.Path
             }
             "psscriptanalyzer" {
                 $shell = Get-Command -Name "pwsh.exe" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
