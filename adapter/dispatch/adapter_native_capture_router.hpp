@@ -71,4 +71,19 @@ class AdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter {
     bool RegisterEvent(std::uint32_t eventKey) override;
 };
 
+//  TODO(stage4-file-extraction): Move these definitions back to their own
+//  dispatch/adapter_native_capture_router.cpp in the post-Stage-4 structural
+//  cleanup PR. Temporarily header-only to hold this PR's changed-file count
+//  down; extraction only, no behavior change.
+inline SampleCaptureResult
+AdapterNativeCaptureRouter::CaptureSample(std::uint32_t /*sampleToken*/) {
+    //  No production sample token is registered yet.
+    return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
+}
+
+inline bool AdapterNativeCaptureRouter::RegisterEvent(std::uint32_t /*eventKey*/) {
+    //  No production event key is registered yet.
+    return false;
+}
+
 } //  namespace dovahlink::adapter::dispatch

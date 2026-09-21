@@ -34,10 +34,7 @@ add_library(dovahlink_adapter_core STATIC
     runtime/game_thread_completion.cpp
     runtime/adapter_game_behavior_config_file_reader.cpp
     capture/adapter_capture_handoff_queue.cpp
-    dispatch/adapter_native_capture_router.cpp
     identity/adapter_instance_id_generator.cpp
-    identity/adapter_play_context_generator.cpp
-    identity/adapter_play_context_state.cpp
     process/adapter_owner_lifetime_id.cpp
     process/adapter_host_endpoint_report.cpp
     process/adapter_host_rendezvous_reader.cpp
