@@ -48,7 +48,11 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IRevisionTracker, RevisionTracker>();
         services.AddSingleton<IStatePublisher<float?>, StatePublisher<float?>>();
         services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
-        services.AddSingleton<IResynchronizationTransactionCoordinator, ResynchronizationTransactionCoordinator>();
+        services.AddSingleton<IResynchronizationTransactionCoordinator>(sp => new ResynchronizationTransactionCoordinator(
+            sp.GetRequiredService<LiveStateCatalog>(),
+            sp.GetRequiredService<IAdapterAvailabilityTracker>(),
+            sp.GetRequiredService<IAdapterContinuityRecovery>(),
+            Constants.ResynchronizationTransactionTimeout));
         services.AddSingleton<ILiveStateApplication, LiveStateApplication>();
         services.AddSingleton<CharacterCaptureHandler>();
         services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<CharacterCaptureHandler>());

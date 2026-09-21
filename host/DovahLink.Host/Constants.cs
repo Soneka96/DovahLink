@@ -206,6 +206,19 @@ public static class Constants
     public static readonly TimeSpan AdapterIpcResynchronizeTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// How long a resynchronization transaction may take to genuinely complete -- the adapter's own
+    /// plan accepted and every required baseline area accepted -- before
+    /// <see cref="Adapter.ResynchronizationTransactionCoordinator"/> requests recovery of the exact
+    /// connection generation it was tracked under. Distinct from and longer than
+    /// <see cref="AdapterIpcResynchronizeTimeout"/>: that timeout only bounds the wire-level
+    /// request/result round trip, and is satisfied the moment any result arrives, accepted or not;
+    /// this one bounds the whole transaction, including every baseline capture round trip after an
+    /// accepted result, so a lost or discarded baseline capture cannot leave resynchronization
+    /// pending forever with no timeout left to force recovery.
+    /// </summary>
+    public static readonly TimeSpan ResynchronizationTransactionTimeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>
     /// The byte length of the adapter-generated random challenge carried in
     /// <see cref="Adapter.Ipc.IpcHelloMessage"/>, and of the host's resulting HMAC-SHA256
     /// <c>HostProof</c> in <see cref="Adapter.Ipc.IpcHelloAckMessage"/>.

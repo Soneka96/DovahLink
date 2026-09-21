@@ -4,6 +4,7 @@ using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.State;
+using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Adapter;
 
@@ -634,7 +635,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
         int resynchronizedCount = 0;
         tracker.Resynchronized += (_, _) => resynchronizedCount++;
@@ -672,7 +673,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
 
         foreach (StateAreaId area in AllFiveAreas)
@@ -693,7 +694,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
 
         foreach (StateAreaId area in AllFiveAreas.Where(area => area != LevelArea))
@@ -719,7 +720,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId contextA = PlayContextId.NewId();
         PlayContextId contextB = PlayContextId.NewId();
 
@@ -761,7 +762,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId contextA = PlayContextId.NewId();
         PlayContextId contextB = PlayContextId.NewId();
 
@@ -797,7 +798,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId contextA = PlayContextId.NewId();
         PlayContextId contextB = PlayContextId.NewId();
 
@@ -831,7 +832,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
 
         IAdapterResynchronizationToken? first = coordinator.AcquireToken(instanceId, 1, context, 1);
@@ -850,7 +851,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
 
         coordinator.RecordAdapterPlanAccepted(false, instanceId, 1, context, 1);
@@ -865,7 +866,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
 
         coordinator.RecordAreaAccepted(HealthArea, instanceId, 1, context, 1);
@@ -882,7 +883,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId contextA = PlayContextId.NewId();
         PlayContextId contextB = PlayContextId.NewId();
 
@@ -911,7 +912,7 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId firstInstanceId = AdapterInstanceId.NewId();
         AdapterInstanceId otherInstanceId = AdapterInstanceId.NewId();
         Connect(tracker, firstInstanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
 
         coordinator.AcquireToken(firstInstanceId, 1, context, 1);
@@ -939,7 +940,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(new LiveStateCatalog([], []), tracker);
+        var coordinator = CreateCoordinator(new LiveStateCatalog([], []), tracker);
         PlayContextId context = PlayContextId.NewId();
 
         coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
@@ -960,7 +961,7 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
         Assert.NotNull(tracker.TryClaimResynchronizationToken());
-        var coordinator = new ResynchronizationTransactionCoordinator(new LiveStateCatalog([], []), tracker);
+        var coordinator = CreateCoordinator(new LiveStateCatalog([], []), tracker);
         PlayContextId context = PlayContextId.NewId();
 
         coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
@@ -975,7 +976,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId context = PlayContextId.NewId();
         int resynchronizedCount = 0;
         tracker.Resynchronized += (_, _) => Interlocked.Increment(ref resynchronizedCount);
@@ -1012,7 +1013,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
         PlayContextId contextA = PlayContextId.NewId();
 
         // Context A's transaction reaches ready-to-complete: its token is claimed and every required
@@ -1053,12 +1054,246 @@ public class ResynchronizationTransactionCoordinatorTests
     public void AcquireToken_NoAdapterConnected_ReturnsNull()
     {
         var tracker = new AdapterAvailabilityTracker();
-        var coordinator = new ResynchronizationTransactionCoordinator(LiveStateCatalog.Default, tracker);
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker);
 
         IAdapterResynchronizationToken? token = coordinator.AcquireToken(AdapterInstanceId.NewId(), 1, PlayContextId.NewId(), 1);
 
         Assert.Null(token);
     }
+
+    /// <summary>
+    /// Verifies that a transaction which genuinely completes -- every required area and the plan both
+    /// accepted -- cancels its own watchdog, so no recovery is ever requested even after the original
+    /// watchdog deadline has long since passed.
+    /// </summary>
+    [Fact]
+    public async Task FullTransactionCompletes_CancelsWatchdog_NoRecoveryRequested()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(60));
+        PlayContextId context = PlayContextId.NewId();
+
+        foreach (StateAreaId area in AllFiveAreas)
+        {
+            coordinator.AcquireToken(instanceId, 1, context, 1);
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+        Assert.False(tracker.NeedsResynchronization);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Reproduces the reported liveness bug directly: the adapter's plan is accepted (which already
+    /// satisfies the separate, per-request <see cref="Constants.AdapterIpcResynchronizeTimeout"/>
+    /// deadline <see cref="AdapterIpcConnection"/> owns) but one required baseline area never lands --
+    /// for example because <see cref="CharacterCaptureHandler"/> silently discarded a malformed
+    /// capture for it. With no timeout of its own, the transaction would stay pending forever. The
+    /// coordinator's own watchdog must expire and request recovery of the exact connection generation
+    /// instead.
+    /// </summary>
+    [Fact]
+    public async Task PlanAcceptedButOneAreaNeverArrives_WatchdogExpiresAndRequestsRecovery()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(60));
+        PlayContextId context = PlayContextId.NewId();
+
+        foreach (StateAreaId area in AllFiveAreas.Where(area => area != LevelArea))
+        {
+            coordinator.AcquireToken(instanceId, 1, context, 1);
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+        Assert.True(tracker.NeedsResynchronization);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Verifies that a play-context transition superseding the tracked transaction cancels the
+    /// superseded transaction's own watchdog -- so its original deadline can never recover the newer
+    /// transaction it no longer belongs to -- while the newer transaction still gets its own,
+    /// independent bounded deadline.
+    /// </summary>
+    [Fact]
+    public async Task NewerPlayContextTransaction_CancelsOldWatchdog_DoesNotRecoverNewerTransaction()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+        PlayContextId contextA = PlayContextId.NewId();
+        PlayContextId contextB = PlayContextId.NewId();
+
+        coordinator.AcquireToken(instanceId, 1, contextA, 1); // Arms A's watchdog (200ms from now).
+
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        tracker.RearmResynchronizationForPlayContextTransition();
+        coordinator.AcquireToken(instanceId, 1, contextB, 2); // Supersedes A; arms B's own 200ms watchdog.
+
+        // t=210ms: past A's original 200ms deadline (measured from t=0), but before B's own fresh
+        // 200ms deadline (measured from t=50, so due at t=250ms). Nothing has fired yet.
+        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+
+        // t=360ms: past B's own independent deadline (t=250ms). B never completed, so it must still
+        // fire on its own bound -- proving the newer transaction was never left without one of its own.
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Verifies the same supersession guarantee as
+    /// <see cref="NewerPlayContextTransaction_CancelsOldWatchdog_DoesNotRecoverNewerTransaction"/> for
+    /// the other axis of "newer": a strictly newer connection generation (an adapter reconnect),
+    /// rather than a newer play-context generation on the same connection.
+    /// </summary>
+    [Fact]
+    public async Task NewerConnectionGeneration_CancelsOldWatchdog_DoesNotRecoverNewerTransaction()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(200));
+        PlayContextId context = PlayContextId.NewId();
+
+        coordinator.AcquireToken(instanceId, 1, context, 1); // Arms generation 1's watchdog.
+
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        Connect(tracker, instanceId, 2); // Simulates the adapter reconnecting on a new generation.
+        coordinator.AcquireToken(instanceId, 2, context, 1); // Supersedes generation 1; arms generation 2's own watchdog.
+
+        await Task.Delay(TimeSpan.FromMilliseconds(160));
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        Assert.Equal([2L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Verifies that completion winning a race against the watchdog leaves no trace of the race: no
+    /// recovery is requested, and the tracker is still notified exactly once.
+    /// </summary>
+    [Fact]
+    public async Task CompletionRacesWatchdog_CompletionWins_NoRecoveryAndNoDoubleNotify()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(100));
+        PlayContextId context = PlayContextId.NewId();
+        int resynchronizedCount = 0;
+        tracker.Resynchronized += (_, _) => Interlocked.Increment(ref resynchronizedCount);
+
+        foreach (StateAreaId area in AllFiveAreas)
+        {
+            coordinator.AcquireToken(instanceId, 1, context, 1);
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+        Assert.Equal(1, resynchronizedCount);
+    }
+
+    /// <summary>
+    /// Verifies that a declined adapter plan -- already closed at the wire level by
+    /// <see cref="AdapterIpcSession"/>'s own resynchronize-result handling -- is
+    /// not left permanently pending at the coordinator level either: its own watchdog still expires
+    /// and requests recovery if nothing ever supersedes it, so a slow or lost reconnect after a
+    /// rejection cannot wedge <see cref="IAdapterAvailabilityTracker.NeedsResynchronization"/> forever
+    /// any more than a lost baseline capture can.
+    /// </summary>
+    [Fact]
+    public async Task PlanRejected_TransactionNeverCompletes_WatchdogStillEventuallyRequestsRecovery()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(60));
+        PlayContextId context = PlayContextId.NewId();
+
+        coordinator.RecordAdapterPlanAccepted(false, instanceId, 1, context, 1);
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal([1L], continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Verifies that recording an area or a plan-accepted result again for a transaction that has
+    /// already completed is a harmless no-op: the tracker is not notified a second time, and no
+    /// recovery is ever requested (the completed transaction's watchdog was already disarmed).
+    /// </summary>
+    [Fact]
+    public async Task RecordCallsAfterCompletion_AreIdempotentAndDoNotDoubleRecover()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromSeconds(5));
+        PlayContextId context = PlayContextId.NewId();
+        int resynchronizedCount = 0;
+        tracker.Resynchronized += (_, _) => resynchronizedCount++;
+
+        foreach (StateAreaId area in AllFiveAreas)
+        {
+            coordinator.AcquireToken(instanceId, 1, context, 1);
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+        Assert.Equal(1, resynchronizedCount);
+
+        coordinator.RecordAreaAccepted(HealthArea, instanceId, 1, context, 1);
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal(1, resynchronizedCount);
+        Assert.Empty(continuityRecovery.RecoveryRequests);
+    }
+
+    /// <summary>
+    /// Creates a coordinator with test-friendly defaults: a continuity-recovery fake that records
+    /// every recovery request instead of acting on one, and a transaction timeout generous enough
+    /// (30 seconds) that it never fires during an ordinary fast-running test unless the test itself
+    /// passes a short one to deliberately observe the watchdog firing.
+    /// </summary>
+    /// <param name="catalog">The catalog the coordinator derives its required baseline areas from.</param>
+    /// <param name="tracker">The tracker the coordinator claims tokens from and completes resynchronization through.</param>
+    /// <param name="continuityRecovery">The continuity-recovery collaborator, or a fresh <see cref="FakeAdapterContinuityRecovery"/> by default.</param>
+    /// <param name="transactionTimeout">The transaction watchdog's bound, or 30 seconds by default.</param>
+    private static ResynchronizationTransactionCoordinator CreateCoordinator(
+        LiveStateCatalog catalog,
+        IAdapterAvailabilityTracker tracker,
+        IAdapterContinuityRecovery? continuityRecovery = null,
+        TimeSpan? transactionTimeout = null) =>
+        new(catalog, tracker, continuityRecovery ?? new FakeAdapterContinuityRecovery(), transactionTimeout ?? TimeSpan.FromSeconds(30));
 
     /// <summary>Commits and publishes a connected transition in one call.</summary>
     private static void Connect(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long generation)

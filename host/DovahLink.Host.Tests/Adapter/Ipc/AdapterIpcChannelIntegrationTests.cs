@@ -762,7 +762,7 @@ public class AdapterIpcChannelIntegrationTests
         // handshake/connection-level wiring, not the catalog-specific baseline-transaction semantics
         // LiveCaptureSinkTests and ResynchronizationTransactionCoordinatorTests already cover.
         var catalog = new LiveStateCatalog([], []);
-        var coordinator = new ResynchronizationTransactionCoordinator(catalog, tracker);
+        var coordinator = new ResynchronizationTransactionCoordinator(catalog, tracker, new FakeAdapterContinuityRecovery(), TimeSpan.FromSeconds(30));
         ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
         var listener = new AdapterIpcListener(0, stream =>
             new AdapterIpcConnection(

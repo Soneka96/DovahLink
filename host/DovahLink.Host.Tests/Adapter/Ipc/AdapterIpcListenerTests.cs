@@ -1186,8 +1186,9 @@ public class LiveCaptureSinkTests
         var revisionTracker = new RevisionTracker();
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
-        IResynchronizationTransactionCoordinator coordinator = coordinatorOverride ?? new ResynchronizationTransactionCoordinator(catalog, adapterTracker);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
+        IResynchronizationTransactionCoordinator coordinator = coordinatorOverride
+            ?? new ResynchronizationTransactionCoordinator(catalog, adapterTracker, continuityRecovery, TimeSpan.FromSeconds(30));
         FakeClock clock = clockOverride ?? new FakeClock();
         ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, feed);
         IReadOnlyCollection<ILiveCaptureHandler> handlers = handlerOverrides
