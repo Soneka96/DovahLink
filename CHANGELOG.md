@@ -43,6 +43,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Fixed
 
+- Local CI now falls back to standard locations and `PATH` when tool-path overrides are unset.
 - The Builder now discovers non-standard Visual Studio installations and uses that installation's
   CMake and Ninja executables for Adapter builds.
 - The Builder now uses its saved Skyrim install path to locate the Papyrus compiler, with environment
