@@ -11,6 +11,9 @@ public static class Constants
     /// </summary>
     public static readonly TimeSpan VersionProbeTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>The maximum time Visual Studio discovery waits for Visual Studio Installer's <c>vswhere.exe</c>.</summary>
+    public static readonly TimeSpan VisualStudioDiscoveryTimeout = TimeSpan.FromSeconds(5);
+
     // ---- Git ----
 
     /// <summary>

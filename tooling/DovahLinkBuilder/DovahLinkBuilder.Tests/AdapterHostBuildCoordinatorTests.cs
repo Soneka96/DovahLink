@@ -11,10 +11,11 @@ public sealed class AdapterHostBuildCoordinatorTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        VisualStudioToolchain visualStudioToolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
         var runner = new FakeCommandRunner();
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
-            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => visualStudioToolchain,
             () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
             new BuildOutputOwnershipGuard());
 
@@ -24,9 +25,9 @@ public sealed class AdapterHostBuildCoordinatorTests
         Assert.Equal(runner.ArchivePath, result.ArchivePath);
         Assert.Equal(5, runner.Commands.Count);
         Assert.EndsWith("cmd.exe", runner.Commands[0].ExecutablePath, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("cmake", runner.Commands[1].ExecutablePath);
-        Assert.Equal(["--fresh", "--preset", "windows-x64-release"], runner.Commands[1].Arguments);
-        Assert.Equal("cmake", runner.Commands[2].ExecutablePath);
+        Assert.Equal(visualStudioToolchain.CMakePath, runner.Commands[1].ExecutablePath);
+        Assert.Equal(["--fresh", "--preset", "windows-x64-release", $"-DCMAKE_MAKE_PROGRAM={visualStudioToolchain.NinjaPath}"], runner.Commands[1].Arguments);
+        Assert.Equal(visualStudioToolchain.CMakePath, runner.Commands[2].ExecutablePath);
         Assert.Equal(
             ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_adapter_plugin"],
             runner.Commands[2].Arguments);
@@ -67,16 +68,17 @@ public sealed class AdapterHostBuildCoordinatorTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        VisualStudioToolchain visualStudioToolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
         var runner = new FakeCommandRunner();
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
-            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => visualStudioToolchain,
             () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
             new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, BuildProfile.Debug));
 
-        Assert.Equal(["--fresh", "--preset", "windows-x64-debug"], runner.Commands[1].Arguments);
+        Assert.Equal(["--fresh", "--preset", "windows-x64-debug", $"-DCMAKE_MAKE_PROGRAM={visualStudioToolchain.NinjaPath}"], runner.Commands[1].Arguments);
         Assert.Equal(
             ["--build", "--preset", "windows-x64-debug", "--target", "dovahlink_adapter_plugin"],
             runner.Commands[2].Arguments);

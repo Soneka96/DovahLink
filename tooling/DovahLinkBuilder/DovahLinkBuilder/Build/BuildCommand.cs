@@ -27,26 +27,29 @@ public sealed record BuildCommand(
             new Dictionary<string, string>());
     }
 
-    /// <summary>Creates a fresh CMake configure and build command sequence for the adapter target.</summary>
+    /// <summary>Creates fresh configure and build commands using the selected Visual Studio CMake and Ninja executables.</summary>
     /// <param name="adapterRoot">The adapter source directory containing the CMake presets.</param>
     /// <param name="environmentVariables">The imported Visual Studio environment, including vcpkg configuration.</param>
     /// <param name="presetName">The CMake preset to configure and build, for example <c>windows-x64-release</c> (see <see cref="BuildProfileExtensions.ToCMakePreset"/>).</param>
+    /// <param name="toolchain">The selected Visual Studio toolchain containing the CMake and Ninja executables to invoke.</param>
     /// <returns>The ordered configure and build commands.</returns>
     public static IReadOnlyList<BuildCommand> CreateBuild(
         string adapterRoot,
         IReadOnlyDictionary<string, string> environmentVariables,
-        string presetName)
+        string presetName,
+        VisualStudioToolchain toolchain)
     {
+        VisualStudioToolchain validatedToolchain = VisualStudioToolchainLocator.Validate(toolchain);
         string workingDirectory = Path.GetFullPath(adapterRoot);
         return
         [
             new BuildCommand(
-                "cmake",
-                ["--fresh", "--preset", presetName],
+                validatedToolchain.CMakePath,
+                ["--fresh", "--preset", presetName, $"-DCMAKE_MAKE_PROGRAM={validatedToolchain.NinjaPath}"],
                 workingDirectory,
                 environmentVariables),
             new BuildCommand(
-                "cmake",
+                validatedToolchain.CMakePath,
                 ["--build", "--preset", presetName, "--target", "dovahlink_adapter_plugin"],
                 workingDirectory,
                 environmentVariables),

@@ -188,20 +188,50 @@ public sealed class PreflightServiceTests
     public async Task CheckAllReportsCMakeAndPythonFoundOnAZeroExitCode()
     {
         using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        int toolchainLookups = 0;
         var runner = new FakeCommandRunner { ExitCode = 0, OutputLines = ["ok"] };
-        var service = new PreflightService(runner, TestVersionProbeTimeout);
+        var service = new PreflightService(
+            runner,
+            () =>
+            {
+                toolchainLookups++;
+                return toolchain;
+            },
+            TestVersionProbeTimeout);
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
 
         ToolchainCheckResult cMakeResult = results[3];
         Assert.Equal("CMake", cMakeResult.ToolName);
         Assert.Equal(ToolchainAvailability.Found, cMakeResult.Availability);
-        Assert.Equal("cmake", runner.Commands[1].ExecutablePath);
+        Assert.Equal(toolchain.CMakePath, runner.Commands[1].ExecutablePath);
+        Assert.Equal(1, toolchainLookups);
+        Assert.Equal(toolchain.VcpkgRoot, results[4].Detail);
 
         ToolchainCheckResult pythonResult = results[6];
         Assert.Equal("Python", pythonResult.ToolName);
         Assert.Equal(ToolchainAvailability.Found, pythonResult.Availability);
         Assert.Equal("python", runner.Commands[2].ExecutablePath);
+    }
+
+    /// <summary>Reports bundled CMake as missing when it is absent from the selected Visual Studio installation.</summary>
+    [Fact]
+    public async Task CheckAllReportsBundledCMakeMissingWhenItsExecutableIsAbsent()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        File.Delete(toolchain.CMakePath);
+        var runner = new FakeCommandRunner { ExitCode = 0, OutputLines = ["ok"] };
+        var service = new PreflightService(runner, () => toolchain, TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        Assert.Equal(ToolchainAvailability.Found, results[2].Availability);
+        Assert.Equal("CMake", results[3].ToolName);
+        Assert.Equal(ToolchainAvailability.Missing, results[3].Availability);
+        Assert.Contains("CMake", results[3].RemediationHint);
+        Assert.DoesNotContain(runner.Commands, command => command.ExecutablePath == toolchain.CMakePath);
     }
 
     /// <summary>Reports the output folder as found when it exists under the repository root.</summary>
