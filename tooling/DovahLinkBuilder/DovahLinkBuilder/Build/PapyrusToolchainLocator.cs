@@ -16,10 +16,17 @@ public static class PapyrusToolchainLocator
     ];
 
     /// <summary>
-    /// Locates the Papyrus compiler from the configured or standard Skyrim Special Edition installation paths.
+    /// Locates the Papyrus compiler from <c>SKYRIM_INSTALL_DIR</c> or the standard Skyrim Special Edition installation path.
     /// </summary>
     /// <returns>The located Papyrus toolchain.</returns>
-    public static PapyrusToolchain Find() => Find(GetDefaultInstallationRoots());
+    public static PapyrusToolchain Find() => Find(GetDefaultInstallationRoots(null));
+
+    /// <summary>Locates the Papyrus compiler, preferring a configured Skyrim / Creation Kit installation path.</summary>
+    /// <param name="configuredInstallPath">The configured installation path, or <see langword="null"/> to rely on automatic discovery.</param>
+    /// <returns>The toolchain for the first root containing the compiler and a flags file under a known import layout.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no root contains a supported Papyrus compiler installation.</exception>
+    public static PapyrusToolchain FindWithInstallationPath(string? configuredInstallPath) =>
+        Find(GetDefaultInstallationRoots(configuredInstallPath));
 
     /// <summary>
     /// Locates the Papyrus compiler among the specified installation roots.
@@ -81,7 +88,13 @@ public static class PapyrusToolchainLocator
     /// installation paths, reporting the result instead of throwing.
     /// </summary>
     /// <returns>A <see cref="ToolchainCheckResult"/> describing whether the Papyrus compiler was found.</returns>
-    public static ToolchainCheckResult TryFind() => TryFind(GetDefaultInstallationRoots());
+    public static ToolchainCheckResult TryFind() => TryFind(GetDefaultInstallationRoots(null));
+
+    /// <summary>Locates the Papyrus compiler with the configured installation path first, reporting the result instead of throwing.</summary>
+    /// <param name="configuredInstallPath">The configured installation path, or <see langword="null"/> to rely on automatic discovery.</param>
+    /// <returns>A <see cref="ToolchainCheckResult"/> describing whether the Papyrus compiler was found.</returns>
+    public static ToolchainCheckResult TryFindWithInstallationPath(string? configuredInstallPath) =>
+        TryFind(GetDefaultInstallationRoots(configuredInstallPath));
 
     /// <summary>
     /// Locates the Papyrus compiler among the specified installation roots, reporting the result
@@ -106,16 +119,32 @@ public static class PapyrusToolchainLocator
         }
     }
 
-    /// <summary>Gets the configured or standard Skyrim Special Edition installation roots to search.</summary>
-    private static IEnumerable<string> GetDefaultInstallationRoots()
-    {
-        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        string? skyrimInstall = Environment.GetEnvironmentVariable("SKYRIM_INSTALL_DIR");
+    /// <summary>Gets the configured, environment, and standard Skyrim Special Edition installation roots in search order.</summary>
+    /// <param name="configuredInstallPath">The Settings-page installation path, or <see langword="null"/>.</param>
+    /// <returns>Distinct roots ordered from the Settings-page path to environment and standard Steam defaults.</returns>
+    private static IEnumerable<string> GetDefaultInstallationRoots(string? configuredInstallPath) => GetDefaultInstallationRoots(
+        configuredInstallPath,
+        Environment.GetEnvironmentVariable("SKYRIM_INSTALL_DIR"),
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
 
+    /// <summary>Builds ordered Papyrus installation candidates from explicit inputs.</summary>
+    /// <param name="configuredInstallPath">The Settings-page installation path, or <see langword="null"/>.</param>
+    /// <param name="environmentInstallPath">The <c>SKYRIM_INSTALL_DIR</c> path, or <see langword="null"/>.</param>
+    /// <param name="programFilesX86">The Program Files (x86) directory containing the standard Steam path.</param>
+    /// <returns>Distinct roots ordered from the Settings-page path to environment and standard Steam defaults.</returns>
+    internal static IEnumerable<string> GetDefaultInstallationRoots(
+        string? configuredInstallPath,
+        string? environmentInstallPath,
+        string programFilesX86)
+    {
         return new[]
         {
-            skyrimInstall,
+            configuredInstallPath,
+            environmentInstallPath,
             Path.Combine(programFilesX86, "Steam", "steamapps", "common", "Skyrim Special Edition"),
-        }.Where(path => !string.IsNullOrWhiteSpace(path))!;
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Select(path => path!)
+        .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 }

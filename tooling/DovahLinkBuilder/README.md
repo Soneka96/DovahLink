@@ -23,9 +23,9 @@ from **Build**. A running build can be cancelled; its pipeline of eight stages
 publish, package assembly/validation, and archiving) is shown live, along with
 a scrolling log. The **Environment** page shows the same required-toolchain
 and git-status checks the Build page gates on, with a manual recheck. The
-**Settings** page lets you override the repository, build output, and Skyrim
-install paths (the last is not read by any check or build yet -- it is stored
-only for your own reference) and a few behavior toggles.
+**Settings** page lets you override the repository, build output, and Skyrim /
+Creation Kit install paths, and change a few behavior toggles. The configured
+Skyrim path is used when locating the Papyrus compiler.
 
 A successful build writes `<output>/DovahLink-Adapter-<version>[-<profile>].zip`,
 where the version is read from the repository-root [`VERSION`](../../VERSION)
@@ -54,9 +54,9 @@ The builder also compiles `console-admin/DovahLinkAdmin.psc` with Creation
 Kit's Papyrus Compiler and passes `console-admin/dovahlink.yaml` through to
 packaging (see [`console-admin/README.md`](../../console-admin/README.md)).
 This requires a Skyrim Special Edition installation containing
-`Papyrus Compiler\PapyrusCompiler.exe`; the builder checks the
-`SKYRIM_INSTALL_DIR` environment variable first, for a non-standard install
-location, and falls back to the standard Steam install path.
+`Papyrus Compiler\PapyrusCompiler.exe`; the builder checks the configured
+Settings path first, then `SKYRIM_INSTALL_DIR`, and finally the standard Steam
+install path. Clear the Settings path to return to that automatic discovery order.
 
 ## Install the generated package
 

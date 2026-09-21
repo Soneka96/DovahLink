@@ -41,9 +41,12 @@ internal static class Fixtures
     /// directory, and flags file under <paramref name="repositoryRoot"/>.
     /// </summary>
     /// <param name="repositoryRoot">The temporary root under which to create the installation.</param>
-    public static PapyrusToolchain BuildPapyrusToolchain(string repositoryRoot)
+    /// <param name="installationName">The installation directory name under the temporary root.</param>
+    public static PapyrusToolchain BuildPapyrusToolchain(
+        string repositoryRoot,
+        string installationName = "Skyrim Special Edition")
     {
-        string installationRoot = Path.Combine(repositoryRoot, "Skyrim Special Edition");
+        string installationRoot = Path.Combine(repositoryRoot, installationName);
         string compilerPath = Path.Combine(installationRoot, "Papyrus Compiler", "PapyrusCompiler.exe");
         string importDirectory = Path.Combine(installationRoot, "Data", "Scripts", "Source");
         string flagsFilePath = Path.Combine(importDirectory, "TESV_Papyrus_Flags.flg");

@@ -45,6 +45,8 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 - The Builder now discovers non-standard Visual Studio installations and uses that installation's
   CMake and Ninja executables for Adapter builds.
+- The Builder now uses its saved Skyrim install path to locate the Papyrus compiler, with environment
+  and standard Steam paths as fallbacks.
 - The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast when a required
   `clientId` cannot be resolved, instead of proceeding silently.
 - The app no longer keeps observing a stale connection status after its session is invalidated.

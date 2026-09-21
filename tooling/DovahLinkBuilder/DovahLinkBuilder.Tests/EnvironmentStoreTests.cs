@@ -21,7 +21,7 @@ public sealed class EnvironmentStoreTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
 
         await store.RefreshAsync();
 
@@ -37,7 +37,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
 
         Task first = store.RefreshAsync();
         Task second = store.RefreshAsync();
@@ -56,7 +56,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         await store.RefreshAsync();
         Assert.Equal(1, preflightService.CallCount);
 
@@ -73,7 +73,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
 
         Task refresh = store.RefreshAsync();
         Assert.True(store.IsRefreshing);
@@ -91,7 +91,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        _ = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        _ = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
 
         repositoryContext.SetRepositoryRoot(@"C:\repo-b");
 
@@ -111,7 +111,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
 
         repositoryContext.SetRepositoryRoot(@"C:\repo-b");
         Assert.True(store.IsRefreshing);
@@ -142,7 +142,7 @@ public sealed class EnvironmentStoreTests
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var outputPathContext = new OutputPathContext(null);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext, new SkyrimInstallPathContext(null));
 
         Task refresh = store.RefreshAsync();
         Assert.True(store.IsRefreshing);
@@ -158,6 +158,32 @@ public sealed class EnvironmentStoreTests
         Assert.Equal(@"D:\new-out", preflightService.CapturedOutputPathOverrides[^1]);
     }
 
+    /// <summary>Repeats an in-flight full refresh when the Skyrim install path changes, settling on the latest selection.</summary>
+    [Fact]
+    public async Task RefreshEventuallyChecksTheLatestSkyrimInstallPathWhenItChangesDuringARefresh()
+    {
+        var pauseSignal = new TaskCompletionSource();
+        var preflightService = new FakePreflightService { PauseSignal = pauseSignal };
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(@"D:\first-skyrim");
+        var store = new EnvironmentStore(
+            preflightService,
+            gitStatusStore,
+            repositoryContext,
+            new OutputPathContext(null),
+            skyrimInstallPathContext);
+
+        Task refresh = store.RefreshAsync();
+        skyrimInstallPathContext.SetSkyrimInstallPath(@"D:\latest-skyrim");
+        pauseSignal.SetResult();
+        await refresh;
+
+        Assert.False(store.IsRefreshing);
+        Assert.Equal(2, preflightService.CallCount);
+        Assert.Equal(@"D:\latest-skyrim", preflightService.CapturedSkyrimInstallPathOverrides[^1]);
+    }
+
     /// <summary>Passes the persisted output path override through to preflight, so it checks the actual configured destination.</summary>
     [Fact]
     public async Task RefreshAsyncPassesTheOutputPathOverrideToPreflight()
@@ -166,11 +192,31 @@ public sealed class EnvironmentStoreTests
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var outputPathContext = new OutputPathContext(@"D:\custom-out");
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext, new SkyrimInstallPathContext(null));
 
         await store.RefreshAsync();
 
         Assert.Equal(@"D:\custom-out", Assert.Single(preflightService.CapturedOutputPathOverrides));
+    }
+
+    /// <summary>Passes the persisted Skyrim / Creation Kit path through to preflight.</summary>
+    [Fact]
+    public async Task RefreshAsyncPassesTheSkyrimInstallPathToPreflight()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(@"D:\Skyrim");
+        var store = new EnvironmentStore(
+            preflightService,
+            gitStatusStore,
+            repositoryContext,
+            new OutputPathContext(null),
+            skyrimInstallPathContext);
+
+        await store.RefreshAsync();
+
+        Assert.Equal(@"D:\Skyrim", Assert.Single(preflightService.CapturedSkyrimInstallPathOverrides));
     }
 
     /// <summary>
@@ -185,7 +231,7 @@ public sealed class EnvironmentStoreTests
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var outputPathContext = new OutputPathContext(null);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext, new SkyrimInstallPathContext(null));
         await store.RefreshAsync();
         Assert.Equal(1, preflightService.CallCount);
 
@@ -197,6 +243,63 @@ public sealed class EnvironmentStoreTests
         Assert.Equal(@"D:\new-out", store.PreflightResults[^1].Detail);
     }
 
+    /// <summary>Rechecks only Papyrus when the shared Skyrim installation path changes.</summary>
+    [Fact]
+    public async Task ChangingTheSkyrimInstallPathContextRefreshesOnlyThePapyrusCheck()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(null);
+        var store = new EnvironmentStore(
+            preflightService,
+            gitStatusStore,
+            repositoryContext,
+            new OutputPathContext(null),
+            skyrimInstallPathContext);
+        await store.RefreshAsync();
+        IReadOnlyList<ToolchainCheckResult> previousResults = store.PreflightResults;
+
+        skyrimInstallPathContext.SetSkyrimInstallPath(@"D:\new-skyrim");
+
+        Assert.Equal(1, preflightService.CallCount);
+        Assert.Equal(1, preflightService.RefreshPapyrusCompilerCheckCallCount);
+        Assert.False(store.IsRefreshing);
+        Assert.Equal(previousResults[0], store.PreflightResults[0]);
+        Assert.Equal(previousResults[^1], store.PreflightResults[^1]);
+        Assert.Equal(@"D:\new-skyrim", Assert.Single(
+            store.PreflightResults,
+            result => result.ToolName == "Papyrus Compiler").Detail);
+    }
+
+    /// <summary>Rechecks Papyrus through automatic discovery when the configured installation path is cleared.</summary>
+    [Fact]
+    public async Task ClearingTheSkyrimInstallPathContextRefreshesPapyrusUsingAutomaticDiscovery()
+    {
+        var preflightService = new FakePreflightService();
+        var repositoryContext = new RepositoryContext(@"C:\repo");
+        var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(@"D:\configured-skyrim");
+        var store = new EnvironmentStore(
+            preflightService,
+            gitStatusStore,
+            repositoryContext,
+            new OutputPathContext(null),
+            skyrimInstallPathContext);
+        await store.RefreshAsync();
+        IReadOnlyList<ToolchainCheckResult> previousResults = store.PreflightResults;
+
+        skyrimInstallPathContext.SetSkyrimInstallPath(null);
+
+        Assert.Equal(1, preflightService.CallCount);
+        Assert.Equal(1, preflightService.RefreshPapyrusCompilerCheckCallCount);
+        Assert.Equal(previousResults[0], store.PreflightResults[0]);
+        Assert.Equal(previousResults[^1], store.PreflightResults[^1]);
+        Assert.Equal("automatic", Assert.Single(
+            store.PreflightResults,
+            result => result.ToolName == "Papyrus Compiler").Detail);
+    }
+
     /// <summary>Does nothing when the output path context changes before any full refresh has ever run.</summary>
     [Fact]
     public void ChangingTheOutputPathContextBeforeAnyRefreshDoesNothing()
@@ -204,7 +307,7 @@ public sealed class EnvironmentStoreTests
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var outputPathContext = new OutputPathContext(null);
-        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, outputPathContext);
+        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, outputPathContext, new SkyrimInstallPathContext(null));
 
         outputPathContext.SetOutputPath(@"D:\new-out");
 
@@ -218,7 +321,7 @@ public sealed class EnvironmentStoreTests
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var outputPathContext = new OutputPathContext(null);
-        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, outputPathContext);
+        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, outputPathContext, new SkyrimInstallPathContext(null));
         await store.RefreshAsync();
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
@@ -249,7 +352,7 @@ public sealed class EnvironmentStoreTests
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var outputPathContext = new OutputPathContext(null);
         var preflightService = new PreflightService(new StubCommandRunner(), TimeSpan.FromMilliseconds(200));
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext, new SkyrimInstallPathContext(null));
         await store.RefreshAsync();
         string malformedOverride = Path.Combine(temporaryDirectory.Path, "custom-out\0bad");
 
@@ -267,7 +370,7 @@ public sealed class EnvironmentStoreTests
     {
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
 
@@ -295,15 +398,22 @@ public sealed class EnvironmentStoreTests
         /// <summary>Gets every <paramref name="outputPathOverride"/> a caller has requested a check for, in call order.</summary>
         public List<string?> CapturedOutputPathOverrides { get; } = [];
 
+        /// <summary>Gets every Skyrim install path a caller has requested a check for, in call order.</summary>
+        public List<string?> CapturedSkyrimInstallPathOverrides { get; } = [];
+
         /// <summary>Gets the number of times <see cref="RefreshOutputFolderCheck"/> was called.</summary>
         public int RefreshOutputFolderCheckCallCount { get; private set; }
 
+        /// <summary>Gets the number of times <see cref="RefreshPapyrusCompilerCheck"/> was called.</summary>
+        public int RefreshPapyrusCompilerCheckCallCount { get; private set; }
+
         /// <inheritdoc/>
-        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, string? skyrimInstallPathOverride = null, CancellationToken cancellationToken = default)
         {
             CallCount++;
             CapturedStartPaths.Add(startPath);
             CapturedOutputPathOverrides.Add(outputPathOverride);
+            CapturedSkyrimInstallPathOverrides.Add(skyrimInstallPathOverride);
             if (PauseSignal is not null)
             {
                 await PauseSignal.Task;
@@ -317,6 +427,7 @@ public sealed class EnvironmentStoreTests
             return
             [
                 new ToolchainCheckResult("Repository", ToolchainAvailability.Found, startPath, null),
+                new ToolchainCheckResult("Papyrus Compiler", ToolchainAvailability.Found, skyrimInstallPathOverride ?? "automatic", null),
                 new ToolchainCheckResult("Output Folder", ToolchainAvailability.Found, outputPathOverride ?? Path.Combine(startPath, "tooling", "out"), null),
             ];
         }
@@ -332,6 +443,27 @@ public sealed class EnvironmentStoreTests
 
             ToolchainCheckResult[] updatedResults = previousResults.ToArray();
             updatedResults[^1] = new ToolchainCheckResult("Output Folder", ToolchainAvailability.Found, outputPathOverride ?? repositoryRoot, null);
+            return updatedResults;
+        }
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ToolchainCheckResult> RefreshPapyrusCompilerCheck(
+            IReadOnlyList<ToolchainCheckResult> previousResults,
+            string? skyrimInstallPathOverride)
+        {
+            RefreshPapyrusCompilerCheckCallCount++;
+            int papyrusIndex = previousResults.ToList().FindIndex(result => result.ToolName == "Papyrus Compiler");
+            if (papyrusIndex < 0)
+            {
+                return previousResults;
+            }
+
+            ToolchainCheckResult[] updatedResults = previousResults.ToArray();
+            updatedResults[papyrusIndex] = new ToolchainCheckResult(
+                "Papyrus Compiler",
+                ToolchainAvailability.Found,
+                skyrimInstallPathOverride ?? "automatic",
+                null);
             return updatedResults;
         }
     }
@@ -351,7 +483,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
 
         await store.RefreshAsync();
 
@@ -367,7 +499,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         await store.RefreshAsync();
         Assert.NotNull(store.RefreshError);
 
@@ -385,7 +517,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { ExceptionToThrow = new OperationCanceledException() };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.RefreshAsync());
 
@@ -400,7 +532,7 @@ public sealed class EnvironmentStoreTests
         var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var store = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var raisedProperties = new List<string?>();
         store.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
 

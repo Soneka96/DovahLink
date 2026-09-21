@@ -33,7 +33,7 @@ public sealed class BuildPageViewModelTests
         IRepositoryContext resolvedRepositoryContext = repositoryContext ?? new RepositoryContext(resolvedRepositoryRoot);
         IOutputPathContext resolvedOutputPathContext = outputPathContext ?? new OutputPathContext(null);
         var gitStatusStore = new GitStatusStore(gitStatusService ?? new FakeGitStatusService(), resolvedRepositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext, resolvedOutputPathContext);
+        var environmentStore = new EnvironmentStore(preflightService ?? new FakePreflightService(), gitStatusStore, resolvedRepositoryContext, resolvedOutputPathContext, new SkyrimInstallPathContext(null));
         return new(
             environmentStore,
             gitStatusStore,
@@ -89,7 +89,7 @@ public sealed class BuildPageViewModelTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var buildCoordinator = new FakeAdapterHostBuildCoordinator();
         var viewModel = new BuildPageViewModel(
             environmentStore,
@@ -178,7 +178,7 @@ public sealed class BuildPageViewModelTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var viewModel = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -219,7 +219,7 @@ public sealed class BuildPageViewModelTests
         File.WriteAllText(Path.Combine(repositoryBRoot, "VERSION"), "2.0.0");
         var repositoryContext = new RepositoryContext(repositoryARoot);
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var viewModel = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -1078,7 +1078,7 @@ public sealed class BuildPageViewModelTests
         var repositoryContext = new RepositoryContext(temporaryDirectory.Path);
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
         var viewModel = new BuildPageViewModel(
-            new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null)),
+            new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null)),
             gitStatusStore,
             buildCoordinator,
             new FakeBuildHistoryStore(),
@@ -1191,7 +1191,14 @@ public sealed class BuildPageViewModelTests
         var settingsStore = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
         var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var settingsPage = new SettingsPageViewModel(
-            settingsStore, new FakeFolderPicker(), _ => { }, @"C:\repo", new RepositoryContext(@"C:\repo"), new OutputPathContext(null), runtimeBuildSettingsContext);
+            settingsStore,
+            new FakeFolderPicker(),
+            _ => { },
+            @"C:\repo",
+            new RepositoryContext(@"C:\repo"),
+            new OutputPathContext(null),
+            new SkyrimInstallPathContext(null),
+            runtimeBuildSettingsContext);
         var viewModel = BuildViewModel(runtimeBuildSettingsContext: runtimeBuildSettingsContext);
         await viewModel.InitializeAsync();
 
@@ -1503,7 +1510,7 @@ public sealed class BuildPageViewModelTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var viewModel = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -2170,7 +2177,7 @@ public sealed class BuildPageViewModelTests
         public List<string> CapturedStartPaths { get; } = [];
 
         /// <inheritdoc/>
-        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, string? skyrimInstallPathOverride = null, CancellationToken cancellationToken = default)
         {
             CapturedStartPaths.Add(startPath);
             if (PauseSignal is not null)
@@ -2188,6 +2195,10 @@ public sealed class BuildPageViewModelTests
 
         /// <inheritdoc/>
         public IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride) =>
+            previousResults;
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ToolchainCheckResult> RefreshPapyrusCompilerCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? skyrimInstallPathOverride) =>
             previousResults;
 
         /// <summary>Builds one Found result per required tool name.</summary>
@@ -2404,7 +2415,7 @@ public sealed class BuildPageViewModelTests
         var preflightService = new FakePreflightService { ExceptionToThrow = new InvalidOperationException("disk full") };
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var viewModel = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,

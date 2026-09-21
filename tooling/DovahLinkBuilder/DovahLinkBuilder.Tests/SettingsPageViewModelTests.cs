@@ -22,11 +22,13 @@ public sealed class SettingsPageViewModelTests
                 VerboseCommandOutput: true,
                 NotifyWhenBuildCompletes: true),
         };
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(null);
 
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), skyrimInstallPathContext, new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(@"D:\repo", viewModel.RepositoryPath);
         Assert.Equal(@"D:\Steam\steamapps\common\Skyrim Special Edition", viewModel.SkyrimInstallPath);
+        Assert.Equal(viewModel.SkyrimInstallPath, skyrimInstallPathContext.SkyrimInstallPath);
         Assert.Equal(@"D:\out", viewModel.OutputPath);
         Assert.False(viewModel.OpenOutputFolderAfterSuccessfulBuild);
         Assert.False(viewModel.AutoScrollLogs);
@@ -39,7 +41,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingRepositoryPathSavesImmediately()
     {
         var store = new FakeSettingsStore();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.RepositoryPath = @"D:\repo";
 
@@ -51,7 +53,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingAFieldSwallowsAPersistenceFailure()
     {
         var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Exception? thrown = Record.Exception(() => viewModel.RepositoryPath = @"D:\repo");
 
@@ -68,7 +70,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
         var repositoryContext = new RepositoryContext(@"D:\resolved-repo");
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.RepositoryPath = @"D:\repo";
 
@@ -82,7 +84,7 @@ public sealed class SettingsPageViewModelTests
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\override") };
         var repositoryContext = new RepositoryContext(@"D:\resolved-repo");
 
-        _ = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        _ = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(@"D:\override", repositoryContext.RepositoryRoot);
     }
@@ -98,7 +100,14 @@ public sealed class SettingsPageViewModelTests
         var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
 
         _ = new SettingsPageViewModel(
-            store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), runtimeBuildSettingsContext);
+            store,
+            new FakeFolderPicker(),
+            _ => { },
+            @"D:\resolved-repo",
+            new RepositoryContext(@"D:\resolved-repo"),
+            new OutputPathContext(null),
+            new SkyrimInstallPathContext(null),
+            runtimeBuildSettingsContext);
 
         Assert.False(runtimeBuildSettingsContext.OpenOutputFolderAfterSuccessfulBuild);
         Assert.False(runtimeBuildSettingsContext.AutoScrollLogs);
@@ -109,7 +118,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingRepositoryPathUpdatesTheSharedRepositoryContext()
     {
         var repositoryContext = new RepositoryContext(@"D:\resolved-repo");
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.RepositoryPath = @"D:\repo";
 
@@ -122,7 +131,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\override") };
         var repositoryContext = new RepositoryContext(@"D:\resolved-repo");
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
         Assert.Equal(@"D:\override", repositoryContext.RepositoryRoot);
 
         viewModel.ResetRepositoryPathCommand.Execute(null);
@@ -138,7 +147,7 @@ public sealed class SettingsPageViewModelTests
         {
             Settings = new BuilderSettings(WindowLeft: 120, WindowTop: 80, WindowWidth: 1024, WindowHeight: 768, WindowIsMaximized: true),
         };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.RepositoryPath = @"D:\repo";
 
@@ -158,7 +167,7 @@ public sealed class SettingsPageViewModelTests
         {
             Settings = new BuilderSettings(RepositoryPath: @"D:\repo", WindowLeft: 120, WindowTop: 80, WindowWidth: 1024, WindowHeight: 768, WindowIsMaximized: true),
         };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.ResetRepositoryPathCommand.Execute(null);
 
@@ -175,11 +184,35 @@ public sealed class SettingsPageViewModelTests
     public void SettingSkyrimInstallPathSavesImmediately()
     {
         var store = new FakeSettingsStore();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(null);
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), skyrimInstallPathContext, new RuntimeBuildSettingsContext(true, true));
 
         viewModel.SkyrimInstallPath = @"D:\Skyrim";
 
         Assert.Equal(@"D:\Skyrim", store.Settings.SkyrimInstallPath);
+        Assert.Equal(@"D:\Skyrim", skyrimInstallPathContext.SkyrimInstallPath);
+    }
+
+    /// <summary>Updates the shared Papyrus path even when persisting the Settings change fails.</summary>
+    [Fact]
+    public void SettingSkyrimInstallPathUpdatesTheSharedContextEvenWhenSavingFails()
+    {
+        var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(null);
+        var viewModel = new SettingsPageViewModel(
+            store,
+            new FakeFolderPicker(),
+            _ => { },
+            @"D:\resolved-repo",
+            new RepositoryContext(@"D:\resolved-repo"),
+            new OutputPathContext(null),
+            skyrimInstallPathContext,
+            new RuntimeBuildSettingsContext(true, true));
+
+        Exception? thrown = Record.Exception(() => viewModel.SkyrimInstallPath = @"D:\Skyrim");
+
+        Assert.Null(thrown);
+        Assert.Equal(@"D:\Skyrim", skyrimInstallPathContext.SkyrimInstallPath);
     }
 
     /// <summary>Saves the updated settings immediately when the output path changes.</summary>
@@ -187,7 +220,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingOutputPathSavesImmediately()
     {
         var store = new FakeSettingsStore();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OutputPath = @"D:\out";
 
@@ -200,7 +233,7 @@ public sealed class SettingsPageViewModelTests
     {
         var outputPathContext = new OutputPathContext(null);
         var viewModel = new SettingsPageViewModel(
-            new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new RuntimeBuildSettingsContext(true, true));
+            new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OutputPath = @"D:\out";
 
@@ -217,7 +250,7 @@ public sealed class SettingsPageViewModelTests
         var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
         var outputPathContext = new OutputPathContext(null);
         var viewModel = new SettingsPageViewModel(
-            store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new RuntimeBuildSettingsContext(true, true));
+            store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OutputPath = @"D:\out";
 
@@ -231,7 +264,7 @@ public sealed class SettingsPageViewModelTests
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\persisted-out") };
         var outputPathContext = new OutputPathContext(null);
 
-        _ = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new RuntimeBuildSettingsContext(true, true));
+        _ = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(@"D:\persisted-out", outputPathContext.OutputPath);
     }
@@ -242,7 +275,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\out") };
         var outputPathContext = new OutputPathContext(null);
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), outputPathContext, new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
         Assert.Equal(@"D:\out", outputPathContext.OutputPath);
 
         viewModel.ResetOutputPathCommand.Execute(null);
@@ -255,7 +288,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetRepositoryPathCommandClearsTheOverride()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\repo") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.ResetRepositoryPathCommand.Execute(null);
 
@@ -269,12 +302,14 @@ public sealed class SettingsPageViewModelTests
     public void ResetSkyrimInstallPathCommandClearsTheValue()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(SkyrimInstallPath: @"D:\Skyrim") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(null);
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), skyrimInstallPathContext, new RuntimeBuildSettingsContext(true, true));
 
         viewModel.ResetSkyrimInstallPathCommand.Execute(null);
 
         Assert.Null(viewModel.SkyrimInstallPath);
         Assert.Null(store.Settings.SkyrimInstallPath);
+        Assert.Null(skyrimInstallPathContext.SkyrimInstallPath);
         Assert.False(viewModel.OpenSkyrimInstallFolderCommand.CanExecute(null));
     }
 
@@ -283,7 +318,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetOutputPathCommandClearsTheOverride()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\out") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.ResetOutputPathCommand.Execute(null);
 
@@ -295,7 +330,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void ResetCommandsAreDisabledWithoutAnOverride()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.False(viewModel.ResetRepositoryPathCommand.CanExecute(null));
         Assert.False(viewModel.ResetSkyrimInstallPathCommand.CanExecute(null));
@@ -311,7 +346,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetRepositoryPathCommandIsDisabledWhenTheOverrideMatchesTheResolvedRoot()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\resolved-repo") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.False(viewModel.ResetRepositoryPathCommand.CanExecute(null));
     }
@@ -321,7 +356,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetRepositoryPathCommandIsDisabledForACaseOrTrailingSeparatorDifferenceOnly()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\RESOLVED-REPO\") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.False(viewModel.ResetRepositoryPathCommand.CanExecute(null));
     }
@@ -331,7 +366,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetRepositoryPathCommandIsEnabledWhenTheOverrideDiffersFromTheResolvedRoot()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\other-repo") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.True(viewModel.ResetRepositoryPathCommand.CanExecute(null));
     }
@@ -341,7 +376,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetOutputPathCommandIsDisabledWhenTheOverrideMatchesTheDefault()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: BuildProfile.Release.ToOutputRoot(@"D:\resolved-repo")) };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.False(viewModel.ResetOutputPathCommand.CanExecute(null));
     }
@@ -351,7 +386,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetOutputPathCommandIsEnabledWhenTheOverrideDiffersFromTheDefault()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.True(viewModel.ResetOutputPathCommand.CanExecute(null));
     }
@@ -361,7 +396,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingOpenOutputFolderAfterSuccessfulBuildSavesImmediately()
     {
         var store = new FakeSettingsStore();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OpenOutputFolderAfterSuccessfulBuild = false;
 
@@ -373,7 +408,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingAutoScrollLogsSavesImmediately()
     {
         var store = new FakeSettingsStore();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.AutoScrollLogs = false;
 
@@ -393,7 +428,14 @@ public sealed class SettingsPageViewModelTests
         var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
         var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var viewModel = new SettingsPageViewModel(
-            store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), runtimeBuildSettingsContext);
+            store,
+            new FakeFolderPicker(),
+            _ => { },
+            @"D:\resolved-repo",
+            new RepositoryContext(@"D:\resolved-repo"),
+            new OutputPathContext(null),
+            new SkyrimInstallPathContext(null),
+            runtimeBuildSettingsContext);
 
         Exception? thrown = Record.Exception(() => viewModel.OpenOutputFolderAfterSuccessfulBuild = false);
 
@@ -411,7 +453,14 @@ public sealed class SettingsPageViewModelTests
         var store = new FakeSettingsStore { ThrownExceptionOnSave = new IOException("disk full") };
         var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(openOutputFolderAfterSuccessfulBuild: true, autoScrollLogs: true);
         var viewModel = new SettingsPageViewModel(
-            store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), runtimeBuildSettingsContext);
+            store,
+            new FakeFolderPicker(),
+            _ => { },
+            @"D:\resolved-repo",
+            new RepositoryContext(@"D:\resolved-repo"),
+            new OutputPathContext(null),
+            new SkyrimInstallPathContext(null),
+            runtimeBuildSettingsContext);
 
         Exception? thrown = Record.Exception(() => viewModel.AutoScrollLogs = false);
 
@@ -424,7 +473,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingVerboseCommandOutputSavesImmediately()
     {
         var store = new FakeSettingsStore();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.VerboseCommandOutput = true;
 
@@ -436,7 +485,7 @@ public sealed class SettingsPageViewModelTests
     public void SettingNotifyWhenBuildCompletesSavesImmediately()
     {
         var store = new FakeSettingsStore();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.NotifyWhenBuildCompletes = true;
 
@@ -447,7 +496,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void EffectiveRepositoryPathFallsBackToTheResolvedRootWithoutAnOverride()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(@"D:\resolved-repo", viewModel.EffectiveRepositoryPath);
     }
@@ -457,7 +506,7 @@ public sealed class SettingsPageViewModelTests
     public void EffectiveRepositoryPathPrefersTheOverride()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\override") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(@"D:\override", viewModel.EffectiveRepositoryPath);
     }
@@ -472,7 +521,7 @@ public sealed class SettingsPageViewModelTests
         File.WriteAllText(Path.Combine(repositoryRoot, "adapter", "vcpkg.json"), "{}");
         var store = new FakeSettingsStore();
         var picker = new FakeFolderPicker { NextPick = repositoryRoot };
-        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseRepositoryPathCommand.Execute(null);
 
@@ -492,7 +541,7 @@ public sealed class SettingsPageViewModelTests
         Directory.CreateDirectory(childDirectory);
         File.WriteAllText(Path.Combine(repositoryRoot, "adapter", "vcpkg.json"), "{}");
         var picker = new FakeFolderPicker { NextPick = childDirectory };
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseRepositoryPathCommand.Execute(null);
 
@@ -505,7 +554,7 @@ public sealed class SettingsPageViewModelTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         var picker = new FakeFolderPicker { NextPick = temporaryDirectory.Path };
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseRepositoryPathCommand.Execute(null);
 
@@ -518,7 +567,7 @@ public sealed class SettingsPageViewModelTests
     public void BrowseRepositoryPathCommandDoesNothingWhenCancelled()
     {
         var picker = new FakeFolderPicker { NextPick = null };
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseRepositoryPathCommand.Execute(null);
 
@@ -532,7 +581,7 @@ public sealed class SettingsPageViewModelTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         var picker = new FakeFolderPicker { NextPick = temporaryDirectory.Path };
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
         viewModel.BrowseRepositoryPathCommand.Execute(null);
         string? errorAfterInvalidPick = viewModel.RepositoryPathError;
         Assert.NotNull(errorAfterInvalidPick);
@@ -549,7 +598,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(RepositoryPath: @"D:\override") };
         var openedPaths = new List<string>();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OpenRepositoryFolderCommand.Execute(null);
 
@@ -561,7 +610,7 @@ public sealed class SettingsPageViewModelTests
     public void OpenRepositoryFolderCommandOpensTheResolvedRootWithoutAnOverride()
     {
         var openedPaths = new List<string>();
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OpenRepositoryFolderCommand.Execute(null);
 
@@ -573,7 +622,7 @@ public sealed class SettingsPageViewModelTests
     public void OpenRepositoryFolderCommandSwallowsAFailureFromOpenFolder()
     {
         var viewModel = new SettingsPageViewModel(
-            new FakeSettingsStore(), new FakeFolderPicker(), _ => throw new InvalidOperationException("boom"), @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+            new FakeSettingsStore(), new FakeFolderPicker(), _ => throw new InvalidOperationException("boom"), @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Exception? thrown = Record.Exception(() => viewModel.OpenRepositoryFolderCommand.Execute(null));
 
@@ -584,7 +633,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void EffectiveOutputPathFallsBackToTheReleaseDefaultWithoutAnOverride()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(BuildProfile.Release.ToOutputRoot(@"D:\resolved-repo"), viewModel.EffectiveOutputPath);
     }
@@ -594,7 +643,7 @@ public sealed class SettingsPageViewModelTests
     public void EffectiveOutputPathPrefersTheOverride()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(@"D:\custom-out", viewModel.EffectiveOutputPath);
     }
@@ -607,7 +656,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void EffectiveOutputPathTracksTheCurrentRepositoryOnceAnOverrideIsSet()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.RepositoryPath = @"D:\override-repo";
 
@@ -623,7 +672,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void SettingRepositoryPathRaisesPropertyChangedForEffectiveOutputPath()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
         var raisedProperties = new List<string?>();
         viewModel.PropertyChanged += (_, e) => raisedProperties.Add(e.PropertyName);
 
@@ -641,7 +690,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void SettingRepositoryPathRaisesCanExecuteChangedForResetOutputPathCommand()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
         bool raised = false;
         viewModel.ResetOutputPathCommand.CanExecuteChanged += (_, _) => raised = true;
 
@@ -658,7 +707,7 @@ public sealed class SettingsPageViewModelTests
     public void ResetOutputPathCommandComparesAgainstTheCurrentRepositoryOnceAnOverrideIsSet()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: BuildProfile.Release.ToOutputRoot(@"D:\override-repo")) };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\auto-detected-repo", new RepositoryContext(@"D:\auto-detected-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.RepositoryPath = @"D:\override-repo";
 
@@ -671,7 +720,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore();
         var picker = new FakeFolderPicker { NextPick = @"D:\custom-out" };
-        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseOutputPathCommand.Execute(null);
 
@@ -684,7 +733,7 @@ public sealed class SettingsPageViewModelTests
     public void BrowseOutputPathCommandDoesNothingWhenCancelled()
     {
         var picker = new FakeFolderPicker { NextPick = null };
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseOutputPathCommand.Execute(null);
 
@@ -697,7 +746,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(OutputPath: @"D:\custom-out") };
         var openedPaths = new List<string>();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OpenOutputFolderCommand.Execute(null);
 
@@ -709,7 +758,7 @@ public sealed class SettingsPageViewModelTests
     public void OpenOutputFolderCommandOpensTheDefaultWithoutAnOverride()
     {
         var openedPaths = new List<string>();
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OpenOutputFolderCommand.Execute(null);
 
@@ -720,7 +769,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void SkyrimInstallPathDisplayTextShowsNotSetWithoutAValue()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal("Not set", viewModel.SkyrimInstallPathDisplayText);
     }
@@ -730,7 +779,7 @@ public sealed class SettingsPageViewModelTests
     public void SkyrimInstallPathDisplayTextShowsTheValueWhenSet()
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(SkyrimInstallPath: @"D:\Skyrim") };
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.Equal(@"D:\Skyrim", viewModel.SkyrimInstallPathDisplayText);
     }
@@ -741,7 +790,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore();
         var picker = new FakeFolderPicker { NextPick = @"D:\Skyrim" };
-        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseSkyrimInstallPathCommand.Execute(null);
 
@@ -754,7 +803,7 @@ public sealed class SettingsPageViewModelTests
     public void BrowseSkyrimInstallPathCommandDoesNothingWhenCancelled()
     {
         var picker = new FakeFolderPicker { NextPick = null };
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), picker, _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.BrowseSkyrimInstallPathCommand.Execute(null);
 
@@ -765,7 +814,7 @@ public sealed class SettingsPageViewModelTests
     [Fact]
     public void OpenSkyrimInstallFolderCommandIsDisabledUntilSet()
     {
-        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(new FakeSettingsStore(), new FakeFolderPicker(), _ => { }, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         Assert.False(viewModel.OpenSkyrimInstallFolderCommand.CanExecute(null));
 
@@ -780,7 +829,7 @@ public sealed class SettingsPageViewModelTests
     {
         var store = new FakeSettingsStore { Settings = new BuilderSettings(SkyrimInstallPath: @"D:\Skyrim") };
         var openedPaths = new List<string>();
-        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new RuntimeBuildSettingsContext(true, true));
+        var viewModel = new SettingsPageViewModel(store, new FakeFolderPicker(), openedPaths.Add, @"D:\resolved-repo", new RepositoryContext(@"D:\resolved-repo"), new OutputPathContext(null), new SkyrimInstallPathContext(null), new RuntimeBuildSettingsContext(true, true));
 
         viewModel.OpenSkyrimInstallFolderCommand.Execute(null);
 

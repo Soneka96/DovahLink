@@ -7,7 +7,7 @@ namespace DovahLink.DovahLinkBuilder.Ui;
 /// <summary>
 /// Owns the Settings page's state: paths -- set only through a folder-picker Browse command, never
 /// typed, each with a command to clear it (back to auto-detection for Repository and Output, which
-/// have a real resolved default; back to simply unset for Skyrim, which has none) and, where a
+/// have a real resolved default; back to automatic discovery for Skyrim) and, where a
 /// resolved value exists to open, an Open-folder command -- and the Builder's behavior toggles.
 /// Every change saves immediately through <see cref="ISettingsStore"/>; there is no "remember last
 /// profile" setting -- the Build page's own profile selection is not persisted across launches.
@@ -101,6 +101,9 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     /// <summary>The shared build output path override every consumer reads, kept in sync with <see cref="OutputPath"/>.</summary>
     private readonly IOutputPathContext outputPathContext;
 
+    /// <summary>The shared Skyrim / Creation Kit installation path every Papyrus consumer reads.</summary>
+    private readonly ISkyrimInstallPathContext skyrimInstallPathContext;
+
     /// <summary>The shared runtime settings every consumer reads, kept in sync with <see cref="OpenOutputFolderAfterSuccessfulBuild"/> and <see cref="AutoScrollLogs"/>.</summary>
     private readonly IRuntimeBuildSettingsContext runtimeBuildSettingsContext;
 
@@ -135,6 +138,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
     /// <param name="autoDetectedRepositoryRoot">The auto-detected repository root, used only when there is no override.</param>
     /// <param name="repositoryContext">The shared repository root every consumer reads.</param>
     /// <param name="outputPathContext">The shared build output path override every consumer reads.</param>
+    /// <param name="skyrimInstallPathContext">The shared installation path every Papyrus consumer reads.</param>
     /// <param name="runtimeBuildSettingsContext">The shared runtime settings every consumer reads.</param>
     public SettingsPageViewModel(
         ISettingsStore settingsStore,
@@ -143,6 +147,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         string autoDetectedRepositoryRoot,
         IRepositoryContext repositoryContext,
         IOutputPathContext outputPathContext,
+        ISkyrimInstallPathContext skyrimInstallPathContext,
         IRuntimeBuildSettingsContext runtimeBuildSettingsContext)
     {
         this.settingsStore = settingsStore;
@@ -151,6 +156,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         this.autoDetectedRepositoryRoot = autoDetectedRepositoryRoot;
         this.repositoryContext = repositoryContext;
         this.outputPathContext = outputPathContext;
+        this.skyrimInstallPathContext = skyrimInstallPathContext;
         this.runtimeBuildSettingsContext = runtimeBuildSettingsContext;
         BuilderSettings settings = settingsStore.Load();
         repositoryPath = settings.RepositoryPath;
@@ -173,6 +179,7 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
         OpenSkyrimInstallFolderCommand = new RelayCommand(() => OpenFolderSafely(SkyrimInstallPath!), () => SkyrimInstallPath is not null);
         repositoryContext.SetRepositoryRoot(EffectiveRepositoryPath);
         outputPathContext.SetOutputPath(OutputPath);
+        skyrimInstallPathContext.SetSkyrimInstallPath(SkyrimInstallPath);
         runtimeBuildSettingsContext.SetOpenOutputFolderAfterSuccessfulBuild(OpenOutputFolderAfterSuccessfulBuild);
         runtimeBuildSettingsContext.SetAutoScrollLogs(AutoScrollLogs);
     }
@@ -214,6 +221,9 @@ public sealed class SettingsPageViewModel : ObservableObject, ISettingsPageViewM
                 OnPropertyChanged(nameof(SkyrimInstallPathDisplayText));
                 ResetSkyrimInstallPathCommand.RaiseCanExecuteChanged();
                 OpenSkyrimInstallFolderCommand.RaiseCanExecuteChanged();
+                // Shares the selected installation with preflight and the build before best-effort
+                // persistence, so every Papyrus consumer reflects this page even if saving fails.
+                skyrimInstallPathContext.SetSkyrimInstallPath(value);
                 Save();
             }
         }
