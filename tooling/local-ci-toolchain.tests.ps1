@@ -60,13 +60,16 @@ The parent directory for the fake installation.
 .PARAMETER Edition
 The Visual Studio edition directory to create.
 
+.PARAMETER VersionDirectory
+The Visual Studio version directory to create ("2022" or "18").
+
 .OUTPUTS
 The fake installation path.
 #>
 function New-TestVisualStudioInstallation {
-    param([string]$Root, [string]$Edition)
+    param([string]$Root, [string]$Edition, [string]$VersionDirectory = "2022")
 
-    $installationPath = Join-Path $Root "Microsoft Visual Studio\2022\$Edition"
+    $installationPath = Join-Path $Root "Microsoft Visual Studio\$VersionDirectory\$Edition"
     $vcvarsDirectory = Join-Path $installationPath "VC\Auxiliary\Build"
     New-Item -ItemType Directory -Path $vcvarsDirectory -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $installationPath "VC\vcpkg") -Force | Out-Null
@@ -132,13 +135,19 @@ try {
         Assert-True ($toolchain.VcvarsallPath -eq (Join-Path $installationPath "VC\Auxiliary\Build\vcvarsall.bat")) "$edition discovery selected the wrong vcvarsall script."
     }
 
+    $vs2026Installation = New-TestVisualStudioInstallation -Root (Join-Path $testRoot "VS 2026") -Edition "Community" -VersionDirectory "18"
+    $env:DOVAHLINK_TEST_VSWHERE_RESULT = $vs2026Installation
+    $vs2026Toolchain = Find-VisualStudioToolchain -LocatorPath $locatorPath
+    Assert-True ($vs2026Toolchain.InstallationPath -eq $vs2026Installation) "Visual Studio 2026 discovery returned the wrong installation."
+    Assert-True ($vs2026Toolchain.VcvarsallPath -eq (Join-Path $vs2026Installation "VC\Auxiliary\Build\vcvarsall.bat")) "Visual Studio 2026 discovery selected the wrong vcvarsall script."
+
     $locatorArguments = Get-Content -LiteralPath $capturePath -Raw
     Assert-True ($locatorArguments -like "*-products * *") "Discovery did not search every Visual Studio product edition."
     Assert-True ($locatorArguments -like "*Microsoft.VisualStudio.Workload.NativeDesktop*") "Discovery did not require the Desktop development with C++ workload."
     Assert-True ($locatorArguments -like "*Microsoft.VisualStudio.Component.VC.Tools.x86.x64*") "Discovery did not require the MSVC x64/x86 tools."
     Assert-True ($locatorArguments -like "*Microsoft.VisualStudio.Component.VC.CMake.Project*") "Discovery did not require Visual Studio CMake tools."
     Assert-True ($locatorArguments.Contains("-latest")) "Discovery did not select the latest matching installation."
-    Assert-True ($locatorArguments.Contains("-version [17.0,18.0)")) "Discovery did not restrict selection to Visual Studio 2022."
+    Assert-True ($locatorArguments.Contains("-version [17.0,19.0)")) "Discovery did not include Visual Studio 2022 and Visual Studio 2026."
     Assert-True ($locatorArguments.Contains("-property installationPath")) "Discovery did not request the installation path."
 
     Assert-ThrowsLike {
