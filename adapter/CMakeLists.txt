@@ -63,7 +63,6 @@ find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_adapter_runtime STATIC
     runtime/commonlib_adapter_task_marshaller.cpp
     runtime/commonlib_adapter_game_behavior_compatibility.cpp
-    runtime/commonlib_adapter_character_capture.cpp
     runtime/commonlib_adapter_native_capture_router.cpp
     papyrus/commonlib_adapter_status_papyrus_adapter.cpp
     papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp
@@ -194,7 +193,7 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_PROCESS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/process"
     DOVAHLINK_ADAPTER_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/runtime"
     DOVAHLINK_ADAPTER_TASK_MARSHALLER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_task_marshaller.cpp"
-    DOVAHLINK_ADAPTER_CHARACTER_CAPTURE_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_character_capture.cpp"
+    DOVAHLINK_ADAPTER_CHARACTER_CAPTURE_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_character_capture.hpp"
     DOVAHLINK_ADAPTER_NATIVE_CAPTURE_ROUTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_native_capture_router.cpp"
     DOVAHLINK_ADAPTER_PAPYRUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/papyrus"
     DOVAHLINK_PRIVATE_IPC_LIMIT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../adapter-host-ipc/fixtures/private-ipc-limits.json"
