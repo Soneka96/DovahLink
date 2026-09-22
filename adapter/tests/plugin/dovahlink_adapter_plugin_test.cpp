@@ -212,32 +212,15 @@ TEST_CASE("the adapter plugin derives and reuses one owner-lifetime identity",
               "*gOwnerLifetimeId).RequestShutdown();")) != std::string::npos);
 }
 
-TEST_CASE("the real-package-layout CTest fixture keys its skip decision on "
-          "the Adapter's own build configuration, not the Host's",
+TEST_CASE("the real-package-layout CTest fixture runs for every build configuration",
           "[plugin][structural][boundary]") {
-    //  DOVAHLINK_HOST_BUILD_CONFIGURATION exists so the Host and Adapter can be
-    //  pointed at independently built configurations (it only selects which
-    //  Host build folder DOVAHLINK_HOST_EXECUTABLE points at). Overriding it
-    //  must never change whether a Release Adapter build's own package-layout
-    //  test skips or fails -- that decision belongs to
-    //  DOVAHLINK_ADAPTER_BUILD_CONFIGURATION, which is derived unconditionally
-    //  from this configuration's own CMAKE_BUILD_TYPE and cannot be overridden.
-    std::filesystem::path cmakeListsPath =
-        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) /
-        "CMakeLists.txt";
-    std::string source = ReadSource(cmakeListsPath);
-
-    std::size_t addTestPos =
-        source.find("add_test(NAME AssembleRealAdapterHostPackage");
-    REQUIRE(addTestPos != std::string::npos);
-    std::size_t addTestEnd = source.find(')', addTestPos);
-    REQUIRE(addTestEnd != std::string::npos);
-    std::string addTestBlock = source.substr(addTestPos, addTestEnd - addTestPos);
-
-    CHECK(addTestBlock.find("DOVAHLINK_ADAPTER_BUILD_CONFIGURATION") !=
-          std::string::npos);
-    CHECK(addTestBlock.find("DOVAHLINK_HOST_BUILD_CONFIGURATION") ==
-          std::string::npos);
+    std::string source = ReadSource(
+        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) / "CMakeLists.txt");
+    CHECK(source.find("add_test(NAME AssembleRealAdapterHostPackage") != std::string::npos);
+    CHECK(source.find("FIXTURES_SETUP RealAdapterHostPackage") != std::string::npos);
+    CHECK(source.find("FIXTURES_REQUIRED RealAdapterHostPackage") != std::string::npos);
+    CHECK(source.find("SKIP_RETURN_CODE") == std::string::npos);
+    CHECK(source.find("--configuration") == std::string::npos);
 }
 
 TEST_CASE("the adapter plugin starts the host-discovery supervisor on "

@@ -210,37 +210,24 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
 include(CTest)
 include(Catch)
 
-# The Adapter's own normalized build configuration, always derived directly from this
-# configuration's CMAKE_BUILD_TYPE. Unlike DOVAHLINK_HOST_BUILD_CONFIGURATION above -- which exists
-# so the Host and Adapter can be pointed at independently built configurations -- this is never
-# overridable: AssembleRealAdapterHostPackage below must key its skip-vs-fail decision on what this
-# Adapter build actually is, never on a Host-configuration override aimed at a different build.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(DOVAHLINK_ADAPTER_BUILD_CONFIGURATION "Debug")
-elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(DOVAHLINK_ADAPTER_BUILD_CONFIGURATION "Release")
-else()
+# Keep Adapter configuration validation independent of a Host configuration override.
+if(NOT CMAKE_BUILD_TYPE MATCHES "^(Debug|RelWithDebInfo|Release)$")
     message(FATAL_ERROR
         "Unrecognized CMAKE_BUILD_TYPE '${CMAKE_BUILD_TYPE}'; configure with the "
         "windows-x64-debug or windows-x64-release preset.")
 endif()
 
-# Assembles the real Vortex Data/ layout using the real production packager (see
-# tooling/adapter_host_packager.py), so the [package]-tagged test below launches the Host from the
-# actual installable package shape rather than a raw publish output. Skips (SKIP_RETURN_CODE, not a
-# failure) only when this is a Debug build with Debug-suffixed runtime DLL names; the same gap in a
-# Release build fails instead -- see assemble_adapter_host_package_for_ctest.py's own documentation.
+# Assemble the real installable layout in both Debug and Release. Logging and
+# formatting dependencies are statically linked in both configurations.
 add_test(NAME AssembleRealAdapterHostPackage
     COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/../tooling/assemble_adapter_host_package_for_ctest.py"
         --adapter-build-dir $<TARGET_FILE_DIR:dovahlink_adapter_plugin>
         --host-publish-dir "${DOVAHLINK_HOST_PUBLISH_DIR}"
         --package-dir "${DOVAHLINK_ASSEMBLED_PACKAGE_DIR}"
-        --configuration "${DOVAHLINK_ADAPTER_BUILD_CONFIGURATION}"
 )
 set_tests_properties(AssembleRealAdapterHostPackage PROPERTIES
     FIXTURES_SETUP RealAdapterHostPackage
-    SKIP_RETURN_CODE 125
 )
 
 # Every test except the real-package-layout one: unaffected by the fixture above.
@@ -249,7 +236,7 @@ catch_discover_tests(dovahlink_adapter_tests
 )
 # The real-package-layout test: requires AssembleRealAdapterHostPackage to have assembled the real
 # package first, and is labeled "package" so adapter-ci.yml can run it directly against a Release
-# build, since only Release satisfies AssembleRealAdapterHostPackage's own runtime-DLL-name check.
+# build as well as the complete Debug suite.
 catch_discover_tests(dovahlink_adapter_tests
     TEST_SPEC "[package]"
     PROPERTIES

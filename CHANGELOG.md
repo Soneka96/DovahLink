@@ -55,6 +55,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Fixed
 
+- The Adapter embeds its formatting and logging libraries so SKSE can load it without locating separate `fmt` and `spdlog` DLLs.
 - Local CI now falls back to standard locations and `PATH` when tool-path overrides are unset.
 - The Builder now discovers non-standard Visual Studio installations and uses that installation's
   CMake and Ninja executables for Adapter builds.

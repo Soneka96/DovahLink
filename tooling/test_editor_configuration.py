@@ -1,6 +1,9 @@
 """Validate the repository's shared VS Code and CMake editor configuration."""
 
 import json
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -85,6 +88,14 @@ class EditorConfigurationTests(unittest.TestCase):
             if preset["name"] == "windows-x64"
         )
         self.assertTrue(base_preset["cacheVariables"]["CMAKE_EXPORT_COMPILE_COMMANDS"])
+        self.assertEqual(
+            base_preset["cacheVariables"]["VCPKG_TARGET_TRIPLET"],
+            "x64-windows-dovahlink",
+        )
+        self.assertEqual(
+            base_preset["cacheVariables"]["VCPKG_OVERLAY_TRIPLETS"],
+            "${sourceDir}/../tooling/vcpkg-triplets",
+        )
         # Debug and Release share one vcpkg install directory outside their own binaryDir, instead
         # of each paying a full separate vcpkg install for the same triplet.
         self.assertEqual(
@@ -101,6 +112,40 @@ class EditorConfigurationTests(unittest.TestCase):
             # Neither preset may override the shared install directory -- doing so would silently
             # defeat the sharing and reintroduce a separate vcpkg install per preset.
             self.assertNotIn("VCPKG_INSTALLED_DIR", preset["cacheVariables"])
+
+    @unittest.skipUnless(
+        shutil.which("cmake"), "CMake is required to evaluate the native triplet"
+    )
+    def test_adapter_triplet_only_embeds_formatting_and_logging(self) -> None:
+        """Evaluates port policy while preserving the CRT and architecture for all ports."""
+        triplet = REPOSITORY_ROOT / "tooling/vcpkg-triplets/x64-windows-dovahlink.cmake"
+        with tempfile.TemporaryDirectory() as temp:
+            script = Path(temp) / "check.cmake"
+            for port, linkage in (
+                ("fmt", "static"),
+                ("spdlog", "static"),
+                ("directxtk", "dynamic"),
+                ("catch2", "dynamic"),
+            ):
+                with self.subTest(port=port):
+                    script.write_text(
+                        f'include("{triplet.as_posix()}")\n'
+                        f'if(NOT VCPKG_LIBRARY_LINKAGE STREQUAL "{linkage}" OR '
+                        'NOT VCPKG_CRT_LINKAGE STREQUAL "dynamic" OR '
+                        'NOT VCPKG_TARGET_ARCHITECTURE STREQUAL "x64")\n'
+                        'message(FATAL_ERROR "Unexpected Adapter dependency policy")\n'
+                        "endif()\n",
+                        encoding="utf-8",
+                    )
+                    result = subprocess.run(
+                        [shutil.which("cmake"), f"-DPORT={port}", "-P", str(script)],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
 
     def test_workspace_recommends_language_servers_for_repository_languages(
         self,

@@ -12,7 +12,6 @@ from unittest import mock
 
 from adapter_host_packager import (
     ADAPTER_PLUGIN_NAME,
-    ADAPTER_RUNTIME_DLL_NAMES,
     HOST_EXECUTABLE_NAME,
 )
 from build_output_ownership import MARKER_FILE_NAME
@@ -120,8 +119,6 @@ class PrintStageTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
             _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                _write_file(adapter_build_dir / dll_name, "dll")
             output_dir = temp_dir / "out"
 
             def fake_run(_self: object, args: list[str]) -> None:
@@ -164,8 +161,6 @@ class MainTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
             _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                _write_file(adapter_build_dir / dll_name, "dll")
             output_dir = temp_dir / "out"
 
             # SubprocessProcessRunner.run is the only real external side effect main() performs
@@ -226,8 +221,6 @@ class MainTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
             _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                _write_file(adapter_build_dir / dll_name, "dll")
             output_dir = temp_dir / "out"
 
             def fake_run(_self: object, args: list[str]) -> None:
@@ -264,8 +257,6 @@ class MainTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
             _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                _write_file(adapter_build_dir / dll_name, "dll")
             output_dir = temp_dir / "out"
 
             # publish_host "succeeds" without writing the Host executable, so the next stage
@@ -305,8 +296,6 @@ class MainTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
             _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                _write_file(adapter_build_dir / dll_name, "dll")
             output_dir = temp_dir / "out"
 
             def fake_run(_self: object, args: list[str]) -> None:
@@ -349,8 +338,6 @@ class OwnershipTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
             _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                _write_file(adapter_build_dir / dll_name, "dll")
             output_dir = temp_dir / "unrelated-user-folder"
             unrelated_file = output_dir / "some-real-file.txt"
             _write_file(unrelated_file, "the user's own real data, not DovahLink's")
@@ -379,8 +366,6 @@ class OwnershipTests(unittest.TestCase):
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
             _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                _write_file(adapter_build_dir / dll_name, "dll")
             output_dir = temp_dir / "previously-owned-output"
             _write_file(output_dir / MARKER_FILE_NAME, "owned")
             _write_file(output_dir / "package" / "stale-from-last-run.txt", "stale")
