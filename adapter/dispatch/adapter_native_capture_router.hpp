@@ -3,27 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "capture/live_state_sample_codec.hpp"
-#include "enums.hpp"
+#include "dispatch/sample_capture_result.hpp"
 
 namespace dovahlink::adapter::dispatch {
-
-//  TODO(stage4-file-extraction): Move SampleCaptureResult to its own
-//  dispatch/sample_capture_result.hpp in the post-Stage-4 structural cleanup
-//  PR. Temporarily colocated here to hold this PR's changed-file count down;
-//  extraction only, no behavior change.
-///  The result of one `IAdapterNativeCaptureRouter::CaptureSample` call.
-struct SampleCaptureResult {
-    ///  Which of the three outcomes this call produced.
-    SampleCaptureStatus status = SampleCaptureStatus::kUnsupported;
-    ///  The captured value when `status` is `kAvailable`; empty otherwise.
-    ///  A fixed, preallocated buffer -- never a heap allocation -- since this
-    ///  result is built synchronously on the Skyrim game thread.
-    capture::CapturedPayload payload;
-
-    ///  Structural equality over every field.
-    bool operator==(const SampleCaptureResult&) const = default;
-};
 
 ///  The adapter's native capture boundary: the last step before Skyrim, per
 ///  `ai/context/adapter/architecture.md`. A host-directed sample token or
@@ -70,20 +52,5 @@ class AdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter {
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
     bool RegisterEvent(std::uint32_t eventKey) override;
 };
-
-//  TODO(stage4-file-extraction): Move these definitions back to their own
-//  dispatch/adapter_native_capture_router.cpp in the post-Stage-4 structural
-//  cleanup PR. Temporarily header-only to hold this PR's changed-file count
-//  down; extraction only, no behavior change.
-inline SampleCaptureResult
-AdapterNativeCaptureRouter::CaptureSample(std::uint32_t /*sampleToken*/) {
-    //  No production sample token is registered yet.
-    return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
-}
-
-inline bool AdapterNativeCaptureRouter::RegisterEvent(std::uint32_t /*eventKey*/) {
-    //  No production event key is registered yet.
-    return false;
-}
 
 } //  namespace dovahlink::adapter::dispatch

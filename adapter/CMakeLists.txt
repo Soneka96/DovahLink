@@ -34,6 +34,8 @@ add_library(dovahlink_adapter_core STATIC
     runtime/game_thread_completion.cpp
     runtime/adapter_game_behavior_config_file_reader.cpp
     capture/adapter_capture_handoff_queue.cpp
+    dispatch/adapter_native_capture_router.cpp
+    identity/adapter_play_context_state.cpp
     identity/adapter_instance_id_generator.cpp
     identity/adapter_play_context_generator.cpp
     process/adapter_owner_lifetime_id.cpp
@@ -77,7 +79,10 @@ target_link_libraries(dovahlink_adapter_runtime PUBLIC dovahlink_adapter_core Co
 # SKSE/SKSE.h, which breaks at this project's pinned CommonLibSSE-NG commit.
 # plugin/dovahlink_adapter_plugin.cpp includes SKSE/SKSE.h first and declares
 # the SKSEPluginInfo block itself instead.
-add_library(dovahlink_adapter_plugin SHARED plugin/dovahlink_adapter_plugin.cpp)
+add_library(dovahlink_adapter_plugin SHARED
+    plugin/dovahlink_adapter_plugin.cpp
+    plugin/commonlib_adapter_main_menu_sink.cpp
+)
 target_compile_definitions(dovahlink_adapter_plugin PRIVATE __CMAKE_COMMONLIBSSE_PLUGIN=1)
 target_link_libraries(dovahlink_adapter_plugin PRIVATE dovahlink_adapter_runtime)
 
@@ -165,10 +170,15 @@ add_executable(dovahlink_adapter_tests
     tests/process/adapter_host_supervisor_test.cpp
     tests/process/adapter_shutdown_orchestrator_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
+    tests/capture/live_state_sample_codec_test.cpp
+    tests/capture/live_state_catalog_fixture_test.cpp
     tests/dispatch/adapter_native_capture_router_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
     tests/identity/adapter_play_context_generator_test.cpp
+    tests/identity/adapter_play_context_state_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
+    tests/runtime/commonlib_adapter_native_capture_router_test.cpp
+    tests/runtime/commonlib_adapter_character_capture_test.cpp
     tests/runtime/game_thread_completion_test.cpp
     tests/runtime/adapter_game_behavior_config_file_reader_test.cpp
     tests/runtime/adapter_runtime_guard_test.cpp

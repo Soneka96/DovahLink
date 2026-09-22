@@ -30,6 +30,7 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -76,6 +77,7 @@ using dovahlink::adapter::ipc::AdapterIpcTarget;
 using dovahlink::adapter::ipc::IpcFrameCodec;
 using dovahlink::adapter::ipc::IpcListenEventMessage;
 using dovahlink::adapter::ipc::IpcMessage;
+using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider;
 using dovahlink::adapter::ipc::TrustAdminListScope;
 using dovahlink::adapter::ipc::TrustAdminOperation;
@@ -1544,7 +1546,13 @@ class RealHostLiveStateFixture {
                       },
                   .onMessageReceived =
                       [this](const IpcMessage& message) {
-                          return session_.HandleMessage(message);
+                          auto disposition = session_.HandleMessage(message);
+                          if (std::holds_alternative<
+                                  IpcResynchronizeRequestMessage>(message)) {
+                              initialResynchronizationRequestHandled_.store(
+                                  true, std::memory_order_release);
+                          }
+                          return disposition;
                       },
                   .onDecodeFailure = [this] { session_.HandleDecodeFailure(); },
                   .onDisconnected = [this] { session_.HandleDisconnected(); },
@@ -1596,6 +1604,7 @@ class RealHostLiveStateFixture {
     ///  order destruction would otherwise destroy `session_` while the
     ///  queue's worker thread could still be mid-drain.
     ~RealHostLiveStateFixture() {
+        ReleaseBaselineCaptures();
         captureQueue_.Stop();
         connection_.Stop();
         launcher_.AwaitExitOrTerminate(std::chrono::seconds(5));
@@ -1603,6 +1612,36 @@ class RealHostLiveStateFixture {
 
     RealHostLiveStateFixture(const RealHostLiveStateFixture&) = delete;
     RealHostLiveStateFixture& operator=(const RealHostLiveStateFixture&) = delete;
+
+    ///  Whether the authenticated private-IPC session is still active.
+    ///  @return Whether the session is authenticated.
+    bool IsHostAvailable() const { return session_.IsHostAvailable(); }
+
+    ///  Waits until the real Adapter session has answered the Host's initial resynchronization plan.
+    ///  @return Whether the request handler returned within ten seconds.
+    bool WaitForInitialResynchronizationRequest() const {
+        return WaitUntil(
+            [this] {
+                return initialResynchronizationRequestHandled_.load(
+                    std::memory_order_acquire);
+            },
+            std::chrono::seconds(10));
+    }
+
+    ///  Releases the baseline-capture worker after the public pairing exchange completes.
+    void ReleaseBaselineCaptures() {
+        {
+            std::lock_guard<std::mutex> lock(baselineCaptureDrainMutex_);
+            baselineCaptureDrainReleased_ = true;
+        }
+        baselineCaptureDrainCondition_.notify_all();
+    }
+
+    ///  Number of capture items the real handoff queue rejected.
+    ///  @return The number of rejected work items so far.
+    int CaptureQueueRejectionCount() const {
+        return captureQueueRejectionCount_.load(std::memory_order_relaxed);
+    }
 
     ///  @copydoc DeterministicBaselineCaptureRouter::IsLevelChangedRegistered
     bool IsLevelChangedRegistered() const {
@@ -1628,29 +1667,38 @@ class RealHostLiveStateFixture {
     IpcFrameCodec codec_;
     ImmediateTaskMarshaller taskMarshaller_;
     DeterministicBaselineCaptureRouter captureRouter_;
+    ///  Guards the test-only barrier that holds baseline capture sends until pairing completes.
+    std::mutex baselineCaptureDrainMutex_;
+    ///  Wakes the capture worker when the test reaches the pairing barrier.
+    std::condition_variable baselineCaptureDrainCondition_;
+    ///  Whether the capture worker may send queued baseline items.
+    bool baselineCaptureDrainReleased_ = false;
+    ///  Whether the real Adapter session handled the Host's initial resynchronization request.
+    std::atomic<bool> initialResynchronizationRequestHandled_{false};
+    ///  Counts queue-admission failures so a failed resync has a precise test diagnostic.
+    std::atomic<int> captureQueueRejectionCount_{0};
     //  The real production queue, draining onto SendCaptureResult exactly
     //  the way AdapterRuntime's own composition wires it -- captures `this`
     //  rather than `&session_` directly, since session_ is declared (and
     //  constructed) after this member, but the drain callback cannot run
     //  until this queue's worker thread actually drains an enqueued item,
-    //  which happens well after this constructor finishes. Raises
-    //  `TryEnqueue`'s own lock-contention retry budget well above the
-    //  production default, and lets it yield between attempts: this
-    //  fixture's caller is the IPC read thread via `ImmediateTaskMarshaller`,
-    //  never the real Skyrim game thread the production default's
-    //  never-yield contract protects, so it can afford to actually
-    //  surrender its timeslice absorbing ordinary CI scheduling noise
-    //  against this queue's own worker thread -- see the constructor
-    //  parameters' own doc. Without this, a resync's baseline captures can
-    //  spuriously fail to enqueue under scheduler noise, reporting the whole
-    //  resynchronization declined and causing the Host to close the
-    //  connection (AdapterIpcSession.HandleResynchronizeResult) before this
-    //  test ever reaches its own assertions.
+    //  which happens well after this constructor finishes. The test holds the
+    //  queue worker after its first dequeue until the initial resynchronization
+    //  result and pairing acknowledgement have been sent, so worker capture
+    //  sends cannot contend with those continuity-critical reader-thread sends.
     AdapterCaptureHandoffQueue captureQueue_{
         [this](const AdapterCaptureWorkItem& item) {
+            {
+                std::unique_lock<std::mutex> lock(baselineCaptureDrainMutex_);
+                baselineCaptureDrainCondition_.wait(
+                    lock, [this] { return baselineCaptureDrainReleased_; });
+            }
             session_.SendCaptureResult(item);
         },
-        [](const AdapterCaptureWorkItem&) {}, 64, true};
+        [this](const AdapterCaptureWorkItem&) {
+            captureQueueRejectionCount_.fetch_add(1, std::memory_order_relaxed);
+        },
+        64, true};
     AdapterPlayContextState playContextState_;
     AdapterIpcSession session_;
     AdapterIpcConnection connection_;
@@ -2325,6 +2373,7 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     RecordingPairingNotificationSink pairingSink;
     RealHostLiveStateFixture fixture(std::byte{0xF9}, playContextId,
                                      kPublicListenerPort, pairingSink);
+    REQUIRE(fixture.WaitForInitialResynchronizationRequest());
 
     //  The real Host's own reaction to the real native adapter's replayed
     //  active context: a fresh resynchronization request against the
@@ -2358,14 +2407,17 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
         R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
         sessionId + R"(","correlationId":null,"payload":{},)" +
         R"("playContextId":null,"clientId":")" + clientId + R"("})");
-    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
-                      std::chrono::seconds(10)));
+    INFO("Adapter IPC available after pairing request: " << fixture.IsHostAvailable());
+    std::string pairingStatus = client.ReceiveText();
+    INFO("Pairing response: " << pairingStatus);
+    INFO("Capture queue rejections: " << fixture.CaptureQueueRejectionCount());
+    REQUIRE(pairingStatus.find(R"("messageType":"pairing_status")") != std::string::npos);
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+    fixture.ReleaseBaselineCaptures();
     auto displayed = pairingSink.Displayed();
     REQUIRE(displayed.size() == 1);
     const std::string code = displayed.front().first;
     REQUIRE_FALSE(code.empty());
-    std::string pairingStatus = client.ReceiveText();
-    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
 
     client.SendText(
         R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +
@@ -2457,6 +2509,7 @@ TEST_CASE("a synthetic native LevelChanged event reaches a real public "
     RecordingPairingNotificationSink pairingSink;
     RealHostLiveStateFixture fixture(std::byte{0xAB}, playContextId,
                                      kPublicListenerPort, pairingSink);
+    REQUIRE(fixture.WaitForInitialResynchronizationRequest());
 
     //  The real Host's own reaction to the real native adapter's replayed
     //  active context: a fresh resynchronization request against the
@@ -2487,14 +2540,17 @@ TEST_CASE("a synthetic native LevelChanged event reaches a real public "
         R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
         sessionId + R"(","correlationId":null,"payload":{},)" +
         R"("playContextId":null,"clientId":")" + clientId + R"("})");
-    REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
-                      std::chrono::seconds(10)));
+    INFO("Adapter IPC available after pairing request: " << fixture.IsHostAvailable());
+    std::string pairingStatus = client.ReceiveText();
+    INFO("Pairing response: " << pairingStatus);
+    INFO("Capture queue rejections: " << fixture.CaptureQueueRejectionCount());
+    REQUIRE(pairingStatus.find(R"("messageType":"pairing_status")") != std::string::npos);
+    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
+    fixture.ReleaseBaselineCaptures();
     auto displayed = pairingSink.Displayed();
     REQUIRE(displayed.size() == 1);
     const std::string code = displayed.front().first;
     REQUIRE_FALSE(code.empty());
-    std::string pairingStatus = client.ReceiveText();
-    REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
 
     client.SendText(
         R"({"messageType":"pairing_confirm","messageId":"m3","sessionId":")" +

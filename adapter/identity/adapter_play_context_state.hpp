@@ -61,25 +61,4 @@ class AdapterPlayContextState final : public IAdapterPlayContextState {
     std::optional<std::array<std::byte, 16>> playContextId_;
 };
 
-//  TODO(stage4-file-extraction): Move these definitions back to their own
-//  identity/adapter_play_context_state.cpp in the post-Stage-4 structural
-//  cleanup PR. Temporarily header-only to hold this PR's changed-file count
-//  down; extraction only, no behavior change.
-inline std::optional<std::array<std::byte, 16>>
-AdapterPlayContextState::CurrentPlayContext() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return playContextId_;
-}
-
-inline void AdapterPlayContextState::SetCurrentPlayContext(
-    std::array<std::byte, 16> playContextId) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    playContextId_ = playContextId;
-}
-
-inline void AdapterPlayContextState::ClearCurrentPlayContext() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    playContextId_.reset();
-}
-
 } //  namespace dovahlink::adapter::identity
