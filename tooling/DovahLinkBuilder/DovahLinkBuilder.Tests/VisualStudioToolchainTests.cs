@@ -133,6 +133,76 @@ public sealed class VisualStudioToolchainTests
         Assert.Equal([@"C:\VS2026\Community", @"D:\Custom VS2022"], roots);
     }
 
+    /// <summary>Returns no installation roots when vswhere's entire output is blank or whitespace-only.</summary>
+    [Fact]
+    public void ParsesBlankOrWhitespaceOnlyVsWhereOutputAsNoInstallationRoots()
+    {
+        IReadOnlyList<string> roots = VisualStudioToolchainLocator.ParseVsWhereInstallationRoots(
+            $"   {Environment.NewLine}  \t  {Environment.NewLine}{Environment.NewLine}   ");
+
+        Assert.Empty(roots);
+    }
+
+    /// <summary>Omits a blank or whitespace-only configured <c>VSINSTALLDIR</c> from the search order instead of searching it.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void OmitsABlankOrWhitespaceConfiguredInstallationFromTheSearchOrder(string visualStudioInstall)
+    {
+        const string programFiles = @"C:\Program Files";
+        const string programFilesX86 = @"C:\Program Files (x86)";
+
+        IEnumerable<string> roots = VisualStudioToolchainLocator.GetDefaultInstallationRoots(
+            programFiles,
+            programFilesX86,
+            visualStudioInstall);
+
+        Assert.DoesNotContain(visualStudioInstall, roots);
+        Assert.Equal(Path.Combine(programFiles, "Microsoft Visual Studio", "18", "Community"), roots.First());
+    }
+
+    /// <summary>
+    /// Selects the first of several complete installations discovered by vswhere, proving that when
+    /// Visual Studio 2022 and Visual Studio 2026 are both installed, the newest-first vswhere
+    /// ordering -- not installation order or path -- decides which one is used.
+    /// </summary>
+    [Fact]
+    public void SelectsTheFirstCompleteInstallationWhenMultipleAreDiscovered()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain newer = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path, "VS2026");
+        VisualStudioToolchain older = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path, "VS2022");
+
+        VisualStudioToolchain actual = VisualStudioToolchainLocator.Find(
+            [
+                Path.Combine(temporaryDirectory.Path, "VS2026"),
+                Path.Combine(temporaryDirectory.Path, "VS2022"),
+            ]);
+
+        Assert.Equal(newer, actual);
+        Assert.NotEqual(older, actual);
+    }
+
+    /// <summary>
+    /// Finds an installation whose root contains an ampersand, proving file-existence discovery does
+    /// not depend on characters that are significant to a shell. A literal, non-default drive letter
+    /// (for example <c>D:\...</c>) is covered separately by
+    /// <see cref="ReturnsConfiguredAndStandardInstallationRootsInSearchOrder"/>, since the temporary
+    /// directories this test suite creates are confined to the test runner's own drive.
+    /// </summary>
+    [Fact]
+    public void FindsAnInstallationWithAnAmpersandInItsPath()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string installationName = Path.Combine("Dev Tools", "Visual Studio & SDKs", "VS2026");
+        VisualStudioToolchain expected = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path, installationName);
+
+        VisualStudioToolchain actual = VisualStudioToolchainLocator.Find(
+            [Path.Combine(temporaryDirectory.Path, installationName)]);
+
+        Assert.Equal(expected, actual);
+    }
+
     /// <summary>Rejects installations missing required toolchain files.</summary>
     [Fact]
     public void RejectsInstallationsWithoutTheRequiredToolchainFiles()
@@ -169,6 +239,25 @@ public sealed class VisualStudioToolchainTests
         VisualStudioCompilerInstallation? actual = VisualStudioToolchainLocator.FindCompilerOnly([temporaryDirectory.Path]);
 
         Assert.Null(actual);
+    }
+
+    /// <summary>Selects the first of several candidate roots that contains the environment script, skipping an earlier root without one.</summary>
+    [Fact]
+    public void FindCompilerOnlySelectsTheFirstRootContainingTheEnvironmentScript()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string emptyRoot = Path.Combine(temporaryDirectory.Path, "Empty");
+        string secondRoot = Path.Combine(temporaryDirectory.Path, "Second");
+        string secondVcvarsallPath = Path.Combine(secondRoot, "VC", "Auxiliary", "Build", "vcvarsall.bat");
+        Directory.CreateDirectory(emptyRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(secondVcvarsallPath)!);
+        File.WriteAllText(secondVcvarsallPath, "@echo off");
+
+        VisualStudioCompilerInstallation? actual = VisualStudioToolchainLocator.FindCompilerOnly([emptyRoot, secondRoot]);
+
+        Assert.NotNull(actual);
+        Assert.Equal(secondRoot, actual.Root);
+        Assert.Equal(secondVcvarsallPath, actual.VcvarsallPath);
     }
 
     /// <summary>Skips a Visual Studio installation without bundled Ninja and finds the next complete installation.</summary>
