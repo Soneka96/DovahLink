@@ -4,7 +4,7 @@
 
 **Symptom:** When you click away from Skyrim to use DovahLink on another monitor, phone, or tablet, Skyrim pauses. When you click back into Skyrim, the game resumes.
 
-**Root cause:** Skyrim Special Edition 1.6.1170 pauses the game when it loses focus.
+**Root cause:** The supported Skyrim Special Edition 1.7.104 runtime pauses the game when it loses focus.
 
 **Solution:** The native Adapter handles this natively as of version `0.2.0` -- no separate mod
 needed. It forces Skyrim's `bAlwaysActive:General` setting on at startup by default, so the game
@@ -30,7 +30,10 @@ bAchievementCompat=0
 Both keys default to enabled (`1`); a missing file, missing key, or malformed value falls back to
 that default per-key rather than failing plugin load.
 
-**Affected versions:** Skyrim Special Edition 1.6.1170 with SKSE64 2.2.6
+**Affected versions:** Skyrim Special Edition 1.7.104 with SKSE64 2.3.1
+
+The current Adapter accepts only this exact Skyrim/SKSE runtime pair; Skyrim Special Edition
+1.6.1170 with SKSE64 2.2.6 is historical context, not a supported target for the current Adapter.
 
 ## The Adapter is disabled with a generic SKSE load error
 

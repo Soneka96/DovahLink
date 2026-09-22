@@ -19,12 +19,11 @@ namespace {
 //  CommonLibSSE fork exposes Relocation::write_fill/write member functions
 //  instead.
 //
-//  Known limitation: these IDs and the REL::Module::IsAE() byte-size branch
-//  below were verified against the runtime this Adapter targeted before its
-//  1.7.104 bump (see ai/context/skse/testing.md's "Manual verification" for
-//  the pending recheck); the upstream reference project itself needed a
-//  runtime-specific fix around the same 1.7.104 update, so this offset is not
-//  assumed to still be correct until re-verified in a real 1.7.104 session.
+//  The accepted 1.7.104 startup verification resolved this relocation,
+//  installed the patch, and continued through Host IPC and capture activity;
+//  see ai/context/skse/testing.md's "Manual verification" record. That
+//  observation does not replace a direct probe of the patched function's
+//  return value.
 constexpr std::uint64_t kAchievementFunctionSeId = 13647;
 constexpr std::uint64_t kAchievementFunctionAeId = 441528;
 
