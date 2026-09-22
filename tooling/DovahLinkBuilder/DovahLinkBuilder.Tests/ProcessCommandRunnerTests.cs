@@ -206,34 +206,62 @@ public sealed class ProcessCommandRunnerTests
             () => new SignalingProcessTreeJob(new ProcessTreeJob(), jobAssigned));
         using var cancellation = new CancellationTokenSource();
         Task<int> runTask = runner.RunAsync(command, null, null, cancellation.Token);
-        await jobAssigned.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        File.WriteAllText(goPath, string.Empty);
-        DateTime startDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!File.Exists(startedPath) && DateTime.UtcNow < startDeadline)
+        Exception? bodyException = null;
+        try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(10));
+            await jobAssigned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            File.WriteAllText(goPath, string.Empty);
+            DateTime startDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!File.Exists(startedPath) && DateTime.UtcNow < startDeadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10));
+            }
+            Assert.True(File.Exists(startedPath));
+            int descendantProcessId = await ReadDescendantProcessIdAsync(pidPath);
+            var elapsed = Stopwatch.StartNew();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await runTask);
+
+            Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
+            await AssertDescendantProcessExitedAsync(descendantProcessId);
+
+            // Captured and logged before asserting, rather than passed directly to Assert.False: if this
+            // is false (the real proof the process tree was actually killed) but the temporary directory
+            // then fails to delete on a loaded CI runner, .NET discards this method's own exception in
+            // favor of the one TemporaryDirectory.Dispose() throws during the using statement's unwind --
+            // silently replacing "the assertion failed" with an unrelated-looking IOException. Logging the
+            // captured value first means a future failure's CI output still shows which one actually
+            // happened, even when the exception itself gets masked.
+            bool sentinelExists = File.Exists(sentinelPath);
+            output.WriteLine($"Sentinel file exists after cancellation: {sentinelExists}");
+            Assert.False(sentinelExists);
         }
-        Assert.True(File.Exists(startedPath));
-        int descendantProcessId = await ReadDescendantProcessIdAsync(pidPath);
-        var elapsed = Stopwatch.StartNew();
-        cancellation.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await runTask);
-
-        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
-        await AssertDescendantProcessExitedAsync(descendantProcessId);
-
-        // Captured and logged before asserting, rather than passed directly to Assert.False: if this
-        // is false (the real proof the process tree was actually killed) but the temporary directory
-        // then fails to delete on a loaded CI runner, .NET discards this method's own exception in
-        // favor of the one TemporaryDirectory.Dispose() throws during the using statement's unwind --
-        // silently replacing "the assertion failed" with an unrelated-looking IOException. Logging the
-        // captured value first means a future failure's CI output still shows which one actually
-        // happened, even when the exception itself gets masked.
-        bool sentinelExists = File.Exists(sentinelPath);
-        output.WriteLine($"Sentinel file exists after cancellation: {sentinelExists}");
-        Assert.False(sentinelExists);
+        catch (Exception exception)
+        {
+            bodyException = exception;
+            throw;
+        }
+        finally
+        {
+            cancellation.Cancel();
+            try
+            {
+                await runTask;
+            }
+            catch (OperationCanceledException exception)
+                when (runTask.IsCanceled
+                    && cancellation.IsCancellationRequested
+                    && (exception.CancellationToken == cancellation.Token
+                        || exception.CancellationToken == default))
+            {
+            }
+            catch (Exception cleanupException) when (bodyException is not null)
+            {
+                throw new AggregateException(bodyException, cleanupException);
+            }
+        }
     }
 
     /// <summary>Preserves cancellation, without hanging, when tree termination reports a partial failure.</summary>
