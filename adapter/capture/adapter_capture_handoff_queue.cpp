@@ -8,8 +8,12 @@ namespace dovahlink::adapter::capture {
 
 AdapterCaptureHandoffQueue::AdapterCaptureHandoffQueue(
     std::function<void(const AdapterCaptureWorkItem&)> onDrained,
-    std::function<void(const AdapterCaptureWorkItem&)> onRejected)
-    : onDrained_(std::move(onDrained)), onRejected_(std::move(onRejected)) {
+    std::function<void(const AdapterCaptureWorkItem&)> onRejected,
+    int enqueueLockAttempts, bool yieldBetweenEnqueueLockAttempts)
+    : onDrained_(std::move(onDrained)),
+      onRejected_(std::move(onRejected)),
+      enqueueLockAttempts_(enqueueLockAttempts),
+      yieldBetweenEnqueueLockAttempts_(yieldBetweenEnqueueLockAttempts) {
     worker_ = std::thread([this] { WorkerLoop(); });
     workerThreadId_ = worker_.get_id();
 }
@@ -18,23 +22,23 @@ AdapterCaptureHandoffQueue::~AdapterCaptureHandoffQueue() { Stop(); }
 
 bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
     bool accepted = false;
-    //  A handful of immediate, non-blocking attempts: this call never
-    //  voluntarily yields, sleeps, or waits. The worker thread's own critical
-    //  section is intentionally extremely short -- a few instructions to
-    //  remove one item, no I/O, no allocation -- so a handful of immediate
-    //  retries can absorb ordinary, brief concurrent contention with it (for
-    //  example three baseline samples enqueued back to back during
-    //  resynchronization) without ever surrendering this call's own
-    //  scheduler timeslice the way `std::this_thread::yield()` would, for a
-    //  scheduler-dependent duration this Skyrim game-thread callback must
-    //  not risk. Admission stays deliberately bounded and non-blocking, so a
-    //  contention-only rejection remains possible if the worker is preempted
-    //  mid-critical-section; that tradeoff is preferred over letting this
-    //  call wait for the scheduler. A genuinely full or stopped queue still
-    //  rejects immediately, on the very first attempt that acquires the
-    //  mutex.
-    for (int attempt = 0; attempt < kCaptureQueueEnqueueLockAttempts;
-         ++attempt) {
+    //  A handful of non-blocking attempts, never sleeping or waiting. By
+    //  default (production: `yieldBetweenEnqueueLockAttempts_` false) this
+    //  call also never voluntarily yields between them. The worker thread's
+    //  own critical section is intentionally extremely short -- a few
+    //  instructions to remove one item, no I/O, no allocation -- so a
+    //  handful of immediate retries can absorb ordinary, brief concurrent
+    //  contention with it (for example three baseline samples enqueued back
+    //  to back during resynchronization) without ever surrendering this
+    //  call's own scheduler timeslice the way `std::this_thread::yield()`
+    //  would, for a scheduler-dependent duration this Skyrim game-thread
+    //  callback must not risk. Admission stays deliberately bounded and
+    //  non-blocking, so a contention-only rejection remains possible if the
+    //  worker is preempted mid-critical-section; that tradeoff is preferred
+    //  over letting this call wait for the scheduler. A genuinely full or
+    //  stopped queue still rejects immediately, on the very first attempt
+    //  that acquires the mutex.
+    for (int attempt = 0; attempt < enqueueLockAttempts_; ++attempt) {
         std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
         if (lock.owns_lock()) {
             if (!stopping_ && count_ < buffer_.size()) {
@@ -43,6 +47,9 @@ bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
                 accepted = true;
             }
             break;
+        }
+        if (yieldBetweenEnqueueLockAttempts_) {
+            std::this_thread::yield();
         }
     }
 

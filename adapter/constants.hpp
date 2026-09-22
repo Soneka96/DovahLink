@@ -37,7 +37,11 @@ inline constexpr std::size_t kMaxCapturedPayloadBytes = 12;
 ///  preempted mid-critical-section; that tradeoff is preferred over risking
 ///  scheduler-dependent latency on this Skyrim producer path. A genuinely
 ///  full or stopped queue still rejects immediately, on the very first
-///  attempt that acquires the mutex.
+///  attempt that acquires the mutex. This is the production default;
+///  `AdapterCaptureHandoffQueue`'s constructor accepts an override for a
+///  caller that is provably never the real Skyrim game thread -- see its
+///  own parameter doc for why a real-process CTest fixture is one such
+///  caller.
 inline constexpr int kCaptureQueueEnqueueLockAttempts = 4;
 
 } //  namespace dovahlink::adapter::capture
