@@ -48,6 +48,8 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 - The Adapter's CommonLibSSE-NG dependency now tracks `alandtse/CommonLibSSE-NG` (GPL-3.0-or-later)
   instead of the `CharmedBaryon/CommonLibSSE` fork, to pick up its 1.7.x offset and Address Library
   V5 fixes.
+- The Adapter now targets Steam Skyrim Special Edition `1.7.104` with SKSE64 `2.3.1`, replacing the
+  previous exact-match target of `1.6.1170` / SKSE `2.2.6`.
 
 ### Fixed
 

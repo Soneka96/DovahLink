@@ -72,7 +72,7 @@ against this project's pinned Skyrim runtime. Confirm this before relying on the
 
 ## Supported runtime
 
-Same as the rest of DovahLink: Steam Skyrim `1.6.1170` with SKSE `2.2.6` (see
+Same as the rest of DovahLink: Steam Skyrim `1.7.104` with SKSE `2.3.1` (see
 [README.md](../README.md)'s "Current development baseline"). This console-admin adapter introduces
 no additional runtime requirement of its own on the DovahLink side; ConsoleUtil Extended's own
 supported-runtime range is whatever that mod separately documents.

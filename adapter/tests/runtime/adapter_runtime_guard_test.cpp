@@ -14,10 +14,10 @@ TEST_CASE("the current test host satisfies the neutral Windows runtime guard",
   CHECK(IsCurrentWindowsVersionSupported());
 }
 
-TEST_CASE("IsSupportedSkyrimVersion accepts exactly 1.6.1170",
+TEST_CASE("IsSupportedSkyrimVersion accepts exactly 1.7.104",
           "[runtime][runtime_guard]") {
   CHECK(IsSupportedSkyrimVersion(kSupportedSkyrimVersion));
-  CHECK(IsSupportedSkyrimVersion(RuntimeVersion{1, 6, 1170, 0}));
+  CHECK(IsSupportedSkyrimVersion(RuntimeVersion{1, 7, 104, 0}));
 }
 
 TEST_CASE("IsSupportedSkyrimVersion rejects the unsupported "
@@ -26,38 +26,48 @@ TEST_CASE("IsSupportedSkyrimVersion rejects the unsupported "
   CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 5, 97, 0}));
 }
 
+TEST_CASE("IsSupportedSkyrimVersion rejects the previously supported 1.6.1170",
+          "[runtime][runtime_guard]") {
+  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 6, 1170, 0}));
+}
+
 TEST_CASE("IsSupportedSkyrimVersion rejects a build number one below the "
           "supported version",
           "[runtime][runtime_guard]") {
-  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 6, 1169, 0}));
+  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 7, 103, 0}));
 }
 
 TEST_CASE("IsSupportedSkyrimVersion rejects a build number one above the "
           "supported version",
           "[runtime][runtime_guard]") {
-  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 6, 1171, 0}));
+  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 7, 105, 0}));
 }
 
 TEST_CASE("IsSupportedSkyrimVersion rejects a differing major version",
           "[runtime][runtime_guard]") {
-  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{2, 6, 1170, 0}));
+  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{2, 7, 104, 0}));
 }
 
 TEST_CASE("IsSupportedSkyrimVersion rejects a differing minor version",
           "[runtime][runtime_guard]") {
-  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 5, 1170, 0}));
+  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 6, 104, 0}));
 }
 
 TEST_CASE("IsSupportedSkyrimVersion rejects a nonzero revision even with "
           "matching major/minor/build",
           "[runtime][runtime_guard]") {
-  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 6, 1170, 1}));
+  CHECK_FALSE(IsSupportedSkyrimVersion(RuntimeVersion{1, 7, 104, 1}));
 }
 
-TEST_CASE("IsSupportedSkseVersion accepts exactly 2.2.6",
+TEST_CASE("IsSupportedSkseVersion accepts exactly 2.3.1",
           "[runtime][runtime_guard]") {
   CHECK(IsSupportedSkseVersion(kSupportedSkseVersion));
-  CHECK(IsSupportedSkseVersion(RuntimeVersion{2, 2, 6, 0}));
+  CHECK(IsSupportedSkseVersion(RuntimeVersion{2, 3, 1, 0}));
+}
+
+TEST_CASE("IsSupportedSkseVersion rejects the previously supported 2.2.6",
+          "[runtime][runtime_guard]") {
+  CHECK_FALSE(IsSupportedSkseVersion(RuntimeVersion{2, 2, 6, 0}));
 }
 
 TEST_CASE("IsSupportedSkseVersion rejects an older SKSE version",
@@ -67,13 +77,13 @@ TEST_CASE("IsSupportedSkseVersion rejects an older SKSE version",
 
 TEST_CASE("IsSupportedSkseVersion rejects a newer SKSE version",
           "[runtime][runtime_guard]") {
-  CHECK_FALSE(IsSupportedSkseVersion(RuntimeVersion{2, 3, 0, 0}));
+  CHECK_FALSE(IsSupportedSkseVersion(RuntimeVersion{2, 3, 2, 0}));
 }
 
 TEST_CASE("IsSupportedSkseVersion rejects a nonzero revision even with "
           "matching major/minor/build",
           "[runtime][runtime_guard]") {
-  CHECK_FALSE(IsSupportedSkseVersion(RuntimeVersion{2, 2, 6, 1}));
+  CHECK_FALSE(IsSupportedSkseVersion(RuntimeVersion{2, 3, 1, 1}));
 }
 
 TEST_CASE("IsSupportedSkyrimVersion and IsSupportedSkseVersion are "
