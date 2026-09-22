@@ -10,12 +10,12 @@ bool CommonLibAdapterPairingNotificationSink::Display(const std::string &code,
       mode == PairingDisplayMode::kWrongCodeRedisplay
           ? "DovahLink: wrong code. Your pairing code is: " + code
           : "DovahLink pairing code: " + code;
-  RE::DebugNotification(message.c_str());
+  RE::SendHUDMessage::ShowHUDMessage(message.c_str());
   return true;
 }
 
 void CommonLibAdapterPairingNotificationSink::NotifyAttemptsExhausted() {
-  RE::DebugNotification(
+  RE::SendHUDMessage::ShowHUDMessage(
       "DovahLink: too many wrong attempts. Request pairing again.");
 }
 

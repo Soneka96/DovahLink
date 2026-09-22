@@ -7,8 +7,8 @@
 namespace dovahlink::adapter::ipc {
 
 ///  Displays a pairing code through Skyrim's built-in on-screen notification
-///  (`RE::DebugNotification`) -- the same base-engine channel console
-///  commands and vanilla messages use, with no SkyUI or other UI-mod
+///  (`RE::SendHUDMessage::ShowHUDMessage`) -- the same base-engine channel
+///  console commands and vanilla messages use, with no SkyUI or other UI-mod
 ///  dependency. Carries no pairing state or timing logic of its own; the
 ///  host alone owns when a code is generated, how long it stays valid, and
 ///  which display intent applies, per `IAdapterPairingNotificationSink`.

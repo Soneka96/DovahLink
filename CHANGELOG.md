@@ -45,6 +45,9 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   object-graph assembly in `Program.cs`.
 - The Adapter executes the Host's bounded resynchronization plan for event registrations and baseline samples.
 - Live capture routing now dispatches through explicit domain handlers, keeping generic Host capture handling free of Character-specific payload logic.
+- The Adapter's CommonLibSSE-NG dependency now tracks `alandtse/CommonLibSSE-NG` (GPL-3.0-or-later)
+  instead of the `CharmedBaryon/CommonLibSSE` fork, to pick up its 1.7.x offset and Address Library
+  V5 fixes.
 
 ### Fixed
 

@@ -2,6 +2,16 @@
 //  file contains the runtime-specific composition layer; the underlying
 //  components remain testable without a running Skyrim process.
 
+//  MUST precede every include below: RE/Skyrim.h now transitively pulls in
+//  the real <Windows.h> (via CommonLibSSE-NG's DirectXTK-backed rendering
+//  headers), which without WIN32_LEAN_AND_MEAN auto-includes the legacy
+//  <winsock.h>. That collides with plugin/adapter_runtime.hpp's later,
+//  transitive <winsock2.h> (through ipc/winsock_adapter_ipc_socket.hpp),
+//  since the two are mutually exclusive in one translation unit.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #include "SKSE/SKSE.h"
 
 #include "RE/Skyrim.h"
