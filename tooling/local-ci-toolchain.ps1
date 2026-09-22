@@ -6,13 +6,134 @@ $ErrorActionPreference = "Stop"
 
 <#
 .SYNOPSIS
-Finds a complete Visual Studio 2022 C++ toolchain through Visual Studio Installer.
+Gets executable paths that PowerShell resolves from the current process PATH.
+
+.PARAMETER Name
+The executable name to resolve, including its extension where applicable.
+
+.OUTPUTS
+Executable paths in PATH search order.
+#>
+function Get-ExecutablePathsFromPath {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    @(Get-Command -Name $Name -CommandType Application -All -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.Source })
+}
+
+<#
+.SYNOPSIS
+Returns the first existing executable from an ordered candidate list.
+
+.PARAMETER ToolName
+The human-readable tool name used in errors.
+
+.PARAMETER CandidatePaths
+The configured, standard, and PATH-derived executable paths to check.
+
+.PARAMETER OverrideVariable
+The environment variable that can specify a non-standard executable path.
+
+.OUTPUTS
+The normalized path to the first existing executable.
+#>
+function Resolve-ExistingExecutablePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolName,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string[]]$CandidatePaths,
+        [Parameter(Mandatory = $true)][string]$OverrideVariable
+    )
+
+    foreach ($candidatePath in $CandidatePaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) {
+        $normalizedCandidatePath = $candidatePath.Trim().Trim('"')
+        if (Test-Path -LiteralPath $normalizedCandidatePath -PathType Leaf) {
+            return (Get-Item -LiteralPath $normalizedCandidatePath).FullName
+        }
+    }
+
+    throw "$ToolName was not found in the configured path, standard install locations, or PATH. Set $OverrideVariable to the full executable path or add its directory to PATH."
+}
+
+<#
+.SYNOPSIS
+Finds the first executable that reports the repository-pinned version.
+
+.PARAMETER ToolName
+The human-readable tool name used in errors.
+
+.PARAMETER CandidatePaths
+The configured, standard, and PATH-derived executable paths to check.
+
+.PARAMETER ExpectedVersion
+The exact first line expected from the executable's --version command.
+
+.PARAMETER OverrideVariable
+The environment variable that can specify a non-standard executable path.
+
+.PARAMETER VersionProbe
+An optional test seam that returns an object with ExitCode and Version properties.
+
+.OUTPUTS
+The normalized path to the first executable with the expected version.
+#>
+function Resolve-PinnedExecutablePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolName,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string[]]$CandidatePaths,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [Parameter(Mandatory = $true)][string]$OverrideVariable,
+        [scriptblock]$VersionProbe
+    )
+
+    $checkedVersions = [System.Collections.Generic.List[string]]::new()
+    foreach ($candidatePath in $CandidatePaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) {
+        $normalizedCandidatePath = $candidatePath.Trim().Trim('"')
+        if (-not (Test-Path -LiteralPath $normalizedCandidatePath -PathType Leaf)) {
+            continue
+        }
+
+        try {
+            if ($null -ne $VersionProbe) {
+                $probeResult = & $VersionProbe $normalizedCandidatePath
+                $exitCode = $probeResult.ExitCode
+                $version = $probeResult.Version
+            }
+            else {
+                $versionOutput = @(& $normalizedCandidatePath --version 2>&1)
+                $exitCode = $LASTEXITCODE
+                $version = ($versionOutput | Select-Object -First 1).ToString().Trim()
+            }
+        }
+        catch {
+            $checkedVersions.Add("${normalizedCandidatePath}: could not run ($($_.Exception.Message))")
+            continue
+        }
+
+        if ($exitCode -eq 0 -and $version -eq $ExpectedVersion) {
+            return (Get-Item -LiteralPath $normalizedCandidatePath).FullName
+        }
+
+        $checkedVersions.Add("${normalizedCandidatePath}: '$version'")
+    }
+
+    $checkedSummary = if ($checkedVersions.Count -gt 0) {
+        " Checked candidates: $($checkedVersions -join '; ')."
+    }
+    else {
+        " No candidate executable files were found."
+    }
+    throw "Pinned $ToolName '$ExpectedVersion' was not found in the configured path, standard install locations, or PATH.$checkedSummary Set $OverrideVariable to the full executable path or add its directory to PATH."
+}
+
+<#
+.SYNOPSIS
+Finds a Visual Studio 2022 or Visual Studio 2026 C++ toolchain through Visual Studio Installer.
 
 .PARAMETER LocatorPath
 The path to Visual Studio Installer's vswhere executable.
 
 .OUTPUTS
-A toolchain object containing the validated Visual Studio, vcvars, vcpkg, CMake, and Ninja paths.
+A toolchain object containing the validated Visual Studio, vcvars, and vcpkg paths.
 #>
 function Find-VisualStudioToolchain {
     param([string]$LocatorPath)
@@ -24,37 +145,27 @@ function Find-VisualStudioToolchain {
     $installations = @(& $LocatorPath `
             -latest `
             -products * `
-            -version '[17.0,18.0)' `
+            -version '[17.0,19.0)' `
             -requires `
             Microsoft.VisualStudio.Workload.NativeDesktop `
             Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-            Microsoft.VisualStudio.Component.VC.CMake.Project `
             -property installationPath)
     if ($LASTEXITCODE -ne 0) {
-        throw "vswhere failed with exit code $LASTEXITCODE while locating Visual Studio 2022. Repair or update Visual Studio Installer."
+        throw "vswhere failed with exit code $LASTEXITCODE while locating a supported Visual Studio installation. Repair or update Visual Studio Installer."
     }
 
     $installationPath = $installations | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
     if ($null -eq $installationPath) {
-        throw "No complete Visual Studio 2022 installation has the Desktop development with C++ workload, MSVC x64/x86 tools, and CMake tools. Add them in Visual Studio Installer."
+        throw "No complete Visual Studio 2022 or Visual Studio 2026 installation has the Desktop development with C++ workload and MSVC x64/x86 tools. Add them in Visual Studio Installer."
     }
     $installationPath = $installationPath.Trim()
 
     $requiredPaths = [ordered]@{
-        VcvarsallPath  = Join-Path $installationPath "VC\Auxiliary\Build\vcvarsall.bat"
-        VcpkgRoot      = Join-Path $installationPath "VC\vcpkg"
-        CMakeDirectory = Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
-        NinjaDirectory = Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
+        VcvarsallPath = Join-Path $installationPath "VC\Auxiliary\Build\vcvarsall.bat"
+        VcpkgRoot     = Join-Path $installationPath "VC\vcpkg"
     }
-    $requiredFiles = @(
-        $requiredPaths.VcvarsallPath,
-        (Join-Path $requiredPaths.CMakeDirectory "cmake.exe"),
-        (Join-Path $requiredPaths.NinjaDirectory "ninja.exe")
-    )
-    foreach ($requiredFile in $requiredFiles) {
-        if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-            throw "Visual Studio discovery returned '$installationPath', but required path '$requiredFile' is missing. Repair the Desktop development with C++ workload in Visual Studio Installer."
-        }
+    if (-not (Test-Path -LiteralPath $requiredPaths.VcvarsallPath -PathType Leaf)) {
+        throw "Visual Studio discovery returned '$installationPath', but required path '$($requiredPaths.VcvarsallPath)' is missing. Repair the Desktop development with C++ workload in Visual Studio Installer."
     }
     if (-not (Test-Path -LiteralPath $requiredPaths.VcpkgRoot -PathType Container)) {
         throw "Visual Studio discovery returned '$installationPath', but required path '$($requiredPaths.VcpkgRoot)' is missing. Repair the Desktop development with C++ workload in Visual Studio Installer."
@@ -64,8 +175,6 @@ function Find-VisualStudioToolchain {
         InstallationPath = $installationPath
         VcvarsallPath    = $requiredPaths.VcvarsallPath
         VcpkgRoot        = $requiredPaths.VcpkgRoot
-        CMakeDirectory   = $requiredPaths.CMakeDirectory
-        NinjaDirectory   = $requiredPaths.NinjaDirectory
     }
 }
 
@@ -103,7 +212,6 @@ function Import-VisualStudioEnvironment {
         Remove-Item -Path $tempEnvFile -Force -ErrorAction SilentlyContinue
     }
     $env:VCPKG_ROOT = $Toolchain.VcpkgRoot
-    $env:PATH = "$($Toolchain.CMakeDirectory);$($Toolchain.NinjaDirectory);$env:PATH"
 }
 
 <#

@@ -19,6 +19,14 @@ namespace DovahLink.Host.Tests.Client.Integration;
 /// lower-level integration tests; this class proves only that the two boundaries are wired together
 /// correctly in production composition.
 /// </summary>
+/// <remarks>
+/// Shares <see cref="RealSocketAndProcessTestCollection"/> with the other real-socket/real-process
+/// test classes: <see cref="PairingRequest_AdapterAcceptsDisplay_ReportsAvailableWithoutLeakingCodeOnTheWire"/>
+/// awaits a real, production-bounded <c>AwaitPairingDisplayAckAsync</c> deadline over a real adapter
+/// IPC socket, so it is exactly the kind of real-wall-clock assertion the collection exists to
+/// isolate from concurrently-running real-socket/real-process work under a loaded scheduler.
+/// </remarks>
+[Collection(RealSocketAndProcessTestCollection.Name)]
 public class AdapterNotificationIntegrationTests
 {
     /// <summary>A raw-hex credential valid by shape, standing in for an already-trusted device's stored credential.</summary>

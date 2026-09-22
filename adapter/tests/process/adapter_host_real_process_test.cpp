@@ -1633,12 +1633,24 @@ class RealHostLiveStateFixture {
     //  rather than `&session_` directly, since session_ is declared (and
     //  constructed) after this member, but the drain callback cannot run
     //  until this queue's worker thread actually drains an enqueued item,
-    //  which happens well after this constructor finishes.
+    //  which happens well after this constructor finishes. Raises
+    //  `TryEnqueue`'s own lock-contention retry budget well above the
+    //  production default, and lets it yield between attempts: this
+    //  fixture's caller is the IPC read thread via `ImmediateTaskMarshaller`,
+    //  never the real Skyrim game thread the production default's
+    //  never-yield contract protects, so it can afford to actually
+    //  surrender its timeslice absorbing ordinary CI scheduling noise
+    //  against this queue's own worker thread -- see the constructor
+    //  parameters' own doc. Without this, a resync's baseline captures can
+    //  spuriously fail to enqueue under scheduler noise, reporting the whole
+    //  resynchronization declined and causing the Host to close the
+    //  connection (AdapterIpcSession.HandleResynchronizeResult) before this
+    //  test ever reaches its own assertions.
     AdapterCaptureHandoffQueue captureQueue_{
         [this](const AdapterCaptureWorkItem& item) {
             session_.SendCaptureResult(item);
         },
-        [](const AdapterCaptureWorkItem&) {}};
+        [](const AdapterCaptureWorkItem&) {}, 64, true};
     AdapterPlayContextState playContextState_;
     AdapterIpcSession session_;
     AdapterIpcConnection connection_;

@@ -9,25 +9,30 @@ public sealed class BuildCommandTests
     [Fact]
     public void BuildsStructuredReleaseCommands()
     {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
         var environment = new Dictionary<string, string> { ["VCPKG_ROOT"] = @"C:\VS & tools\vcpkg" };
 
         IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(
             @"C:\repository & workspace\adapter",
             environment,
-            "windows-x64-release");
+            "windows-x64-release",
+            toolchain);
 
         Assert.Collection(
             commands,
             configure =>
             {
-                Assert.Equal("cmake", configure.ExecutablePath);
-                Assert.Equal(["--fresh", "--preset", "windows-x64-release"], configure.Arguments);
+                Assert.Equal(toolchain.CMakePath, configure.ExecutablePath);
+                Assert.Equal(
+                    ["--fresh", "--preset", "windows-x64-release", $"-DCMAKE_MAKE_PROGRAM={toolchain.NinjaPath}"],
+                    configure.Arguments);
                 Assert.Equal(Path.GetFullPath(@"C:\repository & workspace\adapter"), configure.WorkingDirectory);
                 Assert.Same(environment, configure.EnvironmentVariables);
             },
             build =>
             {
-                Assert.Equal("cmake", build.ExecutablePath);
+                Assert.Equal(toolchain.CMakePath, build.ExecutablePath);
                 Assert.Equal(
                     ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_adapter_plugin"],
                     build.Arguments);
@@ -40,16 +45,25 @@ public sealed class BuildCommandTests
     [Fact]
     public void BuildsStructuredCommandsForTheSuppliedPreset()
     {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
         var environment = new Dictionary<string, string>();
 
         IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(
             @"C:\repository\adapter",
             environment,
-            "windows-x64-debug");
+            "windows-x64-debug",
+            toolchain);
 
         Assert.Collection(
             commands,
-            configure => Assert.Equal(["--fresh", "--preset", "windows-x64-debug"], configure.Arguments),
+            configure =>
+            {
+                Assert.Equal(toolchain.CMakePath, configure.ExecutablePath);
+                Assert.Equal(
+                    ["--fresh", "--preset", "windows-x64-debug", $"-DCMAKE_MAKE_PROGRAM={toolchain.NinjaPath}"],
+                    configure.Arguments);
+            },
             build => Assert.Equal(
                 ["--build", "--preset", "windows-x64-debug", "--target", "dovahlink_adapter_plugin"],
                 build.Arguments));
@@ -93,6 +107,41 @@ public sealed class BuildCommandTests
         Assert.DoesNotContain("..", command.Arguments[0]);
         Assert.Equal(Path.GetFullPath(scriptPath), command.Arguments[0]);
         Assert.Equal($"-o={Path.GetFullPath(outputDirectory)}", command.Arguments[3]);
+    }
+
+    /// <summary>Builds the structured environment-import command from the validated Visual Studio toolchain.</summary>
+    [Fact]
+    public void BuildsTheEnvironmentImportCommandFromTheValidatedToolchain()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+
+        BuildCommand command = BuildCommand.CreateEnvironmentImport(toolchain);
+
+        Assert.Equal(Path.Combine(Environment.SystemDirectory, "cmd.exe"), command.ExecutablePath);
+        Assert.Equal(["/d", "/c", "call .\\vcvarsall.bat x64 >nul && set"], command.Arguments);
+        Assert.Equal(Path.GetDirectoryName(toolchain.VcvarsallPath), command.WorkingDirectory);
+        Assert.Empty(command.EnvironmentVariables);
+    }
+
+    /// <summary>
+    /// Builds the environment-import command unchanged when the installation root contains an
+    /// ampersand, proving the working directory is passed as structured process data rather than
+    /// interpolated into the <c>cmd.exe</c> command text, where an ampersand would start a new
+    /// chained command.
+    /// </summary>
+    [Fact]
+    public void BuildsTheEnvironmentImportCommandForAnInstallationRootContainingAnAmpersand()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(
+            temporaryDirectory.Path,
+            Path.Combine("Visual Studio & SDKs", "VS2026"));
+
+        BuildCommand command = BuildCommand.CreateEnvironmentImport(toolchain);
+
+        Assert.Equal(Path.GetDirectoryName(toolchain.VcvarsallPath), command.WorkingDirectory);
+        Assert.Equal(["/d", "/c", "call .\\vcvarsall.bat x64 >nul && set"], command.Arguments);
     }
 
     /// <summary>Parses environment values containing equals signs and replaces inherited vcpkg configuration.</summary>

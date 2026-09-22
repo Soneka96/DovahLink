@@ -21,7 +21,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -54,7 +54,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -89,7 +89,7 @@ public sealed class GitStatusSharingTests
         var gitStatusService = new FakeGitStatusService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(new FakePreflightService(), gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -130,7 +130,7 @@ public sealed class GitStatusSharingTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo");
         var gitStatusStore = new GitStatusStore(new FakeGitStatusService(), repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext, new SkyrimInstallPathContext(null));
         var buildCoordinator = new FakeAdapterHostBuildCoordinatorThatRecordsRequests();
         var buildPage = new BuildPageViewModel(
             environmentStore,
@@ -168,7 +168,7 @@ public sealed class GitStatusSharingTests
         var preflightService = new FakePreflightService();
         var repositoryContext = new RepositoryContext(@"C:\repo-a");
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null));
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, new OutputPathContext(null), new SkyrimInstallPathContext(null));
         var buildPage = new BuildPageViewModel(
             environmentStore,
             gitStatusStore,
@@ -207,7 +207,7 @@ public sealed class GitStatusSharingTests
         public List<string?> CapturedOutputPathOverrides { get; } = [];
 
         /// <inheritdoc/>
-        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(string startPath, string? outputPathOverride = null, string? skyrimInstallPathOverride = null, CancellationToken cancellationToken = default)
         {
             CapturedStartPaths.Add(startPath);
             CapturedOutputPathOverrides.Add(outputPathOverride);
@@ -216,6 +216,10 @@ public sealed class GitStatusSharingTests
 
         /// <inheritdoc/>
         public IReadOnlyList<ToolchainCheckResult> RefreshOutputFolderCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? repositoryRoot, string? outputPathOverride) =>
+            previousResults;
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ToolchainCheckResult> RefreshPapyrusCompilerCheck(IReadOnlyList<ToolchainCheckResult> previousResults, string? skyrimInstallPathOverride) =>
             previousResults;
     }
 

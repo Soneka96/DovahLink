@@ -45,9 +45,29 @@ class AdapterCaptureHandoffQueue final : public IAdapterCaptureHandoffQueue {
     ///  @param onRejected Invoked on the caller's thread -- which may be the
     ///  Skyrim game thread -- when `TryEnqueue` rejects an item. An exception
     ///  thrown by this callback is contained; it never escapes `TryEnqueue`.
+    ///  @param enqueueLockAttempts The number of non-blocking lock attempts
+    ///  `TryEnqueue` makes before treating an item as rejected; defaults to
+    ///  the production `kCaptureQueueEnqueueLockAttempts`. Only a caller that
+    ///  can prove `TryEnqueue` never runs on the real Skyrim game thread --
+    ///  for example a real-process CTest fixture driving this same
+    ///  production queue from its own test harness thread -- may raise this,
+    ///  to absorb ordinary scheduling noise the production default's
+    ///  never-yield contract intentionally does not (see that constant's own
+    ///  doc for the game-thread latency tradeoff this protects).
+    ///  @param yieldBetweenEnqueueLockAttempts Whether `TryEnqueue` calls
+    ///  `std::this_thread::yield()` between lock attempts instead of
+    ///  spinning immediately; defaults to `false`, matching the production
+    ///  contract exactly. A bare higher `enqueueLockAttempts` still only
+    ///  spends microseconds spinning in total, which cannot reliably bridge
+    ///  a worker thread genuinely preempted by the OS scheduler for longer
+    ///  than that -- yielding actually surrenders this call's own timeslice
+    ///  so the scheduler can run the worker again. Only the same
+    ///  provably-never-the-game-thread caller above may set this `true`.
     AdapterCaptureHandoffQueue(
         std::function<void(const AdapterCaptureWorkItem&)> onDrained,
-        std::function<void(const AdapterCaptureWorkItem&)> onRejected);
+        std::function<void(const AdapterCaptureWorkItem&)> onRejected,
+        int enqueueLockAttempts = kCaptureQueueEnqueueLockAttempts,
+        bool yieldBetweenEnqueueLockAttempts = false);
 
     ///  Calls `Stop()` as a fallback so the worker thread is never leaked.
     ~AdapterCaptureHandoffQueue() override;
@@ -88,6 +108,12 @@ class AdapterCaptureHandoffQueue final : public IAdapterCaptureHandoffQueue {
     std::size_t count_ = 0;
     ///  Whether `Stop()` has been called.
     bool stopping_ = false;
+    ///  The number of non-blocking lock attempts `TryEnqueue` makes; see the
+    ///  constructor parameter's own doc.
+    int enqueueLockAttempts_;
+    ///  Whether `TryEnqueue` yields between lock attempts; see the
+    ///  constructor parameter's own doc.
+    bool yieldBetweenEnqueueLockAttempts_;
     ///  The dedicated drain thread.
     std::thread worker_;
     ///  The dedicated drain thread's immutable identity for self-stop checks.

@@ -60,20 +60,19 @@ The parent directory for the fake installation.
 .PARAMETER Edition
 The Visual Studio edition directory to create.
 
+.PARAMETER VersionDirectory
+The Visual Studio version directory to create ("2022" or "18").
+
 .OUTPUTS
 The fake installation path.
 #>
 function New-TestVisualStudioInstallation {
-    param([string]$Root, [string]$Edition)
+    param([string]$Root, [string]$Edition, [string]$VersionDirectory = "2022")
 
-    $installationPath = Join-Path $Root "Microsoft Visual Studio\2022\$Edition"
+    $installationPath = Join-Path $Root "Microsoft Visual Studio\$VersionDirectory\$Edition"
     $vcvarsDirectory = Join-Path $installationPath "VC\Auxiliary\Build"
     New-Item -ItemType Directory -Path $vcvarsDirectory -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $installationPath "VC\vcpkg") -Force | Out-Null
-    $cmakeDirectory = New-Item -ItemType Directory -Path (Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin") -Force
-    $ninjaDirectory = New-Item -ItemType Directory -Path (Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja") -Force
-    New-Item -ItemType File -Path (Join-Path $cmakeDirectory.FullName "cmake.exe") -Force | Out-Null
-    New-Item -ItemType File -Path (Join-Path $ninjaDirectory.FullName "ninja.exe") -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $vcvarsDirectory "vcvarsall.bat") -Value @(
         "@echo off",
         "set `"DOVAHLINK_SCENARIO_TEST=environment imported`""
@@ -119,6 +118,163 @@ $originalVcpkgRoot = $env:VCPKG_ROOT
 $originalPath = $env:PATH
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
+    $candidateRoot = Join-Path $testRoot "Tool candidates"
+    $configuredExecutable = Join-Path $candidateRoot "configured\tool.exe"
+    $standardExecutable = Join-Path $candidateRoot "standard\tool.exe"
+    $pathExecutable = Join-Path $candidateRoot "path\tool.exe"
+    foreach ($candidate in @($configuredExecutable, $standardExecutable, $pathExecutable)) {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $candidate) -Force | Out-Null
+        New-Item -ItemType File -Path $candidate -Force | Out-Null
+    }
+
+    $resolvedConfiguredExecutable = Resolve-ExistingExecutablePath `
+        -ToolName "Test tool" `
+        -CandidatePaths @((Join-Path $candidateRoot "missing\tool.exe"), $configuredExecutable, $standardExecutable, $pathExecutable) `
+        -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    Assert-True ($resolvedConfiguredExecutable -eq $configuredExecutable) "Executable discovery did not prefer the configured path."
+
+    $resolvedStandardExecutable = Resolve-ExistingExecutablePath `
+        -ToolName "Test tool" `
+        -CandidatePaths @((Join-Path $candidateRoot "missing\tool.exe"), $standardExecutable, $pathExecutable) `
+        -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    Assert-True ($resolvedStandardExecutable -eq $standardExecutable) "Executable discovery did not fall back to the first existing standard path."
+
+    $resolvedPathExecutable = Resolve-ExistingExecutablePath `
+        -ToolName "Test tool" `
+        -CandidatePaths @((Join-Path $candidateRoot "missing\tool.exe"), $pathExecutable) `
+        -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    Assert-True ($resolvedPathExecutable -eq $pathExecutable) "Executable discovery did not accept a PATH-derived path."
+
+    $resolvedAfterEmptyCandidate = Resolve-ExistingExecutablePath `
+        -ToolName "Test tool" `
+        -CandidatePaths @("", $standardExecutable) `
+        -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    Assert-True ($resolvedAfterEmptyCandidate -eq $standardExecutable) "Executable discovery did not skip an empty candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-ExistingExecutablePath `
+            -ToolName "Test tool" `
+            -CandidatePaths @("") `
+            -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    } "DOVAHLINK_TEST_TOOL_PATH"
+    $resolvedAfterWhitespaceCandidate = Resolve-ExistingExecutablePath `
+        -ToolName "Test tool" `
+        -CandidatePaths @("   ", $standardExecutable) `
+        -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    Assert-True ($resolvedAfterWhitespaceCandidate -eq $standardExecutable) "Executable discovery did not skip a whitespace-only candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-ExistingExecutablePath `
+            -ToolName "Test tool" `
+            -CandidatePaths @("   ") `
+            -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    } "DOVAHLINK_TEST_TOOL_PATH"
+
+    $pathSearchDirectory = Join-Path $candidateRoot "PATH search"
+    $pathSearchExecutable = Join-Path $pathSearchDirectory "cmake.exe"
+    New-Item -ItemType Directory -Path $pathSearchDirectory -Force | Out-Null
+    New-Item -ItemType File -Path $pathSearchExecutable -Force | Out-Null
+    $env:PATH = $pathSearchDirectory
+    $pathSearchCandidates = @(Get-ExecutablePathsFromPath -Name "cmake.exe")
+    Assert-True ($pathSearchCandidates -contains $pathSearchExecutable) "Executable discovery did not enumerate applications from PATH."
+    $env:PATH = $originalPath
+
+    $wrongCmakePath = Join-Path $candidateRoot "CMake 4.3.1\cmake.cmd"
+    $pinnedCmakePath = Join-Path $candidateRoot "custom install\cmake.cmd"
+    foreach ($candidate in @($wrongCmakePath, $pinnedCmakePath)) {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $candidate) -Force | Out-Null
+    }
+    Set-Content -LiteralPath $wrongCmakePath -Value @("@echo off", "echo cmake version 4.3.1", "exit /b 0")
+    Set-Content -LiteralPath $pinnedCmakePath -Value @("@echo off", "echo cmake version 4.4.2", "exit /b 0")
+    $resolvedCmakePath = Resolve-PinnedExecutablePath `
+        -ToolName "CMake" `
+        -CandidatePaths @($wrongCmakePath, $pinnedCmakePath) `
+        -ExpectedVersion "cmake version 4.4.2" `
+        -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    Assert-True ($resolvedCmakePath -eq $pinnedCmakePath) "Pinned CMake discovery did not skip an earlier wrong-version installation."
+
+    $resolvedCmakeAfterEmptyCandidate = Resolve-PinnedExecutablePath `
+        -ToolName "CMake" `
+        -CandidatePaths @("", $pinnedCmakePath) `
+        -ExpectedVersion "cmake version 4.4.2" `
+        -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    Assert-True ($resolvedCmakeAfterEmptyCandidate -eq $pinnedCmakePath) "Pinned executable discovery did not skip an empty candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-PinnedExecutablePath `
+            -ToolName "CMake" `
+            -CandidatePaths @("") `
+            -ExpectedVersion "cmake version 4.4.2" `
+            -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    } "DOVAHLINK_CMAKE_PATH"
+    $resolvedCmakeAfterWhitespaceCandidate = Resolve-PinnedExecutablePath `
+        -ToolName "CMake" `
+        -CandidatePaths @("   ", $pinnedCmakePath) `
+        -ExpectedVersion "cmake version 4.4.2" `
+        -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    Assert-True ($resolvedCmakeAfterWhitespaceCandidate -eq $pinnedCmakePath) "Pinned executable discovery did not skip a whitespace-only candidate before a valid fallback."
+    Assert-ThrowsLike {
+        Resolve-PinnedExecutablePath `
+            -ToolName "CMake" `
+            -CandidatePaths @("   ") `
+            -ExpectedVersion "cmake version 4.4.2" `
+            -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    } "DOVAHLINK_CMAKE_PATH"
+
+    $pinnedNinjaPath = Join-Path $candidateRoot "Ninja 1.13.2\ninja.cmd"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $pinnedNinjaPath) -Force | Out-Null
+    Set-Content -LiteralPath $pinnedNinjaPath -Value @("@echo off", "echo 1.13.2", "exit /b 0")
+    $resolvedNinjaPath = Resolve-PinnedExecutablePath `
+        -ToolName "Ninja" `
+        -CandidatePaths @($pinnedNinjaPath) `
+        -ExpectedVersion "1.13.2" `
+        -OverrideVariable "DOVAHLINK_NINJA_PATH"
+    Assert-True ($resolvedNinjaPath -eq $pinnedNinjaPath) "Pinned Ninja discovery did not validate the expected version."
+
+    $wrongVersionPath = Join-Path $candidateRoot "Wrong version\cmake.cmd"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $wrongVersionPath) -Force | Out-Null
+    Set-Content -LiteralPath $wrongVersionPath -Value @("@echo off", "echo cmake version 4.3.1", "exit /b 0")
+    Assert-ThrowsLike {
+        Resolve-PinnedExecutablePath `
+            -ToolName "CMake" `
+            -CandidatePaths @($wrongVersionPath) `
+            -ExpectedVersion "cmake version 4.4.2" `
+            -OverrideVariable "DOVAHLINK_CMAKE_PATH"
+    } "DOVAHLINK_CMAKE_PATH"
+
+    $nonzeroVersionProbe = {
+        param([string]$CandidatePath)
+        [pscustomobject]@{ ExitCode = 7; Version = "cmake version 4.4.2" }
+    }
+    Assert-ThrowsLike {
+        Resolve-PinnedExecutablePath `
+            -ToolName "CMake" `
+            -CandidatePaths @($pinnedCmakePath) `
+            -ExpectedVersion "cmake version 4.4.2" `
+            -OverrideVariable "DOVAHLINK_CMAKE_PATH" `
+            -VersionProbe $nonzeroVersionProbe
+    } "DOVAHLINK_CMAKE_PATH"
+
+    $throwingVersionProbe = {
+        param([string]$CandidatePath)
+        if ($CandidatePath -eq $wrongCmakePath) {
+            throw "version probe failed"
+        }
+        [pscustomobject]@{ ExitCode = 0; Version = "cmake version 4.4.2" }
+    }.GetNewClosure()
+    $resolvedAfterProbeFailure = Resolve-PinnedExecutablePath `
+        -ToolName "CMake" `
+        -CandidatePaths @($wrongCmakePath, $pinnedCmakePath) `
+        -ExpectedVersion "cmake version 4.4.2" `
+        -OverrideVariable "DOVAHLINK_CMAKE_PATH" `
+        -VersionProbe $throwingVersionProbe
+    Assert-True ($resolvedAfterProbeFailure -eq $pinnedCmakePath) "Pinned executable discovery did not continue after a candidate's version probe failed."
+
+    $missingExecutable = Join-Path $candidateRoot "missing\tool.exe"
+    Assert-ThrowsLike {
+        Resolve-ExistingExecutablePath `
+            -ToolName "Test tool" `
+            -CandidatePaths @($missingExecutable) `
+            -OverrideVariable "DOVAHLINK_TEST_TOOL_PATH"
+    } "DOVAHLINK_TEST_TOOL_PATH"
+
     $capturePath = Join-Path $testRoot "vswhere arguments.txt"
     $locatorPath = New-TestVsWhere -Root (Join-Path $testRoot "Visual Studio Installer") -CapturePath $capturePath
 
@@ -132,13 +288,19 @@ try {
         Assert-True ($toolchain.VcvarsallPath -eq (Join-Path $installationPath "VC\Auxiliary\Build\vcvarsall.bat")) "$edition discovery selected the wrong vcvarsall script."
     }
 
+    $vs2026Installation = New-TestVisualStudioInstallation -Root (Join-Path $testRoot "VS 2026") -Edition "Community" -VersionDirectory "18"
+    $env:DOVAHLINK_TEST_VSWHERE_RESULT = $vs2026Installation
+    $vs2026Toolchain = Find-VisualStudioToolchain -LocatorPath $locatorPath
+    Assert-True ($vs2026Toolchain.InstallationPath -eq $vs2026Installation) "Visual Studio 2026 discovery returned the wrong installation."
+    Assert-True ($vs2026Toolchain.VcvarsallPath -eq (Join-Path $vs2026Installation "VC\Auxiliary\Build\vcvarsall.bat")) "Visual Studio 2026 discovery selected the wrong vcvarsall script."
+
     $locatorArguments = Get-Content -LiteralPath $capturePath -Raw
     Assert-True ($locatorArguments -like "*-products * *") "Discovery did not search every Visual Studio product edition."
     Assert-True ($locatorArguments -like "*Microsoft.VisualStudio.Workload.NativeDesktop*") "Discovery did not require the Desktop development with C++ workload."
     Assert-True ($locatorArguments -like "*Microsoft.VisualStudio.Component.VC.Tools.x86.x64*") "Discovery did not require the MSVC x64/x86 tools."
-    Assert-True ($locatorArguments -like "*Microsoft.VisualStudio.Component.VC.CMake.Project*") "Discovery did not require Visual Studio CMake tools."
+    Assert-True (-not $locatorArguments.Contains("Microsoft.VisualStudio.Component.VC.CMake.Project")) "Discovery unnecessarily required Visual Studio's bundled CMake tools."
     Assert-True ($locatorArguments.Contains("-latest")) "Discovery did not select the latest matching installation."
-    Assert-True ($locatorArguments.Contains("-version [17.0,18.0)")) "Discovery did not restrict selection to Visual Studio 2022."
+    Assert-True ($locatorArguments.Contains("-version [17.0,19.0)")) "Discovery did not include Visual Studio 2022 and Visual Studio 2026."
     Assert-True ($locatorArguments.Contains("-property installationPath")) "Discovery did not request the installation path."
 
     Assert-ThrowsLike {
@@ -165,8 +327,6 @@ try {
     $missingPathCases = [ordered]@{
         Vcvarsall = "VC\Auxiliary\Build\vcvarsall.bat"
         Vcpkg     = "VC\vcpkg"
-        CMake     = "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-        Ninja     = "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
     }
     foreach ($missingPathCase in $missingPathCases.GetEnumerator()) {
         $incompleteInstallation = New-TestVisualStudioInstallation -Root (Join-Path $testRoot "Incomplete $($missingPathCase.Key)") -Edition "Professional"
@@ -207,7 +367,8 @@ try {
 
     Assert-True ($env:DOVAHLINK_SCENARIO_TEST -eq "environment imported") "The selected vcvarsall script was not imported."
     Assert-True ($env:VCPKG_ROOT -eq (Join-Path $installationWithSpaces "VC\vcpkg")) "The selected installation's vcpkg root was not applied."
-    Assert-True ($env:PATH.StartsWith("$($toolchain.CMakeDirectory);$($toolchain.NinjaDirectory);")) "The selected installation's CMake and Ninja directories were not applied."
+    Assert-True ($null -eq $toolchain.PSObject.Properties["CMakeDirectory"]) "Visual Studio discovery returned a redundant bundled CMake path."
+    Assert-True ($null -eq $toolchain.PSObject.Properties["NinjaDirectory"]) "Visual Studio discovery returned a redundant bundled Ninja path."
 
     $failedEnvironmentInstallation = New-TestVisualStudioInstallation -Root (Join-Path $testRoot "Failed Environment") -Edition "Community"
     Set-Content -LiteralPath (Join-Path $failedEnvironmentInstallation "VC\Auxiliary\Build\vcvarsall.bat") -Value @(

@@ -169,7 +169,7 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 }
 
                 IReadOnlyDictionary<string, string> buildEnvironment = VisualStudioEnvironment.Create(environmentLines, toolchain);
-                IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(adapterRoot, buildEnvironment, presetName);
+                IReadOnlyList<BuildCommand> commands = BuildCommand.CreateBuild(adapterRoot, buildEnvironment, presetName, toolchain);
                 int configureExitCode = await commandRunner.RunAsync(commands[0], onOutput, onOutput, cancellationToken);
                 if (configureExitCode != 0)
                 {

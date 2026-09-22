@@ -28,15 +28,19 @@ public partial class App : Application
         (string activeRepositoryRoot, string autoDetectedRepositoryRoot) = ResolveRepositoryRoots(settings.RepositoryPath, discoveredRepositoryRoot);
         var repositoryContext = new RepositoryContext(activeRepositoryRoot);
         var outputPathContext = new OutputPathContext(settings.OutputPath);
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(settings.SkyrimInstallPath);
         var runtimeBuildSettingsContext = new RuntimeBuildSettingsContext(settings.OpenOutputFolderAfterSuccessfulBuild, settings.AutoScrollLogs);
         ICommandRunner commandRunner = new ProcessCommandRunner();
-        var preflightService = new PreflightService(commandRunner);
+        var preflightService = new PreflightService(commandRunner, VisualStudioToolchainLocator.Find);
         var gitStatusService = new GitStatusService(commandRunner);
         var gitStatusStore = new GitStatusStore(gitStatusService, repositoryContext);
-        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext);
+        var environmentStore = new EnvironmentStore(preflightService, gitStatusStore, repositoryContext, outputPathContext, skyrimInstallPathContext);
         var outputOwnershipGuard = new BuildOutputOwnershipGuard();
         var buildCoordinator = new AdapterHostBuildCoordinator(
-            commandRunner, VisualStudioToolchainLocator.Find, PapyrusToolchainLocator.Find, outputOwnershipGuard);
+            commandRunner,
+            VisualStudioToolchainLocator.Find,
+            () => PapyrusToolchainLocator.FindWithInstallationPath(skyrimInstallPathContext.SkyrimInstallPath),
+            outputOwnershipGuard);
         var buildHistoryStore = new BuildHistoryStore(appDataDirectory);
         var logViewModel = new LogViewModel(Clipboard.SetText);
 
@@ -55,7 +59,14 @@ public partial class App : Application
             runtimeBuildSettingsContext);
         var environmentPage = new EnvironmentPageViewModel(environmentStore, gitStatusStore);
         var settingsPage = new SettingsPageViewModel(
-            settingsStore, new FolderPickerService(), OpenFolderInExplorer, autoDetectedRepositoryRoot, repositoryContext, outputPathContext, runtimeBuildSettingsContext);
+            settingsStore,
+            new FolderPickerService(),
+            OpenFolderInExplorer,
+            autoDetectedRepositoryRoot,
+            repositoryContext,
+            outputPathContext,
+            skyrimInstallPathContext,
+            runtimeBuildSettingsContext);
         var mainWindowViewModel = new MainWindowViewModel(buildPage, environmentPage, settingsPage);
         var mainWindow = new MainWindow(mainWindowViewModel, settingsStore);
         var virtualScreenBounds = new Rect(

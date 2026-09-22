@@ -4,12 +4,20 @@
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $toolchainScript = Join-Path $PSScriptRoot "local-ci-toolchain.ps1"
+$prerequisiteScript = Join-Path $PSScriptRoot "check-local-prerequisites.ps1"
 $vcpkgBaseline = "2f1d605400c8727cc00c15797aba796c88ccd523"
 $vcpkgRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg"
 
 . $toolchainScript
+. $prerequisiteScript
+$prerequisiteReport = Invoke-LocalCiPrerequisiteCheck
+if (-not $prerequisiteReport.IsReady) {
+    throw "Local CI prerequisites are missing. Follow DEVELOPMENT.md and rerun the prerequisite check."
+}
+$toolchain = ($prerequisiteReport.Results | Where-Object { $_.Id -eq "visual-studio" }).Value
+$cmakePath = ($prerequisiteReport.Results | Where-Object { $_.Id -eq "cmake" }).Path
+$ninjaPath = ($prerequisiteReport.Results | Where-Object { $_.Id -eq "ninja" }).Path
 
-$toolchain = Find-VisualStudioToolchain -LocatorPath (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe")
 Import-VisualStudioEnvironment -Toolchain $toolchain
 
 $cacheRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg-binary-cache"
@@ -101,65 +109,9 @@ function Repair-CorruptVcpkgVersioningCache {
 }
 Repair-CorruptVcpkgVersioningCache -VcpkgRoot $vcpkgRoot
 
-$cmakeCandidates = @(
-    (Join-Path $env:ChocolateyInstall "bin\cmake.exe"),
-    "C:\Program Files\CMake\bin\cmake.exe"
-)
-$cmakePath = $cmakeCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-if ($null -eq $cmakePath) {
-    throw "Pinned CMake 4.4.2 was not found. Install it before running the local preflight."
-}
-
-$ninjaCandidates = @(
-    (Join-Path $env:ChocolateyInstall "bin\ninja.exe"),
-    "C:\ProgramData\chocolatey\bin\ninja.exe",
-    "C:\Program Files\Ninja\ninja.exe"
-)
-$ninjaPath = $ninjaCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-if ($null -eq $ninjaPath) {
-    throw "Pinned Ninja 1.13.2 was not found. Install it before running the local preflight."
-}
-
 $env:PATH = "$(Split-Path -Parent $cmakePath);$(Split-Path -Parent $ninjaPath);$env:PATH"
-
-$cmakeOutput = @(& cmake --version)
-if ($LASTEXITCODE -ne 0) {
-    throw "CMake version check failed with exit code $LASTEXITCODE."
-}
-$cmakeVersion = ($cmakeOutput | Select-Object -First 1).Trim()
-if ($cmakeVersion -ne "cmake version 4.4.2") {
-    throw "Expected CMake 4.4.2, but found '$cmakeVersion'."
-}
-
-$ninjaOutput = @(& ninja --version)
-if ($LASTEXITCODE -ne 0) {
-    throw "Ninja version check failed with exit code $LASTEXITCODE."
-}
-$ninjaVersion = ($ninjaOutput | Select-Object -First 1).Trim()
-if ($ninjaVersion -ne "1.13.2") {
-    throw "Expected Ninja 1.13.2, but found '$ninjaVersion'."
-}
-
-$pythonOutput = @(& python --version 2>&1)
-if ($LASTEXITCODE -ne 0) {
-    throw "Python version check failed with exit code $LASTEXITCODE."
-}
-$pythonVersion = ($pythonOutput | Select-Object -First 1).Trim()
-if ($pythonVersion -notmatch "^Python 3\.13\.") {
-    throw "Expected Python 3.13, but found '$pythonVersion'."
-}
-
-$dotnetSdks = @(& dotnet --list-sdks)
-if ($LASTEXITCODE -ne 0) {
-    throw "The .NET SDK version check failed with exit code $LASTEXITCODE."
-}
-if (-not ($dotnetSdks -match "^9\.")) {
-    throw "A .NET 9 SDK is required for the Host build and test steps below."
-}
-
-if ($null -eq (Get-Command flutter -ErrorAction SilentlyContinue)) {
-    throw "Flutter is required for app-ci checks but was not found on PATH."
-}
+Write-Host "Using pinned CMake 4.4.2: $cmakePath"
+Write-Host "Using pinned Ninja 1.13.2: $ninjaPath"
 
 function Invoke-LocalCommand {
     <#
@@ -289,8 +241,8 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList
     "--output", "host/DovahLink.Host/bin/publish/win-x64"
 )
 $adapterDirectory = Join-Path $repoRoot "adapter"
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--preset", "windows-x64-debug", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--build", "--preset", "windows-x64-debug")
 # Runs the complete native Adapter suite -- IPC, pairing notification, trust-admin, Papyrus
 # registration, plugin, and the real Host<->Adapter process integration tests -- in one pass.
 # AssembleRealAdapterHostPackage and its dependent [package]-labeled test are discovered here too,
@@ -301,8 +253,8 @@ Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -Argum
 # defines a ctest testPreset only for windows-x64-debug, matching the retired native plugin's identical convention.
 # Release also provides the Release-named runtime DLLs (fmt.dll/spdlog.dll, unlike Debug's
 # debug-suffixed names) the real-package-layout test below requires.
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
-Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
+Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--build", "--preset", "windows-x64-release")
 # The one test genuinely tied to Release: AssembleRealAdapterHostPackage's CTest fixture requires
 # Release-named runtime DLLs, so it self-skips against Debug's build instead of failing there.
 # -L package runs only the tests adapter/CMakeLists.txt labeled "package", not the full suite the

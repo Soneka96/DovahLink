@@ -180,13 +180,15 @@ public sealed class ProcessCommandRunnerTests
     public async Task CancellationTerminatesTheProcessTreeAndThrowsOperationCanceledException()
     {
         using var temporaryDirectory = new TemporaryDirectory();
+        string pidPath = Path.Combine(temporaryDirectory.Path, "child-pid.txt");
         string startedPath = Path.Combine(temporaryDirectory.Path, "child-started.txt");
         string sentinelPath = Path.Combine(temporaryDirectory.Path, "child-sentinel.txt");
         string batchPath = Path.Combine(temporaryDirectory.Path, "child-tree.bat");
         File.WriteAllText(
             batchPath,
             "@echo off\n" +
-            "start \"\" /b powershell.exe -NoProfile -Command \"Set-Content -LiteralPath 'child-started.txt' -Value started; " +
+            "start \"\" /b powershell.exe -NoProfile -Command \"Set-Content -LiteralPath 'child-pid.txt' -Value $PID; " +
+            "Set-Content -LiteralPath 'child-started.txt' -Value started; " +
             "Start-Sleep -Milliseconds 500; " +
             "Set-Content -LiteralPath 'child-sentinel.txt' -Value orphan\"\n" +
             "ping -n 30 127.0.0.1 >nul\n");
@@ -203,6 +205,7 @@ public sealed class ProcessCommandRunnerTests
             await Task.Delay(TimeSpan.FromMilliseconds(10));
         }
         Assert.True(File.Exists(startedPath));
+        int descendantProcessId = await ReadDescendantProcessIdAsync(pidPath);
         var elapsed = Stopwatch.StartNew();
         cancellation.Cancel();
 
@@ -210,7 +213,7 @@ public sealed class ProcessCommandRunnerTests
             async () => await runTask);
 
         Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await AssertDescendantProcessExitedAsync(descendantProcessId);
 
         // Captured and logged before asserting, rather than passed directly to Assert.False: if this
         // is false (the real proof the process tree was actually killed) but the temporary directory
@@ -399,6 +402,76 @@ public sealed class ProcessCommandRunnerTests
 
         Assert.True(terminateCalled);
         Assert.True(fakeJob.Disposed);
+    }
+
+    /// <summary>
+    /// Waits for the detached descendant to publish its own process id at <paramref name="pidPath"/>
+    /// and parses it, retrying past the short window in which the descendant may still hold the file
+    /// open while writing it.
+    /// </summary>
+    /// <param name="pidPath">The file the descendant writes its own process id to.</param>
+    /// <returns>The descendant's process id.</returns>
+    private static async Task<int> ReadDescendantProcessIdAsync(string pidPath)
+    {
+        DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(pidPath))
+            {
+                try
+                {
+                    if (int.TryParse(File.ReadAllText(pidPath).Trim(), out int processId))
+                    {
+                        return processId;
+                    }
+                }
+                catch (IOException)
+                {
+                    // The descendant may still be writing or closing the file; retry.
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
+        }
+
+        throw new InvalidOperationException($"The descendant process never published its process id to '{pidPath}'.");
+    }
+
+    /// <summary>
+    /// Bounded-waits for the descendant process to actually exit, rather than assuming a fixed delay
+    /// after cancellation proves it is gone -- so a real regression fails with an actionable message
+    /// naming the still-alive descendant instead of only the unrelated-looking
+    /// <see cref="IOException"/> a subsequent <see cref="TemporaryDirectory.Dispose"/> would raise.
+    /// </summary>
+    /// <param name="processId">The descendant's process id, as published to <c>child-pid.txt</c>.</param>
+    private static async Task AssertDescendantProcessExitedAsync(int processId)
+    {
+        DateTime deadline = DateTime.UtcNow + Constants.ProcessTreeTerminationTimeout + TimeSpan.FromSeconds(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            Process descendant;
+            try
+            {
+                descendant = Process.GetProcessById(processId);
+            }
+            catch (ArgumentException)
+            {
+                // No process with this id remains: the descendant has already exited.
+                return;
+            }
+
+            using (descendant)
+            {
+                if (descendant.HasExited)
+                {
+                    return;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20));
+        }
+
+        Assert.Fail($"Expected descendant PID {processId} to exit after cancellation.");
     }
 
     /// <summary>

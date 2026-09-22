@@ -10,9 +10,10 @@ internal static class Fixtures
 
     /// <summary>
     /// Builds a validated <see cref="VisualStudioToolchain"/> by creating its required environment
-    /// script and vcpkg directory under <paramref name="repositoryRoot"/>; a test that wants the
-    /// default installation layout calls this with just a root, and a test that needs a different
-    /// installation directory name overrides <paramref name="installationName"/>.
+    /// script, vcpkg directory, CMake executable, and Ninja executable under
+    /// <paramref name="repositoryRoot"/>; a test that wants the default installation layout calls
+    /// this with just a root, and a test that needs a different installation directory name
+    /// overrides <paramref name="installationName"/>.
     /// </summary>
     /// <param name="repositoryRoot">The temporary root under which to create the installation.</param>
     /// <param name="installationName">The installation directory name, including any path characters under test.</param>
@@ -23,10 +24,16 @@ internal static class Fixtures
         string installationRoot = Path.Combine(repositoryRoot, installationName);
         string vcvarsallPath = Path.Combine(installationRoot, "VC", "Auxiliary", "Build", "vcvarsall.bat");
         string vcpkgRoot = Path.Combine(installationRoot, "VC", "vcpkg");
+        string cmakePath = Path.Combine(installationRoot, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin", "cmake.exe");
+        string ninjaPath = Path.Combine(installationRoot, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "Ninja", "ninja.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(vcvarsallPath)!);
         Directory.CreateDirectory(vcpkgRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(cmakePath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(ninjaPath)!);
         File.WriteAllText(vcvarsallPath, "@echo off\n");
-        return new VisualStudioToolchain(vcvarsallPath, vcpkgRoot);
+        File.WriteAllText(cmakePath, "fake cmake executable\n");
+        File.WriteAllText(ninjaPath, "fake ninja executable\n");
+        return new VisualStudioToolchain(vcvarsallPath, vcpkgRoot, cmakePath, ninjaPath);
     }
 
     /// <summary>
@@ -34,9 +41,12 @@ internal static class Fixtures
     /// directory, and flags file under <paramref name="repositoryRoot"/>.
     /// </summary>
     /// <param name="repositoryRoot">The temporary root under which to create the installation.</param>
-    public static PapyrusToolchain BuildPapyrusToolchain(string repositoryRoot)
+    /// <param name="installationName">The installation directory name under the temporary root.</param>
+    public static PapyrusToolchain BuildPapyrusToolchain(
+        string repositoryRoot,
+        string installationName = "Skyrim Special Edition")
     {
-        string installationRoot = Path.Combine(repositoryRoot, "Skyrim Special Edition");
+        string installationRoot = Path.Combine(repositoryRoot, installationName);
         string compilerPath = Path.Combine(installationRoot, "Papyrus Compiler", "PapyrusCompiler.exe");
         string importDirectory = Path.Combine(installationRoot, "Data", "Scripts", "Source");
         string flagsFilePath = Path.Combine(importDirectory, "TESV_Papyrus_Flags.flg");

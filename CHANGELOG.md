@@ -22,6 +22,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Added
 
+- A local development setup guide and prerequisite checker that reports missing CI tools with install and verification guidance.
 - Standalone C# Host process and thin native Adapter, replacing the native Bridge as DovahLink's
   production implementation.
 - Host-owned public client boundary: WebSocket admission, session registry, and pairing continue on
@@ -34,6 +35,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Changed
 
+- Local CI uses its selected Python and exact pinned clang-format executable, and reports incompatible Visual Studio copies.
 - Trust-admin list-scope vocabulary is now known/trusted/blocked consistently across console admin,
   Host, and Adapter.
 - `tooling/DovahLinkBuilder` now packages the Host/Adapter distribution instead of the retired
@@ -45,6 +47,11 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Fixed
 
+- Local CI now falls back to standard locations and `PATH` when tool-path overrides are unset.
+- The Builder now discovers non-standard Visual Studio installations and uses that installation's
+  CMake and Ninja executables for Adapter builds.
+- The Builder now uses its saved Skyrim install path to locate the Papyrus compiler, with environment
+  and standard Steam paths as fallbacks.
 - Ordinary Host live-state samples now pause while Adapter resynchronization is pending.
 - The Host now ends a superseded pending `snapshot_request` with a retryable error instead of dropping its correlation.
 - The Host now waits for the Adapter's post-authentication play-context replay before issuing one

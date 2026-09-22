@@ -49,6 +49,9 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// <summary>The shared build output path override each refresh checks, and whose own change alone triggers a narrower recheck.</summary>
     private readonly IOutputPathContext outputPathContext;
 
+    /// <summary>The shared Skyrim / Creation Kit path used by Papyrus checks, and whose change triggers a narrower recheck.</summary>
+    private readonly ISkyrimInstallPathContext skyrimInstallPathContext;
+
     /// <summary>The backing field for <see cref="PreflightResults"/>.</summary>
     private IReadOnlyList<ToolchainCheckResult> preflightResults = [];
 
@@ -68,19 +71,27 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// </summary>
     private Task? inFlightRefresh;
 
-    /// <summary>Creates a store over the given preflight service, shared git status store, shared repository context, and shared output path context.</summary>
+    /// <summary>Creates a store over the given preflight service and shared build contexts.</summary>
     /// <param name="preflightService">Checks the required build tools.</param>
     /// <param name="gitStatusStore">The shared git status refreshed alongside preflight, once per <see cref="RefreshAsync"/> call.</param>
     /// <param name="repositoryContext">The shared repository root each refresh checks.</param>
     /// <param name="outputPathContext">The shared build output path override each refresh checks, and whose own change alone triggers a narrower recheck.</param>
-    public EnvironmentStore(IPreflightService preflightService, IGitStatusStore gitStatusStore, IRepositoryContext repositoryContext, IOutputPathContext outputPathContext)
+    /// <param name="skyrimInstallPathContext">The shared installation path for Papyrus checks, and whose own change triggers a narrower recheck.</param>
+    public EnvironmentStore(
+        IPreflightService preflightService,
+        IGitStatusStore gitStatusStore,
+        IRepositoryContext repositoryContext,
+        IOutputPathContext outputPathContext,
+        ISkyrimInstallPathContext skyrimInstallPathContext)
     {
         this.preflightService = preflightService;
         this.gitStatusStore = gitStatusStore;
         this.repositoryContext = repositoryContext;
         this.outputPathContext = outputPathContext;
+        this.skyrimInstallPathContext = skyrimInstallPathContext;
         repositoryContext.PropertyChanged += OnRepositoryContextChanged;
         outputPathContext.PropertyChanged += OnOutputPathContextChanged;
+        skyrimInstallPathContext.PropertyChanged += OnSkyrimInstallPathContextChanged;
     }
 
     /// <inheritdoc/>
@@ -119,9 +130,9 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     /// <summary>
     /// Runs the actual preflight-and-git-status refresh, shared by every concurrent
     /// <see cref="RefreshAsync"/> caller. Loops until a full check completes for whichever repository
-    /// root and output path override were current when that check started: either can change again
+    /// root, output path override, and Skyrim install path were current when that check started: any can change again
     /// while a check is already running, and a concurrent <see cref="RefreshAsync"/> call or an
-    /// <see cref="OnOutputPathContextChanged"/> patch made after that change coalesces onto this same
+    /// <see cref="OnOutputPathContextChanged"/> or <see cref="OnSkyrimInstallPathContextChanged"/> patch made after that change coalesces onto this same
     /// running refresh rather than starting its own -- without this loop, a rapid second change could
     /// leave the store permanently reporting stale results for whichever one changed, since nothing else
     /// would ever check the newer value once this refresh's own result overwrites it. A failure other
@@ -136,14 +147,22 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
         {
             string rootCheckedThisPass;
             string? outputPathCheckedThisPass;
+            string? skyrimInstallPathCheckedThisPass;
             do
             {
                 rootCheckedThisPass = repositoryContext.RepositoryRoot;
                 outputPathCheckedThisPass = outputPathContext.OutputPath;
-                PreflightResults = await preflightService.CheckAllAsync(rootCheckedThisPass, outputPathCheckedThisPass, cancellationToken);
+                skyrimInstallPathCheckedThisPass = skyrimInstallPathContext.SkyrimInstallPath;
+                PreflightResults = await preflightService.CheckAllAsync(
+                    rootCheckedThisPass,
+                    outputPathCheckedThisPass,
+                    skyrimInstallPathCheckedThisPass,
+                    cancellationToken);
                 await gitStatusStore.RefreshAsync(cancellationToken);
             }
-            while (rootCheckedThisPass != repositoryContext.RepositoryRoot || outputPathCheckedThisPass != outputPathContext.OutputPath);
+            while (rootCheckedThisPass != repositoryContext.RepositoryRoot ||
+                   outputPathCheckedThisPass != outputPathContext.OutputPath ||
+                   skyrimInstallPathCheckedThisPass != skyrimInstallPathContext.SkyrimInstallPath);
             RefreshError = null;
         }
         catch (OperationCanceledException)
@@ -186,5 +205,13 @@ public sealed class EnvironmentStore : ObservableObject, IEnvironmentStore
     private void OnOutputPathContextChanged(object? sender, PropertyChangedEventArgs e)
     {
         PreflightResults = preflightService.RefreshOutputFolderCheck(PreflightResults, repositoryContext.RepositoryRoot, outputPathContext.OutputPath);
+    }
+
+    /// <summary>Recomputes only the Papyrus Compiler check when the configured installation path changes.</summary>
+    /// <param name="sender">The unused event source.</param>
+    /// <param name="e">The unused change details; the context reports only one property.</param>
+    private void OnSkyrimInstallPathContextChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        PreflightResults = preflightService.RefreshPapyrusCompilerCheck(PreflightResults, skyrimInstallPathContext.SkyrimInstallPath);
     }
 }

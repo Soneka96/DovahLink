@@ -47,6 +47,49 @@ public sealed class PapyrusToolchainTests
         Assert.Equal(alternateImportDirectory, toolchain.ImportDirectory);
     }
 
+    /// <summary>Prefers the Settings path, then falls through to the environment path and standard Steam location when a candidate is incomplete.</summary>
+    [Fact]
+    public void InstallationCandidatesPreferConfiguredThenEnvironmentThenStandardPath()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string programFilesX86 = Path.Combine(temporaryDirectory.Path, "Program Files (x86)");
+        string standardInstallPath = Path.Combine(programFilesX86, "Steam", "steamapps", "common", "Skyrim Special Edition");
+        PapyrusToolchain configuredToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "Configured");
+        PapyrusToolchain environmentToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "Environment");
+        PapyrusToolchain standardToolchain = Fixtures.BuildPapyrusToolchain(
+            Path.Combine(programFilesX86, "Steam", "steamapps", "common"));
+        string configuredInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(configuredToolchain.CompilerPath)!)!;
+        string environmentInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(environmentToolchain.CompilerPath)!)!;
+        IEnumerable<string> roots = PapyrusToolchainLocator.GetDefaultInstallationRoots(
+            configuredInstallPath,
+            environmentInstallPath,
+            programFilesX86);
+
+        Assert.Equal(configuredToolchain, PapyrusToolchainLocator.Find(roots));
+
+        File.Delete(configuredToolchain.CompilerPath);
+        Assert.Equal(environmentToolchain, PapyrusToolchainLocator.Find(roots));
+
+        File.Delete(environmentToolchain.CompilerPath);
+        Assert.Equal(standardToolchain, PapyrusToolchainLocator.Find(roots));
+        Assert.Contains(standardInstallPath, roots);
+    }
+
+    /// <summary>Uses the configured Settings installation for Papyrus checks when it is valid.</summary>
+    [Fact]
+    public void TryFindWithInstallationPathReturnsConfiguredInstallation()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        PapyrusToolchain expected = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "Configured");
+        string configuredInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(expected.CompilerPath)!)!;
+
+        ToolchainCheckResult result = PapyrusToolchainLocator.TryFindWithInstallationPath(configuredInstallPath);
+
+        Assert.Equal(ToolchainAvailability.Found, result.Availability);
+        Assert.Equal(expected.CompilerPath, result.Detail);
+        Assert.Null(result.RemediationHint);
+    }
+
     /// <summary>Rejects installations missing the Papyrus compiler executable.</summary>
     [Fact]
     public void RejectsInstallationsWithoutTheCompiler()

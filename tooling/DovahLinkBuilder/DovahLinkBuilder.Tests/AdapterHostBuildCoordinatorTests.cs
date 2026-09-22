@@ -1,4 +1,5 @@
 using DovahLink.DovahLinkBuilder.Build;
+using DovahLink.DovahLinkBuilder.Ui;
 
 namespace DovahLink.DovahLinkBuilder.Tests;
 
@@ -11,11 +12,16 @@ public sealed class AdapterHostBuildCoordinatorTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        VisualStudioToolchain visualStudioToolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        PapyrusToolchain configuredPapyrusToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "Configured Creation Kit");
+        PapyrusToolchain updatedPapyrusToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path, "Updated Creation Kit");
+        string configuredInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(configuredPapyrusToolchain.CompilerPath)!)!;
+        var skyrimInstallPathContext = new SkyrimInstallPathContext(configuredInstallPath);
         var runner = new FakeCommandRunner();
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
-            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
-            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            () => visualStudioToolchain,
+            () => PapyrusToolchainLocator.FindWithInstallationPath(skyrimInstallPathContext.SkyrimInstallPath),
             new BuildOutputOwnershipGuard());
 
         AdapterHostBuildResult result = await coordinator.BuildAsync(
@@ -24,9 +30,9 @@ public sealed class AdapterHostBuildCoordinatorTests
         Assert.Equal(runner.ArchivePath, result.ArchivePath);
         Assert.Equal(5, runner.Commands.Count);
         Assert.EndsWith("cmd.exe", runner.Commands[0].ExecutablePath, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("cmake", runner.Commands[1].ExecutablePath);
-        Assert.Equal(["--fresh", "--preset", "windows-x64-release"], runner.Commands[1].Arguments);
-        Assert.Equal("cmake", runner.Commands[2].ExecutablePath);
+        Assert.Equal(visualStudioToolchain.CMakePath, runner.Commands[1].ExecutablePath);
+        Assert.Equal(["--fresh", "--preset", "windows-x64-release", $"-DCMAKE_MAKE_PROGRAM={visualStudioToolchain.NinjaPath}"], runner.Commands[1].Arguments);
+        Assert.Equal(visualStudioToolchain.CMakePath, runner.Commands[2].ExecutablePath);
         Assert.Equal(
             ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_adapter_plugin"],
             runner.Commands[2].Arguments);
@@ -35,13 +41,12 @@ public sealed class AdapterHostBuildCoordinatorTests
             command => Assert.Equal(Path.Combine(temporaryDirectory.Path, "adapter"), command.WorkingDirectory));
 
         string adapterBuildOutputRoot = Path.Combine(temporaryDirectory.Path, "adapter", "build", "windows-x64-release");
-        PapyrusToolchain papyrusToolchain = Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path);
-        Assert.Equal(papyrusToolchain.CompilerPath, runner.Commands[3].ExecutablePath);
+        Assert.Equal(configuredPapyrusToolchain.CompilerPath, runner.Commands[3].ExecutablePath);
         Assert.Equal(
             [
                 Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc"),
-                $"-i={Path.Combine(temporaryDirectory.Path, "console-admin")};{papyrusToolchain.ImportDirectory}",
-                $"-f={papyrusToolchain.FlagsFilePath}",
+                $"-i={Path.Combine(temporaryDirectory.Path, "console-admin")};{configuredPapyrusToolchain.ImportDirectory}",
+                $"-f={configuredPapyrusToolchain.FlagsFilePath}",
                 $"-o={adapterBuildOutputRoot}",
             ],
             runner.Commands[3].Arguments);
@@ -59,6 +64,14 @@ public sealed class AdapterHostBuildCoordinatorTests
                 "--profile-label", "release",
             ],
             runner.Commands[4].Arguments);
+
+        string updatedInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(updatedPapyrusToolchain.CompilerPath)!)!;
+        skyrimInstallPathContext.SetSkyrimInstallPath(updatedInstallPath);
+
+        await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path));
+
+        Assert.Equal(10, runner.Commands.Count);
+        Assert.Equal(updatedPapyrusToolchain.CompilerPath, runner.Commands[8].ExecutablePath);
     }
 
     /// <summary>Builds the Debug preset, uses the Debug adapter build directory, and keeps Debug output separate from Release's.</summary>
@@ -67,16 +80,17 @@ public sealed class AdapterHostBuildCoordinatorTests
     {
         using var temporaryDirectory = new TemporaryDirectory();
         Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        VisualStudioToolchain visualStudioToolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
         var runner = new FakeCommandRunner();
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
-            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => visualStudioToolchain,
             () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
             new BuildOutputOwnershipGuard());
 
         await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path, BuildProfile.Debug));
 
-        Assert.Equal(["--fresh", "--preset", "windows-x64-debug"], runner.Commands[1].Arguments);
+        Assert.Equal(["--fresh", "--preset", "windows-x64-debug", $"-DCMAKE_MAKE_PROGRAM={visualStudioToolchain.NinjaPath}"], runner.Commands[1].Arguments);
         Assert.Equal(
             ["--build", "--preset", "windows-x64-debug", "--target", "dovahlink_adapter_plugin"],
             runner.Commands[2].Arguments);
@@ -974,12 +988,13 @@ public sealed class AdapterHostBuildCoordinatorTests
         {
             int invocation = Commands.Count;
             Commands.Add(command);
-            if (invocation == 0)
+            int invocationWithinBuild = invocation % 5;
+            if (invocationWithinBuild == 0)
             {
                 onStandardOutput?.Invoke(@"PATH=C:\Visual Studio\bin");
                 onStandardOutput?.Invoke("VSCMD_ARG_TGT_ARCH=x64");
             }
-            else if (invocation == 4)
+            else if (invocationWithinBuild == 4)
             {
                 onStandardOutput?.Invoke("fake packaging output");
                 foreach (string line in AdditionalPackagingOutputLines)
