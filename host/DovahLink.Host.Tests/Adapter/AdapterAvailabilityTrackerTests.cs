@@ -1187,10 +1187,10 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
-        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(50));
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
         PlayContextId context = PlayContextId.NewId();
 
-        coordinator.AcquireToken(instanceId, 1, context, 1); // Arms generation 1's watchdog (due in 50ms).
+        coordinator.AcquireToken(instanceId, 1, context, 1); // Arms generation 1's watchdog (due in 300ms).
         Connect(tracker, instanceId, 2); // Simulates the adapter reconnecting on a new generation.
         coordinator.AcquireToken(instanceId, 2, context, 1); // Supersedes generation 1 immediately, before its watchdog can elapse.
 

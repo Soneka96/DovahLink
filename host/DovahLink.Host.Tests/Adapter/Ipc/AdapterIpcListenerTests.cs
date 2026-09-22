@@ -698,13 +698,13 @@ public class PlayContextResynchronizationTriggerTests
         Connect(availabilityTracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
         var coordinator = new ResynchronizationTransactionCoordinator(
-            LiveStateCatalog.Default, availabilityTracker, continuityRecovery, TimeSpan.FromMilliseconds(50));
+            LiveStateCatalog.Default, availabilityTracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
         listener.CurrentConnection = connection;
         _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, coordinator);
 
-        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context A: arms its own 50ms watchdog.
+        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context A: arms its own 300ms watchdog.
         playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context B: supersedes A immediately, before A's watchdog can elapse.
 
         // B never completed, so it must still fire on its own bound, proving the trigger armed a
