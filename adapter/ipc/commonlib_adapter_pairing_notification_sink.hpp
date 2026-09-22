@@ -14,12 +14,12 @@ namespace dovahlink::adapter::ipc {
 ///  which display intent applies, per `IAdapterPairingNotificationSink`.
 class CommonLibAdapterPairingNotificationSink final
     : public IAdapterPairingNotificationSink {
-public:
-  ///  @copydoc IAdapterPairingNotificationSink::Display
-  bool Display(const std::string &code, PairingDisplayMode mode) override;
+  public:
+    ///  @copydoc IAdapterPairingNotificationSink::Display
+    bool Display(const std::string& code, PairingDisplayMode mode) override;
 
-  ///  @copydoc IAdapterPairingNotificationSink::NotifyAttemptsExhausted
-  void NotifyAttemptsExhausted() override;
+    ///  @copydoc IAdapterPairingNotificationSink::NotifyAttemptsExhausted
+    void NotifyAttemptsExhausted() override;
 };
 
 } //  namespace dovahlink::adapter::ipc
