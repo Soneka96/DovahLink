@@ -36,6 +36,48 @@ TEST_CASE("the adapter plugin registers exactly one SKSE messaging listener",
     CHECK(CountOccurrences(source, "RegisterListener(") == 1);
 }
 
+TEST_CASE("the adapter plugin reports startup stages and catches load exceptions",
+          "[plugin][structural]") {
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+    std::size_t loadHelper = source.find("bool LoadAdapter(");
+    std::size_t exportedLoad = source.find("SKSEPluginLoad(");
+    std::size_t standardExceptionCatch =
+        source.find("catch (const std::exception& exception)");
+    std::size_t unknownExceptionCatch = source.find("catch (...)");
+    std::size_t setupLogging =
+        source.find("startupStage = \"SetupLogging\"");
+    std::size_t compatibilityConfig =
+        source.find("startupStage = \"Compatibility configuration\"");
+    std::size_t listenerRegistration =
+        source.find("startupStage = \"SKSE messaging listener registration\"");
+    std::size_t startupComplete =
+        source.find("startupStage = \"startup complete\"");
+
+    REQUIRE(loadHelper != std::string::npos);
+    REQUIRE(exportedLoad != std::string::npos);
+    REQUIRE(standardExceptionCatch != std::string::npos);
+    REQUIRE(unknownExceptionCatch != std::string::npos);
+    REQUIRE(setupLogging != std::string::npos);
+    REQUIRE(compatibilityConfig != std::string::npos);
+    REQUIRE(listenerRegistration != std::string::npos);
+    REQUIRE(startupComplete != std::string::npos);
+    std::string loadBoundary = source.substr(exportedLoad);
+    CHECK(loadBoundary.find("return LoadAdapter(skse, startupStage);") !=
+          std::string::npos);
+    CHECK(loadBoundary.find("catch (const std::exception& exception)") !=
+          std::string::npos);
+    CHECK(loadBoundary.find("catch (...)") != std::string::npos);
+    CHECK(CountOccurrences(loadBoundary, "EmitStartupFailure(") == 2);
+    CHECK(CountOccurrences(loadBoundary, "return false;") == 2);
+    CHECK(source.find("EmitStartupMarker(startupStage);") !=
+          std::string::npos);
+    CHECK(loadHelper < exportedLoad);
+    CHECK(setupLogging < compatibilityConfig);
+    CHECK(compatibilityConfig < listenerRegistration);
+    CHECK(listenerRegistration < startupComplete);
+}
+
 TEST_CASE("the adapter plugin defers host discovery startup to kDataLoaded",
           "[plugin][structural]") {
     std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
