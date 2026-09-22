@@ -23,7 +23,6 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 ### Added
 
 - A local development setup guide and prerequisite checker that reports missing CI tools with install and verification guidance.
-- A local development setup guide and prerequisite checker that reports missing CI tools with install and verification guidance.
 - Standalone C# Host process and thin native Adapter, replacing the native Bridge as DovahLink's
   production implementation.
 - Host-owned public client boundary: WebSocket admission, session registry, and pairing continue on
@@ -57,11 +56,6 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 - The Host now ends a superseded pending `snapshot_request` with a retryable error instead of dropping its correlation.
 - The Host now waits for the Adapter's post-authentication play-context replay before issuing one
   initial resynchronization for an active context, and issues none while the Adapter is inactive.
-- Local CI now falls back to standard locations and `PATH` when tool-path overrides are unset.
-- The Builder now discovers non-standard Visual Studio installations and uses that installation's
-  CMake and Ninja executables for Adapter builds.
-- The Builder now uses its saved Skyrim install path to locate the Papyrus compiler, with environment
-  and standard Steam paths as fallbacks.
 - The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast when a required
   `clientId` cannot be resolved, instead of proceeding silently.
 - The app no longer keeps observing a stale connection status after its session is invalidated.
