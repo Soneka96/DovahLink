@@ -41,7 +41,7 @@ public sealed class AdapterHostBuildCoordinatorTests
             command => Assert.Equal(Path.Combine(temporaryDirectory.Path, "adapter"), command.WorkingDirectory));
 
         string adapterBuildOutputRoot = Path.Combine(temporaryDirectory.Path, "adapter", "build", "windows-x64-release");
-        Assert.Equal("dumpbin.exe", runner.Commands[3].ExecutablePath);
+        Assert.Equal(runner.DumpbinPath, runner.Commands[3].ExecutablePath);
         Assert.Equal(["/DEPENDENTS", Path.Combine(adapterBuildOutputRoot, "dovahlink_adapter_plugin.dll")], runner.Commands[3].Arguments);
         Assert.Equal(configuredPapyrusToolchain.CompilerPath, runner.Commands[4].ExecutablePath);
         Assert.Equal(
@@ -153,7 +153,7 @@ public sealed class AdapterHostBuildCoordinatorTests
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
 
         Assert.Contains(dependency, exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("dumpbin.exe", runner.Commands[^1].ExecutablePath);
+        Assert.Equal(runner.DumpbinPath, runner.Commands[^1].ExecutablePath);
         Assert.DoesNotContain(runner.Commands, command => string.Equals(command.ExecutablePath, "python", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -174,7 +174,28 @@ public sealed class AdapterHostBuildCoordinatorTests
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
 
         Assert.Contains("dumpbin", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("dumpbin.exe", runner.Commands[^1].ExecutablePath);
+        Assert.Equal(runner.DumpbinPath, runner.Commands[^1].ExecutablePath);
+        Assert.DoesNotContain(runner.Commands, command => string.Equals(command.ExecutablePath, "python", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Stops the build before Papyrus when dumpbin cannot be resolved from the imported environment.</summary>
+    [Fact]
+    public async Task FailsBeforePapyrusAndPackagingWhenDumpbinCannotBeResolved()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var runner = new FakeCommandRunner { ProvideDumpbin = false };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path)));
+
+        Assert.Contains("dumpbin", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, runner.Commands.Count);
         Assert.DoesNotContain(runner.Commands, command => string.Equals(command.ExecutablePath, "python", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -1028,6 +1049,12 @@ public sealed class AdapterHostBuildCoordinatorTests
         /// <summary>Gets the ordered commands supplied to the runner.</summary>
         public List<BuildCommand> Commands { get; } = [];
 
+        /// <summary>Gets the fake dependency-inspection executable exposed through the imported environment.</summary>
+        public string? DumpbinPath { get; private set; }
+
+        /// <summary>Gets whether the fake imported environment exposes a usable dependency-inspection executable.</summary>
+        public bool ProvideDumpbin { get; init; } = true;
+
         /// <summary>Records the command invocation and emits fake build, dependency, or packaging output.</summary>
         public Task<int> RunAsync(
             BuildCommand command,
@@ -1037,7 +1064,7 @@ public sealed class AdapterHostBuildCoordinatorTests
         {
             int invocation = Commands.Count;
             Commands.Add(command);
-            if (string.Equals(command.ExecutablePath, "dumpbin.exe", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(Path.GetFileName(command.ExecutablePath), "dumpbin.exe", StringComparison.OrdinalIgnoreCase))
             {
                 foreach (string line in DependencyOutput)
                 {
@@ -1058,7 +1085,14 @@ public sealed class AdapterHostBuildCoordinatorTests
             }
             else if (command.ExecutablePath.EndsWith("cmd.exe", StringComparison.OrdinalIgnoreCase))
             {
-                onStandardOutput?.Invoke(@"PATH=C:\Visual Studio\bin");
+                string dumpbinDirectory = Path.Combine(command.WorkingDirectory, "DovahLinkTestTools");
+                DumpbinPath = Path.Combine(dumpbinDirectory, "dumpbin.exe");
+                if (ProvideDumpbin)
+                {
+                    Directory.CreateDirectory(dumpbinDirectory);
+                    File.WriteAllText(DumpbinPath, "fake dumpbin executable");
+                }
+                onStandardOutput?.Invoke($"PATH={dumpbinDirectory}");
                 onStandardOutput?.Invoke("VSCMD_ARG_TGT_ARCH=x64");
             }
             else
