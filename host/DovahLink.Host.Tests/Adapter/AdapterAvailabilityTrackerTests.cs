@@ -1165,6 +1165,21 @@ public class ResynchronizationTransactionCoordinatorTests
     /// the other axis of "newer": a strictly newer connection generation (an adapter reconnect),
     /// rather than a newer play-context generation on the same connection.
     /// </summary>
+    /// <remarks>
+    /// Supersedes generation 1 with no delay after arming it: <see cref="ResynchronizationTransactionCoordinator.AcquireToken"/>
+    /// cancels the superseded watchdog's <see cref="CancellationTokenSource"/> synchronously, inside
+    /// the same call stack as the superseding call, so this does not depend on any elapsed real time
+    /// -- only on the supersession happening before generation 1's own deadline, which a same-thread,
+    /// no-await second call trivially satisfies regardless of scheduler load. The previous version
+    /// instead separated the two calls with a fixed <c>Task.Delay(200)</c> and asserted "no recovery
+    /// yet" at a fixed absolute offset between generation 1's and generation 2's deadlines -- under
+    /// Windows/CI scheduler jitter, that <c>Task.Delay(200)</c> could itself run long enough for
+    /// generation 1's real 300ms watchdog to have already elapsed and recorded a recovery before the
+    /// test ever superseded it, which is exactly the observed CI failure (expected <c>[2]</c>, actual
+    /// <c>[]</c> once the erroneous generation-1 entry was asserted away). Asserting only the final
+    /// state after a bounded wait for generation 2's own eventual recovery removes that window
+    /// entirely.
+    /// </remarks>
     [Fact]
     public async Task NewerConnectionGeneration_CancelsOldWatchdog_DoesNotRecoverNewerTransaction()
     {
@@ -1172,23 +1187,19 @@ public class ResynchronizationTransactionCoordinatorTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         Connect(tracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
-        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
+        var coordinator = CreateCoordinator(LiveStateCatalog.Default, tracker, continuityRecovery, TimeSpan.FromMilliseconds(50));
         PlayContextId context = PlayContextId.NewId();
 
-        coordinator.AcquireToken(instanceId, 1, context, 1); // Arms generation 1's watchdog (due at t=300ms).
-
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        coordinator.AcquireToken(instanceId, 1, context, 1); // Arms generation 1's watchdog (due in 50ms).
         Connect(tracker, instanceId, 2); // Simulates the adapter reconnecting on a new generation.
-        coordinator.AcquireToken(instanceId, 2, context, 1); // Supersedes generation 1; arms generation 2's own watchdog (due at t=500ms).
+        coordinator.AcquireToken(instanceId, 2, context, 1); // Supersedes generation 1 immediately, before its watchdog can elapse.
 
-        // t=400ms: roughly 100ms past generation 1's own deadline (t=300ms) and roughly 100ms before
-        // generation 2's own deadline (t=500ms) -- the same wide margin as
-        // NewerPlayContextTransaction_CancelsOldWatchdog_DoesNotRecoverNewerTransaction.
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
-        Assert.Empty(continuityRecovery.RecoveryRequests);
+        // Generation 2 never completed, so it must still fire on its own bound, proving the newer
+        // generation was never left without one of its own.
+        await WaitUntilAsync(() => continuityRecovery.RecoveryRequests.Count > 0);
 
-        // t=600ms: roughly 100ms past generation 2's own independent deadline (t=500ms).
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        // Exactly one recovery, ever, and for generation 2: had generation 1's watchdog not truly
+        // been cancelled, it would have independently elapsed and appended its own entry by now.
         Assert.Equal([2L], continuityRecovery.RecoveryRequests);
     }
 

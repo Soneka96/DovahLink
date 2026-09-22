@@ -669,11 +669,26 @@ public class PlayContextResynchronizationTriggerTests
     /// reached it -- leaving A's own watchdog free to expire and recover the connection context B now
     /// owns. With the fix, a real transition from A to B supersedes A immediately: A's watchdog can
     /// never fire, even though no capture for B ever arrives at the coordinator, while B still gets
-    /// its own live, independent watchdog. Uses a wide 300ms timeout with a 200ms supersession offset
-    /// so the no-recovery check sits comfortably (100ms) on both sides of A's and B's deadlines, rather
-    /// than the narrow ~40ms margin that was flaky on Windows/CI scheduling, and polls for B's eventual
-    /// recovery instead of assuming a fixed delay proves its timer continuation has already run.
+    /// its own live, independent watchdog.
     /// </summary>
+    /// <remarks>
+    /// Notifies B with no delay after A: superseding a tracked transaction cancels the previous
+    /// watchdog's <see cref="CancellationTokenSource"/> synchronously, inside the same call stack as
+    /// <see cref="FakePlayContextTracker.NotifyTransition"/> -- it does not depend on any elapsed real
+    /// time, only on the supersession call happening before the watchdog's own deadline, which a
+    /// same-thread, no-await second call trivially satisfies regardless of scheduler load. The
+    /// previous version instead separated the two notifications with a fixed
+    /// <c>Task.Delay(200)</c> and asserted "no recovery yet" at a fixed absolute offset chosen to
+    /// sit between A's and B's deadlines -- under Windows/CI scheduler jitter, that
+    /// <c>Task.Delay(200)</c> could itself run long enough for A's real 300ms watchdog to have
+    /// already elapsed and recorded a recovery before the test ever called
+    /// <see cref="FakePlayContextTracker.NotifyTransition"/> for B, which is exactly the observed CI
+    /// failure (<c>Assert.Empty()</c> seeing <c>[1]</c>). Asserting only the final state after a
+    /// bounded wait for B's own eventual recovery removes that window entirely: the short watchdog
+    /// timeout below only needs to be large enough for the immediate, same-thread supersession to
+    /// consistently land before it -- not to carve out a race-free gap between two wall-clock
+    /// deadlines.
+    /// </remarks>
     [Fact]
     public async Task HandleTransition_SupersedesTrackedCoordinatorTransaction_OldWatchdogCannotRecoverNewerContext()
     {
@@ -683,25 +698,21 @@ public class PlayContextResynchronizationTriggerTests
         Connect(availabilityTracker, instanceId, 1);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
         var coordinator = new ResynchronizationTransactionCoordinator(
-            LiveStateCatalog.Default, availabilityTracker, continuityRecovery, TimeSpan.FromMilliseconds(300));
+            LiveStateCatalog.Default, availabilityTracker, continuityRecovery, TimeSpan.FromMilliseconds(50));
         var listener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendResynchronizeRequestResult = true };
         listener.CurrentConnection = connection;
         _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, coordinator);
 
-        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context A: arms its own 300ms watchdog.
+        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context A: arms its own 50ms watchdog.
+        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context B: supersedes A immediately, before A's watchdog can elapse.
 
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
-        playContextTracker.NotifyTransition(PlayContextId.NewId()); // Context B: supersedes A immediately.
-
-        // Past A's original 300ms deadline (measured from t=0), but 100ms before B's own fresh 300ms
-        // deadline (measured from t=200, due at t=500ms). No capture for B ever reached the coordinator.
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
-        Assert.Empty(continuityRecovery.RecoveryRequests);
-
-        // Past B's own independent deadline: B never completed, so it must still fire on its own
-        // bound, proving the trigger armed a real watchdog for B rather than leaving it unbounded.
+        // B never completed, so it must still fire on its own bound, proving the trigger armed a
+        // real watchdog for B rather than leaving it unbounded.
         await WaitUntilAsync(() => continuityRecovery.RecoveryRequests.Count > 0);
+
+        // Exactly one recovery, ever: had A's watchdog not truly been cancelled, it would have
+        // independently elapsed and appended its own entry by the time B's has fired.
         Assert.Equal([1L], continuityRecovery.RecoveryRequests);
     }
 
