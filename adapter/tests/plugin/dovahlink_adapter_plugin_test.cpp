@@ -129,9 +129,7 @@ TEST_CASE("the adapter plugin ends the play context on kPreLoadGame, never "
         source.find("message->type==SKSE::MessagingInterface::kPreLoadGame");
     REQUIRE(preLoadGameCheck != std::string::npos);
 
-    //  MainMenuOpenedSink's own ProcessEvent also calls SendPlayContextEnded
-    //  earlier in the file; search from kPreLoadGame's own check so this
-    //  finds the call it actually guards, not that unrelated one.
+    //  Search from kPreLoadGame's own check to find the call it guards.
     std::string endedCall = NormalizeWhitespace("SendPlayContextEnded();");
     std::size_t sendPlayContextEnded =
         source.find(endedCall, preLoadGameCheck);
@@ -156,13 +154,42 @@ TEST_CASE("MainMenuOpenedSink only ends the play context for an opening "
     //  rationale for the same reason), so this pins the guard condition as a
     //  source-text invariant instead of a runtime assertion against a real
     //  RE::MenuOpenCloseEvent.
-    std::string source = NormalizeWhitespace(
-        ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE));
+    const std::filesystem::path sourcePath =
+        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) /
+        "plugin/commonlib_adapter_main_menu_sink.cpp";
+    std::string source = NormalizeWhitespace(ReadSource(sourcePath));
 
     CHECK(source.find(NormalizeWhitespace(
               "if (event != nullptr && event->opening &&"
-              "event->menuName == RE::MainMenu::MENU_NAME) {")) !=
+              "event->menuName == RE::MainMenu::MENU_NAME) { "
+              "session_.SendPlayContextEnded(); } "
+              "return RE::BSEventNotifyControl::kContinue;")) !=
           std::string::npos);
+}
+
+TEST_CASE("MainMenuOpenedSink keeps SKSE and Skyrim includes before its own headers",
+          "[plugin][structural]") {
+    const std::filesystem::path sourcePath =
+        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) /
+        "plugin/commonlib_adapter_main_menu_sink.cpp";
+    const std::filesystem::path headerPath =
+        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) /
+        "plugin/commonlib_adapter_main_menu_sink.hpp";
+    std::string source = ReadSource(sourcePath);
+    std::string header = ReadSource(headerPath);
+
+    std::size_t skseInclude = source.find("#include \"SKSE/SKSE.h\"");
+    std::size_t skyrimInclude = source.find("#include \"RE/Skyrim.h\"");
+    std::size_t ownHeader =
+        source.find("#include \"plugin/commonlib_adapter_main_menu_sink.hpp\"");
+    std::size_t headerSkyrimInclude = header.find("#include \"RE/Skyrim.h\"");
+
+    REQUIRE(skseInclude != std::string::npos);
+    REQUIRE(skyrimInclude != std::string::npos);
+    REQUIRE(ownHeader != std::string::npos);
+    REQUIRE(headerSkyrimInclude != std::string::npos);
+    CHECK(skseInclude < skyrimInclude);
+    CHECK(skyrimInclude < ownHeader);
 }
 
 TEST_CASE("the adapter plugin calls SKSE::Init before registering the "

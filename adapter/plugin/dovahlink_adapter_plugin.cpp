@@ -25,6 +25,7 @@
 #include "papyrus/commonlib_adapter_trust_admin_papyrus_adapter.hpp"
 #include "plugin/adapter_runtime.hpp"
 #include "plugin/adapter_startup_context.hpp"
+#include "plugin/commonlib_adapter_main_menu_sink.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
 #include "process/adapter_host_shutdown_requester.hpp"
 #include "process/adapter_owner_lifetime_id.hpp"
@@ -95,40 +96,6 @@ void EmitStartupFailure(const char* stage, const char* detail) noexcept {
         //  output above must remain the last-resort diagnostic path.
     }
 }
-
-//  TODO(stage4-file-extraction): Move MainMenuOpenedSink to its own
-//  plugin/commonlib_adapter_main_menu_sink.hpp/.cpp in the post-Stage-4
-//  structural cleanup PR. Temporarily colocated here to hold this PR's
-//  changed-file count down; extraction only, no behavior change.
-///  Detects a return to Skyrim's main menu via the standard CommonLib
-///  `RE::MenuOpenCloseEvent` signal: SKSE's own `MessagingInterface` has no
-///  dedicated message type for it (`kPreLoadGame` fires only for a save
-///  load/new game, not a return to the main menu). Registered once at
-///  `SKSEPluginLoad` and never destroyed, matching every other
-///  process-lifetime allocation there.
-class MainMenuOpenedSink final
-    : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
-  public:
-    ///  @param session Notified with `SendPlayContextEnded` every time the
-    ///  main menu opens.
-    explicit MainMenuOpenedSink(dovahlink::adapter::ipc::IAdapterIpcSession& session)
-        : session_(session) {}
-
-    ///  @copydoc RE::BSTEventSink::ProcessEvent
-    RE::BSEventNotifyControl
-    ProcessEvent(const RE::MenuOpenCloseEvent* event,
-                 RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override {
-        if (event != nullptr && event->opening &&
-            event->menuName == RE::MainMenu::MENU_NAME) {
-            session_.SendPlayContextEnded();
-        }
-        return RE::BSEventNotifyControl::kContinue;
-    }
-
-  private:
-    ///  Notified with `SendPlayContextEnded` every time the main menu opens.
-    dovahlink::adapter::ipc::IAdapterIpcSession& session_;
-};
 
 ///  Resolves the packaged host executable's path relative to this adapter
 ///  plugin DLL's own installed directory -- only the loaded plugin binary
@@ -377,7 +344,7 @@ SKSEPluginInfo(
     startupStage = "Main menu event sink registration";
     EmitStartupMarker(startupStage);
     static auto* mainMenuOpenedSink =
-        new MainMenuOpenedSink(runtime->Session());
+        new dovahlink::adapter::plugin::MainMenuOpenedSink(runtime->Session());
     RE::UI::GetSingleton()->AddEventSink(mainMenuOpenedSink);
 
     //  SKSE-QUIRK: see
