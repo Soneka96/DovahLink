@@ -25,9 +25,9 @@ struct RuntimeVersion {
 };
 
 ///  Supported Skyrim runtime version for plugin initialization.
-inline constexpr RuntimeVersion kSupportedSkyrimVersion{1, 6, 1170, 0};
+inline constexpr RuntimeVersion kSupportedSkyrimVersion{1, 7, 104, 0};
 ///  Supported SKSE runtime version for plugin initialization.
-inline constexpr RuntimeVersion kSupportedSkseVersion{2, 2, 6, 0};
+inline constexpr RuntimeVersion kSupportedSkseVersion{2, 3, 1, 0};
 
 ///  Returns whether the current Windows runtime meets the Adapter's minimum
 ///  OS requirement.

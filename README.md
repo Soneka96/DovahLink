@@ -32,8 +32,8 @@ That historical baseline provided:
 - Clear handling for unsupported runtimes and failed connections
 - A Vortex-ready installation package
 
-The current development target supports Steam Skyrim Special Edition `1.6.1170` with SKSE64
-`2.2.6`. The companion client is developed in this repository but is not included in a supported
+The current development target supports Steam Skyrim Special Edition `1.7.104` with SKSE64
+`2.3.1`. The companion client is developed in this repository but is not included in a supported
 public release yet.
 
 ## Planned direction

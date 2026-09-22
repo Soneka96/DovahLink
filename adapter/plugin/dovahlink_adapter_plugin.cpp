@@ -149,7 +149,7 @@ SKSEPluginInfo(
         .Author = "Soneka96"sv, .SupportEmail = ""sv,
         .StructCompatibility = SKSE::StructCompatibility::Independent,
         .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary,
-        .MinimumSKSEVersion = REL::Version{2, 2, 6, 0})
+        .MinimumSKSEVersion = REL::Version{2, 3, 1, 0})
 
     ///  Initializes the adapter plugin and schedules the private IPC connection
     ///  to start after game data loads.
