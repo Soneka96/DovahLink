@@ -18,6 +18,13 @@ namespace {
 //  exposes REL::safe_fill/safe_write free functions where that reference's
 //  CommonLibSSE fork exposes Relocation::write_fill/write member functions
 //  instead.
+//
+//  Known limitation: these IDs and the REL::Module::IsAE() byte-size branch
+//  below were verified against the runtime this Adapter targeted before its
+//  1.7.104 bump (see ai/context/skse/testing.md's "Manual verification" for
+//  the pending recheck); the upstream reference project itself needed a
+//  runtime-specific fix around the same 1.7.104 update, so this offset is not
+//  assumed to still be correct until re-verified in a real 1.7.104 session.
 constexpr std::uint64_t kAchievementFunctionSeId = 13647;
 constexpr std::uint64_t kAchievementFunctionAeId = 441528;
 
