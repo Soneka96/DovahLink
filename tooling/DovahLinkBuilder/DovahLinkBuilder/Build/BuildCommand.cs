@@ -56,6 +56,22 @@ public sealed record BuildCommand(
         ];
     }
 
+    /// <summary>Creates the Visual Studio import-table inspection command for one built Adapter DLL.</summary>
+    /// <param name="adapterPluginPath">The Adapter DLL whose load-time dependencies must be inspected.</param>
+    /// <param name="environmentVariables">The imported Visual Studio environment used to resolve <c>dumpbin.exe</c>.</param>
+    /// <returns>A direct <c>dumpbin /DEPENDENTS</c> invocation.</returns>
+    public static BuildCommand CreateAdapterDependencyInspection(
+        string adapterPluginPath,
+        IReadOnlyDictionary<string, string> environmentVariables)
+    {
+        string fullPluginPath = Path.GetFullPath(adapterPluginPath);
+        return new BuildCommand(
+            "dumpbin.exe",
+            ["/DEPENDENTS", fullPluginPath],
+            Path.GetDirectoryName(fullPluginPath)!,
+            environmentVariables);
+    }
+
     /// <summary>Creates the direct Papyrus compiler command for one script.</summary>
     /// <param name="scriptPath">The path to the <c>.psc</c> source file to compile.</param>
     /// <param name="toolchain">The Papyrus toolchain to invoke.</param>

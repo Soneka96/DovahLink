@@ -144,6 +144,23 @@ public sealed class BuildCommandTests
         Assert.Equal(["/d", "/c", "call .\\vcvarsall.bat x64 >nul && set"], command.Arguments);
     }
 
+    /// <summary>Builds the direct dumpbin command used to reject dynamically imported Adapter runtimes.</summary>
+    [Fact]
+    public void BuildsTheAdapterDependencyInspectionCommand()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var environment = new Dictionary<string, string> { ["PATH"] = @"C:\Visual Studio\bin" };
+        string pluginPath = Path.Combine(temporaryDirectory.Path, "adapter", "..", "adapter", "dovahlink_adapter_plugin.dll");
+
+        BuildCommand command = BuildCommand.CreateAdapterDependencyInspection(pluginPath, environment);
+
+        string fullPluginPath = Path.GetFullPath(pluginPath);
+        Assert.Equal("dumpbin.exe", command.ExecutablePath);
+        Assert.Equal(["/DEPENDENTS", fullPluginPath], command.Arguments);
+        Assert.Equal(Path.GetDirectoryName(fullPluginPath), command.WorkingDirectory);
+        Assert.Same(environment, command.EnvironmentVariables);
+    }
+
     /// <summary>Parses environment values containing equals signs and replaces inherited vcpkg configuration.</summary>
     [Fact]
     public void CreatesTheCMakeEnvironmentFromVisualStudioOutput()

@@ -77,6 +77,9 @@ retaining the dynamic MSVC runtime and the existing linkage of other ports.
 The Builder configures these presets with a fresh CMake cache; the first build
 after a triplet change rebuilds the affected dependencies. Old dependency DLLs
 left in a build directory are not included in the generated package.
+Before packaging, the Builder also runs Visual Studio's `dumpbin.exe` against
+the built Adapter and stops with an actionable error if `fmt.dll` or `spdlog.dll`
+is still imported by the plugin.
 
 Address Library remains a separate mod-manager dependency and is not bundled
 in this archive. The Vortex “no source assigned” warning is expected for a

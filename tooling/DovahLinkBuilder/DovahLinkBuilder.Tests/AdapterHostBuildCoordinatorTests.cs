@@ -28,7 +28,7 @@ public sealed class AdapterHostBuildCoordinatorTests
             new AdapterHostBuildRequest(temporaryDirectory.Path));
 
         Assert.Equal(runner.ArchivePath, result.ArchivePath);
-        Assert.Equal(5, runner.Commands.Count);
+        Assert.Equal(6, runner.Commands.Count);
         Assert.EndsWith("cmd.exe", runner.Commands[0].ExecutablePath, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(visualStudioToolchain.CMakePath, runner.Commands[1].ExecutablePath);
         Assert.Equal(["--fresh", "--preset", "windows-x64-release", $"-DCMAKE_MAKE_PROGRAM={visualStudioToolchain.NinjaPath}"], runner.Commands[1].Arguments);
@@ -41,7 +41,9 @@ public sealed class AdapterHostBuildCoordinatorTests
             command => Assert.Equal(Path.Combine(temporaryDirectory.Path, "adapter"), command.WorkingDirectory));
 
         string adapterBuildOutputRoot = Path.Combine(temporaryDirectory.Path, "adapter", "build", "windows-x64-release");
-        Assert.Equal(configuredPapyrusToolchain.CompilerPath, runner.Commands[3].ExecutablePath);
+        Assert.Equal("dumpbin.exe", runner.Commands[3].ExecutablePath);
+        Assert.Equal(["/DEPENDENTS", Path.Combine(adapterBuildOutputRoot, "dovahlink_adapter_plugin.dll")], runner.Commands[3].Arguments);
+        Assert.Equal(configuredPapyrusToolchain.CompilerPath, runner.Commands[4].ExecutablePath);
         Assert.Equal(
             [
                 Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc"),
@@ -49,10 +51,10 @@ public sealed class AdapterHostBuildCoordinatorTests
                 $"-f={configuredPapyrusToolchain.FlagsFilePath}",
                 $"-o={adapterBuildOutputRoot}",
             ],
-            runner.Commands[3].Arguments);
+            runner.Commands[4].Arguments);
 
-        Assert.Equal("python", runner.Commands[4].ExecutablePath);
-        Assert.Equal(temporaryDirectory.Path, runner.Commands[4].WorkingDirectory);
+        Assert.Equal("python", runner.Commands[5].ExecutablePath);
+        Assert.Equal(temporaryDirectory.Path, runner.Commands[5].WorkingDirectory);
         Assert.Equal(
             [
                 "tooling/package_adapter_host.py",
@@ -63,15 +65,15 @@ public sealed class AdapterHostBuildCoordinatorTests
                 "--configuration", "Release",
                 "--profile-label", "release",
             ],
-            runner.Commands[4].Arguments);
+            runner.Commands[5].Arguments);
 
         string updatedInstallPath = Path.GetDirectoryName(Path.GetDirectoryName(updatedPapyrusToolchain.CompilerPath)!)!;
         skyrimInstallPathContext.SetSkyrimInstallPath(updatedInstallPath);
 
         await coordinator.BuildAsync(new AdapterHostBuildRequest(temporaryDirectory.Path));
 
-        Assert.Equal(10, runner.Commands.Count);
-        Assert.Equal(updatedPapyrusToolchain.CompilerPath, runner.Commands[8].ExecutablePath);
+        Assert.Equal(12, runner.Commands.Count);
+        Assert.Equal(updatedPapyrusToolchain.CompilerPath, runner.Commands[10].ExecutablePath);
     }
 
     /// <summary>Builds the Debug preset, uses the Debug adapter build directory, and keeps Debug output separate from Release's.</summary>
@@ -107,7 +109,7 @@ public sealed class AdapterHostBuildCoordinatorTests
                 "--configuration", "Debug",
                 "--profile-label", "debug",
             ],
-            runner.Commands[4].Arguments);
+            runner.Commands[5].Arguments);
     }
 
     /// <summary>Fails without invoking the packaging script when either direct CMake command returns an error.</summary>
@@ -132,9 +134,32 @@ public sealed class AdapterHostBuildCoordinatorTests
         Assert.Equal(failingInvocation + 1, runner.Commands.Count);
     }
 
-    /// <summary>Fails without invoking the packaging script when the Papyrus compile returns an error.</summary>
+    /// <summary>Rejects an Adapter binary that still imports either runtime DLL before Papyrus or packaging runs.</summary>
+    [Theory]
+    [InlineData("fmt.dll")]
+    [InlineData("spdlog.dll")]
+    public async Task FailsBeforePapyrusAndPackagingWhenAForbiddenAdapterDependencyIsImported(string dependency)
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var runner = new FakeCommandRunner { DependencyOutput = ["KERNEL32.dll", dependency] };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path)));
+
+        Assert.Contains(dependency, exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("dumpbin.exe", runner.Commands[^1].ExecutablePath);
+        Assert.DoesNotContain(runner.Commands, command => string.Equals(command.ExecutablePath, "python", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Stops the build when the import-table inspection tool itself fails.</summary>
     [Fact]
-    public async Task FailsWithoutPackagingWhenThePapyrusCompileFails()
+    public async Task FailsBeforePapyrusAndPackagingWhenDependencyInspectionFails()
     {
         using var temporaryDirectory = new TemporaryDirectory();
         Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
@@ -145,15 +170,17 @@ public sealed class AdapterHostBuildCoordinatorTests
             () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
             new BuildOutputOwnershipGuard());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
 
-        Assert.Equal(4, runner.Commands.Count);
+        Assert.Contains("dumpbin", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("dumpbin.exe", runner.Commands[^1].ExecutablePath);
+        Assert.DoesNotContain(runner.Commands, command => string.Equals(command.ExecutablePath, "python", StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Fails when the packaging script exits with a nonzero status.</summary>
+    /// <summary>Fails without invoking the packaging script when the Papyrus compile returns an error.</summary>
     [Fact]
-    public async Task FailsWhenThePackagingScriptFails()
+    public async Task FailsWithoutPackagingWhenThePapyrusCompileFails()
     {
         using var temporaryDirectory = new TemporaryDirectory();
         Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
@@ -164,11 +191,30 @@ public sealed class AdapterHostBuildCoordinatorTests
             () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
             new BuildOutputOwnershipGuard());
 
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
+            new AdapterHostBuildRequest(temporaryDirectory.Path)));
+
+        Assert.Equal(5, runner.Commands.Count);
+    }
+
+    /// <summary>Fails when the packaging script exits with a nonzero status.</summary>
+    [Fact]
+    public async Task FailsWhenThePackagingScriptFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
+        var runner = new FakeCommandRunner { FailingInvocation = 5 };
+        var coordinator = new AdapterHostBuildCoordinator(
+            runner,
+            () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
+            () => Fixtures.BuildPapyrusToolchain(temporaryDirectory.Path),
+            new BuildOutputOwnershipGuard());
+
         InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(
             new AdapterHostBuildRequest(temporaryDirectory.Path)));
 
         Assert.Contains("packaging failed", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(5, runner.Commands.Count);
+        Assert.Equal(6, runner.Commands.Count);
     }
 
     /// <summary>Fails when the packaging script succeeds but never reports a written archive path.</summary>
@@ -653,7 +699,7 @@ public sealed class AdapterHostBuildCoordinatorTests
         using var temporaryDirectory = new TemporaryDirectory();
         Fixtures.CreateAdapterHostBuildInputs(temporaryDirectory.Path);
         var stageEvents = new List<BuildStageEvent>();
-        var runner = new FakeCommandRunner { FailingInvocation = 3 };
+        var runner = new FakeCommandRunner { FailingInvocation = 4 };
         var coordinator = new AdapterHostBuildCoordinator(
             runner,
             () => Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path),
@@ -723,7 +769,7 @@ public sealed class AdapterHostBuildCoordinatorTests
         var stageEvents = new List<BuildStageEvent>();
         var runner = new FakeCommandRunner
         {
-            CancelledInvocation = 4,
+            CancelledInvocation = 5,
             AdditionalPackagingOutputLines = ["##stage host_publish start"],
         };
         var coordinator = new AdapterHostBuildCoordinator(
@@ -761,7 +807,7 @@ public sealed class AdapterHostBuildCoordinatorTests
         var stageEvents = new List<BuildStageEvent>();
         var runner = new FakeCommandRunner
         {
-            CancelledInvocation = 4,
+            CancelledInvocation = 5,
             AdditionalPackagingOutputLines =
             [
                 "##stage host_publish start",
@@ -883,7 +929,7 @@ public sealed class AdapterHostBuildCoordinatorTests
         var stageEvents = new List<BuildStageEvent>();
         var runner = new FakeCommandRunner
         {
-            FailingInvocation = 4,
+            FailingInvocation = 5,
             AdditionalPackagingOutputLines = ["##stage host_publish start"],
         };
         var coordinator = new AdapterHostBuildCoordinator(
@@ -935,7 +981,7 @@ public sealed class AdapterHostBuildCoordinatorTests
                 "--configuration", "Release",
                 "--profile-label", "release",
             ],
-            runner.Commands[4].Arguments);
+            runner.Commands[5].Arguments);
         Assert.True(Directory.Exists(outputOverride));
     }
 
@@ -976,10 +1022,13 @@ public sealed class AdapterHostBuildCoordinatorTests
         /// <summary>Gets extra stdout lines the fake packaging invocation emits before its own archive-path line.</summary>
         public IReadOnlyList<string> AdditionalPackagingOutputLines { get; init; } = [];
 
+        /// <summary>Gets dependency lines emitted by the fake <c>dumpbin.exe</c> invocation.</summary>
+        public IReadOnlyList<string> DependencyOutput { get; init; } = ["KERNEL32.dll"];
+
         /// <summary>Gets the ordered commands supplied to the runner.</summary>
         public List<BuildCommand> Commands { get; } = [];
 
-        /// <summary>Records the command invocation and emits fake build or packaging output.</summary>
+        /// <summary>Records the command invocation and emits fake build, dependency, or packaging output.</summary>
         public Task<int> RunAsync(
             BuildCommand command,
             Action<string>? onStandardOutput,
@@ -988,13 +1037,14 @@ public sealed class AdapterHostBuildCoordinatorTests
         {
             int invocation = Commands.Count;
             Commands.Add(command);
-            int invocationWithinBuild = invocation % 5;
-            if (invocationWithinBuild == 0)
+            if (string.Equals(command.ExecutablePath, "dumpbin.exe", StringComparison.OrdinalIgnoreCase))
             {
-                onStandardOutput?.Invoke(@"PATH=C:\Visual Studio\bin");
-                onStandardOutput?.Invoke("VSCMD_ARG_TGT_ARCH=x64");
+                foreach (string line in DependencyOutput)
+                {
+                    onStandardOutput?.Invoke(line);
+                }
             }
-            else if (invocationWithinBuild == 4)
+            else if (string.Equals(command.ExecutablePath, "python", StringComparison.OrdinalIgnoreCase))
             {
                 onStandardOutput?.Invoke("fake packaging output");
                 foreach (string line in AdditionalPackagingOutputLines)
@@ -1005,6 +1055,11 @@ public sealed class AdapterHostBuildCoordinatorTests
                 {
                     onStandardOutput?.Invoke($"Wrote {ArchivePath}");
                 }
+            }
+            else if (command.ExecutablePath.EndsWith("cmd.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                onStandardOutput?.Invoke(@"PATH=C:\Visual Studio\bin");
+                onStandardOutput?.Invoke("VSCMD_ARG_TGT_ARCH=x64");
             }
             else
             {
