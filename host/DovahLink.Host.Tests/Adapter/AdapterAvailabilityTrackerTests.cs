@@ -607,5 +607,3 @@ public class AdapterAvailabilityTrackerTests
     {
     }
 }
-
-// colocated with the sibling adapter-availability test to hold this PR's

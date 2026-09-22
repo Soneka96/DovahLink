@@ -427,7 +427,3 @@ public class AdapterIpcListenerTests
         }
     }
 }
-
-// PlayContextResynchronizationTriggerTests to their own files in the
-
-// LiveCaptureSinkTests back to their own files in the post-Stage-4
