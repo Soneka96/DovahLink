@@ -183,12 +183,15 @@ public sealed class ProcessCommandRunnerTests
         string pidPath = Path.Combine(temporaryDirectory.Path, "child-pid.txt");
         string startedPath = Path.Combine(temporaryDirectory.Path, "child-started.txt");
         string sentinelPath = Path.Combine(temporaryDirectory.Path, "child-sentinel.txt");
+        string goPath = Path.Combine(temporaryDirectory.Path, "child-go.txt");
         string batchPath = Path.Combine(temporaryDirectory.Path, "child-tree.bat");
         File.WriteAllText(
             batchPath,
             "@echo off\n" +
+            $"echo started > \"{startedPath}\"\n" +
+            ":wait\n" +
+            $"if not exist \"{goPath}\" goto wait\n" +
             "start \"\" /b powershell.exe -NoProfile -Command \"Set-Content -LiteralPath 'child-pid.txt' -Value $PID; " +
-            "Set-Content -LiteralPath 'child-started.txt' -Value started; " +
             "Start-Sleep -Milliseconds 500; " +
             "Set-Content -LiteralPath 'child-sentinel.txt' -Value orphan\"\n" +
             "ping -n 30 127.0.0.1 >nul\n");
@@ -197,8 +200,14 @@ public sealed class ProcessCommandRunnerTests
             ["/d", "/c", $".\\{Path.GetFileName(batchPath)}"],
             temporaryDirectory.Path,
             new Dictionary<string, string> { ["NoDefaultCurrentDirectoryInExePath"] = "1" });
+        var jobAssigned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new ProcessCommandRunner(
+            process => process.Kill(entireProcessTree: true),
+            () => new SignalingProcessTreeJob(new ProcessTreeJob(), jobAssigned));
         using var cancellation = new CancellationTokenSource();
-        Task<int> runTask = new ProcessCommandRunner().RunAsync(command, null, null, cancellation.Token);
+        Task<int> runTask = runner.RunAsync(command, null, null, cancellation.Token);
+        await jobAssigned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        File.WriteAllText(goPath, string.Empty);
         DateTime startDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (!File.Exists(startedPath) && DateTime.UtcNow < startDeadline)
         {
@@ -527,5 +536,42 @@ public sealed class ProcessCommandRunnerTests
 
         /// <inheritdoc/>
         public void Dispose() => Disposed = true;
+    }
+
+    /// <summary>Signals a test after a real process has been assigned to its tracking job.</summary>
+    private sealed class SignalingProcessTreeJob : IProcessTreeJob
+    {
+        /// <summary>The real process-tree job delegated to by this test seam.</summary>
+        private readonly IProcessTreeJob innerJob;
+
+        /// <summary>The signal completed after <see cref="Assign"/> succeeds.</summary>
+        private readonly TaskCompletionSource<bool> assignedSignal;
+
+        /// <summary>Creates a job wrapper that signals after assignment succeeds.</summary>
+        /// <param name="innerJob">The real process-tree job that owns process membership.</param>
+        /// <param name="assignedSignal">The signal completed after the root process is assigned.</param>
+        public SignalingProcessTreeJob(
+            IProcessTreeJob innerJob,
+            TaskCompletionSource<bool> assignedSignal)
+        {
+            this.innerJob = innerJob;
+            this.assignedSignal = assignedSignal;
+        }
+
+        /// <inheritdoc/>
+        public void Assign(Process process)
+        {
+            innerJob.Assign(process);
+            assignedSignal.TrySetResult(true);
+        }
+
+        /// <inheritdoc/>
+        public bool HasActiveProcesses() => innerJob.HasActiveProcesses();
+
+        /// <inheritdoc/>
+        public void Terminate() => innerJob.Terminate();
+
+        /// <inheritdoc/>
+        public void Dispose() => innerJob.Dispose();
     }
 }
