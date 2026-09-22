@@ -111,7 +111,7 @@ exists.
   `IAdapterPairingNotificationSink` (`ipc/adapter_pairing_notification_sink.hpp`, CommonLib-free)
   and `CommonLibAdapterPairingNotificationSink`
   (`ipc/commonlib_adapter_pairing_notification_sink.hpp`/`.cpp`, whose implementation calls
-  `RE::DebugNotification`) are one current instance of this split. `IAdapterTaskMarshaller`
+  `RE::SendHUDMessage::ShowHUDMessage`) are one current instance of this split. `IAdapterTaskMarshaller`
   (`runtime/adapter_task_marshaller.hpp`, CommonLib-free) and `CommonLibAdapterTaskMarshaller`
   (`runtime/commonlib_adapter_task_marshaller.hpp`/`.cpp`, compiled against SKSE's own task-interface
   mechanism) are the same shape for the same underlying reason and are this codebase's second
