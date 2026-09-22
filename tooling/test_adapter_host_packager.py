@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from adapter_host_packager import (
     ADAPTER_PLUGIN_NAME,
@@ -13,6 +14,7 @@ from adapter_host_packager import (
     PUBLISH_ARGS,
     AdapterHostPackager,
 )
+from test_adapter_import_validator import _build_pe
 
 
 class FakeProcessRunner:
@@ -96,7 +98,12 @@ class AssemblePackageTests(unittest.TestCase):
     def _build_valid_inputs(self, temp_dir: Path) -> tuple[Path, Path]:
         """Creates a valid adapter build directory and host publish directory under `temp_dir`."""
         adapter_build_dir = temp_dir / "adapter_build"
-        _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(
+            _build_pe(["kernel32.dll"])
+        )
 
         host_publish_dir = temp_dir / "host_publish"
         _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")
@@ -122,6 +129,82 @@ class AssemblePackageTests(unittest.TestCase):
             self.assertTrue(
                 (plugins_dir / "DovahLink.Host" / HOST_EXECUTABLE_NAME).is_file()
             )
+
+    def test_assemble_package_rejects_forbidden_import_before_removing_package(
+        self,
+    ) -> None:
+        """Rejects a forbidden Adapter import while preserving the existing package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(
+                _build_pe(["fmt.dll"])
+            )
+            package_dir = temp_dir / "package"
+            package_dir.mkdir()
+            sentinel = package_dir / "must-survive.txt"
+            sentinel.write_text("previous package", encoding="utf-8")
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with self.assertRaisesRegex(ValueError, "fmt.dll"):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "previous package")
+
+    def test_assemble_package_rejects_malformed_adapter_before_removing_package(
+        self,
+    ) -> None:
+        """Rejects a malformed Adapter while preserving the existing package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(b"not a PE")
+            package_dir = temp_dir / "package"
+            package_dir.mkdir()
+            sentinel = package_dir / "must-survive.txt"
+            sentinel.write_text("previous package", encoding="utf-8")
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with self.assertRaisesRegex(ValueError, "import table"):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "previous package")
+
+    def test_assemble_package_propagates_adapter_read_errors_before_removing_package(
+        self,
+    ) -> None:
+        """Propagates an unreadable Adapter error while preserving the existing package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            package_dir.mkdir()
+            sentinel = package_dir / "must-survive.txt"
+            sentinel.write_text("previous package", encoding="utf-8")
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with (
+                mock.patch(
+                    "adapter_host_packager.find_forbidden_adapter_dependency",
+                    side_effect=OSError("access denied"),
+                ),
+                self.assertRaisesRegex(OSError, "access denied"),
+            ):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "previous package")
 
     def test_assemble_package_excludes_stale_dependency_dlls(self) -> None:
         """Ignores old build DLLs and removes old packaged DLLs before archiving."""
@@ -441,7 +524,12 @@ class ValidatePackageTests(unittest.TestCase):
     def _build_valid_inputs(self, temp_dir: Path) -> tuple[Path, Path]:
         """Creates a valid adapter build directory and host publish directory under `temp_dir`."""
         adapter_build_dir = temp_dir / "adapter_build"
-        _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(
+            _build_pe(["kernel32.dll"])
+        )
 
         host_publish_dir = temp_dir / "host_publish"
         _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")

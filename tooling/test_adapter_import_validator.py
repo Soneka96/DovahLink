@@ -69,6 +69,9 @@ class AdapterImportValidatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             read_imported_dll_names(bytes(unsupported))
 
+        with self.assertRaises(ValueError):
+            read_imported_dll_names(_build_pe([""]))
+
         short_optional_header = bytearray(_build_pe([]))
         struct.pack_into("<H", short_optional_header, 0x94, 0x40)
         with self.assertRaises(ValueError):

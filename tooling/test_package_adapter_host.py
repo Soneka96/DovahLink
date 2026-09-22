@@ -25,12 +25,20 @@ from package_adapter_host import (
     parse_args,
     read_product_version,
 )
+from test_adapter_import_validator import _build_pe
 
 
 def _write_file(path: Path, content: str = "") -> None:
     """Creates `path`'s parent directories and writes `content` into it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _write_adapter_plugin(adapter_build_dir: Path) -> None:
+    """Writes a minimal valid Adapter PE fixture into `adapter_build_dir`."""
+    plugin_path = adapter_build_dir / ADAPTER_PLUGIN_NAME
+    plugin_path.parent.mkdir(parents=True, exist_ok=True)
+    plugin_path.write_bytes(_build_pe(["kernel32.dll"]))
 
 
 class ReadProductVersionTests(unittest.TestCase):
@@ -118,7 +126,7 @@ class PrintStageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
-            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            _write_adapter_plugin(adapter_build_dir)
             output_dir = temp_dir / "out"
 
             def fake_run(_self: object, args: list[str]) -> None:
@@ -160,7 +168,7 @@ class MainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
-            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            _write_adapter_plugin(adapter_build_dir)
             output_dir = temp_dir / "out"
 
             # SubprocessProcessRunner.run is the only real external side effect main() performs
@@ -220,7 +228,7 @@ class MainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
-            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            _write_adapter_plugin(adapter_build_dir)
             output_dir = temp_dir / "out"
 
             def fake_run(_self: object, args: list[str]) -> None:
@@ -256,7 +264,7 @@ class MainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
-            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            _write_adapter_plugin(adapter_build_dir)
             output_dir = temp_dir / "out"
 
             # publish_host "succeeds" without writing the Host executable, so the next stage
@@ -295,7 +303,7 @@ class MainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
-            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            _write_adapter_plugin(adapter_build_dir)
             output_dir = temp_dir / "out"
 
             def fake_run(_self: object, args: list[str]) -> None:
@@ -337,7 +345,7 @@ class OwnershipTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
-            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            _write_adapter_plugin(adapter_build_dir)
             output_dir = temp_dir / "unrelated-user-folder"
             unrelated_file = output_dir / "some-real-file.txt"
             _write_file(unrelated_file, "the user's own real data, not DovahLink's")
@@ -365,7 +373,7 @@ class OwnershipTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             adapter_build_dir = temp_dir / "adapter_build"
-            _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+            _write_adapter_plugin(adapter_build_dir)
             output_dir = temp_dir / "previously-owned-output"
             _write_file(output_dir / MARKER_FILE_NAME, "owned")
             _write_file(output_dir / "package" / "stale-from-last-run.txt", "stale")

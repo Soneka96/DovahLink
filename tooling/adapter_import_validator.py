@@ -215,7 +215,7 @@ def _rva_to_file_offset(
 def _read_c_string(data: bytes, offset: int, description: str) -> str:
     """Reads a null-terminated ASCII string from a checked file offset."""
     terminator = data.find(b"\0", offset)
-    if terminator < 0:
+    if terminator < 0 or terminator == offset:
         raise ValueError(f"{description} is not null-terminated")
     try:
         return data[offset:terminator].decode("ascii")

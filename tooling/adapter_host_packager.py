@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 
 from adapter_host_process_runner import IProcessRunner
+from adapter_import_validator import find_forbidden_adapter_dependency
 
 # ---- Publish strategy ----
 
@@ -108,7 +109,9 @@ class AdapterHostPackager:
             FileNotFoundError: The adapter plugin DLL, the published Host executable, or a supplied
                 console-admin file is missing. Every
                 source is validated before any existing `package_dir` content is removed, so a
-                valid previous package is never destroyed by a run that then fails.
+                valid previous package survives source-validation failures.
+            OSError: The Adapter plugin cannot be read for import validation.
+            ValueError: The Adapter plugin is malformed or imports a forbidden runtime DLL.
         """
         adapter_plugin = adapter_build_dir / ADAPTER_PLUGIN_NAME
         host_executable = host_publish_dir / HOST_EXECUTABLE_NAME
@@ -123,6 +126,18 @@ class AdapterHostPackager:
         if console_admin_yaml is not None and not console_admin_yaml.is_file():
             raise FileNotFoundError(
                 f"Console-admin YAML not found: {console_admin_yaml}"
+            )
+
+        try:
+            forbidden_dependency = find_forbidden_adapter_dependency(adapter_plugin)
+        except ValueError as error:
+            raise ValueError(
+                f"Could not validate the Adapter plugin import table: {adapter_plugin}"
+            ) from error
+        if forbidden_dependency is not None:
+            raise ValueError(
+                f"The Adapter still imports {forbidden_dependency}. Reconfigure with the "
+                "repository's static-linkage settings before packaging."
             )
 
         # A stale package_dir from a previous run could otherwise leave behind a file this run

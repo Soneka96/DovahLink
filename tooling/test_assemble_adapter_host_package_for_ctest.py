@@ -16,6 +16,7 @@ from assemble_adapter_host_package_for_ctest import (
     parse_args,
 )
 from build_output_ownership import MARKER_FILE_NAME
+from test_adapter_import_validator import _build_pe
 
 
 def _write_file(path: Path, content: str = "") -> None:
@@ -26,7 +27,9 @@ def _write_file(path: Path, content: str = "") -> None:
 
 def _write_adapter_build_dir(adapter_build_dir: Path) -> None:
     """Writes a stand-in adapter build containing only the plugin."""
-    _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
+    plugin_path = adapter_build_dir / ADAPTER_PLUGIN_NAME
+    plugin_path.parent.mkdir(parents=True, exist_ok=True)
+    plugin_path.write_bytes(_build_pe(["kernel32.dll"]))
 
 
 class ParseArgsTests(unittest.TestCase):
