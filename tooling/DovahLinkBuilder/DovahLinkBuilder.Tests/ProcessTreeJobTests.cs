@@ -125,15 +125,14 @@ public sealed class ProcessTreeJobTests
 
     /// <summary>Throws once every launch attempt fails to write the started marker within the retry budget.</summary>
     [Fact]
-    public async Task StartAndConfirmLaunchedAsyncThrowsWhenTheBatchNeverStarts()
+    public async Task StartAndConfirmLaunchedAsyncThrowsWhenTheBatchNeverSignalsStartup()
     {
         using var temporaryDirectory = new TemporaryDirectory();
         string startedPath = Path.Combine(temporaryDirectory.Path, "started");
         string batchPath = Path.Combine(temporaryDirectory.Path, "never-starts.bat");
-        // Deliberately never writes startedPath, standing in for every real launch attempt failing
-        // the same way a Defender-locked file would: the process exits without the retry loop's own
-        // success signal ever appearing.
-        File.WriteAllText(batchPath, "@echo off\nexit /b 1\n");
+        // Keep the child alive until the helper's startup deadline closes its Job Object. It never
+        // writes startedPath, so the test reaches retry exhaustion without racing job assignment.
+        File.WriteAllText(batchPath, "@echo off\n:wait\ntimeout /t 1 /nobreak >nul\ngoto wait\n");
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => StartAndConfirmLaunchedAsync(batchPath, startedPath));
@@ -142,10 +141,9 @@ public sealed class ProcessTreeJobTests
     /// <summary>
     /// Starts <paramref name="batchPath"/> assigned to a fresh job, retrying the launch a bounded
     /// number of times when <paramref name="startedPath"/> -- written by the batch's own first
-    /// line -- never appears. A missing marker means the batch failed to actually run (for example
-    /// a transient Windows Defender lock on the freshly-written file), not that it ran and found
-    /// nothing; conflating the two would let a launch failure masquerade as a real assertion
-    /// failure about job tracking.
+    /// line -- never appears. A missing marker means that attempt did not confirm startup; this can
+    /// reflect a launch failure (for example a transient Windows Defender lock) or a process that
+    /// runs without writing the marker.
     /// </summary>
     /// <param name="batchPath">The batch file to execute.</param>
     /// <param name="startedPath">The marker file the batch writes as its first action.</param>
