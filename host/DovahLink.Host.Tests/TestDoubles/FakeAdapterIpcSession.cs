@@ -23,6 +23,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The number of times <see cref="CommitHandshake"/> was called.</summary>
     public int CommitHandshakeCalls { get; private set; }
 
+    /// <summary>An optional callback invoked synchronously from <see cref="CommitHandshake"/>.</summary>
+    public Action? OnCommitHandshake { get; set; }
+
     /// <inheritdoc/>
     public long? ConnectionGeneration { get; set; }
 
@@ -111,6 +114,7 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     {
         LifecycleCalls.Add(nameof(CommitHandshake));
         CommitHandshakeCalls++;
+        OnCommitHandshake?.Invoke();
     }
 
     /// <inheritdoc/>

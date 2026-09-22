@@ -53,26 +53,48 @@ public class AdapterIpcConnectionTests
 
     // ---- Handshake and resynchronization, over a real connected stream pair ----
 
-    /// <summary>Verifies that a successful handshake sends only the acknowledgement until the Adapter reports its play context.</summary>
+    /// <summary>
+    /// Verifies that a successful handshake queues its acknowledgement before lease activation,
+    /// then writes it only after activation completes.
+    /// </summary>
     [Fact]
     public async Task RunAsync_ValidHello_SendsAckThenWaitsForPlayContextBeforeResynchronize()
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var codec = new IpcFrameCodec();
+        var blockingStream = new BlockingWriteStream(server, writeAfterRelease: true);
         var fakeSession = new FakeAdapterIpcSession
         {
             HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
             ResynchronizeRequest = new IpcResynchronizeRequestMessage(2),
+            ListenEventResult = new IpcListenEventMessage(2, 3),
         };
-        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        int commitHandshakeCallsWhenAckEncoded = -1;
+        int commitHandshakeCallsWhenAckWritten = -1;
+        var codec = new ConnectionInterceptingCodec
+        {
+            OnEncodingHelloAck = () => commitHandshakeCallsWhenAckEncoded = fakeSession.CommitHandshakeCalls,
+        };
+        blockingStream.OnWriteStarted = () => commitHandshakeCallsWhenAckWritten = fakeSession.CommitHandshakeCalls;
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        fakeSession.OnCommitHandshake = () => Assert.True(connection.TrySendListenEvent(3, out _));
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
 
         Task runTask = connection.RunAsync(CancellationToken.None);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, commitHandshakeCallsWhenAckEncoded);
+        Assert.Equal(1, commitHandshakeCallsWhenAckWritten);
+        Assert.Equal(1, fakeSession.CommitHandshakeCalls);
+
+        blockingStream.Release();
         IpcMessage ack = await ReadOneFrameAsync(client, codec);
+        IpcMessage availabilityFrame = await ReadOneFrameAsync(client, codec);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.IsType<IpcHelloAckMessage>(ack);
+        var listenEvent = Assert.IsType<IpcListenEventMessage>(availabilityFrame);
+        Assert.Equal(2UL, listenEvent.CorrelationId);
+        Assert.Equal(3U, listenEvent.EventKey);
         Assert.Single(fakeSession.HandshakeCalls);
         Assert.Equal(1, fakeSession.CommitHandshakeCalls);
         Assert.Equal(
@@ -308,19 +330,18 @@ public class AdapterIpcConnectionTests
         client.Dispose();
     }
 
-    /// <summary>Verifies that a full outbound queue can drain before handshake processing continues.</summary>
+    /// <summary>Verifies that a full pre-auth outbound queue prevents acknowledgement admission and handshake commitment.</summary>
     [Fact]
-    public async Task RunAsync_FullOutboundQueue_HandshakeCommitsAfterQueueDrains()
+    public async Task RunAsync_FullOutboundQueue_CannotQueueHelloAckWithoutCommittingHandshake()
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var blockingStream = new BlockingWriteStream(server);
         var codec = new IpcFrameCodec();
         var fakeSession = new FakeAdapterIpcSession
         {
             ListenEventResult = new IpcListenEventMessage(1, 1),
             HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
         };
-        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
 
         for (int index = 0; index < Constants.MaxIpcQueuedMessages; index++)
         {
@@ -328,14 +349,11 @@ public class AdapterIpcConnectionTests
         }
 
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
-        using var cancellation = new CancellationTokenSource();
-        Task runTask = connection.RunAsync(cancellation.Token);
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
-        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
-        cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask.WaitAsync(TimeSpan.FromSeconds(5)));
-
-        Assert.Equal(1, fakeSession.CommitHandshakeCalls);
+        Assert.Equal(0, fakeSession.CommitHandshakeCalls);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        Assert.Equal(0, await client.ReadAsync(new byte[1]).AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
         client.Dispose();
     }
 
@@ -752,7 +770,7 @@ public class AdapterIpcConnectionTests
     /// <summary>
     /// Verifies the fix for the deadline/write ordering race: a matching result processed at the
     /// earliest possible moment relative to admission -- deterministically forced via
-    /// <see cref="ResynchronizeInterceptingCodec"/> instead of a real hardware race -- must never leave
+    /// <see cref="ConnectionInterceptingCodec"/> instead of a real hardware race -- must never leave
     /// a stale deadline armed. Fails under the pre-fix ordering (deadline armed only after the write),
     /// where this same interception would find no deadline yet to cancel.
     /// </summary>
@@ -760,7 +778,7 @@ public class AdapterIpcConnectionTests
     public async Task TryEnqueueResynchronizeRequest_ResultProcessedBeforeWriteReturns_DeadlineNeverStaysArmed()
     {
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
-        var codec = new ResynchronizeInterceptingCodec();
+        var codec = new ConnectionInterceptingCodec();
         var fakeSession = new FakeAdapterIpcSession
         {
             ConnectionGeneration = 1,
@@ -790,7 +808,7 @@ public class AdapterIpcConnectionTests
     /// <summary>
     /// Verifies the "important concurrency requirement" the fix calls out: admission-failure cleanup
     /// must cancel only the exact deadline belonging to the failing request's own correlation id, never
-    /// a newer, already-superseding request's deadline. <see cref="ResynchronizeInterceptingCodec"/>
+    /// a newer, already-superseding request's deadline. <see cref="ConnectionInterceptingCodec"/>
     /// deterministically reproduces a request (correlation 3) superseding the one currently being
     /// admitted (correlation 2) in the instant between that request's own deadline being armed and its
     /// write being attempted -- the same window a genuinely concurrent supersession would use -- and
@@ -799,7 +817,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public void TryEnqueueResynchronizeRequest_SupersededDuringAdmission_AdmissionFailureDoesNotCancelNewerDeadline()
     {
-        var codec = new ResynchronizeInterceptingCodec();
+        var codec = new ConnectionInterceptingCodec();
         var fakeSession = new FakeAdapterIpcSession
         {
             ConnectionGeneration = 1,
@@ -2425,6 +2443,9 @@ public class AdapterIpcConnectionTests
         /// <summary>The stream whose reads and synchronous operations are delegated.</summary>
         private readonly Stream inner;
 
+        /// <summary>Whether a blocked write reaches the inner stream after release.</summary>
+        private readonly bool writeAfterRelease;
+
         /// <summary>Completes when an asynchronous write begins.</summary>
         private readonly TaskCompletionSource writeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -2440,14 +2461,19 @@ public class AdapterIpcConnectionTests
         /// <summary>Creates a wrapper around the connected server stream.</summary>
         /// <param name="inner">The connected stream whose reads are delegated.</param>
         /// <param name="writesBeforeBlocking">The number of initial writes to delegate before blocking.</param>
-        public BlockingWriteStream(Stream inner, int writesBeforeBlocking = 0)
+        /// <param name="writeAfterRelease">Whether a blocked write is forwarded after release.</param>
+        public BlockingWriteStream(Stream inner, int writesBeforeBlocking = 0, bool writeAfterRelease = false)
         {
             this.inner = inner;
             this.writesBeforeBlocking = writesBeforeBlocking;
+            this.writeAfterRelease = writeAfterRelease;
         }
 
         /// <summary>Gets a task that completes when the first write begins.</summary>
         public Task WriteStarted => writeStarted.Task;
+
+        /// <summary>Runs synchronously when the first blocked write begins.</summary>
+        public Action? OnWriteStarted { get; set; }
 
         /// <summary>Gets whether this stream has been disposed.</summary>
         public bool IsDisposed => Volatile.Read(ref disposed) != 0;
@@ -2498,8 +2524,20 @@ public class AdapterIpcConnectionTests
                 return inner.WriteAsync(buffer, cancellationToken);
             }
 
+            OnWriteStarted?.Invoke();
             writeStarted.TrySetResult();
-            return new ValueTask(writeRelease.Task);
+            return writeAfterRelease
+                ? WriteAfterReleaseAsync(buffer, cancellationToken)
+                : new ValueTask(writeRelease.Task);
+        }
+
+        /// <summary>Waits for release before forwarding the blocked write to the inner stream.</summary>
+        /// <param name="buffer">The bytes to forward after release.</param>
+        /// <param name="cancellationToken">The token used to cancel the pending write.</param>
+        private async ValueTask WriteAfterReleaseAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+        {
+            await writeRelease.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>Releases the blocked write so a failed test can clean up safely.</summary>
@@ -2597,17 +2635,14 @@ public class AdapterIpcConnectionTests
         }
     }
 
-    /// <summary>
-    /// A codec wrapper that synchronously invokes <see cref="OnEncodingResynchronizeRequest"/> exactly
-    /// when encoding an <see cref="IpcResynchronizeRequestMessage"/> -- the same point
-    /// <c>AdapterIpcConnection</c>'s admission path reaches between arming that request's deadline and
-    /// making it observable to the outbound writer. This lets a test deterministically force what
-    /// would otherwise be a nanosecond-wide hardware race, without adding any seam to production code.
-    /// </summary>
-    private sealed class ResynchronizeInterceptingCodec : IIpcFrameCodec
+    /// <summary>A codec wrapper that invokes test callbacks while encoding selected connection frames.</summary>
+    private sealed class ConnectionInterceptingCodec : IIpcFrameCodec
     {
         /// <summary>The real codec every call delegates to.</summary>
         private readonly IIpcFrameCodec inner = new IpcFrameCodec();
+
+        /// <summary>Invoked when a Hello acknowledgement is encoded.</summary>
+        public Action? OnEncodingHelloAck { get; set; }
 
         /// <summary>Invoked with a resynchronize request's correlation id immediately before it is encoded.</summary>
         public Action<ulong>? OnEncodingResynchronizeRequest { get; set; }
@@ -2615,7 +2650,11 @@ public class AdapterIpcConnectionTests
         /// <inheritdoc/>
         public byte[] Encode(IpcMessage message)
         {
-            if (message is IpcResynchronizeRequestMessage request)
+            if (message is IpcHelloAckMessage)
+            {
+                OnEncodingHelloAck?.Invoke();
+            }
+            else if (message is IpcResynchronizeRequestMessage request)
             {
                 OnEncodingResynchronizeRequest?.Invoke(request.CorrelationId);
             }

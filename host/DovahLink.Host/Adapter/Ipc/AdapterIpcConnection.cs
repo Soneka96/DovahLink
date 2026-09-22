@@ -204,13 +204,22 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, closeRequested.Token);
-        Task writerTask = WriterLoopAsync(ioCancellation);
+        var writerReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task writerTask = WriterLoopAsync(ioCancellation, writerReady.Task);
+        bool allowWriter = false;
         try
         {
-            bool handshakeAccepted = await HandshakeAsync(ioCancellation.Token).ConfigureAwait(false);
-            if (handshakeAccepted)
+            (bool accepted, bool responseQueued) = await HandshakeAsync(ioCancellation.Token).ConfigureAwait(false);
+            if (accepted)
             {
                 session.CommitHandshake();
+            }
+
+            allowWriter = responseQueued;
+            // The success acknowledgement is queued, but the writer stays gated through lease activation.
+            writerReady.TrySetResult(allowWriter);
+            if (accepted)
+            {
                 await ReadLoopAsync(ioCancellation.Token).ConfigureAwait(false);
             }
         }
@@ -220,6 +229,8 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
         finally
         {
+            // Ensure a writer waiting on an exceptional handshake path can never remain gated.
+            writerReady.TrySetResult(allowWriter);
             // Completed before HandleDisconnected so the outbound channel is already closed to new
             // writes once a subscriber could observe Unavailable(N): Channel<T> guarantees TryWrite
             // fails once TryComplete has run, so nothing sent during teardown can land in the channel.
@@ -594,8 +605,11 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// indefinitely.
     /// </summary>
     /// <param name="cancellationToken">The token used to stop waiting for the frame.</param>
-    /// <returns><see langword="true"/> when the handshake was accepted and the connection should proceed to serve frames.</returns>
-    private async Task<bool> HandshakeAsync(CancellationToken cancellationToken)
+    /// <returns>
+    /// <c>Accepted</c> is true when the peer passed Hello validation; <c>ResponseQueued</c> is true
+    /// when the handshake produced a response frame that the writer may drain.
+    /// </returns>
+    private async Task<(bool Accepted, bool ResponseQueued)> HandshakeAsync(CancellationToken cancellationToken)
     {
         using CancellationTokenSource handshakeDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         handshakeDeadline.CancelAfter(Constants.AdapterIpcHandshakeTimeout);
@@ -607,18 +621,17 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
         catch (OperationCanceledException) when (handshakeDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            return false;
+            return (false, false);
         }
 
         if (decodeResult is null)
         {
-            return false;
+            return (false, false);
         }
 
         if (decodeResult.FailureReason is not null)
         {
-            EnqueueOutcome(session.HandleDecodeFailure());
-            return false;
+            return (false, EnqueueOutcome(session.HandleDecodeFailure()));
         }
 
         if (decodeResult.Message is IpcHelloMessage hello)
@@ -626,14 +639,13 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             AdapterHandshakeResult result = session.Handshake(hello);
             if (!outbound.Writer.TryWrite(codec.Encode(result.AckMessage)))
             {
-                return false;
+                return (false, false);
             }
 
-            return result.Accepted;
+            return (result.Accepted, true);
         }
 
-        EnqueueOutcome(session.HandleFrame(decodeResult.Message!));
-        return false;
+        return (false, EnqueueOutcome(session.HandleFrame(decodeResult.Message!)));
     }
 
     /// <summary>Serves inbound frames after a successful handshake until the connection ends.</summary>
@@ -1009,12 +1021,16 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
     /// <summary>Encodes and enqueues every message in an outcome for the writer loop to send.</summary>
     /// <param name="outcome">The outcome whose messages to enqueue.</param>
-    private void EnqueueOutcome(AdapterIpcOutcome outcome)
+    /// <returns>Whether at least one response frame was queued.</returns>
+    private bool EnqueueOutcome(AdapterIpcOutcome outcome)
     {
+        bool enqueued = false;
         foreach (IpcMessage message in outcome.MessagesToSend)
         {
-            outbound.Writer.TryWrite(codec.Encode(message));
+            enqueued |= outbound.Writer.TryWrite(codec.Encode(message));
         }
+
+        return enqueued;
     }
 
     /// <summary>
@@ -1047,13 +1063,21 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
     /// <summary>
     /// Drains the outbound queue and writes each frame to the transport in order, until the queue is
-    /// completed. Tolerates transport faults by ending the loop rather than throwing, so a broken
-    /// peer connection cannot leave this task running or crash the caller awaiting it.
+    /// completed, after handshake processing has queued a response for the peer. Tolerates transport
+    /// faults by ending the loop rather than throwing, so a broken peer connection cannot leave this
+    /// task running or crash the caller awaiting it.
     /// </summary>
-    private async Task WriterLoopAsync(CancellationTokenSource ioCancellation)
+    /// <param name="ioCancellation">The cancellation source shared by both connection I/O loops.</param>
+    /// <param name="writerReady">Whether handshake processing queued a response frame to drain.</param>
+    private async Task WriterLoopAsync(CancellationTokenSource ioCancellation, Task<bool> writerReady)
     {
         try
         {
+            if (!await writerReady.ConfigureAwait(false))
+            {
+                return;
+            }
+
             await foreach (byte[] frame in outbound.Reader.ReadAllAsync(ioCancellation.Token).ConfigureAwait(false))
             {
                 try
