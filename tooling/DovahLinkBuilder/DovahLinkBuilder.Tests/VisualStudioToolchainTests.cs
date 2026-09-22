@@ -143,6 +143,34 @@ public sealed class VisualStudioToolchainTests
             VisualStudioToolchainLocator.Find([temporaryDirectory.Path]));
     }
 
+    /// <summary>Reports a compiler-only installation even when its bundled CMake, Ninja, and vcpkg are all missing.</summary>
+    [Fact]
+    public void FindCompilerOnlyReportsAnInstallationMissingEveryBundledTool()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string root = Path.Combine(temporaryDirectory.Path, "Incomplete VS");
+        string vcvarsallPath = Path.Combine(root, "VC", "Auxiliary", "Build", "vcvarsall.bat");
+        Directory.CreateDirectory(Path.GetDirectoryName(vcvarsallPath)!);
+        File.WriteAllText(vcvarsallPath, "@echo off");
+
+        VisualStudioCompilerInstallation? actual = VisualStudioToolchainLocator.FindCompilerOnly([root]);
+
+        Assert.NotNull(actual);
+        Assert.Equal(root, actual.Root);
+        Assert.Equal(vcvarsallPath, actual.VcvarsallPath);
+    }
+
+    /// <summary>Reports no compiler-only installation when no candidate root contains the environment script.</summary>
+    [Fact]
+    public void FindCompilerOnlyReturnsNullWhenNoRootContainsTheEnvironmentScript()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+
+        VisualStudioCompilerInstallation? actual = VisualStudioToolchainLocator.FindCompilerOnly([temporaryDirectory.Path]);
+
+        Assert.Null(actual);
+    }
+
     /// <summary>Skips a Visual Studio installation without bundled Ninja and finds the next complete installation.</summary>
     [Fact]
     public void FindsTheNextInstallationWhenAnEarlierInstallationLacksBundledNinja()

@@ -47,7 +47,9 @@ public sealed class PreflightServiceTests
 
     /// <summary>
     /// Reports Visual Studio exactly as <see cref="VisualStudioToolchainLocator.TryFind()"/> itself
-    /// reports it, regardless of the running machine's actual installation state.
+    /// reports it when no compiler-only installation exists either, or as the compiler-only
+    /// installation when the full toolchain could not be located but a Visual Studio compiler
+    /// environment was found -- regardless of the running machine's actual installation state.
     /// </summary>
     [Fact]
     public async Task CheckAllReportsVisualStudioMatchingTheLocatorsOwnResult()
@@ -57,7 +59,96 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
 
-        Assert.Equal(VisualStudioToolchainLocator.TryFind(), results[2]);
+        ToolchainCheckResult expected = VisualStudioToolchainLocator.TryFind();
+        if (expected.Availability != ToolchainAvailability.Found)
+        {
+            VisualStudioCompilerInstallation? compilerOnlyInstallation = VisualStudioToolchainLocator.FindCompilerOnly();
+            if (compilerOnlyInstallation is not null)
+            {
+                expected = new ToolchainCheckResult(
+                    "Visual Studio",
+                    ToolchainAvailability.Found,
+                    compilerOnlyInstallation.VcvarsallPath,
+                    "This Visual Studio installation is missing its bundled CMake, Ninja, or vcpkg; see the CMake and vcpkg checks below.");
+            }
+        }
+        Assert.Equal(expected, results[2]);
+    }
+
+    /// <summary>
+    /// Reports Visual Studio as found from the compiler-only installation, rather than missing,
+    /// when the full toolchain could not be located but a Visual Studio compiler environment was.
+    /// </summary>
+    [Fact]
+    public async Task CheckAllReportsVisualStudioFoundWhenTheCompilerExistsButABundledToolIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        string installationRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(toolchain.VcvarsallPath)!)!)!)!;
+        File.Delete(toolchain.CMakePath);
+        var service = new PreflightService(
+            new FakeCommandRunner(),
+            () => throw new InvalidOperationException("Could not find a supported Visual Studio installation."),
+            () => new VisualStudioCompilerInstallation(installationRoot, toolchain.VcvarsallPath),
+            TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        ToolchainCheckResult visualStudioResult = results[2];
+        Assert.Equal("Visual Studio", visualStudioResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Found, visualStudioResult.Availability);
+        Assert.Equal(toolchain.VcvarsallPath, visualStudioResult.Detail);
+    }
+
+    /// <summary>
+    /// Reports CMake as missing under the compiler-only installation's own bundled path, not as a
+    /// copy of a "Visual Studio missing" hint, when Visual Studio was found but its bundled CMake
+    /// was not.
+    /// </summary>
+    [Fact]
+    public async Task CheckAllReportsCMakeMissingUnderTheCompilerOnlyInstallationWhenBundledCMakeIsAbsent()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        string installationRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(toolchain.VcvarsallPath)!)!)!)!;
+        File.Delete(toolchain.CMakePath);
+        var service = new PreflightService(
+            new FakeCommandRunner(),
+            () => throw new InvalidOperationException("Could not find a supported Visual Studio installation."),
+            () => new VisualStudioCompilerInstallation(installationRoot, toolchain.VcvarsallPath),
+            TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        ToolchainCheckResult cMakeResult = results[3];
+        Assert.Equal("CMake", cMakeResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Missing, cMakeResult.Availability);
+        Assert.Contains(toolchain.CMakePath, cMakeResult.RemediationHint);
+    }
+
+    /// <summary>
+    /// Reports vcpkg as found under the compiler-only installation's own bundled directory when it
+    /// is present, even though the full toolchain could not be located because CMake was missing.
+    /// </summary>
+    [Fact]
+    public async Task CheckAllReportsVcpkgFoundUnderTheCompilerOnlyInstallationWhenItsDirectoryExists()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        string installationRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(toolchain.VcvarsallPath)!)!)!)!;
+        File.Delete(toolchain.CMakePath);
+        var service = new PreflightService(
+            new FakeCommandRunner(),
+            () => throw new InvalidOperationException("Could not find a supported Visual Studio installation."),
+            () => new VisualStudioCompilerInstallation(installationRoot, toolchain.VcvarsallPath),
+            TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        ToolchainCheckResult vcpkgResult = results[4];
+        Assert.Equal("vcpkg", vcpkgResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Found, vcpkgResult.Availability);
+        Assert.Equal(toolchain.VcpkgRoot, vcpkgResult.Detail);
     }
 
     /// <summary>

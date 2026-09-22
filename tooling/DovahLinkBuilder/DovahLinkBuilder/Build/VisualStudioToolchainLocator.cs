@@ -26,10 +26,10 @@ public static class VisualStudioToolchainLocator
     {
         foreach (string root in installationRoots)
         {
-            string vcvarsallPath = Path.Combine(root, "VC", "Auxiliary", "Build", "vcvarsall.bat");
-            string vcpkgRoot = Path.Combine(root, "VC", "vcpkg");
-            string cmakePath = Path.Combine(root, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin", "cmake.exe");
-            string ninjaPath = Path.Combine(root, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "Ninja", "ninja.exe");
+            string vcvarsallPath = GetVcvarsallPath(root);
+            string vcpkgRoot = GetBundledVcpkgRoot(root);
+            string cmakePath = GetBundledCMakePath(root);
+            string ninjaPath = GetBundledNinjaPath(root);
             if (File.Exists(vcvarsallPath) && Directory.Exists(vcpkgRoot) && File.Exists(cmakePath) && File.Exists(ninjaPath))
             {
                 return new VisualStudioToolchain(vcvarsallPath, vcpkgRoot, cmakePath, ninjaPath);
@@ -39,6 +39,61 @@ public static class VisualStudioToolchainLocator
         throw new InvalidOperationException(
             "Could not find a supported Visual Studio installation with vcvarsall.bat, bundled vcpkg, CMake, and Ninja.");
     }
+
+    /// <summary>
+    /// Locates the first candidate installation root that contains a Visual Studio compiler
+    /// environment, regardless of whether its bundled CMake, Ninja, or vcpkg are also present --
+    /// used for preflight diagnostics, never for build tool selection.
+    /// </summary>
+    /// <returns>The first matching installation, or <see langword="null"/> when none was found.</returns>
+    public static VisualStudioCompilerInstallation? FindCompilerOnly() => FindCompilerOnly(GetDefaultInstallationRoots(
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        Environment.GetEnvironmentVariable("VSINSTALLDIR"),
+        FindVisualStudioInstallationRoots()));
+
+    /// <summary>
+    /// Locates the first candidate installation root among the specified roots that contains a
+    /// Visual Studio compiler environment, regardless of whether its bundled CMake, Ninja, or vcpkg
+    /// are also present -- used for preflight diagnostics, never for build tool selection.
+    /// </summary>
+    /// <param name="installationRoots">The installation roots to search.</param>
+    /// <returns>The first matching installation, or <see langword="null"/> when none was found.</returns>
+    internal static VisualStudioCompilerInstallation? FindCompilerOnly(IEnumerable<string> installationRoots)
+    {
+        foreach (string root in installationRoots)
+        {
+            string vcvarsallPath = GetVcvarsallPath(root);
+            if (File.Exists(vcvarsallPath))
+            {
+                return new VisualStudioCompilerInstallation(root, vcvarsallPath);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Gets the environment script path bundled with the installation at <paramref name="root"/>.</summary>
+    /// <param name="root">The Visual Studio installation root.</param>
+    /// <returns>The candidate environment script path, whether or not it exists.</returns>
+    internal static string GetVcvarsallPath(string root) => Path.Combine(root, "VC", "Auxiliary", "Build", "vcvarsall.bat");
+
+    /// <summary>Gets the vcpkg directory bundled with the installation at <paramref name="root"/>.</summary>
+    /// <param name="root">The Visual Studio installation root.</param>
+    /// <returns>The candidate vcpkg directory, whether or not it exists.</returns>
+    internal static string GetBundledVcpkgRoot(string root) => Path.Combine(root, "VC", "vcpkg");
+
+    /// <summary>Gets the CMake executable path bundled with the installation at <paramref name="root"/>.</summary>
+    /// <param name="root">The Visual Studio installation root.</param>
+    /// <returns>The candidate CMake executable path, whether or not it exists.</returns>
+    internal static string GetBundledCMakePath(string root) =>
+        Path.Combine(root, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin", "cmake.exe");
+
+    /// <summary>Gets the Ninja executable path bundled with the installation at <paramref name="root"/>.</summary>
+    /// <param name="root">The Visual Studio installation root.</param>
+    /// <returns>The candidate Ninja executable path, whether or not it exists.</returns>
+    internal static string GetBundledNinjaPath(string root) =>
+        Path.Combine(root, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "Ninja", "ninja.exe");
 
     /// <summary>Validates and normalizes the toolchain paths before any shell boundary is entered.</summary>
     /// <param name="toolchain">The candidate environment script, vcpkg directory, CMake executable, and Ninja executable.</param>
