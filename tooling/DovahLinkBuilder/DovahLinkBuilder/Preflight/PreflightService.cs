@@ -20,7 +20,7 @@ public interface IPreflightService
     /// <param name="cancellationToken">The token used to cancel the outstanding checks.</param>
     /// <returns>
     /// One <see cref="ToolchainCheckResult"/> per required check: Repository, .NET SDK, Visual
-    /// Studio, CMake, vcpkg, Papyrus Compiler, Python, then Output Folder.
+    /// Studio, CMake, Ninja, vcpkg, Papyrus Compiler, Python, then Output Folder.
     /// </returns>
     Task<IReadOnlyList<ToolchainCheckResult>> CheckAllAsync(
         string startPath,
@@ -162,6 +162,7 @@ public sealed class PreflightService : IPreflightService
             await CheckVersionProbeAsync("dotnet", ".NET SDK", startPath, cancellationToken),
             visualStudioResult,
             await CheckCMakeAsync(toolchain, compilerOnlyInstallation, visualStudioResult, startPath, cancellationToken),
+            await CheckNinjaAsync(toolchain, compilerOnlyInstallation, visualStudioResult, startPath, cancellationToken),
             CheckVcpkg(toolchain, compilerOnlyInstallation, visualStudioResult),
             PapyrusToolchainLocator.TryFindWithInstallationPath(skyrimInstallPathOverride),
             await CheckVersionProbeAsync("python", "Python", startPath, cancellationToken),
@@ -212,7 +213,7 @@ public sealed class PreflightService : IPreflightService
                     VcpkgToolName,
                     ToolchainAvailability.Missing,
                     null,
-                    $"The selected Visual Studio installation does not contain vcpkg at '{vcpkgRoot}'. Install C++ CMake tools for Windows in Visual Studio Installer.");
+                    $"The selected Visual Studio installation does not contain vcpkg at '{vcpkgRoot}'. Install or repair the vcpkg package manager component in Visual Studio Installer.");
         }
 
         return new ToolchainCheckResult(
@@ -261,6 +262,47 @@ public sealed class PreflightService : IPreflightService
         }
 
         return CheckVersionProbeAsync(cmakePath, "CMake", workingDirectory, cancellationToken);
+    }
+
+    /// <summary>Checks the Ninja executable selected from the located Visual Studio installation.</summary>
+    /// <param name="toolchain">The selected Visual Studio toolchain, or <see langword="null"/> if it could not be located.</param>
+    /// <param name="compilerOnlyInstallation">The compiler-only installation used when the full toolchain could not be located, or <see langword="null"/>.</param>
+    /// <param name="visualStudioResult">The result explaining why Visual Studio could not be located, if applicable.</param>
+    /// <param name="workingDirectory">The directory in which to run the version probe.</param>
+    /// <param name="cancellationToken">The caller's token; cancelling it cancels the probe.</param>
+    /// <returns>The Ninja availability result.</returns>
+    private Task<ToolchainCheckResult> CheckNinjaAsync(
+        VisualStudioToolchain? toolchain,
+        VisualStudioCompilerInstallation? compilerOnlyInstallation,
+        ToolchainCheckResult visualStudioResult,
+        string workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        string? ninjaPath = toolchain?.NinjaPath
+            ?? (compilerOnlyInstallation is not null ? VisualStudioToolchainLocator.GetBundledNinjaPath(compilerOnlyInstallation.Root) : null);
+
+        if (ninjaPath is null)
+        {
+            ToolchainAvailability availability = visualStudioResult.Availability == ToolchainAvailability.CouldNotCheck
+                ? ToolchainAvailability.CouldNotCheck
+                : ToolchainAvailability.Missing;
+            return Task.FromResult(new ToolchainCheckResult(
+                "Ninja",
+                availability,
+                null,
+                visualStudioResult.RemediationHint ?? "A supported Visual Studio installation is required to locate its bundled Ninja."));
+        }
+
+        if (!File.Exists(ninjaPath))
+        {
+            return Task.FromResult(new ToolchainCheckResult(
+                "Ninja",
+                ToolchainAvailability.Missing,
+                null,
+                $"The selected Visual Studio installation does not contain Ninja at '{ninjaPath}'. Install or repair the C++ CMake tools for Windows component in Visual Studio Installer."));
+        }
+
+        return CheckVersionProbeAsync(ninjaPath, "Ninja", workingDirectory, cancellationToken);
     }
 
     /// <inheritdoc/>

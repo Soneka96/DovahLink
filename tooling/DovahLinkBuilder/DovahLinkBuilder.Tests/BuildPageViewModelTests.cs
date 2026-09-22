@@ -1544,7 +1544,7 @@ public sealed class BuildPageViewModelTests
 
         await viewModel.InitializeAsync();
 
-        Assert.Equal(8, viewModel.PreflightResults.Count);
+        Assert.Equal(9, viewModel.PreflightResults.Count);
     }
 
     /// <summary>Reflects the shared environment store's actual mixed results, not just their count, through the same refresh path other pages also trigger.</summary>
@@ -2208,6 +2208,7 @@ public sealed class BuildPageViewModelTests
             new ToolchainCheckResult(".NET SDK", ToolchainAvailability.Found, "9.0.0", null),
             new ToolchainCheckResult("Visual Studio", ToolchainAvailability.Found, @"C:\vs", null),
             new ToolchainCheckResult("CMake", ToolchainAvailability.Found, "3.30.0", null),
+            new ToolchainCheckResult("Ninja", ToolchainAvailability.Found, "1.13.2", null),
             new ToolchainCheckResult("vcpkg", ToolchainAvailability.Found, @"C:\vs\vcpkg", null),
             new ToolchainCheckResult("Papyrus Compiler", ToolchainAvailability.Found, @"C:\skyrim\PapyrusCompiler.exe", null),
             new ToolchainCheckResult("Python", ToolchainAvailability.Found, "3.12.0", null),

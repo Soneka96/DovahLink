@@ -30,17 +30,17 @@ public sealed class EnvironmentPageViewModelTests
         Assert.Null(viewModel.GitStatus);
     }
 
-    /// <summary>Loads all 8 preflight checks, in preflight order, on initialization.</summary>
+    /// <summary>Loads all 9 preflight checks, in preflight order, on initialization.</summary>
     [Fact]
-    public async Task InitializeAsyncLoadsAllEightChecksInOrder()
+    public async Task InitializeAsyncLoadsAllNineChecksInOrder()
     {
         var viewModel = BuildViewModel();
 
         await viewModel.InitializeAsync();
 
-        Assert.Equal(8, viewModel.Checks.Count);
+        Assert.Equal(9, viewModel.Checks.Count);
         Assert.Equal(
-            ["Repository", ".NET SDK", "Visual Studio", "CMake", "vcpkg", "Papyrus Compiler", "Python", "Output Folder"],
+            ["Repository", ".NET SDK", "Visual Studio", "CMake", "Ninja", "vcpkg", "Papyrus Compiler", "Python", "Output Folder"],
             viewModel.Checks.Select(check => check.ToolName));
     }
 
@@ -176,7 +176,7 @@ public sealed class EnvironmentPageViewModelTests
     private sealed class FakePreflightService : IPreflightService
     {
         /// <summary>
-        /// Gets or sets the results to return; defaults to all 8 required tools reporting Found, in
+        /// Gets or sets the results to return; defaults to all 9 required tools reporting Found, in
         /// preflight order. Mutable so a test can reconfigure it between two calls on the same fake instance.
         /// </summary>
         public IReadOnlyList<ToolchainCheckResult> Results { get; set; } = BuildAllFoundResults();
@@ -222,6 +222,7 @@ public sealed class EnvironmentPageViewModelTests
             new ToolchainCheckResult(".NET SDK", ToolchainAvailability.Found, "9.0.0", null),
             new ToolchainCheckResult("Visual Studio", ToolchainAvailability.Found, @"C:\vs", null),
             new ToolchainCheckResult("CMake", ToolchainAvailability.Found, "3.30.0", null),
+            new ToolchainCheckResult("Ninja", ToolchainAvailability.Found, "1.13.2", null),
             new ToolchainCheckResult("vcpkg", ToolchainAvailability.Found, @"C:\vs\vcpkg", null),
             new ToolchainCheckResult("Papyrus Compiler", ToolchainAvailability.Found, @"C:\skyrim\PapyrusCompiler.exe", null),
             new ToolchainCheckResult("Python", ToolchainAvailability.Found, "3.12.0", null),

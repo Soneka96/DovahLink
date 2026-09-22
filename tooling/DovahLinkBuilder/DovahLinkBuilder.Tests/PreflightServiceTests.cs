@@ -145,10 +145,81 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
 
-        ToolchainCheckResult vcpkgResult = results[4];
+        ToolchainCheckResult vcpkgResult = results[5];
         Assert.Equal("vcpkg", vcpkgResult.ToolName);
         Assert.Equal(ToolchainAvailability.Found, vcpkgResult.Availability);
         Assert.Equal(toolchain.VcpkgRoot, vcpkgResult.Detail);
+    }
+
+    /// <summary>
+    /// Reports vcpkg as missing with guidance to install or repair the vcpkg component itself, not a
+    /// copy of the CMake remediation text, when Visual Studio was found but its bundled vcpkg was not.
+    /// </summary>
+    [Fact]
+    public async Task CheckAllReportsVcpkgMissingWithItsOwnRemediationWhenBundledVcpkgIsAbsent()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        string installationRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(toolchain.VcvarsallPath)!)!)!)!;
+        Directory.Delete(toolchain.VcpkgRoot);
+        var service = new PreflightService(
+            new FakeCommandRunner(),
+            () => throw new InvalidOperationException("Could not find a supported Visual Studio installation."),
+            () => new VisualStudioCompilerInstallation(installationRoot, toolchain.VcvarsallPath),
+            TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        ToolchainCheckResult vcpkgResult = results[5];
+        Assert.Equal("vcpkg", vcpkgResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Missing, vcpkgResult.Availability);
+        Assert.Contains("vcpkg", vcpkgResult.RemediationHint);
+        Assert.DoesNotContain("CMake tools", vcpkgResult.RemediationHint);
+    }
+
+    /// <summary>Reports Ninja as found with the selected toolchain's own path when the full toolchain exists.</summary>
+    [Fact]
+    public async Task CheckAllReportsNinjaFoundWithItsPathWhenTheFullToolchainExists()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        var runner = new FakeCommandRunner { ExitCode = 0, OutputLines = ["1.13.2"] };
+        var service = new PreflightService(runner, () => toolchain, TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        ToolchainCheckResult ninjaResult = results[4];
+        Assert.Equal("Ninja", ninjaResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Found, ninjaResult.Availability);
+        Assert.Equal("1.13.2", ninjaResult.Detail);
+        Assert.Contains(runner.Commands, command => command.ExecutablePath == toolchain.NinjaPath);
+    }
+
+    /// <summary>
+    /// Reports Ninja as missing under the compiler-only installation's own bundled path, with
+    /// guidance to repair Visual Studio's C++ CMake tools, when Visual Studio was found but its
+    /// bundled Ninja was not.
+    /// </summary>
+    [Fact]
+    public async Task CheckAllReportsNinjaMissingUnderTheCompilerOnlyInstallationWhenBundledNinjaIsAbsent()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        string installationRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(toolchain.VcvarsallPath)!)!)!)!;
+        File.Delete(toolchain.NinjaPath);
+        var service = new PreflightService(
+            new FakeCommandRunner(),
+            () => throw new InvalidOperationException("Could not find a supported Visual Studio installation."),
+            () => new VisualStudioCompilerInstallation(installationRoot, toolchain.VcvarsallPath),
+            TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        ToolchainCheckResult ninjaResult = results[4];
+        Assert.Equal("Ninja", ninjaResult.ToolName);
+        Assert.Equal(ToolchainAvailability.Missing, ninjaResult.Availability);
+        Assert.Contains(toolchain.NinjaPath, ninjaResult.RemediationHint);
+        Assert.Contains("C++ CMake tools", ninjaResult.RemediationHint);
     }
 
     /// <summary>
@@ -165,7 +236,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
 
-        ToolchainCheckResult vcpkgResult = results[4];
+        ToolchainCheckResult vcpkgResult = results[5];
         Assert.Equal("vcpkg", vcpkgResult.ToolName);
         try
         {
@@ -191,7 +262,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
 
-        Assert.Equal(PapyrusToolchainLocator.TryFind(), results[5]);
+        Assert.Equal(PapyrusToolchainLocator.TryFind(), results[6]);
     }
 
     /// <summary>Uses the configured Settings path when checking Papyrus availability.</summary>
@@ -317,12 +388,13 @@ public sealed class PreflightServiceTests
         Assert.Equal(ToolchainAvailability.Found, cMakeResult.Availability);
         Assert.Equal(toolchain.CMakePath, runner.Commands[1].ExecutablePath);
         Assert.Equal(1, toolchainLookups);
-        Assert.Equal(toolchain.VcpkgRoot, results[4].Detail);
+        Assert.Equal(toolchain.NinjaPath, runner.Commands[2].ExecutablePath);
+        Assert.Equal(toolchain.VcpkgRoot, results[5].Detail);
 
-        ToolchainCheckResult pythonResult = results[6];
+        ToolchainCheckResult pythonResult = results[7];
         Assert.Equal("Python", pythonResult.ToolName);
         Assert.Equal(ToolchainAvailability.Found, pythonResult.Availability);
-        Assert.Equal("python", runner.Commands[2].ExecutablePath);
+        Assert.Equal("python", runner.Commands[3].ExecutablePath);
     }
 
     /// <summary>Reports bundled CMake as missing when it is absent from the selected Visual Studio installation.</summary>
@@ -344,6 +416,25 @@ public sealed class PreflightServiceTests
         Assert.DoesNotContain(runner.Commands, command => command.ExecutablePath == toolchain.CMakePath);
     }
 
+    /// <summary>Reports bundled Ninja as missing when it is absent from the selected Visual Studio installation.</summary>
+    [Fact]
+    public async Task CheckAllReportsBundledNinjaMissingWhenItsExecutableIsAbsent()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+        File.Delete(toolchain.NinjaPath);
+        var runner = new FakeCommandRunner { ExitCode = 0, OutputLines = ["ok"] };
+        var service = new PreflightService(runner, () => toolchain, TestVersionProbeTimeout);
+
+        IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
+
+        Assert.Equal(ToolchainAvailability.Found, results[2].Availability);
+        Assert.Equal("Ninja", results[4].ToolName);
+        Assert.Equal(ToolchainAvailability.Missing, results[4].Availability);
+        Assert.Contains("Ninja", results[4].RemediationHint);
+        Assert.DoesNotContain(runner.Commands, command => command.ExecutablePath == toolchain.NinjaPath);
+    }
+
     /// <summary>Reports the output folder as found when it exists under the repository root.</summary>
     [Fact]
     public async Task CheckAllReportsOutputFolderFoundWhenItCanBeCreated()
@@ -356,7 +447,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot);
 
-        ToolchainCheckResult outputFolderResult = results[7];
+        ToolchainCheckResult outputFolderResult = results[8];
         Assert.Equal("Output Folder", outputFolderResult.ToolName);
         Assert.Equal(ToolchainAvailability.Found, outputFolderResult.Availability);
         Assert.Equal(Path.Combine(repositoryRoot, "tooling", "out"), outputFolderResult.Detail);
@@ -377,7 +468,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot);
 
-        ToolchainCheckResult outputFolderResult = results[7];
+        ToolchainCheckResult outputFolderResult = results[8];
         Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
         Assert.NotNull(outputFolderResult.RemediationHint);
     }
@@ -391,7 +482,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
 
-        ToolchainCheckResult outputFolderResult = results[7];
+        ToolchainCheckResult outputFolderResult = results[8];
         Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
         Assert.NotNull(outputFolderResult.RemediationHint);
     }
@@ -409,7 +500,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot, malformedOverride);
 
-        ToolchainCheckResult outputFolderResult = results[7];
+        ToolchainCheckResult outputFolderResult = results[8];
         Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
         Assert.NotNull(outputFolderResult.RemediationHint);
     }
@@ -427,7 +518,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot, invalidOverride);
 
-        ToolchainCheckResult outputFolderResult = results[7];
+        ToolchainCheckResult outputFolderResult = results[8];
         Assert.Equal(ToolchainAvailability.CouldNotCheck, outputFolderResult.Availability);
         Assert.NotNull(outputFolderResult.RemediationHint);
     }
@@ -445,7 +536,7 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(repositoryRoot, outputOverride);
 
-        ToolchainCheckResult outputFolderResult = results[7];
+        ToolchainCheckResult outputFolderResult = results[8];
         Assert.Equal(ToolchainAvailability.Found, outputFolderResult.Availability);
         Assert.Equal(outputOverride, outputFolderResult.Detail);
         Assert.True(Directory.Exists(outputOverride));
@@ -462,12 +553,12 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path, outputOverride);
 
-        ToolchainCheckResult outputFolderResult = results[7];
+        ToolchainCheckResult outputFolderResult = results[8];
         Assert.Equal(ToolchainAvailability.Found, outputFolderResult.Availability);
         Assert.Equal(outputOverride, outputFolderResult.Detail);
     }
 
-    /// <summary>Returns all eight checks in the documented order.</summary>
+    /// <summary>Returns all nine checks in the documented order.</summary>
     [Fact]
     public async Task CheckAllReturnsEveryCheckInTheDocumentedOrder()
     {
@@ -477,7 +568,7 @@ public sealed class PreflightServiceTests
         IReadOnlyList<ToolchainCheckResult> results = await service.CheckAllAsync(temporaryDirectory.Path);
 
         Assert.Equal(
-            ["Repository", ".NET SDK", "Visual Studio", "CMake", "vcpkg", "Papyrus Compiler", "Python", "Output Folder"],
+            ["Repository", ".NET SDK", "Visual Studio", "CMake", "Ninja", "vcpkg", "Papyrus Compiler", "Python", "Output Folder"],
             results.Select(result => result.ToolName));
     }
 
@@ -495,8 +586,8 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> updatedResults = service.RefreshOutputFolderCheck(previousResults, repositoryRoot, newOutputOverride);
 
-        Assert.Equal(previousResults.Take(7), updatedResults.Take(7));
-        ToolchainCheckResult outputFolderResult = updatedResults[7];
+        Assert.Equal(previousResults.Take(8), updatedResults.Take(8));
+        ToolchainCheckResult outputFolderResult = updatedResults[8];
         Assert.Equal("Output Folder", outputFolderResult.ToolName);
         Assert.Equal(ToolchainAvailability.Found, outputFolderResult.Availability);
         Assert.Equal(newOutputOverride, outputFolderResult.Detail);
@@ -531,12 +622,12 @@ public sealed class PreflightServiceTests
 
         IReadOnlyList<ToolchainCheckResult> updatedResults = service.RefreshPapyrusCompilerCheck(previousResults, secondInstallPath);
 
-        Assert.Equal(previousResults.Take(5), updatedResults.Take(5));
-        ToolchainCheckResult papyrusResult = updatedResults[5];
+        Assert.Equal(previousResults.Take(6), updatedResults.Take(6));
+        ToolchainCheckResult papyrusResult = updatedResults[6];
         Assert.Equal("Papyrus Compiler", papyrusResult.ToolName);
         Assert.Equal(ToolchainAvailability.Found, papyrusResult.Availability);
         Assert.Equal(secondToolchain.CompilerPath, papyrusResult.Detail);
-        Assert.Equal(previousResults.Skip(6), updatedResults.Skip(6));
+        Assert.Equal(previousResults.Skip(7), updatedResults.Skip(7));
     }
 
     /// <summary>Returns prior checks unchanged when the Papyrus Compiler entry has not been loaded.</summary>
