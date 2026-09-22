@@ -109,6 +109,41 @@ public sealed class BuildCommandTests
         Assert.Equal($"-o={Path.GetFullPath(outputDirectory)}", command.Arguments[3]);
     }
 
+    /// <summary>Builds the structured environment-import command from the validated Visual Studio toolchain.</summary>
+    [Fact]
+    public void BuildsTheEnvironmentImportCommandFromTheValidatedToolchain()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(temporaryDirectory.Path);
+
+        BuildCommand command = BuildCommand.CreateEnvironmentImport(toolchain);
+
+        Assert.Equal(Path.Combine(Environment.SystemDirectory, "cmd.exe"), command.ExecutablePath);
+        Assert.Equal(["/d", "/c", "call .\\vcvarsall.bat x64 >nul && set"], command.Arguments);
+        Assert.Equal(Path.GetDirectoryName(toolchain.VcvarsallPath), command.WorkingDirectory);
+        Assert.Empty(command.EnvironmentVariables);
+    }
+
+    /// <summary>
+    /// Builds the environment-import command unchanged when the installation root contains an
+    /// ampersand, proving the working directory is passed as structured process data rather than
+    /// interpolated into the <c>cmd.exe</c> command text, where an ampersand would start a new
+    /// chained command.
+    /// </summary>
+    [Fact]
+    public void BuildsTheEnvironmentImportCommandForAnInstallationRootContainingAnAmpersand()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        VisualStudioToolchain toolchain = Fixtures.BuildVisualStudioToolchain(
+            temporaryDirectory.Path,
+            Path.Combine("Visual Studio & SDKs", "VS2026"));
+
+        BuildCommand command = BuildCommand.CreateEnvironmentImport(toolchain);
+
+        Assert.Equal(Path.GetDirectoryName(toolchain.VcvarsallPath), command.WorkingDirectory);
+        Assert.Equal(["/d", "/c", "call .\\vcvarsall.bat x64 >nul && set"], command.Arguments);
+    }
+
     /// <summary>Parses environment values containing equals signs and replaces inherited vcpkg configuration.</summary>
     [Fact]
     public void CreatesTheCMakeEnvironmentFromVisualStudioOutput()
