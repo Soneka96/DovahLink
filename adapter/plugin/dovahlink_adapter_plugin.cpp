@@ -2,6 +2,16 @@
 //  file contains the runtime-specific composition layer; the underlying
 //  components remain testable without a running Skyrim process.
 
+//  MUST precede every include below: RE/Skyrim.h now transitively pulls in
+//  the real <Windows.h> (via CommonLibSSE-NG's DirectXTK-backed rendering
+//  headers), which without WIN32_LEAN_AND_MEAN auto-includes the legacy
+//  <winsock.h>. That collides with plugin/adapter_runtime.hpp's later,
+//  transitive <winsock2.h> (through ipc/winsock_adapter_ipc_socket.hpp),
+//  since the two are mutually exclusive in one translation unit.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #include "SKSE/SKSE.h"
 
 #include "RE/Skyrim.h"
@@ -35,6 +45,7 @@
 
 #include <array>
 #include <cstddef>
+#include <exception>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -53,11 +64,36 @@ void SetupLogging() {
     *path /= "DovahLinkAdapter.log";
     auto logger =
         spdlog::async_factory_nonblock::create<spdlog::sinks::basic_file_sink_mt>(
-            "global", path->string(),
+            "DovahLinkAdapter", path->string(),
             /*truncate=*/true);
     logger->set_level(spdlog::level::info);
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
+}
+
+///  Emits a synchronous startup breadcrumb that remains available even when
+///  asynchronous file logging cannot be initialized or flushed.
+void EmitStartupMarker(const char* stage) noexcept {
+    OutputDebugStringA("DovahLink Adapter startup stage: ");
+    OutputDebugStringA(stage);
+    OutputDebugStringA("\n");
+}
+
+///  Reports an exception from plugin startup without allowing diagnostics to
+///  replace the original load failure with another exception.
+void EmitStartupFailure(const char* stage, const char* detail) noexcept {
+    OutputDebugStringA("DovahLink Adapter startup failure at stage: ");
+    OutputDebugStringA(stage);
+    OutputDebugStringA("\nDovahLink Adapter startup exception: ");
+    OutputDebugStringA(detail);
+    OutputDebugStringA("\n");
+    try {
+        SKSE::log::critical("DovahLink Adapter startup failed at stage '{}': {}",
+                            stage, detail);
+    } catch (...) {
+        //  The logger itself may be the failing startup stage; the debugger
+        //  output above must remain the last-resort diagnostic path.
+    }
 }
 
 //  TODO(stage4-file-extraction): Move MainMenuOpenedSink to its own
@@ -139,16 +175,23 @@ SKSEPluginInfo(
         .Author = "Soneka96"sv, .SupportEmail = ""sv,
         .StructCompatibility = SKSE::StructCompatibility::Independent,
         .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary,
-        .MinimumSKSEVersion = REL::Version{2, 2, 6, 0})
+        .MinimumSKSEVersion = REL::Version{2, 3, 1, 0})
 
     ///  Initializes the adapter plugin and schedules the private IPC connection
     ///  to start after game data loads.
-    SKSEPluginLoad(const SKSE::LoadInterface* skse) {
+    ///  @param skse The SKSE load interface supplied by the plugin loader.
+    ///  @param startupStage Receives the last startup stage entered for failure
+    ///  diagnostics.
+    bool LoadAdapter(const SKSE::LoadInterface* skse, const char*& startupStage) {
+    startupStage = "SKSE::Init";
+    EmitStartupMarker(startupStage);
     //  SKSE-QUIRK: see
     //  ai/context/skse/runtime-quirks.md#skseinit-must-run-before-any-interface-registration
     //  Must run before any SKSE::Get*Interface()-based registration below.
     SKSE::Init(skse);
 
+    startupStage = "Windows runtime validation";
+    EmitStartupMarker(startupStage);
     if (!dovahlink::adapter::runtime::IsCurrentWindowsVersionSupported()) {
         SKSE::log::error("Unsupported Windows runtime. DovahLink Adapter "
                          "requires Windows 10 or later.");
@@ -158,6 +201,8 @@ SKSEPluginInfo(
     //  Reject unsupported runtime combinations before any version-sensitive
     //  compatibility work (the achievement/always-active patches below) or any
     //  process-lifetime object construction.
+    startupStage = "Skyrim and SKSE runtime validation";
+    EmitStartupMarker(startupStage);
     REL::Version skyrimVersionRel = skse->RuntimeVersion();
     REL::Version skseVersionRel = REL::Version::unpack(skse->SKSEVersion());
     dovahlink::adapter::runtime::RuntimeVersion skyrimVersion{
@@ -187,6 +232,8 @@ SKSEPluginInfo(
     //  process-lifetime worker. If SKSE rejects this load and immediately
     //  unloads the DLL, there must be no thread-owning object whose destructor
     //  could run under the loader lock.
+    startupStage = "Owner lifetime resolution";
+    EmitStartupMarker(startupStage);
     auto ownerLifetimeId = dovahlink::adapter::process::DeriveOwnerLifetimeId();
     if (!ownerLifetimeId.has_value()) {
         SKSE::log::error("Unable to derive the current Skyrim process lifetime "
@@ -195,6 +242,8 @@ SKSEPluginInfo(
     }
     gOwnerLifetimeId = *ownerLifetimeId;
 
+    startupStage = "Rendezvous path resolution";
+    EmitStartupMarker(startupStage);
     auto rendezvousPath =
         dovahlink::adapter::process::ResolveDefaultRendezvousFilePath(
             *gOwnerLifetimeId);
@@ -204,12 +253,16 @@ SKSEPluginInfo(
                          "directory.");
         return false;
     }
+    startupStage = "Adapter host path resolution";
+    EmitStartupMarker(startupStage);
     auto hostExecutablePath = ResolveAdapterHostExecutablePath();
     if (!hostExecutablePath.has_value()) {
         SKSE::log::error(
             "Unable to resolve this adapter plugin's own installed directory.");
         return false;
     }
+    startupStage = "SKSE messaging interface resolution";
+    EmitStartupMarker(startupStage);
     auto* messaging = static_cast<SKSE::MessagingInterface*>(
         skse->QueryInterface(SKSE::LoadInterface::kMessaging));
     if (!messaging) {
@@ -221,6 +274,8 @@ SKSEPluginInfo(
     //  Configure asynchronous diagnostics only after every fatal startup guard
     //  has passed. A rejected load can then be unloaded without first creating
     //  the logger's background infrastructure.
+    startupStage = "SetupLogging";
+    EmitStartupMarker(startupStage);
     SetupLogging();
 
     //  Runtime compatibility toggles (both default enabled): keeping Skyrim
@@ -229,6 +284,8 @@ SKSEPluginInfo(
     //  back on for a modded load order. Read once, early, so both outcomes are
     //  logged before any other setup and can be disabled independently through
     //  Data/SKSE/Plugins/DovahLinkAdapter.ini.
+    startupStage = "Compatibility configuration";
+    EmitStartupMarker(startupStage);
     static dovahlink::adapter::runtime::
         FilesystemAdapterGameBehaviorConfigFileReader gameBehaviorConfigReader;
     dovahlink::adapter::runtime::AdapterGameBehaviorConfig behaviorConfig =
@@ -239,9 +296,13 @@ SKSEPluginInfo(
                     behaviorConfig.alwaysActive ? "enabled" : "disabled");
     SKSE::log::info("Achievement compatibility: {}",
                     behaviorConfig.achievementCompat ? "enabled" : "disabled");
+    startupStage = "Always-active compatibility";
+    EmitStartupMarker(startupStage);
     if (behaviorConfig.alwaysActive) {
         dovahlink::adapter::runtime::ApplyAlwaysActiveSetting();
     }
+    startupStage = "Achievement compatibility";
+    EmitStartupMarker(startupStage);
     if (behaviorConfig.achievementCompat) {
         dovahlink::adapter::runtime::InstallAchievementCompatibilityPatch();
     }
@@ -255,6 +316,8 @@ SKSEPluginInfo(
     //  exist yet at this point -- so it is supplied as a factory instead of
     //  an already-constructed instance; see AdapterRuntime's own constructor
     //  doc comment for why.
+    startupStage = "Process-lifetime object construction";
+    EmitStartupMarker(startupStage);
     static auto* taskMarshaller =
         new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller;
     static auto* pairingNotificationSink =
@@ -267,6 +330,8 @@ SKSEPluginInfo(
         new dovahlink::adapter::identity::AdapterPlayContextGenerator;
 
     dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
+    startupStage = "Adapter startup context construction";
+    EmitStartupMarker(startupStage);
     dovahlink::adapter::plugin::AdapterStartupContext startupContext{
         .instanceId = idGenerator.Generate(),
         .ownerLifetimeId = *gOwnerLifetimeId,
@@ -277,6 +342,8 @@ SKSEPluginInfo(
     //  The one process-lifetime AdapterRuntime, owning the rest of the
     //  object graph. Never destroyed for the same loader-lock reason
     //  documented on AdapterRuntime itself.
+    startupStage = "AdapterRuntime construction";
+    EmitStartupMarker(startupStage);
     static auto* runtime = new dovahlink::adapter::plugin::AdapterRuntime(
         startupContext, *taskMarshaller, *pairingNotificationSink,
         [](dovahlink::adapter::capture::IAdapterCaptureHandoffQueue& queue,
@@ -298,6 +365,8 @@ SKSEPluginInfo(
                             "game-thread dispatch at capacity.");
         });
 
+    startupStage = "Papyrus adapter installation";
+    EmitStartupMarker(startupStage);
     dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(
         runtime->Session());
     dovahlink::adapter::papyrus::InstallAdapterTrustAdminPapyrusAdapter(
@@ -305,6 +374,8 @@ SKSEPluginInfo(
 
     //  Detects a return to the main menu; see MainMenuOpenedSink's own doc
     //  comment for why SKSE's messaging interface cannot signal this itself.
+    startupStage = "Main menu event sink registration";
+    EmitStartupMarker(startupStage);
     static auto* mainMenuOpenedSink =
         new MainMenuOpenedSink(runtime->Session());
     RE::UI::GetSingleton()->AddEventSink(mainMenuOpenedSink);
@@ -314,6 +385,8 @@ SKSEPluginInfo(
     //  SKSE allows exactly one MessagingInterface::RegisterListener call per
     //  plugin. dovahlink_adapter_plugin_test.cpp enforces this structurally;
     //  it fails if a second RegisterListener call is ever added to this file.
+    startupStage = "SKSE messaging listener registration";
+    EmitStartupMarker(startupStage);
     messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
         if (message->type == SKSE::MessagingInterface::kDataLoaded) {
             runtime->Start();
@@ -340,7 +413,25 @@ SKSEPluginInfo(
         }
     });
 
+    startupStage = "startup complete";
+    EmitStartupMarker(startupStage);
     return true;
+}
+
+///  Converts exceptions escaping the plugin load boundary into a diagnosable
+///  SKSE load failure instead of allowing them to disappear behind SKSE's
+///  generic fatal-load message.
+SKSEPluginLoad(const SKSE::LoadInterface* skse) {
+    const char* startupStage = "plugin load entry";
+    try {
+        return LoadAdapter(skse, startupStage);
+    } catch (const std::exception& exception) {
+        EmitStartupFailure(startupStage, exception.what());
+        return false;
+    } catch (...) {
+        EmitStartupFailure(startupStage, "unknown non-standard exception");
+        return false;
+    }
 }
 
 ///  Signals the launched host's shutdown-request event, and nothing else:

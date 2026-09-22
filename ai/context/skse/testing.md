@@ -144,3 +144,15 @@ Real domain capture is deferred to Stage 6, but before cutover, exercise the ada
 - the adapter launches or adopts the packaged host process and the private IPC connection completes Hello/HelloAck authentication
 - a resynchronization round-trip completes through the game-thread path
 - an orderly Skyrim close does not hang or crash: `DllMain`'s `DLL_PROCESS_DETACH` path only signals host shutdown and returns
+- the achievement-eligibility Address Library IDs and byte-size branch in
+  `commonlib_adapter_game_behavior_compatibility.cpp` still resolve and patch cleanly on the
+  Adapter's currently targeted runtime: `target.address() != 0`, no crash on load with
+  `bAchievementCompat` enabled, and achievement eligibility genuinely reports false in-game.
+
+The accepted 2026-09-22 startup verification for the current Skyrim `1.7.104` / SKSE64 `2.3.1`
+baseline used the installed Adapter with `bAchievementCompat=1` and inspected the Adapter log after
+launch through SKSE. The expected result was successful relocation, patch installation, and
+continued Adapter operation; the observed result was the patch-install log entry followed by the
+private Host IPC connection and game-state capture activity. The supplied record does not include
+the complete optional-mod load order or a direct probe of the patched function's return value; the
+maintainer accepted this startup evidence for the current release decision.

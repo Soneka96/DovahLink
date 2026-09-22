@@ -92,34 +92,57 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._read("tooling/vcpkg-ports/commonlibsse-ng-flatrim/vcpkg.json")
         )
         self.assertEqual(port["name"], "commonlibsse-ng-flatrim")
-        self.assertEqual(port["version-semver"], "3.7.0")
-        self.assertEqual(port["port-version"], 1)
+        self.assertEqual(port["version-semver"], "9.0.0")
+        self.assertEqual(port["port-version"], 0)
         dependencies = {
             dependency["name"] if isinstance(dependency, dict) else dependency
             for dependency in port["dependencies"]
         }
-        self.assertIn("vcpkg-cmake-config", dependencies)
+        self.assertEqual(
+            dependencies,
+            {
+                "vcpkg-cmake-config",
+                "directxmath",
+                "directxtk",
+                "fmt",
+                "nlohmann-json",
+                "rapidcsv",
+                "simpleini",
+                "spdlog",
+                "toml11",
+                "xbyak",
+            },
+        )
 
         portfile = self._read(
             "tooling/vcpkg-ports/commonlibsse-ng-flatrim/portfile.cmake"
         )
         for required_fragment in (
-            "REPO CharmedBaryon/CommonLibSSE",
-            "REF c4ab853d095e81e3390b282d7ba01ab2f24ebf25",
-            "SHA512 fd615c16f8f2c637cad5ed9d139c776d21314664f4084a62231645114d03ee74e720c1ecf09b4e5daa5d56d418374ad6d587806788d95af8ac08ce3de930015b",
+            "REPO alandtse/CommonLibSSE-NG",
+            "REF 5decf47b01dde5501b03afaa91cd4d182e793cca",
+            "SHA512 58a1647f5e7a23d3f5e75a02b2d1a4ef9d8a1b4e799c034c2086c20d736ca920cc8927100157130ee766a32cd20d4e2de60c1019e6d3e2bc37bfb9c6fcd8c25b",
+            "HEAD_REF ng",
             "-DENABLE_SKYRIM_VR=off",
-            "-DSKSE_SUPPORT_XBYAK=on",
-            "fix-register-latent-function-return-type.patch",
+            "-DBUILD_TESTS=off",
+            "-DSKSE_SUPPORT_XBYAK=off",
+            "find_dependency(directxtk CONFIG)",
         ):
             self.assertIn(required_fragment, portfile)
 
-        self.assertTrue(
+        for stale_fragment in (
+            "REPO CharmedBaryon/CommonLibSSE",
+            "-DSKSE_SUPPORT_XBYAK=on",
+            "fix-register-latent-function-return-type.patch",
+        ):
+            self.assertNotIn(stale_fragment, portfile)
+
+        self.assertFalse(
             (
                 REPOSITORY_ROOT
                 / "tooling/vcpkg-ports/commonlibsse-ng-flatrim"
                 / "fix-register-latent-function-return-type.patch"
             ).is_file(),
-            "the referenced latent-function patch must exist alongside the portfile",
+            "the retired latent-function patch must not remain beside the migrated portfile",
         )
 
     def test_clang_format_uses_the_established_source_style(self) -> None:

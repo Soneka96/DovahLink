@@ -56,6 +56,22 @@ public sealed record BuildCommand(
         ];
     }
 
+    /// <summary>Creates the Visual Studio import-table inspection command for one built Adapter DLL.</summary>
+    /// <param name="adapterPluginPath">The Adapter DLL whose load-time dependencies must be inspected.</param>
+    /// <param name="environmentVariables">The imported Visual Studio environment used to resolve <c>dumpbin.exe</c>.</param>
+    /// <returns>A direct <c>dumpbin /DEPENDENTS</c> invocation using the resolved executable path.</returns>
+    public static BuildCommand CreateAdapterDependencyInspection(
+        string adapterPluginPath,
+        IReadOnlyDictionary<string, string> environmentVariables)
+    {
+        string fullPluginPath = Path.GetFullPath(adapterPluginPath);
+        return new BuildCommand(
+            ResolveExecutableFromPath("dumpbin.exe", environmentVariables),
+            ["/DEPENDENTS", fullPluginPath],
+            Path.GetDirectoryName(fullPluginPath)!,
+            environmentVariables);
+    }
+
     /// <summary>Creates the direct Papyrus compiler command for one script.</summary>
     /// <param name="scriptPath">The path to the <c>.psc</c> source file to compile.</param>
     /// <param name="toolchain">The Papyrus toolchain to invoke.</param>
@@ -81,5 +97,37 @@ public sealed record BuildCommand(
             ],
             Path.GetDirectoryName(validated.CompilerPath)!,
             new Dictionary<string, string>());
+    }
+
+    /// <summary>Resolves an executable from the environment that will be applied to the child process.</summary>
+    /// <param name="executableName">The executable file name to locate.</param>
+    /// <param name="environmentVariables">The child-process environment containing the search path.</param>
+    /// <returns>The full path to the first matching executable in the supplied search path.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the environment has no matching executable.</exception>
+    private static string ResolveExecutableFromPath(
+        string executableName,
+        IReadOnlyDictionary<string, string> environmentVariables)
+    {
+        string? pathValue = environmentVariables
+            .FirstOrDefault(pair => string.Equals(pair.Key, "PATH", StringComparison.OrdinalIgnoreCase))
+            .Value;
+        if (string.IsNullOrWhiteSpace(pathValue))
+        {
+            throw new InvalidOperationException(
+                $"Could not find {executableName}: the imported Visual Studio environment has no PATH.");
+        }
+
+        foreach (string pathEntry in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string candidatePath = Path.Combine(pathEntry.Trim().Trim('"'), executableName);
+            if (File.Exists(candidatePath))
+            {
+                return Path.GetFullPath(candidatePath);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not find {executableName} in the imported Visual Studio environment PATH. " +
+            "Install the MSVC x64/x86 build tools and try again.");
     }
 }

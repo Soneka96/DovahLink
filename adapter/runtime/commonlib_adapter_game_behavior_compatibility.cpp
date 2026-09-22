@@ -18,6 +18,12 @@ namespace {
 //  exposes REL::safe_fill/safe_write free functions where that reference's
 //  CommonLibSSE fork exposes Relocation::write_fill/write member functions
 //  instead.
+//
+//  The accepted 1.7.104 startup verification resolved this relocation,
+//  installed the patch, and continued through Host IPC and capture activity;
+//  see ai/context/skse/testing.md's "Manual verification" record. That
+//  observation does not replace a direct probe of the patched function's
+//  return value.
 constexpr std::uint64_t kAchievementFunctionSeId = 13647;
 constexpr std::uint64_t kAchievementFunctionAeId = 441528;
 

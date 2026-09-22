@@ -1815,23 +1815,7 @@ TEST_CASE("a real native adapter launches, authenticates against, and "
     //  REQUIRE below rather than silently launching the wrong file.
     std::filesystem::path pluginsDirectory{
         DOVAHLINK_ASSEMBLED_PACKAGE_PLUGINS_DIR};
-    //  CTest's FIXTURES_REQUIRED only blocks this test when
-    //  AssembleRealAdapterHostPackage genuinely fails, not when it uses
-    //  SKIP_RETURN_CODE to skip -- so this test still runs even when the
-    //  fixture skipped against a Debug build, and must tell that apart from a
-    //  real layout bug itself: the plugins directory existing at all is proof
-    //  the fixture actually ran and assembled something (it is created only
-    //  once assemble_package's own input guards already passed), so its
-    //  absence means "fixture skipped" (expected in Debug -- SKIP, not FAIL),
-    //  while its presence without the resolved Host executable inside it means
-    //  a genuine packaging/resolution bug (FAIL).
-    if (!std::filesystem::exists(pluginsDirectory)) {
-        SKIP("AssembleRealAdapterHostPackage's fixture did not assemble a "
-             "package (no plugins directory at " +
-             pluginsDirectory.string() +
-             "), which is expected when this build's runtime DLLs are not "
-             "Release-named -- see assemble_adapter_host_package_for_ctest.py.");
-    }
+    REQUIRE(std::filesystem::exists(pluginsDirectory));
     std::filesystem::path hostExecutable =
         pluginsDirectory / kAdapterHostExecutableRelativePath;
     REQUIRE(std::filesystem::exists(hostExecutable));

@@ -65,12 +65,21 @@ installed mod, and click **Deploy Mods**. The ZIP contains only:
 
 ```text
 Data/SKSE/Plugins/dovahlink_adapter_plugin.dll
-Data/SKSE/Plugins/fmt.dll
-Data/SKSE/Plugins/spdlog.dll
 Data/SKSE/Plugins/DovahLink.Host/DovahLink.Host.exe
 Data/Scripts/DovahLinkAdmin.pex
 Data/SKSE/CustomConsole/dovahlink.yaml
 ```
+
+The Adapter statically links `fmt` and `spdlog`: ordinary SKSE loading does not
+search the plugin directory for their dependent DLLs. The repository-owned
+`x64-windows-dovahlink` vcpkg triplet applies this to both build presets while
+retaining the dynamic MSVC runtime and the existing linkage of other ports.
+The Builder configures these presets with a fresh CMake cache; the first build
+after a triplet change rebuilds the affected dependencies. Old dependency DLLs
+left in a build directory are not included in the generated package.
+Before packaging, the Builder also runs Visual Studio's `dumpbin.exe` against
+the built Adapter and stops with an actionable error if `fmt.dll` or `spdlog.dll`
+is still imported by the plugin.
 
 Address Library remains a separate mod-manager dependency and is not bundled
 in this archive. The Vortex “no source assigned” warning is expected for a

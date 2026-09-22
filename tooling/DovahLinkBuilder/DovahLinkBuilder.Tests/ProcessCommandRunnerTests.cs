@@ -183,12 +183,15 @@ public sealed class ProcessCommandRunnerTests
         string pidPath = Path.Combine(temporaryDirectory.Path, "child-pid.txt");
         string startedPath = Path.Combine(temporaryDirectory.Path, "child-started.txt");
         string sentinelPath = Path.Combine(temporaryDirectory.Path, "child-sentinel.txt");
+        string goPath = Path.Combine(temporaryDirectory.Path, "child-go.txt");
         string batchPath = Path.Combine(temporaryDirectory.Path, "child-tree.bat");
         File.WriteAllText(
             batchPath,
             "@echo off\n" +
+            $"echo started > \"{startedPath}\"\n" +
+            ":wait\n" +
+            $"if not exist \"{goPath}\" goto wait\n" +
             "start \"\" /b powershell.exe -NoProfile -Command \"Set-Content -LiteralPath 'child-pid.txt' -Value $PID; " +
-            "Set-Content -LiteralPath 'child-started.txt' -Value started; " +
             "Start-Sleep -Milliseconds 500; " +
             "Set-Content -LiteralPath 'child-sentinel.txt' -Value orphan\"\n" +
             "ping -n 30 127.0.0.1 >nul\n");
@@ -197,34 +200,68 @@ public sealed class ProcessCommandRunnerTests
             ["/d", "/c", $".\\{Path.GetFileName(batchPath)}"],
             temporaryDirectory.Path,
             new Dictionary<string, string> { ["NoDefaultCurrentDirectoryInExePath"] = "1" });
+        var jobAssigned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new ProcessCommandRunner(
+            process => process.Kill(entireProcessTree: true),
+            () => new SignalingProcessTreeJob(new ProcessTreeJob(), jobAssigned));
         using var cancellation = new CancellationTokenSource();
-        Task<int> runTask = new ProcessCommandRunner().RunAsync(command, null, null, cancellation.Token);
-        DateTime startDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!File.Exists(startedPath) && DateTime.UtcNow < startDeadline)
+        Task<int> runTask = runner.RunAsync(command, null, null, cancellation.Token);
+        Exception? bodyException = null;
+        try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(10));
+            await jobAssigned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            File.WriteAllText(goPath, string.Empty);
+            DateTime startDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!File.Exists(startedPath) && DateTime.UtcNow < startDeadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10));
+            }
+            Assert.True(File.Exists(startedPath));
+            int descendantProcessId = await ReadDescendantProcessIdAsync(pidPath);
+            var elapsed = Stopwatch.StartNew();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await runTask);
+
+            Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
+            await AssertDescendantProcessExitedAsync(descendantProcessId);
+
+            // Captured and logged before asserting, rather than passed directly to Assert.False: if this
+            // is false (the real proof the process tree was actually killed) but the temporary directory
+            // then fails to delete on a loaded CI runner, .NET discards this method's own exception in
+            // favor of the one TemporaryDirectory.Dispose() throws during the using statement's unwind --
+            // silently replacing "the assertion failed" with an unrelated-looking IOException. Logging the
+            // captured value first means a future failure's CI output still shows which one actually
+            // happened, even when the exception itself gets masked.
+            bool sentinelExists = File.Exists(sentinelPath);
+            output.WriteLine($"Sentinel file exists after cancellation: {sentinelExists}");
+            Assert.False(sentinelExists);
         }
-        Assert.True(File.Exists(startedPath));
-        int descendantProcessId = await ReadDescendantProcessIdAsync(pidPath);
-        var elapsed = Stopwatch.StartNew();
-        cancellation.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await runTask);
-
-        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
-        await AssertDescendantProcessExitedAsync(descendantProcessId);
-
-        // Captured and logged before asserting, rather than passed directly to Assert.False: if this
-        // is false (the real proof the process tree was actually killed) but the temporary directory
-        // then fails to delete on a loaded CI runner, .NET discards this method's own exception in
-        // favor of the one TemporaryDirectory.Dispose() throws during the using statement's unwind --
-        // silently replacing "the assertion failed" with an unrelated-looking IOException. Logging the
-        // captured value first means a future failure's CI output still shows which one actually
-        // happened, even when the exception itself gets masked.
-        bool sentinelExists = File.Exists(sentinelPath);
-        output.WriteLine($"Sentinel file exists after cancellation: {sentinelExists}");
-        Assert.False(sentinelExists);
+        catch (Exception exception)
+        {
+            bodyException = exception;
+            throw;
+        }
+        finally
+        {
+            cancellation.Cancel();
+            try
+            {
+                await runTask;
+            }
+            catch (OperationCanceledException exception)
+                when (runTask.IsCanceled
+                    && cancellation.IsCancellationRequested
+                    && (exception.CancellationToken == cancellation.Token
+                        || exception.CancellationToken == default))
+            {
+            }
+            catch (Exception cleanupException) when (bodyException is not null)
+            {
+                throw new AggregateException(bodyException, cleanupException);
+            }
+        }
     }
 
     /// <summary>Preserves cancellation, without hanging, when tree termination reports a partial failure.</summary>
@@ -527,5 +564,42 @@ public sealed class ProcessCommandRunnerTests
 
         /// <inheritdoc/>
         public void Dispose() => Disposed = true;
+    }
+
+    /// <summary>Signals a test after a real process has been assigned to its tracking job.</summary>
+    private sealed class SignalingProcessTreeJob : IProcessTreeJob
+    {
+        /// <summary>The real process-tree job delegated to by this test seam.</summary>
+        private readonly IProcessTreeJob innerJob;
+
+        /// <summary>The signal completed after <see cref="Assign"/> succeeds.</summary>
+        private readonly TaskCompletionSource<bool> assignedSignal;
+
+        /// <summary>Creates a job wrapper that signals after assignment succeeds.</summary>
+        /// <param name="innerJob">The real process-tree job that owns process membership.</param>
+        /// <param name="assignedSignal">The signal completed after the root process is assigned.</param>
+        public SignalingProcessTreeJob(
+            IProcessTreeJob innerJob,
+            TaskCompletionSource<bool> assignedSignal)
+        {
+            this.innerJob = innerJob;
+            this.assignedSignal = assignedSignal;
+        }
+
+        /// <inheritdoc/>
+        public void Assign(Process process)
+        {
+            innerJob.Assign(process);
+            assignedSignal.TrySetResult(true);
+        }
+
+        /// <inheritdoc/>
+        public bool HasActiveProcesses() => innerJob.HasActiveProcesses();
+
+        /// <inheritdoc/>
+        public void Terminate() => innerJob.Terminate();
+
+        /// <inheritdoc/>
+        public void Dispose() => innerJob.Dispose();
     }
 }

@@ -56,7 +56,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--adapter-build-dir",
         type=Path,
         required=True,
-        help="Directory containing the built adapter plugin DLL and its runtime dependency DLLs.",
+        help="Directory containing the built adapter plugin DLL.",
     )
     parser.add_argument(
         "--output-dir",

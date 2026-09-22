@@ -6,14 +6,15 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from adapter_host_packager import (
     ADAPTER_PLUGIN_NAME,
-    ADAPTER_RUNTIME_DLL_NAMES,
     HOST_EXECUTABLE_NAME,
     PUBLISH_ARGS,
     AdapterHostPackager,
 )
+from test_adapter_import_validator import _build_pe
 
 
 class FakeProcessRunner:
@@ -97,9 +98,12 @@ class AssemblePackageTests(unittest.TestCase):
     def _build_valid_inputs(self, temp_dir: Path) -> tuple[Path, Path]:
         """Creates a valid adapter build directory and host publish directory under `temp_dir`."""
         adapter_build_dir = temp_dir / "adapter_build"
-        _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-        for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-            _write_file(adapter_build_dir / dll_name, "dll")
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(
+            _build_pe(["kernel32.dll"])
+        )
 
         host_publish_dir = temp_dir / "host_publish"
         _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")
@@ -122,10 +126,112 @@ class AssemblePackageTests(unittest.TestCase):
 
             plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
             self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                self.assertTrue((plugins_dir / dll_name).is_file())
             self.assertTrue(
                 (plugins_dir / "DovahLink.Host" / HOST_EXECUTABLE_NAME).is_file()
+            )
+
+    def test_assemble_package_rejects_forbidden_import_before_removing_package(
+        self,
+    ) -> None:
+        """Rejects a forbidden Adapter import while preserving the existing package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(
+                _build_pe(["fmt.dll"])
+            )
+            package_dir = temp_dir / "package"
+            package_dir.mkdir()
+            sentinel = package_dir / "must-survive.txt"
+            sentinel.write_text("previous package", encoding="utf-8")
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with self.assertRaisesRegex(ValueError, "fmt.dll"):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "previous package")
+
+    def test_assemble_package_rejects_malformed_adapter_before_removing_package(
+        self,
+    ) -> None:
+        """Rejects a malformed Adapter while preserving the existing package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(b"not a PE")
+            package_dir = temp_dir / "package"
+            package_dir.mkdir()
+            sentinel = package_dir / "must-survive.txt"
+            sentinel.write_text("previous package", encoding="utf-8")
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with self.assertRaisesRegex(ValueError, "import table"):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "previous package")
+
+    def test_assemble_package_propagates_adapter_read_errors_before_removing_package(
+        self,
+    ) -> None:
+        """Propagates an unreadable Adapter error while preserving the existing package."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            package_dir.mkdir()
+            sentinel = package_dir / "must-survive.txt"
+            sentinel.write_text("previous package", encoding="utf-8")
+            packager = AdapterHostPackager(FakeProcessRunner())
+
+            with (
+                mock.patch(
+                    "adapter_host_packager.find_forbidden_adapter_dependency",
+                    side_effect=OSError("access denied"),
+                ),
+                self.assertRaisesRegex(OSError, "access denied"),
+            ):
+                packager.assemble_package(
+                    adapter_build_dir=adapter_build_dir,
+                    host_publish_dir=host_publish_dir,
+                    package_dir=package_dir,
+                )
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "previous package")
+
+    def test_assemble_package_excludes_stale_dependency_dlls(self) -> None:
+        """Ignores old build DLLs and removes old packaged DLLs before archiving."""
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
+            package_dir = temp_dir / "package"
+            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
+            for name in ("fmt.dll", "spdlog.dll", "fmtd.dll", "spdlogd.dll"):
+                _write_file(adapter_build_dir / name, "stale build")
+                _write_file(plugins_dir / name, "stale package")
+            packager = AdapterHostPackager(FakeProcessRunner())
+            packager.assemble_package(
+                adapter_build_dir=adapter_build_dir,
+                host_publish_dir=host_publish_dir,
+                package_dir=package_dir,
+            )
+            packager.validate_package(package_dir)
+            archive_path = packager.zip_package(package_dir, temp_dir / "adapter")
+            with zipfile.ZipFile(archive_path) as archive:
+                files = {name for name in archive.namelist() if not name.endswith("/")}
+            self.assertEqual(
+                files,
+                {
+                    "Data/SKSE/Plugins/dovahlink_adapter_plugin.dll",
+                    "Data/SKSE/Plugins/DovahLink.Host/DovahLink.Host.exe",
+                },
             )
 
     def test_assemble_package_raises_when_the_adapter_plugin_is_missing(self) -> None:
@@ -135,21 +241,6 @@ class AssemblePackageTests(unittest.TestCase):
             _adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
             adapter_build_dir = temp_dir / "empty_adapter_build"
             adapter_build_dir.mkdir()
-            packager = AdapterHostPackager(FakeProcessRunner())
-
-            with self.assertRaises(FileNotFoundError):
-                packager.assemble_package(
-                    adapter_build_dir=adapter_build_dir,
-                    host_publish_dir=host_publish_dir,
-                    package_dir=temp_dir / "package",
-                )
-
-    def test_assemble_package_raises_when_a_runtime_dll_is_missing(self) -> None:
-        """Verifies a missing adapter runtime dependency DLL fails clearly."""
-        with tempfile.TemporaryDirectory() as temp_dir_str:
-            temp_dir = Path(temp_dir_str)
-            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            (adapter_build_dir / ADAPTER_RUNTIME_DLL_NAMES[0]).unlink()
             packager = AdapterHostPackager(FakeProcessRunner())
 
             with self.assertRaises(FileNotFoundError):
@@ -336,38 +427,6 @@ class AssemblePackageTests(unittest.TestCase):
                     console_admin_yaml=temp_dir / "missing.yaml",
                 )
 
-    def test_assemble_package_leaves_an_existing_package_untouched_when_a_runtime_dll_is_missing(
-        self,
-    ) -> None:
-        """Verifies a valid existing package survives a failed re-assembly rather than being deleted first."""
-        with tempfile.TemporaryDirectory() as temp_dir_str:
-            temp_dir = Path(temp_dir_str)
-            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(FakeProcessRunner())
-            packager.assemble_package(
-                adapter_build_dir=adapter_build_dir,
-                host_publish_dir=host_publish_dir,
-                package_dir=package_dir,
-            )
-            plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
-            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
-
-            (adapter_build_dir / ADAPTER_RUNTIME_DLL_NAMES[0]).unlink()
-            with self.assertRaises(FileNotFoundError):
-                packager.assemble_package(
-                    adapter_build_dir=adapter_build_dir,
-                    host_publish_dir=host_publish_dir,
-                    package_dir=package_dir,
-                )
-
-            self.assertTrue((plugins_dir / ADAPTER_PLUGIN_NAME).is_file())
-            for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-                self.assertTrue((plugins_dir / dll_name).is_file())
-            self.assertTrue(
-                (plugins_dir / "DovahLink.Host" / HOST_EXECUTABLE_NAME).is_file()
-            )
-
     def test_assemble_package_leaves_an_existing_package_untouched_when_the_adapter_plugin_is_missing(
         self,
     ) -> None:
@@ -465,9 +524,12 @@ class ValidatePackageTests(unittest.TestCase):
     def _build_valid_inputs(self, temp_dir: Path) -> tuple[Path, Path]:
         """Creates a valid adapter build directory and host publish directory under `temp_dir`."""
         adapter_build_dir = temp_dir / "adapter_build"
-        _write_file(adapter_build_dir / ADAPTER_PLUGIN_NAME, "plugin")
-        for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-            _write_file(adapter_build_dir / dll_name, "dll")
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        (adapter_build_dir / ADAPTER_PLUGIN_NAME).write_bytes(
+            _build_pe(["kernel32.dll"])
+        )
 
         host_publish_dir = temp_dir / "host_publish"
         _write_file(host_publish_dir / HOST_EXECUTABLE_NAME, "host")
@@ -529,25 +591,6 @@ class ValidatePackageTests(unittest.TestCase):
                 package_dir=package_dir,
             )
             (package_dir / "Data" / "SKSE" / "Plugins" / ADAPTER_PLUGIN_NAME).unlink()
-
-            with self.assertRaises(FileNotFoundError):
-                packager.validate_package(package_dir)
-
-    def test_validate_package_raises_when_a_runtime_dll_is_missing(self) -> None:
-        """Verifies a package missing an assembled runtime dependency DLL fails validation."""
-        with tempfile.TemporaryDirectory() as temp_dir_str:
-            temp_dir = Path(temp_dir_str)
-            adapter_build_dir, host_publish_dir = self._build_valid_inputs(temp_dir)
-            package_dir = temp_dir / "package"
-            packager = AdapterHostPackager(FakeProcessRunner())
-            packager.assemble_package(
-                adapter_build_dir=adapter_build_dir,
-                host_publish_dir=host_publish_dir,
-                package_dir=package_dir,
-            )
-            (
-                package_dir / "Data" / "SKSE" / "Plugins" / ADAPTER_RUNTIME_DLL_NAMES[0]
-            ).unlink()
 
             with self.assertRaises(FileNotFoundError):
                 packager.validate_package(package_dir)

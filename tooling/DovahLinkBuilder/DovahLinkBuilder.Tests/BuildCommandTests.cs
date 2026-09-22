@@ -144,6 +144,68 @@ public sealed class BuildCommandTests
         Assert.Equal(["/d", "/c", "call .\\vcvarsall.bat x64 >nul && set"], command.Arguments);
     }
 
+    /// <summary>Builds the direct dumpbin command used to reject dynamically imported Adapter runtimes.</summary>
+    [Fact]
+    public void BuildsTheAdapterDependencyInspectionCommand()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string firstDumpbinDirectory = Path.Combine(temporaryDirectory.Path, "Visual Studio & tools", "first bin");
+        string secondDumpbinDirectory = Path.Combine(temporaryDirectory.Path, "Visual Studio & tools", "second bin");
+        string firstDumpbinPath = Path.Combine(firstDumpbinDirectory, "dumpbin.exe");
+        string secondDumpbinPath = Path.Combine(secondDumpbinDirectory, "dumpbin.exe");
+        Directory.CreateDirectory(firstDumpbinDirectory);
+        Directory.CreateDirectory(secondDumpbinDirectory);
+        File.WriteAllText(firstDumpbinPath, "first fake dumpbin executable");
+        File.WriteAllText(secondDumpbinPath, "second fake dumpbin executable");
+        var environment = new Dictionary<string, string>
+        {
+            ["path"] = string.Join(Path.PathSeparator, @"C:\missing", $"\"{firstDumpbinDirectory}\"", secondDumpbinDirectory),
+        };
+        string pluginPath = Path.Combine(temporaryDirectory.Path, "adapter", "..", "adapter", "dovahlink_adapter_plugin.dll");
+
+        BuildCommand command = BuildCommand.CreateAdapterDependencyInspection(pluginPath, environment);
+
+        string fullPluginPath = Path.GetFullPath(pluginPath);
+        Assert.Equal(Path.GetFullPath(firstDumpbinPath), command.ExecutablePath);
+        Assert.Equal(["/DEPENDENTS", fullPluginPath], command.Arguments);
+        Assert.Equal(Path.GetDirectoryName(fullPluginPath), command.WorkingDirectory);
+        Assert.Same(environment, command.EnvironmentVariables);
+    }
+
+    /// <summary>Rejects dependency inspection when the imported Visual Studio path has no dumpbin executable.</summary>
+    [Fact]
+    public void RejectsAdapterDependencyInspectionWhenDumpbinIsMissingFromTheEnvironmentPath()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        var environment = new Dictionary<string, string>
+        {
+            ["PATH"] = Path.Combine(temporaryDirectory.Path, "missing tools"),
+        };
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            BuildCommand.CreateAdapterDependencyInspection(
+                Path.Combine(temporaryDirectory.Path, "dovahlink_adapter_plugin.dll"),
+                environment));
+
+        Assert.Contains("dumpbin.exe", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("PATH", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Rejects dependency inspection when the imported Visual Studio environment has no PATH value.</summary>
+    [Fact]
+    public void RejectsAdapterDependencyInspectionWhenTheEnvironmentPathIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            BuildCommand.CreateAdapterDependencyInspection(
+                Path.Combine(temporaryDirectory.Path, "dovahlink_adapter_plugin.dll"),
+                new Dictionary<string, string>()));
+
+        Assert.Contains("dumpbin.exe", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no PATH", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Parses environment values containing equals signs and replaces inherited vcpkg configuration.</summary>
     [Fact]
     public void CreatesTheCMakeEnvironmentFromVisualStudioOutput()

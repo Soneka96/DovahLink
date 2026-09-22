@@ -245,20 +245,12 @@ Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -Ar
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--build", "--preset", "windows-x64-debug")
 # Runs the complete native Adapter suite -- IPC, pairing notification, trust-admin, Papyrus
 # registration, plugin, and the real Host<->Adapter process integration tests -- in one pass.
-# AssembleRealAdapterHostPackage and its dependent [package]-labeled test are discovered here too,
-# but self-skip against this Debug build; the ctest -L package invocation below is where they
-# actually run.
+# Includes the assembled-package fixture and its dependent integration test.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")
-# Otherwise compile-only here too, mirroring adapter-ci.yml: adapter's own CMakePresets.json
-# defines a ctest testPreset only for windows-x64-debug, matching the retired native plugin's identical convention.
-# Release also provides the Release-named runtime DLLs (fmt.dll/spdlog.dll, unlike Debug's
-# debug-suffixed names) the real-package-layout test below requires.
+# Also verify the production Adapter configuration and its package layout.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--preset", "windows-x64-release", "-DCMAKE_MAKE_PROGRAM=$ninjaPath")
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath $cmakePath -ArgumentList @("--build", "--preset", "windows-x64-release")
-# The one test genuinely tied to Release: AssembleRealAdapterHostPackage's CTest fixture requires
-# Release-named runtime DLLs, so it self-skips against Debug's build instead of failing there.
-# -L package runs only the tests adapter/CMakeLists.txt labeled "package", not the full suite the
-# windows-x64-debug ctest run above already ran.
+# Repeat package integration in Release without duplicating the full Debug suite.
 Invoke-LocalCommand -WorkingDirectory $adapterDirectory -FilePath "ctest" -ArgumentList @(
     "--test-dir", "build/windows-x64-release", "-L", "package", "--output-on-failure"
 )

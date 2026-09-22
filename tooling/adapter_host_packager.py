@@ -2,8 +2,8 @@
 
 Publishes the Host self-contained, single-file, win-x64 (this repository's production .NET
 publishing strategy -- a self-contained Host never depends on an end user having a matching .NET
-runtime installed), then copies it alongside an already-built Adapter plugin DLL and its runtime
-dependencies into the Vortex `Data/SKSE/Plugins/...` layout `adapter/constants.hpp`'s
+runtime installed), then copies it alongside an already-built Adapter plugin DLL into the
+Vortex `Data/SKSE/Plugins/...` layout `adapter/constants.hpp`'s
 `kAdapterHostExecutableRelativePath` expects, and zips the result.
 """
 
@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 
 from adapter_host_process_runner import IProcessRunner
+from adapter_import_validator import find_forbidden_adapter_dependency
 
 # ---- Publish strategy ----
 
@@ -31,7 +32,6 @@ PUBLISH_ARGS = (
 # ---- Package layout ----
 
 ADAPTER_PLUGIN_NAME = "dovahlink_adapter_plugin.dll"
-ADAPTER_RUNTIME_DLL_NAMES = ("fmt.dll", "spdlog.dll")
 HOST_EXECUTABLE_NAME = "DovahLink.Host.exe"
 HOST_EXECUTABLE_RELATIVE_DIR = "DovahLink.Host"
 
@@ -95,8 +95,8 @@ class AdapterHostPackager:
         the package works completely normally without them, per `console-admin/README.md`.
 
         Args:
-            adapter_build_dir: Directory containing the built adapter plugin DLL and its runtime
-                dependency DLLs (for example `adapter/build/windows-x64-release`).
+            adapter_build_dir: Directory containing the built adapter plugin DLL
+                (for example `adapter/build/windows-x64-release`).
             host_publish_dir: Directory `publish_host` wrote the published Host executable into.
             package_dir: Directory the `Data/` layout is assembled under. Any pre-existing content
                 is discarded first, so a file from a previous, differently-configured run never
@@ -106,10 +106,12 @@ class AdapterHostPackager:
             console_admin_yaml: Path to `dovahlink.yaml`, or `None` to omit it.
 
         Raises:
-            FileNotFoundError: The adapter plugin DLL, one of its runtime dependency DLLs, the
-                published Host executable, or a supplied console-admin file is missing. Every
+            FileNotFoundError: The adapter plugin DLL, the published Host executable, or a supplied
+                console-admin file is missing. Every
                 source is validated before any existing `package_dir` content is removed, so a
-                valid previous package is never destroyed by a run that then fails.
+                valid previous package survives source-validation failures.
+            OSError: The Adapter plugin cannot be read for import validation.
+            ValueError: The Adapter plugin is malformed or imports a forbidden runtime DLL.
         """
         adapter_plugin = adapter_build_dir / ADAPTER_PLUGIN_NAME
         host_executable = host_publish_dir / HOST_EXECUTABLE_NAME
@@ -119,19 +121,23 @@ class AdapterHostPackager:
             raise FileNotFoundError(
                 f"Published Host executable not found: {host_executable}"
             )
-        runtime_dll_sources = []
-        for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-            source = adapter_build_dir / dll_name
-            if not source.is_file():
-                raise FileNotFoundError(
-                    f"Adapter runtime dependency not found: {source}"
-                )
-            runtime_dll_sources.append(source)
         if console_admin_pex is not None and not console_admin_pex.is_file():
             raise FileNotFoundError(f"Console-admin PEX not found: {console_admin_pex}")
         if console_admin_yaml is not None and not console_admin_yaml.is_file():
             raise FileNotFoundError(
                 f"Console-admin YAML not found: {console_admin_yaml}"
+            )
+
+        try:
+            forbidden_dependency = find_forbidden_adapter_dependency(adapter_plugin)
+        except ValueError as error:
+            raise ValueError(
+                f"Could not validate the Adapter plugin import table: {adapter_plugin}"
+            ) from error
+        if forbidden_dependency is not None:
+            raise ValueError(
+                f"The Adapter still imports {forbidden_dependency}. Reconfigure with the "
+                "repository's static-linkage settings before packaging."
             )
 
         # A stale package_dir from a previous run could otherwise leave behind a file this run
@@ -146,8 +152,6 @@ class AdapterHostPackager:
         plugins_dir = package_dir / "Data" / "SKSE" / "Plugins"
         plugins_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(adapter_plugin, plugins_dir / ADAPTER_PLUGIN_NAME)
-        for source in runtime_dll_sources:
-            shutil.copy2(source, plugins_dir / source.name)
 
         host_dir = plugins_dir / HOST_EXECUTABLE_RELATIVE_DIR
         host_dir.mkdir(parents=True, exist_ok=True)
@@ -210,12 +214,6 @@ class AdapterHostPackager:
             raise FileNotFoundError(
                 f"Assembled adapter plugin not found: {adapter_plugin}"
             )
-        for dll_name in ADAPTER_RUNTIME_DLL_NAMES:
-            dll_path = plugins_dir / dll_name
-            if not dll_path.is_file():
-                raise FileNotFoundError(
-                    f"Assembled adapter runtime dependency not found: {dll_path}"
-                )
         host_executable = (
             plugins_dir / HOST_EXECUTABLE_RELATIVE_DIR / HOST_EXECUTABLE_NAME
         )

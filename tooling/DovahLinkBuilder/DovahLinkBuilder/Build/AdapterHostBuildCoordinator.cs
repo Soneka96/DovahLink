@@ -46,6 +46,9 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
     /// <summary>The stdout line prefix `tooling/package_adapter_host.py` reports the written archive path with.</summary>
     private const string WrittenArchivePrefix = "Wrote ";
 
+    /// <summary>Load-time DLL names that must not remain external to the Adapter plugin package.</summary>
+    private static readonly string[] ForbiddenAdapterDependencies = ["fmt.dll", "spdlog.dll"];
+
     /// <summary>Runs the external build and packaging commands.</summary>
     private readonly ICommandRunner commandRunner;
 
@@ -189,6 +192,36 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
                 {
                     throw new InvalidOperationException($"The Adapter build failed with exit code {exitCode}.");
                 }
+
+                string adapterPluginPath = Path.Combine(
+                    adapterBuildOutputRoot,
+                    "dovahlink_adapter_plugin.dll");
+                var dependencyOutput = new List<string>();
+                BuildCommand dependencyInspection = BuildCommand.CreateAdapterDependencyInspection(
+                    adapterPluginPath,
+                    releaseCommands[0].EnvironmentVariables);
+                int inspectionExitCode = await commandRunner.RunAsync(
+                    dependencyInspection,
+                    line =>
+                    {
+                        dependencyOutput.Add(line);
+                        onOutput?.Invoke(line);
+                    },
+                    onOutput,
+                    cancellationToken);
+                if (inspectionExitCode != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not inspect the Adapter's DLL dependencies; dumpbin exited with code {inspectionExitCode}.");
+                }
+
+                string? forbiddenDependency = FindForbiddenAdapterDependency(dependencyOutput);
+                if (forbiddenDependency is not null)
+                {
+                    throw new InvalidOperationException(
+                        $"The Adapter still imports {forbiddenDependency}. Reconfigure with the repository's " +
+                        "DovahLink vcpkg triplet so this dependency is statically linked before packaging.");
+                }
             });
 
         await RunStageAsync(
@@ -291,6 +324,25 @@ public sealed class AdapterHostBuildCoordinator : IAdapterHostBuildCoordinator
         }
 
         return new AdapterHostBuildResult(archivePath);
+    }
+
+    /// <summary>Finds the first forbidden imported DLL named by dumpbin's dependency report.</summary>
+    /// <param name="dependencyOutput">The line-oriented output from <c>dumpbin /DEPENDENTS</c>.</param>
+    /// <returns>The forbidden DLL name, or <see langword="null"/> when none is imported.</returns>
+    private static string? FindForbiddenAdapterDependency(IEnumerable<string> dependencyOutput)
+    {
+        foreach (string line in dependencyOutput)
+        {
+            string dependencyName = line.Trim();
+            string? forbiddenDependency = ForbiddenAdapterDependencies.FirstOrDefault(
+                candidate => string.Equals(candidate, dependencyName, StringComparison.OrdinalIgnoreCase));
+            if (forbiddenDependency is not null)
+            {
+                return forbiddenDependency;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Runs <paramref name="action"/> as one reported build stage, without a result value.</summary>

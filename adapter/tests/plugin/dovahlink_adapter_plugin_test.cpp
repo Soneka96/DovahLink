@@ -36,6 +36,48 @@ TEST_CASE("the adapter plugin registers exactly one SKSE messaging listener",
     CHECK(CountOccurrences(source, "RegisterListener(") == 1);
 }
 
+TEST_CASE("the adapter plugin reports startup stages and catches load exceptions",
+          "[plugin][structural]") {
+    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+    std::size_t loadHelper = source.find("bool LoadAdapter(");
+    std::size_t exportedLoad = source.find("SKSEPluginLoad(");
+    std::size_t standardExceptionCatch =
+        source.find("catch (const std::exception& exception)");
+    std::size_t unknownExceptionCatch = source.find("catch (...)");
+    std::size_t setupLogging =
+        source.find("startupStage = \"SetupLogging\"");
+    std::size_t compatibilityConfig =
+        source.find("startupStage = \"Compatibility configuration\"");
+    std::size_t listenerRegistration =
+        source.find("startupStage = \"SKSE messaging listener registration\"");
+    std::size_t startupComplete =
+        source.find("startupStage = \"startup complete\"");
+
+    REQUIRE(loadHelper != std::string::npos);
+    REQUIRE(exportedLoad != std::string::npos);
+    REQUIRE(standardExceptionCatch != std::string::npos);
+    REQUIRE(unknownExceptionCatch != std::string::npos);
+    REQUIRE(setupLogging != std::string::npos);
+    REQUIRE(compatibilityConfig != std::string::npos);
+    REQUIRE(listenerRegistration != std::string::npos);
+    REQUIRE(startupComplete != std::string::npos);
+    std::string loadBoundary = source.substr(exportedLoad);
+    CHECK(loadBoundary.find("return LoadAdapter(skse, startupStage);") !=
+          std::string::npos);
+    CHECK(loadBoundary.find("catch (const std::exception& exception)") !=
+          std::string::npos);
+    CHECK(loadBoundary.find("catch (...)") != std::string::npos);
+    CHECK(CountOccurrences(loadBoundary, "EmitStartupFailure(") == 2);
+    CHECK(CountOccurrences(loadBoundary, "return false;") == 2);
+    CHECK(source.find("EmitStartupMarker(startupStage);") !=
+          std::string::npos);
+    CHECK(loadHelper < exportedLoad);
+    CHECK(setupLogging < compatibilityConfig);
+    CHECK(compatibilityConfig < listenerRegistration);
+    CHECK(listenerRegistration < startupComplete);
+}
+
 TEST_CASE("the adapter plugin defers host discovery startup to kDataLoaded",
           "[plugin][structural]") {
     std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
@@ -212,32 +254,15 @@ TEST_CASE("the adapter plugin derives and reuses one owner-lifetime identity",
               "*gOwnerLifetimeId).RequestShutdown();")) != std::string::npos);
 }
 
-TEST_CASE("the real-package-layout CTest fixture keys its skip decision on "
-          "the Adapter's own build configuration, not the Host's",
+TEST_CASE("the real-package-layout CTest fixture runs for every build configuration",
           "[plugin][structural][boundary]") {
-    //  DOVAHLINK_HOST_BUILD_CONFIGURATION exists so the Host and Adapter can be
-    //  pointed at independently built configurations (it only selects which
-    //  Host build folder DOVAHLINK_HOST_EXECUTABLE points at). Overriding it
-    //  must never change whether a Release Adapter build's own package-layout
-    //  test skips or fails -- that decision belongs to
-    //  DOVAHLINK_ADAPTER_BUILD_CONFIGURATION, which is derived unconditionally
-    //  from this configuration's own CMAKE_BUILD_TYPE and cannot be overridden.
-    std::filesystem::path cmakeListsPath =
-        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) /
-        "CMakeLists.txt";
-    std::string source = ReadSource(cmakeListsPath);
-
-    std::size_t addTestPos =
-        source.find("add_test(NAME AssembleRealAdapterHostPackage");
-    REQUIRE(addTestPos != std::string::npos);
-    std::size_t addTestEnd = source.find(')', addTestPos);
-    REQUIRE(addTestEnd != std::string::npos);
-    std::string addTestBlock = source.substr(addTestPos, addTestEnd - addTestPos);
-
-    CHECK(addTestBlock.find("DOVAHLINK_ADAPTER_BUILD_CONFIGURATION") !=
-          std::string::npos);
-    CHECK(addTestBlock.find("DOVAHLINK_HOST_BUILD_CONFIGURATION") ==
-          std::string::npos);
+    std::string source = ReadSource(
+        std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) / "CMakeLists.txt");
+    CHECK(source.find("add_test(NAME AssembleRealAdapterHostPackage") != std::string::npos);
+    CHECK(source.find("FIXTURES_SETUP RealAdapterHostPackage") != std::string::npos);
+    CHECK(source.find("FIXTURES_REQUIRED RealAdapterHostPackage") != std::string::npos);
+    CHECK(source.find("SKIP_RETURN_CODE") == std::string::npos);
+    CHECK(source.find("--configuration") == std::string::npos);
 }
 
 TEST_CASE("the adapter plugin starts the host-discovery supervisor on "

@@ -32,6 +32,9 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 - Host-owned state subscriptions with baseline snapshots, live updates, recovery, and
   play-context-safe resynchronization.
 - Reserved control and data outbound lanes so state publication cannot starve control traffic.
+- Dual licensing: the repository root and every component except `adapter/` are now licensed under
+  the PolyForm Noncommercial License 1.0.0 (`LICENSE`); `adapter/` is licensed separately under
+  GPL-3.0-or-later (`adapter/LICENSE`) because it links CommonLibSSE-NG.
 
 ### Changed
 
@@ -44,9 +47,15 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   object-graph assembly in `Program.cs`.
 - The Adapter executes the Host's bounded resynchronization plan for event registrations and baseline samples.
 - Live capture routing now dispatches through explicit domain handlers, keeping generic Host capture handling free of Character-specific payload logic.
+- The Adapter's CommonLibSSE-NG dependency now tracks `alandtse/CommonLibSSE-NG` (GPL-3.0-or-later)
+  instead of the `CharmedBaryon/CommonLibSSE` fork, to pick up its 1.7.x offset and Address Library
+  V5 fixes.
+- The Adapter now targets Steam Skyrim Special Edition `1.7.104` with SKSE64 `2.3.1`, replacing the
+  previous exact-match target of `1.6.1170` / SKSE `2.2.6`.
 
 ### Fixed
 
+- The Adapter embeds its formatting and logging libraries so SKSE can load it without locating separate `fmt` and `spdlog` DLLs.
 - Local CI now falls back to standard locations and `PATH` when tool-path overrides are unset.
 - The Builder now discovers non-standard Visual Studio installations and uses that installation's
   CMake and Ninja executables for Adapter builds.
