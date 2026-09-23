@@ -8,6 +8,9 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Handles appearance actions, resolving its use cases through the shared [sl] container.
 class AppearanceMiddleware extends MiddlewareClass<AppState> {
+  /// Pending theme persistence operations in selection order.
+  Future<void> _persistenceQueue = Future<void>.value();
+
   /// See [MiddlewareClass.call].
   @override
   void call(Store<AppState> store, dynamic action, NextDispatcher next) {
@@ -24,12 +27,18 @@ class AppearanceMiddleware extends MiddlewareClass<AppState> {
   /// Persists [ThemePresetSelectedAction.preset]. The reducer applies the preset immediately, so a
   /// persistence failure affects whether it survives the next launch but does not undo the active
   /// appearance.
-  Future<void> _themePresetSelected(
+  void _themePresetSelected(
     Store<AppState> store,
     ThemePresetSelectedAction action,
-  ) async {
-    await sl<SetThemePresetUseCase>()(
-      SetThemePresetParams(preset: action.preset),
-    );
+  ) {
+    _persistenceQueue = _persistenceQueue
+        .then((_) async {
+          await sl<SetThemePresetUseCase>()(
+            SetThemePresetParams(preset: action.preset),
+          );
+        })
+        .catchError((Object _, StackTrace __) {
+          // Keep a failed write from preventing later selections from persisting.
+        });
   }
 }

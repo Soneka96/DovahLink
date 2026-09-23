@@ -83,6 +83,139 @@ void main() {
     );
 
     test(
+      'ThemePresetSelectedAction persists rapid selections in selection order',
+      () {
+        fakeAsync((FakeAsync async) {
+          final Completer<Either<Failure, Unit>> hearthPersistence =
+              Completer<Either<Failure, Unit>>();
+          final Completer<Either<Failure, Unit>> dovahPersistence =
+              Completer<Either<Failure, Unit>>();
+          final List<DovahThemePreset> persistenceStarts = [];
+          when(() => mockSetThemePreset(any())).thenAnswer((Invocation call) {
+            final SetThemePresetParams params =
+                call.positionalArguments.single as SetThemePresetParams;
+            persistenceStarts.add(params.preset);
+            return params.preset == DovahThemePreset.hearth
+                ? hearthPersistence.future
+                : dovahPersistence.future;
+          });
+
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.hearth),
+            next,
+          );
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.dovah),
+            next,
+          );
+
+          expect(actionLog, [
+            const ThemePresetSelectedAction(DovahThemePreset.hearth),
+            const ThemePresetSelectedAction(DovahThemePreset.dovah),
+          ]);
+
+          async.flushMicrotasks();
+          expect(persistenceStarts, [DovahThemePreset.hearth]);
+
+          hearthPersistence.complete(const Right(unit));
+          async.flushMicrotasks();
+          expect(persistenceStarts, [
+            DovahThemePreset.hearth,
+            DovahThemePreset.dovah,
+          ]);
+
+          dovahPersistence.complete(const Right(unit));
+          async.flushMicrotasks();
+        });
+      },
+    );
+
+    test(
+      'ThemePresetSelectedAction persists the next preset after a write fails',
+      () {
+        const DatabaseFailure failure = DatabaseFailure('unavailable');
+        fakeAsync((FakeAsync async) {
+          final Completer<Either<Failure, Unit>> hearthPersistence =
+              Completer<Either<Failure, Unit>>();
+          final List<DovahThemePreset> persistenceStarts = [];
+          when(() => mockSetThemePreset(any())).thenAnswer((Invocation call) {
+            final SetThemePresetParams params =
+                call.positionalArguments.single as SetThemePresetParams;
+            persistenceStarts.add(params.preset);
+            return params.preset == DovahThemePreset.hearth
+                ? hearthPersistence.future
+                : Future<Either<Failure, Unit>>.value(const Right(unit));
+          });
+
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.hearth),
+            next,
+          );
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.dovah),
+            next,
+          );
+
+          async.flushMicrotasks();
+          expect(persistenceStarts, [DovahThemePreset.hearth]);
+
+          hearthPersistence.complete(const Left(failure));
+          async.flushMicrotasks();
+
+          expect(persistenceStarts, [
+            DovahThemePreset.hearth,
+            DovahThemePreset.dovah,
+          ]);
+        });
+      },
+    );
+
+    test(
+      'ThemePresetSelectedAction persists the next preset after a write throws',
+      () {
+        fakeAsync((FakeAsync async) {
+          final Completer<Either<Failure, Unit>> hearthPersistence =
+              Completer<Either<Failure, Unit>>();
+          final List<DovahThemePreset> persistenceStarts = [];
+          when(() => mockSetThemePreset(any())).thenAnswer((Invocation call) {
+            final SetThemePresetParams params =
+                call.positionalArguments.single as SetThemePresetParams;
+            persistenceStarts.add(params.preset);
+            return params.preset == DovahThemePreset.hearth
+                ? hearthPersistence.future
+                : Future<Either<Failure, Unit>>.value(const Right(unit));
+          });
+
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.hearth),
+            next,
+          );
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.dovah),
+            next,
+          );
+
+          async.flushMicrotasks();
+          expect(persistenceStarts, [DovahThemePreset.hearth]);
+
+          hearthPersistence.completeError(StateError('unavailable'));
+          async.flushMicrotasks();
+
+          expect(persistenceStarts, [
+            DovahThemePreset.hearth,
+            DovahThemePreset.dovah,
+          ]);
+        });
+      },
+    );
+
+    test(
       'ThemePresetSelectedAction calls next exactly once with the triggering action',
       () {
         when(
