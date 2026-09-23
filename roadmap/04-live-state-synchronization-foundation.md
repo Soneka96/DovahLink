@@ -365,6 +365,77 @@ version owner audited here.
 At Phase 4 completion it audits the complete phase rather than each ordinary PR. A later bugfix may
 invoke it independently; a contract-breaking bugfix must not be forced into a patch bump.
 
+##### Stage 4 version-impact audit record
+
+1. **Audited range:** `e451900a` through `4230ac23` (the `main` snapshot containing PR #76),
+   including the Phase 4.1 protocol work and later Host/Adapter continuation across multiple PRs.
+   This is not an audit of PR #76 alone.
+2. **Comparison baseline:** `e451900a`, the 0.3.2 release commit, is the last versioned state before
+   the Stage 4 contract redesign. The repository has no Git tags. The 0.3.3 versioned changelog
+   section and release commit `cbb8297a` already include Phase 4.1's typed message families and
+   retirement of the aggregate `character` state area; those facts do not erase the later contract
+   changes in this audited range. The 0.3.2 baseline is historical and is not a supported public
+   compatibility target under `ai/context/common.md`.
+3. **Affected components:** Host public transport, sessions, authoritative state and bounded
+   publication; native Adapter capture and private IPC; Dart SDK protocol/API and persistence;
+   Flutter pairing and connection-selection code; canonical protocol/schema and fixtures; Host,
+   Adapter, SDK, fixture, and process-level tests. The old independent .NET validation client in
+   `integration/` was removed with the retired Bridge during Stage 3A; current validation uses the
+   Host's protocol tests, Dart SDK tests, canonical fixture checks, and Host/Adapter process tests.
+   This is consistent with the current Host/Adapter ownership path and is not a Stage 4 blocker.
+4. **Protocol impact:** the redesigned typed message families and retired `character` aggregate are
+   already recorded in 0.3.3. Subsequent changes rename the compatibility field from
+   `bridgeVersion` to `hostVersion`, replace `bridgeInstanceId` with conditionally required
+   `stateAuthorityId`, register five state areas, and define Snapshot versus Event revision and
+   recovery behavior. The exported SDK `HelloResult` field also changed from `bridgeVersion` to
+   `hostVersion`; the state payload DTOs remain internal and do not expose a public state API. A
+   client expecting the 0.3.3 wire fields cannot safely consume the current Host contract.
+5. **Persistence impact:** Stage 4 does not change the SDK's persisted client-state format
+   (`currentFormatVersion` remains 1). The Bridge-to-Host cutover moved trust ownership; re-pairing
+   from the retired plugin is the accepted pre-release outcome, with no legacy trust-store migration
+   obligation.
+6. **Security impact:** Stage 4 does not change the public pairing, credential, or authorization
+   model. Typed validation remains fail-closed, and live publication uses the Host's authenticated
+   session, bounded queues, and existing input/resource limits. The Host/Adapter private IPC boundary
+   is separate from public client compatibility.
+7. **Runtime impact:** Adapter support moved from Skyrim 1.6.1170 / SKSE 2.2.6 to Skyrim 1.7.104 /
+   SKSE 2.3.1 with the maintained CommonLib fork. This is an Adapter runtime-support change,
+   independent of Host/client protocol compatibility. The maintainer recorded successful live
+   validation of the supported capture and recovery scenarios on 2026-09-23.
+8. **Compatibility impact:** the SDK decodes and returns `hostVersion` but has no declared
+   supported Host-version range, explicit incompatible-old/new rejection behavior, or verification
+   that its full public surface works across a declared range. These are deferred to Stage 5 and
+   release review. The Host's server-side subscriptions, revisions, snapshots, recovery, and bounded
+   delivery are complete in the active Host/Adapter continuation. The earlier Bridge-authored Stage
+   4.3 SDK-kernel requirements were superseded with that implementation path; Stage 5 completes the
+   Dart client's synchronization engine/API and Flutter integration. The app currently uses the
+   SDK for pairing; its Host-selection UI does not implement live-state synchronization. Existing
+   public compatibility obligations do not apply because no supported public release has shipped.
+9. **Recommended version classification:** minor/breaking pre-1.0 change, because the Host/client
+   contract changed incompatibly. The Skyrim runtime target change is not the reason for this
+   classification.
+10. **Current version and recommended next release:** the root `VERSION` is `0.3.3` and owns the
+    Host compatibility identity and Adapter package version. The next release should be `0.4.0` to
+    identify the incompatible Host/client contract after 0.3.3.
+11. **Changelog actions:** update `[Unreleased]` to describe Stage 4's final completed live-state
+    outcome. Do not create a dated `0.4.0` section on this branch. Report the version's final
+    behavior rather than temporary implementation fixes or removals that did not survive to the
+    release.
+12. **Compatibility-documentation actions:** the canonical schema and
+    `ai/context/protocol/compatibility.md` already describe `hostVersion`, `stateAuthorityId`, and
+    the deferred Stage 5 enforcement. Before closure, reconcile the remaining Bridge-era version
+    wording in this roadmap, correct `sdk/README.md`'s stale account of app SDK use and reconnect
+    work, and correct the SDK state-payload comments that say no areas are registered even though
+    the public schema now registers five.
+13. **Required follow-up release work:** after this phase PR merges, create `release/0.4.0` from
+    updated `main`, synchronize `VERSION` and all enumerated version literals, and promote the
+    accumulated `[Unreleased]` entries. Public Nexus publication remains subject to the repository's
+    app-availability rule.
+14. **Unresolved blockers:** none found for the active Stage 4 Host/Adapter completion criteria.
+    The compatibility enforcement and app state API gaps are explicit Stage 5 work, not Stage 4
+    blockers. The roadmap, SDK status, and changelog updates above remain required before formal
+    closeout.
+
 ### Update mode
 
 Each stateful domain declares exactly one canonical live-delivery mode, `UpdateMode`: `Snapshot` or
