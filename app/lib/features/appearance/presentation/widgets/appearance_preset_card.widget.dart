@@ -55,7 +55,7 @@ class AppearancePresetCard extends StatelessWidget {
                     ? BoxDecoration(
                         border: Border.all(
                           color: previewTokens.signal,
-                          width: 2,
+                          width: DovahThemeTokens.focusOutlineWidth,
                         ),
                         borderRadius: BorderRadius.circular(
                           previewTokens.cornerRadius,
@@ -63,7 +63,7 @@ class AppearancePresetCard extends StatelessWidget {
                         boxShadow: <BoxShadow>[
                           BoxShadow(
                             color: previewTokens.focusRingTint,
-                            blurRadius: 8,
+                            blurRadius: DovahThemeTokens.focusGlowBlurRadius,
                           ),
                         ],
                       )
@@ -71,14 +71,14 @@ class AppearancePresetCard extends StatelessWidget {
                 child: DovahSurface(
                   key: const Key('appearance-preset-card-surface'),
                   raised: selected,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(DovahThemeTokens.spacing12),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
                         key: const Key('appearance-preset-card-preview'),
-                        height: 48,
+                        height: DovahThemeTokens.appearancePreviewHeight,
                         decoration: BoxDecoration(
                           gradient: previewTokens.materialGradient,
                           image: preset == DovahThemePreset.dovah
@@ -94,7 +94,8 @@ class AppearancePresetCard extends StatelessWidget {
                         child: Align(
                           alignment: Alignment.bottomCenter,
                           child: SizedBox(
-                            height: 6,
+                            height:
+                                DovahThemeTokens.appearancePreviewAccentHeight,
                             child: Row(
                               children: [
                                 Expanded(
@@ -110,7 +111,7 @@ class AppearancePresetCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: DovahThemeTokens.spacing8),
                       Row(
                         children: [
                           Expanded(
@@ -126,7 +127,8 @@ class AppearancePresetCard extends StatelessWidget {
                             Icon(
                               Icons.check_circle,
                               color: previewTokens.signal,
-                              size: 20,
+                              size:
+                                  DovahThemeTokens.appearanceSelectionIconSize,
                             ),
                         ],
                       ),

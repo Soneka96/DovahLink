@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 
 import 'dovah_widget_test_helpers.dart';
@@ -69,6 +70,38 @@ void main() {
         );
 
         expect(find.byType(Image), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'DovahEnvironmentBackground uses the shared environment scrim opacities',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahEnvironmentBackground(child: SizedBox.shrink()),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final DovahThemeTokens tokens = Theme.of(
+          tester.element(find.byType(DovahEnvironmentBackground)),
+        ).extension<DovahThemeTokens>()!;
+        final DecoratedBox scrim = tester.widget(
+          find.descendant(
+            of: find.byType(DovahEnvironmentBackground),
+            matching: find.byType(DecoratedBox),
+          ),
+        );
+        final LinearGradient gradient =
+            (scrim.decoration as BoxDecoration).gradient! as LinearGradient;
+
+        expect(gradient.colors, [
+          tokens.background.withValues(
+            alpha: DovahThemeTokens.environmentTopScrimOpacity,
+          ),
+          tokens.background.withValues(
+            alpha: DovahThemeTokens.environmentBottomScrimOpacity,
+          ),
+        ]);
       },
     );
   });

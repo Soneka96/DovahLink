@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 
 import 'dovah_widget_test_helpers.dart';
@@ -42,6 +43,42 @@ void main() {
           );
         }
       }
+    }
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahConnectionCard uses shared icon and caption metrics under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = Theme.of(
+            tester.element(find.text('Gaming PC')),
+          ).extension<DovahThemeTokens>()!;
+          final Icon icon = tester.widget(
+            find.byIcon(Icons.desktop_windows_outlined),
+          );
+          final Text subtitle = tester.widget(
+            find.text('Skyrim Special Edition'),
+          );
+          final Icon marker = tester.widget(find.byIcon(Icons.circle).first);
+
+          expect(
+            icon.size,
+            DovahThemeTokens.connectionIconSize * tokens.densityScale,
+          );
+          expect(subtitle.style?.fontSize, DovahThemeTokens.compactFontSize);
+          expect(marker.size, DovahThemeTokens.connectionStateMarkerSize);
+        },
+      );
     }
 
     testWidgets('DovahConnectionCard contains a chevron when available', (

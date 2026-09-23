@@ -8,6 +8,7 @@ import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// The appearance picker's content: one card per [DovahThemePreset], shown inside a
 /// [DovahDialog][DovahThemeContext] by whatever screen offers theme selection.
@@ -35,18 +36,23 @@ class AppearanceSection extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: DovahThemeTokens.spacing4),
             Text(
               'The interface stays familiar, but its material, shape, density and motion change.',
-              style: TextStyle(color: tokens.textMuted, fontSize: 13),
+              style: TextStyle(
+                color: tokens.textMuted,
+                fontSize: DovahThemeTokens.compactFontSize,
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: DovahThemeTokens.spacing16),
             Row(
               children: [
                 for (final DovahThemePreset preset in DovahThemePreset.values)
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: DovahThemeTokens.spacing6,
+                      ),
                       child: AppearancePresetCard(
                         key: Key('appearance-preset-card-${preset.name}'),
                         preset: preset,

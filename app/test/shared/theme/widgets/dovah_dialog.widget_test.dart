@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 
 import 'dovah_widget_test_helpers.dart';
@@ -27,6 +28,8 @@ void main() {
             expect(tester.takeException(), isNull);
             expect(find.text('Appearance'), findsOneWidget);
             expect(find.text('Dialog body content'), findsOneWidget);
+            final Text title = tester.widget(find.text('Appearance'));
+            expect(title.style?.fontSize, DovahThemeTokens.dialogTitleFontSize);
           },
         );
       }
@@ -97,8 +100,14 @@ void main() {
 
         final Size size = tester.getSize(find.byTooltip('Close'));
 
-        expect(size.width, greaterThanOrEqualTo(48));
-        expect(size.height, greaterThanOrEqualTo(48));
+        expect(
+          size.width,
+          greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+        );
+        expect(
+          size.height,
+          greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+        );
       },
     );
 

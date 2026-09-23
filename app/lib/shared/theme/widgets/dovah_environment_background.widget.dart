@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// The DovahLink application canvas's atmospheric background: the theme's environment image
 /// (Frostbound, Hearth) or a pure gradient atmosphere (Dovah has no environment image), with a
@@ -38,8 +39,12 @@ class DovahEnvironmentBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  tokens.background.withValues(alpha: 0.82),
-                  tokens.background.withValues(alpha: 0.55),
+                  tokens.background.withValues(
+                    alpha: DovahThemeTokens.environmentTopScrimOpacity,
+                  ),
+                  tokens.background.withValues(
+                    alpha: DovahThemeTokens.environmentBottomScrimOpacity,
+                  ),
                 ],
               ),
             ),

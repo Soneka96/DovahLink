@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 
 /// A DovahLink themed modal card: a title, a close affordance, and scrollable content, shown
@@ -27,11 +28,16 @@ class DovahDialog extends StatelessWidget {
     context: context,
     barrierColor: Colors.transparent,
     builder: (BuildContext dialogContext) => BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+      filter: ImageFilter.blur(
+        sigmaX: DovahThemeTokens.dialogBackdropBlurSigma,
+        sigmaY: DovahThemeTokens.dialogBackdropBlurSigma,
+      ),
       child: Container(
         alignment: Alignment.center,
-        color: Colors.black.withValues(alpha: 0.35),
-        padding: const EdgeInsets.all(24),
+        color: DovahThemeTokens.dialogBackdropColor.withValues(
+          alpha: DovahThemeTokens.dialogBackdropOpacity,
+        ),
+        padding: const EdgeInsets.all(DovahThemeTokens.spacing24),
         child: DovahDialog(title: title, child: child),
       ),
     ),
@@ -58,7 +64,9 @@ class DovahDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding: EdgeInsets.all(19 * tokens.densityScale),
+              padding: EdgeInsets.all(
+                DovahThemeTokens.spacing19 * tokens.densityScale,
+              ),
               child: Row(
                 children: [
                   Expanded(
@@ -66,7 +74,7 @@ class DovahDialog extends StatelessWidget {
                       title,
                       style: TextStyle(
                         fontFamily: tokens.displayFontFamily,
-                        fontSize: 23,
+                        fontSize: DovahThemeTokens.dialogTitleFontSize,
                         color: tokens.textPrimary,
                       ),
                     ),
@@ -77,8 +85,8 @@ class DovahDialog extends StatelessWidget {
                         onClose ?? () => Navigator.of(context).maybePop(),
                     tooltip: 'Close',
                     constraints: const BoxConstraints(
-                      minWidth: 48,
-                      minHeight: 48,
+                      minWidth: DovahThemeTokens.minimumTapTargetSize,
+                      minHeight: DovahThemeTokens.minimumTapTargetSize,
                     ),
                   ),
                 ],
@@ -86,7 +94,9 @@ class DovahDialog extends StatelessWidget {
             ),
             Flexible(
               child: Padding(
-                padding: EdgeInsets.all(22 * tokens.densityScale),
+                padding: EdgeInsets.all(
+                  DovahThemeTokens.spacing22 * tokens.densityScale,
+                ),
                 child: SingleChildScrollView(child: child),
               ),
             ),

@@ -62,6 +62,34 @@ void main() {
     });
 
     testWidgets(
+      'AppearancePresetCard uses shared preview and selection-icon metrics',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          AppearancePresetCard(
+            preset: DovahThemePreset.hearth,
+            selected: true,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final Size previewSize = tester.getSize(
+          find.byKey(const Key('appearance-preset-card-preview')),
+        );
+        final Icon selectionIcon = tester.widget(
+          find.byIcon(Icons.check_circle),
+        );
+
+        expect(previewSize.height, DovahThemeTokens.appearancePreviewHeight);
+        expect(
+          selectionIcon.size,
+          DovahThemeTokens.appearanceSelectionIconSize,
+        );
+      },
+    );
+
+    testWidgets(
       'AppearancePresetCard does not contain a check icon when not selected',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_geometry.dart';
 
 /// Paints a DovahLink surface's material: an ambient shadow following the theme's corner
@@ -61,7 +62,7 @@ class DovahMaterialPainter extends CustomPainter {
 
     final Paint borderPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
+      ..strokeWidth = DovahThemeTokens.surfaceBorderWidth
       ..color = borderColor;
     canvas.drawPath(path, borderPaint);
   }

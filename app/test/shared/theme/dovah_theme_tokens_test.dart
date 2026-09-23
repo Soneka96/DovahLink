@@ -9,6 +9,82 @@ import '../../fixtures/fixtures.dart';
 
 /// Exercises [DovahThemeTokens]'s `copyWith`, `lerp`, and equality contracts.
 void main() {
+  group('Behavior shared visual tokens behave correctly', () {
+    test(
+      'Behavior shared visual tokens keep the approved component metrics',
+      () {
+        expect(
+          <Object>[
+            DovahThemeTokens.spacing4,
+            DovahThemeTokens.spacing6,
+            DovahThemeTokens.spacing8,
+            DovahThemeTokens.spacing12,
+            DovahThemeTokens.spacing16,
+            DovahThemeTokens.spacing17,
+            DovahThemeTokens.spacing18,
+            DovahThemeTokens.spacing19,
+            DovahThemeTokens.spacing22,
+            DovahThemeTokens.spacing24,
+            DovahThemeTokens.compactFontSize,
+            DovahThemeTokens.dialogTitleFontSize,
+            DovahThemeTokens.connectionStateMarkerSize,
+            DovahThemeTokens.connectionIconTileSize,
+            DovahThemeTokens.connectionIconTileRadius,
+            DovahThemeTokens.connectionIconSize,
+            DovahThemeTokens.appearancePreviewHeight,
+            DovahThemeTokens.appearancePreviewAccentHeight,
+            DovahThemeTokens.appearanceSelectionIconSize,
+            DovahThemeTokens.focusOutlineWidth,
+            DovahThemeTokens.minimumTapTargetSize,
+            DovahThemeTokens.focusGlowBlurRadius,
+            DovahThemeTokens.disabledControlOpacity,
+            DovahThemeTokens.primaryButtonHoverBrightness,
+            DovahThemeTokens.buttonHoverDuration,
+            DovahThemeTokens.surfaceBorderWidth,
+            DovahThemeTokens.dialogBackdropBlurSigma,
+            DovahThemeTokens.dialogBackdropOpacity,
+            DovahThemeTokens.dialogBackdropColor,
+            DovahThemeTokens.environmentTopScrimOpacity,
+            DovahThemeTokens.environmentBottomScrimOpacity,
+          ],
+          <Object>[
+            4.0,
+            6.0,
+            8.0,
+            12.0,
+            16.0,
+            17.0,
+            18.0,
+            19.0,
+            22.0,
+            24.0,
+            13.0,
+            23.0,
+            8.0,
+            43.0,
+            9.0,
+            21.0,
+            48.0,
+            6.0,
+            20.0,
+            2.0,
+            48.0,
+            8.0,
+            0.46,
+            0.07,
+            const Duration(milliseconds: 160),
+            1.0,
+            8.0,
+            0.35,
+            Colors.black,
+            0.82,
+            0.55,
+          ],
+        );
+      },
+    );
+  });
+
   group('Method copyWith behaves correctly', () {
     test('Method copyWith with no arguments returns an equal copy', () {
       final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();

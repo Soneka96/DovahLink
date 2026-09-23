@@ -12,6 +12,99 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 /// concrete preset is active.
 @immutable
 class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
+  /// Smallest shared spacing unit.
+  static const double spacing4 = 4;
+
+  /// Shared spacing for compact card gutters.
+  static const double spacing6 = 6;
+
+  /// Shared spacing for small layout gaps.
+  static const double spacing8 = 8;
+
+  /// Shared spacing for button padding and compact surfaces.
+  static const double spacing12 = 12;
+
+  /// Shared spacing for section and connection-card gaps.
+  static const double spacing16 = 16;
+
+  /// Shared horizontal button padding.
+  static const double spacing17 = 17;
+
+  /// Shared panel and connection-card padding.
+  static const double spacing18 = 18;
+
+  /// Shared dialog-header padding.
+  static const double spacing19 = 19;
+
+  /// Shared dialog-content padding.
+  static const double spacing22 = 22;
+
+  /// Shared dialog-backdrop padding.
+  static const double spacing24 = 24;
+
+  /// Font size for supporting text and compact labels.
+  static const double compactFontSize = 13;
+
+  /// Font size for dialog titles.
+  static const double dialogTitleFontSize = 23;
+
+  /// Diameter of the connection-state marker.
+  static const double connectionStateMarkerSize = 8;
+
+  /// Size of the connection-card icon tile before density scaling.
+  static const double connectionIconTileSize = 43;
+
+  /// Corner radius of the connection-card icon tile before density scaling.
+  static const double connectionIconTileRadius = 9;
+
+  /// Size of the icon inside a connection-card icon tile before density scaling.
+  static const double connectionIconSize = 21;
+
+  /// Height of an appearance-preset preview.
+  static const double appearancePreviewHeight = 48;
+
+  /// Height of the accent strip in an appearance-preset preview.
+  static const double appearancePreviewAccentHeight = 6;
+
+  /// Size of the selected-preset indicator.
+  static const double appearanceSelectionIconSize = 20;
+
+  /// Width of themed focus outlines.
+  static const double focusOutlineWidth = 2;
+
+  /// Minimum interactive target width and height for themed controls.
+  static const double minimumTapTargetSize = 48;
+
+  /// Blur radius of themed focus glows.
+  static const double focusGlowBlurRadius = 8;
+
+  /// Disabled-control opacity.
+  static const double disabledControlOpacity = 0.46;
+
+  /// Brightness increase applied to hovered primary buttons.
+  static const double primaryButtonHoverBrightness = 0.07;
+
+  /// Duration of the primary-button hover transition.
+  static const Duration buttonHoverDuration = Duration(milliseconds: 160);
+
+  /// Border width shared by themed surfaces.
+  static const double surfaceBorderWidth = 1;
+
+  /// Blur strength applied behind themed dialogs.
+  static const double dialogBackdropBlurSigma = 8;
+
+  /// Opacity of the themed-dialog backdrop scrim.
+  static const double dialogBackdropOpacity = 0.35;
+
+  /// Color of the themed-dialog backdrop scrim.
+  static const Color dialogBackdropColor = Colors.black;
+
+  /// Opacity of the environment-background scrim at the top edge.
+  static const double environmentTopScrimOpacity = 0.82;
+
+  /// Opacity of the environment-background scrim at the bottom edge.
+  static const double environmentBottomScrimOpacity = 0.55;
+
   /// Creates a complete token set. Every field is required so no theme can be assembled with an
   /// accidentally-inherited default.
   const DovahThemeTokens({
