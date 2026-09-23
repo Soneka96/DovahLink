@@ -107,3 +107,24 @@ enum DovahConnectionCardState {
     DovahConnectionCardState.repair => 'Pair again',
   };
 }
+
+/// The corner treatment a DovahLink theme applies to panels, surfaces, buttons, and cards.
+/// Every theme resolves to exactly one style, so the type carries no unselected sentinel; see
+/// `ai/context/flutter/dart-style.md`'s "Enums".
+enum DovahPanelCornerStyle {
+  /// One bevelled corner (top-right), sharp elsewhere, no rounding. Frostbound.
+  singleBevel,
+
+  /// Two bevelled corners on opposite edges, slight rounding. Dovah.
+  doubleBevel,
+
+  /// No bevel; plain rounded corners. Hearth.
+  rounded;
+
+  /// Returns the concise label for this corner treatment.
+  String get label => switch (this) {
+    DovahPanelCornerStyle.singleBevel => 'Single bevel',
+    DovahPanelCornerStyle.doubleBevel => 'Double bevel',
+    DovahPanelCornerStyle.rounded => 'Rounded',
+  };
+}
