@@ -18,6 +18,9 @@ DovahLink establishes reusable Skyrim-inspired presentation before feature scree
 - Support contrast, text scaling, accessibility, and reduced motion.
 - Apply the system to the PC baseline before broad features.
 - Keep future adapters declarative and presentation-only.
+- Complete a visual-fidelity pass against the approved prototype, restoring component-specific
+  textures, layered and inset shadows, geometry, and theme-specific atmosphere where the Flutter
+  foundation currently uses simplified treatments.
 
 ### Dependencies and boundaries
 
