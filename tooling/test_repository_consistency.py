@@ -1247,8 +1247,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 17)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 18)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Active\.", roadmap)), 1)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
         )
@@ -1257,23 +1258,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "## Ordered stages", 1
         )[0]
         self.assertIn(
-            "**Current stage:** Stage 5 — Dart Client SDK Foundation is the next development target.",
+            "**Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phase 5.2 is the next planned",
             current_position,
         )
         self.assertIn(
-            "Stage 4 — Live State Synchronization Foundation is complete",
+            "**Current phase:** Phase 5.2 — SDK State Synchronization API (**Planned**). Phase 5.1 completed",
             current_position,
+        )
+        ordered_stages = root_roadmap.split("## Ordered stages", 1)[1].split(
+            "## Major dependencies", 1
+        )[0]
+        self.assertIn(
+            "| 5 | Active. Phase 5.1 is complete; Phase 5.2 is the next planned target.",
+            ordered_stages,
+        )
+        self.assertIn(
+            "Stage 4 — Live State Synchronization Foundation is complete",
+            self._normalize_whitespace(current_position),
         )
         self.assertIn("recommends `0.4.0`", current_position)
         self.assertNotIn("Stage 4 remains Active", current_position)
-        # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
-        # "Status" section records the same decision); its status line carries that explanation
-        # instead of the plain "Planned" every other undone phase uses.
+        # Stage 5 is active because Phase 5.1 is complete and Phase 5.2 is next; the status line
+        # also records work pulled forward for Phase 3's pairing needs.
         phase_5_status = (
-            "**Status:** Planned. The package scaffold, protocol/transport layer, and "
+            "**Status:** Active. The package scaffold, protocol/transport layer, and "
             "persistence boundary"
         )
         self.assertEqual(roadmap.count(phase_5_status), 1)
+        phase_5_summary = self._normalize_whitespace(
+            self._read("roadmap/05-dart-client-sdk-foundation.md").split(
+                "### Outcome", 1
+            )[0]
+        )
+        self.assertIn(
+            "Phase 5.1 — SDK Typed Protocol and Host Compatibility Boundary is complete.",
+            phase_5_summary,
+        )
+        self.assertIn(
+            "State revisions, subscriptions, snapshots, recovery, and completing the app's "
+            "SDK integration remain for the rest of Stage 5.",
+            phase_5_summary,
+        )
 
         # 3A is now complete; its status line records what completing it means instead of the
         # bare "Complete" every other closed stage uses.
@@ -1312,7 +1337,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     "**Status:** Complete",
                 ]
             elif heading.startswith("5. "):
-                expected_statuses = [phase_5_status]
+                expected_statuses = [phase_5_status, "**Status:** Complete"]
             elif heading.startswith("28. "):
                 expected_statuses = [
                     "**Status:** Planned after read-only product validation"
@@ -2133,7 +2158,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             app_readme,
         )
         self.assertIn(
-            "Stage 5 completes the SDK's Host-version compatibility checks", app_readme
+            "Phase 5.1 delivered the SDK's Host-version compatibility checks",
+            app_readme,
         )
         self.assertIn(
             "Flutter\nconventions point to [`ai/context/sdk/`](../ai/context/sdk/) for "
@@ -2175,8 +2201,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             security,
         )
 
-        # Stage 5 is still Planned/pulled-forward, not a frozen historical record, so its
-        # ownership-boundary list must name the areas that actually exist today.
+        # Stage 5 is active/pulled-forward, not a frozen historical record, so its ownership-boundary
+        # list must name the areas that actually exist today.
         sdk_foundation = self._read("roadmap/05-dart-client-sdk-foundation.md")
         self.assertIn(
             "alongside\n  `app/`, `host/`, `adapter/`, `protocol/`, and `integration/`",
