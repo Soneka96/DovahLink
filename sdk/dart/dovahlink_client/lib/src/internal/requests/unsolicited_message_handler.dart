@@ -1,22 +1,38 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/session_invalidated_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Routes decoded unsolicited messages to their typed SDK lifecycle surface.
-class UnsolicitedMessageHandler {
+abstract interface class IUnsolicitedMessageHandler {
+  /// Handles one unsolicited Host message.
+  /// @param envelope The decoded, uncorrelated protocol envelope.
+  void handle(Envelope envelope);
+}
+
+/// Routes decoded unsolicited messages to their typed SDK lifecycle surface.
+class UnsolicitedMessageHandler implements IUnsolicitedMessageHandler {
   /// Where lifecycle events and malformed unsolicited messages are reported.
   final ISessionService _sessionService;
 
-  /// Creates a handler reporting lifecycle events and protocol violations through
-  /// [sessionService].
-  UnsolicitedMessageHandler({required ISessionService sessionService})
-    : _sessionService = sessionService;
+  /// Routes state-domain Snapshot and Event messages.
+  final IStateMessageHandler _stateMessageHandler;
+
+  /// Creates a handler routing lifecycle and state messages through their owning capabilities.
+  /// @param sessionService The connection lifecycle boundary for errors and invalidation.
+  /// @param stateMessageHandler The typed state-domain message boundary.
+  UnsolicitedMessageHandler({
+    required ISessionService sessionService,
+    required IStateMessageHandler stateMessageHandler,
+  }) : _sessionService = sessionService,
+       _stateMessageHandler = stateMessageHandler;
 
   /// Handles one unsolicited [envelope], ignoring known unsupported message types.
+  @override
   void handle(Envelope envelope) {
     switch (envelope.messageType) {
       case ProtocolMessageType.capabilities:
@@ -51,6 +67,10 @@ class UnsolicitedMessageHandler {
             orphanRetrySafeOperations: false,
           );
         }
+        break;
+      case ProtocolMessageType.stateSnapshot:
+      case ProtocolMessageType.stateEvent:
+        _stateMessageHandler.handle(envelope);
         break;
       default:
         // A known but currently unsupported unsolicited message is ignored. An unknown wire value

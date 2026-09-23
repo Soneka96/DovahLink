@@ -64,6 +64,8 @@ reject SDK versions.
 
 #### 5.2 SDK State Synchronization API
 
+**Status:** Complete
+
 Expose the Stage 4 synchronization kernel through curated typed models for the character Snapshot
 state areas (`character_xp`, `character_health`, `character_magicka`, and `character_stamina`) and
 `character_level` Event state. A state stream carries a typed value plus its domain

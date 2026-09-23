@@ -30,4 +30,12 @@ class StateSynchronization<T> {
     required this.playContextId,
     required this.revision,
   });
+
+  /// Creates the initial view before any state subscription has been requested.
+  const StateSynchronization.notSubscribed()
+    : status = DovahLinkStateStatus.notSubscribed,
+      value = null,
+      stateAuthorityId = null,
+      playContextId = null,
+      revision = null;
 }

@@ -11,9 +11,16 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// Owns envelope decoding, correlation, and unsolicited routing, per
 /// `ai/context/sdk/architecture.md`'s "Internal composition" and "Inbound message handling". Does
 /// not itself own connection state or transport lifecycle -- a decoded event it cannot resolve
-/// itself (a correlated reply, an authoritative `session_invalidated` push, a protocol violation)
+/// itself (a correlated reply, an unsolicited Host push, a protocol violation)
 /// is reported to [ISessionService] or resolved through [PendingOperationBookkeeping] instead.
-class MessageRouter {
+abstract interface class IMessageRouter {
+  /// Decodes and routes one inbound transport message.
+  /// @param raw The UTF-8 JSON message received from the current socket.
+  void handleIncoming(String raw);
+}
+
+/// Owns envelope decoding, correlation, and unsolicited routing for one session.
+class MessageRouter implements IMessageRouter {
   /// Where a correlated reply is resolved by its correlation ID.
   final PendingOperationBookkeeping _bookkeeping;
 
@@ -21,26 +28,29 @@ class MessageRouter {
   /// detects are reported.
   final ISessionService _sessionService;
 
-  /// Creates a message router resolving correlated replies through [bookkeeping] and
-  /// reporting everything else to [sessionService].
+  /// Routes uncorrelated Host messages to their typed lifecycle and state owners.
+  final IUnsolicitedMessageHandler _unsolicitedMessageHandler;
+
+  /// Creates a message router resolving correlated replies and reporting anomalies through
+  /// their owning collaborators.
+  /// @param bookkeeping Resolves operation replies by correlation identity.
+  /// @param sessionService Receives protocol violations.
+  /// @param unsolicitedMessageHandler Handles uncorrelated Host messages.
   MessageRouter({
     required PendingOperationBookkeeping bookkeeping,
     required ISessionService sessionService,
+    required IUnsolicitedMessageHandler unsolicitedMessageHandler,
   }) : _bookkeeping = bookkeeping,
-       _sessionService = sessionService {
-    _unsolicitedMessageHandler = UnsolicitedMessageHandler(
-      sessionService: sessionService,
-    );
-  }
-
-  /// Routes decoded unsolicited messages.
-  late final UnsolicitedMessageHandler _unsolicitedMessageHandler;
+       _sessionService = sessionService,
+       _unsolicitedMessageHandler = unsolicitedMessageHandler;
 
   /// Decodes and routes one inbound message. Matches a correlated reply to its pending operation
   /// strictly by `correlationId`/`messageId` through [PendingOperationBookkeeping.resolveReply];
   /// routes an unsolicited (`correlationId: null`) message by type; reports a protocol violation
   /// for a non-null `correlationId` matching no pending operation, and for malformed JSON, rather
   /// than letting either escape as an uncaught error.
+  /// @param raw The UTF-8 JSON message received from the current socket.
+  @override
   void handleIncoming(String raw) {
     final Envelope envelope;
     try {

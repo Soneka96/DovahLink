@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
+import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
@@ -11,6 +12,9 @@ abstract interface class IStateRevisionTracker<T> {
   /// Replays the current view to new listeners, then emits every accepted transition.
   /// @return The current-state stream for this domain.
   Stream<StateSynchronization<T>> get changes;
+
+  /// Whether an Event-buffer overflow requires the active recovery Snapshot to be replaced.
+  bool get recoveryBufferOverflowed;
 
   /// Marks the domain as waiting for an authoritative Snapshot.
   void beginRecovery();
@@ -56,6 +60,22 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
   /// The current value and replayable change stream, supplied by the composition root.
   final CurrentValueStream<StateSynchronization<T>> _state;
 
+  /// Events held until the next accepted authoritative Snapshot establishes their baseline.
+  final List<
+    ({
+      String stateAuthorityId,
+      String? playContextId,
+      int baseRevision,
+      int revision,
+      T value,
+      bool isUnavailable,
+    })
+  >
+  _bufferedEvents = [];
+
+  /// Whether the current buffer was abandoned because it reached its capacity.
+  bool _recoveryBufferOverflowed = false;
+
   /// Creates a tracker over the domain's current-state stream.
   /// @param state The state stream seeded with this domain's initial status.
   StateRevisionTracker({
@@ -70,12 +90,21 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
   @override
   Stream<StateSynchronization<T>> get changes => _state.stream;
 
+  /// See [IStateRevisionTracker.recoveryBufferOverflowed].
+  @override
+  bool get recoveryBufferOverflowed => _recoveryBufferOverflowed;
+
   /// See [IStateRevisionTracker.beginRecovery].
   @override
   void beginRecovery() {
     final StateSynchronization<T> previous = current;
-    if (previous.status == DovahLinkStateStatus.recovering) {
+    if (previous.status == DovahLinkStateStatus.recovering &&
+        !_recoveryBufferOverflowed) {
       return;
+    }
+    if (_recoveryBufferOverflowed) {
+      _bufferedEvents.clear();
+      _recoveryBufferOverflowed = false;
     }
     _state.update(
       StateSynchronization<T>(
@@ -92,6 +121,8 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
   @override
   void failRecovery() {
     final StateSynchronization<T> previous = current;
+    _bufferedEvents.clear();
+    _recoveryBufferOverflowed = false;
     if (previous.status == DovahLinkStateStatus.failed) {
       return;
     }
@@ -115,6 +146,9 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
     required T value,
     required bool isUnavailable,
   }) {
+    if (_recoveryBufferOverflowed) {
+      return false;
+    }
     final StateSynchronization<T> previous = current;
     final bool sameIdentity =
         previous.stateAuthorityId == stateAuthorityId &&
@@ -143,6 +177,37 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
         revision: revision,
       ),
     );
+
+    final List<
+      ({
+        String stateAuthorityId,
+        String? playContextId,
+        int baseRevision,
+        int revision,
+        T value,
+        bool isUnavailable,
+      })
+    >
+    bufferedEvents = List.of(_bufferedEvents);
+    _bufferedEvents.clear();
+    for (final event in bufferedEvents) {
+      if (event.stateAuthorityId != stateAuthorityId ||
+          event.playContextId != playContextId ||
+          event.revision <= current.revision!) {
+        continue;
+      }
+      if (applyEvent(
+            stateAuthorityId: event.stateAuthorityId,
+            playContextId: event.playContextId,
+            baseRevision: event.baseRevision,
+            revision: event.revision,
+            value: event.value,
+            isUnavailable: event.isUnavailable,
+          ) ==
+          StateEventApplyResult.recoveryRequired) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -165,10 +230,52 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
       return StateEventApplyResult.ignored;
     }
 
-    if (!sameIdentity || previousRevision == null) {
-      if (sameIdentity && previous.status == DovahLinkStateStatus.recovering) {
+    if (previous.status == DovahLinkStateStatus.stale ||
+        previous.status == DovahLinkStateStatus.recovering) {
+      if (_recoveryBufferOverflowed) {
         return StateEventApplyResult.recoveryRequired;
       }
+      if (!sameIdentity) {
+        _bufferedEvents.clear();
+        _state.update(
+          StateSynchronization<T>(
+            status: DovahLinkStateStatus.recovering,
+            value: null,
+            stateAuthorityId: stateAuthorityId,
+            playContextId: playContextId,
+            revision: null,
+          ),
+        );
+      } else if (previousRevision != null && revision <= previousRevision) {
+        return StateEventApplyResult.ignored;
+      }
+
+      if (_bufferedEvents.length == kStateRecoveryEventBufferLimit) {
+        _bufferedEvents.clear();
+        _recoveryBufferOverflowed = true;
+        _state.update(
+          StateSynchronization<T>(
+            status: DovahLinkStateStatus.stale,
+            value: current.value,
+            stateAuthorityId: current.stateAuthorityId,
+            playContextId: current.playContextId,
+            revision: current.revision,
+          ),
+        );
+        return StateEventApplyResult.recoveryRequired;
+      }
+      _bufferedEvents.add((
+        stateAuthorityId: stateAuthorityId,
+        playContextId: playContextId,
+        baseRevision: baseRevision,
+        revision: revision,
+        value: value,
+        isUnavailable: isUnavailable,
+      ));
+      return StateEventApplyResult.buffered;
+    }
+
+    if (!sameIdentity || previousRevision == null) {
       _state.update(
         StateSynchronization<T>(
           status: DovahLinkStateStatus.recovering,
@@ -178,6 +285,14 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
           revision: null,
         ),
       );
+      _bufferedEvents.add((
+        stateAuthorityId: stateAuthorityId,
+        playContextId: playContextId,
+        baseRevision: baseRevision,
+        revision: revision,
+        value: value,
+        isUnavailable: isUnavailable,
+      ));
       return StateEventApplyResult.recoveryRequired;
     }
 
@@ -216,6 +331,14 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
           revision: previousRevision,
         ),
       );
+      _bufferedEvents.add((
+        stateAuthorityId: stateAuthorityId,
+        playContextId: playContextId,
+        baseRevision: baseRevision,
+        revision: revision,
+        value: value,
+        isUnavailable: isUnavailable,
+      ));
       return StateEventApplyResult.recoveryRequired;
     }
 

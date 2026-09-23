@@ -4,6 +4,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/internal/state/state_revision_tracker.dart';
+import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import '../../fixtures/fixtures.dart';
@@ -212,7 +213,7 @@ void main() {
     );
 
     test(
-      'Method applySnapshot accepts the same revision again during recovery',
+      'Method applySnapshot accepts the same revision during recovery and replays buffered Events',
       () {
         final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
         tracker.applySnapshot(
@@ -222,12 +223,13 @@ void main() {
           value: 30,
           isUnavailable: false,
         );
+        tracker.beginRecovery();
         tracker.applyEvent(
           stateAuthorityId: 'authority-1',
           playContextId: null,
-          baseRevision: 8,
-          revision: 9,
-          value: 90,
+          baseRevision: 3,
+          revision: 4,
+          value: 40,
           isUnavailable: false,
         );
 
@@ -240,8 +242,8 @@ void main() {
         );
 
         expect(tracker.current.status, DovahLinkStateStatus.synchronized);
-        expect(tracker.current.value, 30);
-        expect(tracker.current.revision, 3);
+        expect(tracker.current.value, 40);
+        expect(tracker.current.revision, 4);
       },
     );
 
@@ -268,6 +270,122 @@ void main() {
 
         expect(tracker.current.status, DovahLinkStateStatus.synchronized);
         expect(tracker.current.value, 30);
+      },
+    );
+
+    test('Method applySnapshot supersedes and replays buffered Events', () {
+      final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+      tracker.applySnapshot(
+        stateAuthorityId: 'authority-1',
+        playContextId: 'context-1',
+        revision: 1,
+        value: 10,
+        isUnavailable: false,
+      );
+      tracker.applyEvent(
+        stateAuthorityId: 'authority-1',
+        playContextId: 'context-1',
+        baseRevision: 4,
+        revision: 5,
+        value: 50,
+        isUnavailable: false,
+      );
+      expect(
+        tracker.applyEvent(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          baseRevision: 5,
+          revision: 6,
+          value: 60,
+          isUnavailable: false,
+        ),
+        StateEventApplyResult.buffered,
+      );
+
+      final bool accepted = tracker.applySnapshot(
+        stateAuthorityId: 'authority-1',
+        playContextId: 'context-1',
+        revision: 5,
+        value: 50,
+        isUnavailable: false,
+      );
+
+      expect(accepted, isTrue);
+      expect(tracker.current.status, DovahLinkStateStatus.synchronized);
+      expect(tracker.current.value, 60);
+      expect(tracker.current.revision, 6);
+    });
+
+    test(
+      'Method applySnapshot restarts after the Event buffer reaches its limit',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: null,
+          revision: 1,
+          value: 10,
+          isUnavailable: false,
+        );
+        tracker.applyEvent(
+          stateAuthorityId: 'authority-1',
+          playContextId: null,
+          baseRevision: 4,
+          revision: 5,
+          value: 50,
+          isUnavailable: false,
+        );
+        for (
+          int index = 0;
+          index < kStateRecoveryEventBufferLimit - 1;
+          index++
+        ) {
+          tracker.applyEvent(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+            baseRevision: index + 1,
+            revision: index + 2,
+            value: index + 2,
+            isUnavailable: false,
+          );
+        }
+        expect(
+          tracker.applyEvent(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+            baseRevision: 128,
+            revision: 129,
+            value: 129,
+            isUnavailable: false,
+          ),
+          StateEventApplyResult.recoveryRequired,
+        );
+
+        expect(
+          tracker.applySnapshot(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+            revision: 129,
+            value: 129,
+            isUnavailable: false,
+          ),
+          isFalse,
+        );
+        tracker.beginRecovery();
+
+        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(
+          tracker.applySnapshot(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+            revision: 129,
+            value: 129,
+            isUnavailable: false,
+          ),
+          isTrue,
+        );
+        expect(tracker.current.status, DovahLinkStateStatus.synchronized);
+        expect(tracker.current.value, 129);
       },
     );
   });
@@ -432,7 +550,7 @@ void main() {
         isUnavailable: false,
       );
 
-      expect(result, StateEventApplyResult.ignored);
+      expect(result, StateEventApplyResult.buffered);
       expect(tracker.current.status, DovahLinkStateStatus.stale);
       expect(tracker.current.value, 10);
       expect(tracker.current.revision, 1);
@@ -556,8 +674,8 @@ void main() {
           isUnavailable: false,
         );
 
-        expect(first, StateEventApplyResult.recoveryRequired);
-        expect(repeated, StateEventApplyResult.recoveryRequired);
+        expect(first, StateEventApplyResult.buffered);
+        expect(repeated, StateEventApplyResult.buffered);
         expect(tracker.current.status, DovahLinkStateStatus.recovering);
         expect(tracker.current.revision, isNull);
         verifyNever(() => state.update(any()));

@@ -11,57 +11,26 @@ import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/snapshot_request_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
-import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
-/// Coordinates bounded Event buffering and authoritative Snapshot recovery for one state domain.
+/// Requests authoritative baselines when one domain's revision tracker becomes stale.
 abstract interface class IStateRecoveryService<T> {
-  /// Accepts a Host-pushed Snapshot when no client-requested recovery is in flight.
-  /// @param stateArea The canonical area named by the decoded payload.
-  /// @param stateAuthorityId The Host continuity epoch from the envelope.
-  /// @param playContextId The active play-context identity from the envelope.
-  /// @param revision The non-negative snapshot revision.
-  /// @param value The typed state-area value.
-  /// @param isUnavailable Whether the value represents legitimate unavailability.
-  void handleSnapshot({
-    required String stateArea,
-    required String stateAuthorityId,
-    required String? playContextId,
-    required int revision,
-    required T value,
-    required bool isUnavailable,
-  });
+  /// Starts listening for stale/recovering transitions from the domain tracker.
+  void start();
 
-  /// Applies an Event or starts recovery when the current baseline cannot accept it.
-  /// @param stateAuthorityId The Host continuity epoch from the envelope.
-  /// @param playContextId The active play-context identity from the envelope.
-  /// @param baseRevision The revision the Event expects the client to hold.
-  /// @param revision The Event's resulting revision.
-  /// @param value The complete typed state after the Event.
-  /// @param isUnavailable Whether the value represents legitimate unavailability.
-  /// @return Whether the Event applied, buffered, was ignored, or requires recovery.
-  StateEventApplyResult handleEvent({
-    required String stateAuthorityId,
-    required String? playContextId,
-    required int baseRevision,
-    required int revision,
-    required T value,
-    required bool isUnavailable,
-  });
-
-  /// Requests and reconciles authoritative Snapshots until this recovery is complete or fails.
+  /// Requests and reconciles authoritative Snapshots until recovery completes or fails.
   /// Concurrent calls share the same in-flight recovery.
   /// @return The current recovery operation.
   Future<void> recover();
 }
 
-/// Implements per-domain recovery through correlated `snapshot_request` operations.
+/// Implements correlated `snapshot_request` recovery for one state domain.
 class StateRecoveryService<T> implements IStateRecoveryService<T> {
   /// The registered state area this service recovers.
   final String _stateArea;
 
-  /// Validates and applies authoritative state revisions.
+  /// Validates, buffers, and applies authoritative state revisions.
   final IStateRevisionTracker<T> _tracker;
 
   /// Sends the correlated recovery request.
@@ -73,23 +42,13 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
   /// Decodes one registered area's canonical `data` object into typed state.
   final ({T value, bool isUnavailable}) Function(JsonMap data) _decodeState;
 
-  /// Event updates received while [StateRecoveryService.recover] is pending.
-  final List<
-    ({
-      String stateAuthorityId,
-      String? playContextId,
-      int baseRevision,
-      int revision,
-      T value,
-      bool isUnavailable,
-    })
-  >
-  _bufferedEvents = [];
+  /// Tracker state subscription used to coordinate recovery requests.
+  StreamSubscription<StateSynchronization<T>>? _stateChanges;
 
-  /// Whether the current recovery response must be discarded and followed by a new request.
+  /// Whether a stale transition arrived during the active Snapshot request.
   bool _restartAfterSnapshot = false;
 
-  /// The single in-flight recovery loop, when any.
+  /// The single in-flight recovery operation, when any.
   Future<void>? _recoveryTask;
 
   /// Creates recovery for [_stateArea] using the supplied domain codec and collaborators.
@@ -110,93 +69,31 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
        _sessionService = sessionService,
        _decodeState = decodeState;
 
-  /// See [IStateRecoveryService.handleSnapshot].
+  /// See [IStateRecoveryService.start].
   @override
-  void handleSnapshot({
-    required String stateArea,
-    required String stateAuthorityId,
-    required String? playContextId,
-    required int revision,
-    required T value,
-    required bool isUnavailable,
-  }) {
-    if (stateArea != _stateArea) {
-      _sessionService.onProtocolViolation(
-        DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message:
-              'Received a snapshot for $stateArea while recovering '
-              '$_stateArea.',
-          retryable: false,
-        ),
-        orphanRetrySafeOperations: false,
-      );
+  void start() {
+    if (_stateChanges != null) {
       return;
     }
-    // The correlated Snapshot requested by the active recovery is the only barrier used to
-    // resume Events; a concurrent Host-pushed Snapshot cannot settle that request.
-    if (_recoveryTask != null) {
-      return;
-    }
-    _tracker.applySnapshot(
-      stateAuthorityId: stateAuthorityId,
-      playContextId: playContextId,
-      revision: revision,
-      value: value,
-      isUnavailable: isUnavailable,
-    );
-  }
-
-  /// See [IStateRecoveryService.handleEvent].
-  @override
-  StateEventApplyResult handleEvent({
-    required String stateAuthorityId,
-    required String? playContextId,
-    required int baseRevision,
-    required int revision,
-    required T value,
-    required bool isUnavailable,
-  }) {
-    if (_recoveryTask != null) {
-      final StateSynchronization<T> current = _tracker.current;
-      if (!_restartAfterSnapshot &&
-          current.stateAuthorityId == stateAuthorityId &&
-          current.playContextId == playContextId &&
-          current.revision != null &&
-          revision <= current.revision!) {
-        return StateEventApplyResult.ignored;
+    _stateChanges = _tracker.changes.listen((StateSynchronization<T> _) {
+      final DovahLinkStateStatus status = _tracker.current.status;
+      if (_recoveryTask != null) {
+        if (status == DovahLinkStateStatus.stale &&
+            _tracker.recoveryBufferOverflowed) {
+          _restartAfterSnapshot = true;
+        }
+        return;
       }
-      if (_restartAfterSnapshot) {
-        return StateEventApplyResult.recoveryRequired;
+      if (status == DovahLinkStateStatus.stale ||
+          status == DovahLinkStateStatus.recovering) {
+        unawaited(recover());
       }
-      if (_bufferedEvents.length == kStateRecoveryEventBufferLimit) {
-        _bufferedEvents.clear();
-        _restartAfterSnapshot = true;
-        return StateEventApplyResult.recoveryRequired;
-      }
-      _bufferedEvents.add((
-        stateAuthorityId: stateAuthorityId,
-        playContextId: playContextId,
-        baseRevision: baseRevision,
-        revision: revision,
-        value: value,
-        isUnavailable: isUnavailable,
-      ));
-      return StateEventApplyResult.buffered;
-    }
-
-    final StateEventApplyResult result = _tracker.applyEvent(
-      stateAuthorityId: stateAuthorityId,
-      playContextId: playContextId,
-      baseRevision: baseRevision,
-      revision: revision,
-      value: value,
-      isUnavailable: isUnavailable,
-    );
-    if (result == StateEventApplyResult.recoveryRequired) {
+    });
+    final DovahLinkStateStatus currentStatus = _tracker.current.status;
+    if (currentStatus == DovahLinkStateStatus.stale ||
+        currentStatus == DovahLinkStateStatus.recovering) {
       unawaited(recover());
     }
-    return result;
   }
 
   /// See [IStateRecoveryService.recover].
@@ -206,15 +103,12 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
       await _recoveryTask;
       return;
     }
-    _tracker.beginRecovery();
-    _bufferedEvents.clear();
-    _restartAfterSnapshot = false;
     final Completer<void> completion = Completer<void>();
     _recoveryTask = completion.future;
+    _tracker.beginRecovery();
     try {
       while (true) {
         _restartAfterSnapshot = false;
-        _bufferedEvents.clear();
         final DovahLinkTrustState? trustState =
             _sessionService.currentTrustState;
         if (trustState == null) {
@@ -239,19 +133,32 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
             ),
           );
         } on DovahLinkProtocolException catch (error) {
-          _tracker.failRecovery();
           if (error.code == ProtocolErrorCode.malformedMessage) {
+            _tracker.failRecovery();
             _sessionService.onProtocolViolation(
               error,
               orphanRetrySafeOperations: false,
             );
-          } else if (error.retryable &&
+            return;
+          }
+          final DovahLinkStateStatus status = _tracker.current.status;
+          if (status == DovahLinkStateStatus.synchronized ||
+              status == DovahLinkStateStatus.unavailable) {
+            return;
+          }
+          _tracker.failRecovery();
+          if (error.retryable &&
               _sessionService.connectionState ==
                   DovahLinkConnectionState.connected) {
             _sessionService.onUnhealthy(error);
           }
           return;
         } on Exception catch (error) {
+          final DovahLinkStateStatus status = _tracker.current.status;
+          if (status == DovahLinkStateStatus.synchronized ||
+              status == DovahLinkStateStatus.unavailable) {
+            return;
+          }
           _tracker.failRecovery();
           if (_sessionService.connectionState ==
               DovahLinkConnectionState.connected) {
@@ -277,8 +184,18 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
             ProtocolPayloadDecoder.decode(_decodeState, payload.data);
 
         if (_restartAfterSnapshot) {
-          _bufferedEvents.clear();
+          _tracker.beginRecovery();
           continue;
+        }
+
+        final StateSynchronization<T> current = _tracker.current;
+        if ((current.status == DovahLinkStateStatus.synchronized ||
+                current.status == DovahLinkStateStatus.unavailable) &&
+            (current.stateAuthorityId != envelope.stateAuthorityId ||
+                current.playContextId != envelope.playContextId ||
+                (current.revision != null &&
+                    current.revision! >= payload.revision))) {
+          return;
         }
 
         final bool accepted = _tracker.applySnapshot(
@@ -288,52 +205,23 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           value: decoded.value,
           isUnavailable: decoded.isUnavailable,
         );
+        final DovahLinkStateStatus status = _tracker.current.status;
+        if (status == DovahLinkStateStatus.stale) {
+          _tracker.beginRecovery();
+          continue;
+        }
+        if (status == DovahLinkStateStatus.synchronized ||
+            status == DovahLinkStateStatus.unavailable) {
+          return;
+        }
         if (!accepted) {
           throw DovahLinkProtocolException(
             code: ProtocolErrorCode.malformedMessage,
-            message:
-                'Recovery Snapshot did not advance or restore $_stateArea.',
+            message: 'Recovery Snapshot did not establish $_stateArea.',
             retryable: false,
           );
         }
-
-        final List<
-          ({
-            String stateAuthorityId,
-            String? playContextId,
-            int baseRevision,
-            int revision,
-            T value,
-            bool isUnavailable,
-          })
-        >
-        bufferedEvents = List.of(_bufferedEvents);
-        _bufferedEvents.clear();
-        bool needsAnotherSnapshot = false;
-        for (final event in bufferedEvents) {
-          if (event.stateAuthorityId != envelope.stateAuthorityId ||
-              event.playContextId != envelope.playContextId ||
-              event.revision <= payload.revision) {
-            continue;
-          }
-          if (_tracker.applyEvent(
-                stateAuthorityId: event.stateAuthorityId,
-                playContextId: event.playContextId,
-                baseRevision: event.baseRevision,
-                revision: event.revision,
-                value: event.value,
-                isUnavailable: event.isUnavailable,
-              ) ==
-              StateEventApplyResult.recoveryRequired) {
-            _tracker.beginRecovery();
-            needsAnotherSnapshot = true;
-            break;
-          }
-        }
-        if (needsAnotherSnapshot) {
-          continue;
-        }
-        return;
+        _tracker.beginRecovery();
       }
     } on DovahLinkProtocolException catch (error) {
       _tracker.failRecovery();
@@ -348,7 +236,6 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
         _sessionService.onUnhealthy(error);
       }
     } finally {
-      _bufferedEvents.clear();
       _restartAfterSnapshot = false;
       _recoveryTask = null;
       completion.complete();

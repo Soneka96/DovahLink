@@ -10,6 +10,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'mock_unsolicited_message_handler.dart';
 
 /// Mock pending-operation bookkeeping used to isolate message routing tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -60,6 +61,7 @@ String rawEnvelope({
 void main() {
   late MockPendingOperationBookkeeping bookkeeping;
   late MockSessionService sessionService;
+  late MockUnsolicitedMessageHandler unsolicitedMessageHandler;
   late MessageRouter router;
 
   setUpAll(() {
@@ -71,9 +73,12 @@ void main() {
   setUp(() {
     bookkeeping = MockPendingOperationBookkeeping();
     sessionService = MockSessionService();
+    unsolicitedMessageHandler = MockUnsolicitedMessageHandler();
+    when(() => unsolicitedMessageHandler.handle(any())).thenAnswer((_) {});
     router = MessageRouter(
       bookkeeping: bookkeeping,
       sessionService: sessionService,
+      unsolicitedMessageHandler: unsolicitedMessageHandler,
     );
   });
 
@@ -236,7 +241,7 @@ void main() {
     );
 
     test(
-      'Method handleIncoming routes a well-formed session_invalidated push to onSessionInvalidated',
+      'Method handleIncoming routes an unsolicited session invalidation',
       () {
         router.handleIncoming(
           rawEnvelope(
@@ -245,11 +250,12 @@ void main() {
           ),
         );
 
-        verify(
-          () => sessionService.onSessionInvalidated(
-            AdministrativeInvalidationReason.revoked,
-          ),
-        ).called(1);
+        final Envelope routed =
+            verify(
+                  () => unsolicitedMessageHandler.handle(captureAny()),
+                ).captured.single
+                as Envelope;
+        expect(routed.messageType, ProtocolMessageType.sessionInvalidated);
         verifyNever(
           () => sessionService.onProtocolViolation(
             any(),
@@ -259,5 +265,33 @@ void main() {
         verifyNever(() => bookkeeping.resolveReply(any(), any()));
       },
     );
+
+    test('Method handleIncoming routes an unsolicited state Snapshot', () {
+      router.handleIncoming(
+        rawEnvelope(
+          messageType: 'state_snapshot',
+          payload: const <String, dynamic>{
+            'stateArea': 'character_xp',
+            'revision': 1,
+            'occurredAt': '2026-09-23T12:00:00Z',
+            'data': <String, dynamic>{'value': 42.5},
+          },
+        ),
+      );
+
+      final Envelope routed =
+          verify(
+                () => unsolicitedMessageHandler.handle(captureAny()),
+              ).captured.single
+              as Envelope;
+      expect(routed.messageType, ProtocolMessageType.stateSnapshot);
+      expect(routed.correlationId, isNull);
+      verifyNever(
+        () => sessionService.onProtocolViolation(
+          any(),
+          orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+        ),
+      );
+    });
   });
 }

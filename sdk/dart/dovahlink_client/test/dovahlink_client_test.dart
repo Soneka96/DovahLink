@@ -234,6 +234,60 @@ String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
   'clientId': null,
 });
 
+/// Builds one uncorrelated canonical state Snapshot message for fake-host delivery.
+/// @param stateArea The registered state area.
+/// @param revision The authoritative area revision.
+/// @param value The typed wire value, or `null` when unavailable.
+/// @return The raw protocol envelope.
+String _rawStateSnapshot({
+  required String stateArea,
+  required int revision,
+  required Object? value,
+  String? correlationId,
+}) => jsonEncode(<String, dynamic>{
+  'messageType': 'state_snapshot',
+  'messageId': 'snapshot-$stateArea-$revision',
+  'sessionId': 'session-1',
+  'correlationId': correlationId,
+  'payload': <String, dynamic>{
+    'stateArea': stateArea,
+    'revision': revision,
+    'occurredAt': '2026-09-23T12:00:00Z',
+    'data': <String, dynamic>{'value': value},
+  },
+  'stateAuthorityId': 'authority-1',
+  'playContextId': 'context-1',
+  'clientId': null,
+});
+
+/// Builds one uncorrelated canonical state Event message for fake-host delivery.
+/// @param stateArea The registered Event state area.
+/// @param baseRevision The revision this Event expects the client to hold.
+/// @param revision The Event's resulting revision.
+/// @param value The complete post-change wire value.
+/// @return The raw protocol envelope.
+String _rawStateEvent({
+  required String stateArea,
+  required int baseRevision,
+  required int revision,
+  required Object? value,
+}) => jsonEncode(<String, dynamic>{
+  'messageType': 'state_event',
+  'messageId': 'event-$stateArea-$revision',
+  'sessionId': 'session-1',
+  'correlationId': null,
+  'payload': <String, dynamic>{
+    'stateArea': stateArea,
+    'baseRevision': baseRevision,
+    'revision': revision,
+    'occurredAt': '2026-09-23T12:00:01Z',
+    'data': <String, dynamic>{'value': value},
+  },
+  'stateAuthorityId': 'authority-1',
+  'playContextId': 'context-1',
+  'clientId': null,
+});
+
 /// Maps each typed administrative invalidation reason to its canonical wire value.
 const Map<AdministrativeInvalidationReason, String> _invalidationWireValues =
     <AdministrativeInvalidationReason, String>{
@@ -283,6 +337,195 @@ void main() {
     client = buildDovahLinkClientForTesting(
       transport: transport,
       storage: storage,
+    );
+  });
+
+  group('Property character state streams behave correctly', () {
+    test(
+      'Property character state streams replay notSubscribed views',
+      () async {
+        expect(
+          (await client.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
+          (await client.characterHealthChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
+          (await client.characterMagickaChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
+          (await client.characterStaminaChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
+          (await client.characterLevelChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
+
+    test(
+      'Property character state streams receive typed Snapshots and level Events',
+      () async {
+        await _connectAndHello(transport, client);
+
+        final Future<void> experienceReceived = expectLater(
+          client.characterXpChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterXpState>>(
+              (StateSynchronization<CharacterXpState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.value?.value == 42.5,
+            ),
+          ),
+        );
+        final Future<void> healthReceived = expectLater(
+          client.characterHealthChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterHealthState>>(
+              (StateSynchronization<CharacterHealthState> state) =>
+                  state.status == DovahLinkStateStatus.unavailable &&
+                  state.value?.value == null,
+            ),
+          ),
+        );
+        final Future<void> magickaReceived = expectLater(
+          client.characterMagickaChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterMagickaState>>(
+              (StateSynchronization<CharacterMagickaState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.value?.value == 31.25,
+            ),
+          ),
+        );
+        final Future<void> staminaReceived = expectLater(
+          client.characterStaminaChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterStaminaState>>(
+              (StateSynchronization<CharacterStaminaState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.value?.value == 15.0,
+            ),
+          ),
+        );
+        final Future<void> levelReceived = expectLater(
+          client.characterLevelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.value?.value == 10,
+            ),
+          ),
+        );
+
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_health',
+            revision: 1,
+            value: null,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_magicka',
+            revision: 1,
+            value: 31.25,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_stamina',
+            revision: 1,
+            value: 15,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 1,
+            value: 10,
+          ),
+        );
+
+        await Future.wait<void>(<Future<void>>[
+          experienceReceived,
+          healthReceived,
+          magickaReceived,
+          staminaReceived,
+          levelReceived,
+        ]);
+
+        final Future<void> levelEventReceived = expectLater(
+          client.characterLevelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 2 &&
+                  state.value?.value == 11,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: 1,
+            revision: 2,
+            value: 11,
+          ),
+        );
+        await levelEventReceived;
+
+        final Future<void> recoveredLevelReceived = expectLater(
+          client.characterLevelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 5 &&
+                  state.value?.value == 14,
+            ),
+          ),
+        );
+        transport.queueResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 5,
+            value: 14,
+            correlationId: 'snapshot-request-placeholder',
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: 4,
+            revision: 5,
+            value: 14,
+          ),
+        );
+
+        await recoveredLevelReceived;
+
+        final JsonMap snapshotRequest =
+            jsonDecode(transport.sent.last) as JsonMap;
+        expect(snapshotRequest['messageType'], 'snapshot_request');
+        expect(snapshotRequest['payload'], <String, dynamic>{
+          'stateArea': 'character_level',
+          'knownRevision': 2,
+        });
+      },
     );
   });
 
