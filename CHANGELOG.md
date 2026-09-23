@@ -20,6 +20,15 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ## [Unreleased]
 
+### Added
+
+- Flutter client visual foundation: three selectable DovahLink themes (Frostbound, Dovah, Hearth)
+  built from the approved prototype's material, geometry, and atmosphere, sharing one set of
+  themed surfaces, panels, buttons, dialogs, and connection cards rather than per-theme
+  components.
+- In-app theme selection, applied immediately and persisted locally so the chosen theme survives
+  a relaunch.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added
