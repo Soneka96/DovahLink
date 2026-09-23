@@ -9,12 +9,11 @@ No new entries are added here. Keep the historical release sections below unchan
 
 ### Added
 
-- Flutter client visual foundation: three selectable DovahLink themes (Frostbound, Dovah, Hearth)
-  built from the approved prototype's material, geometry, and atmosphere, sharing one set of
-  themed surfaces, panels, buttons, dialogs, and connection cards rather than per-theme
-  components.
-- In-app theme selection, applied immediately and persisted locally so the chosen theme survives
-  a relaunch.
+- The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
+  admitting a session.
+- Flutter client visual foundation adds the Frostbound, Dovah, and Hearth presets with shared
+  themed components and locally persisted appearance state; the picker is not yet exposed through
+  normal app navigation.
 
 ### Fixed
 
