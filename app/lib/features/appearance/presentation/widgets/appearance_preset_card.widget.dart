@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -30,10 +29,9 @@ class AppearancePresetCard extends StatelessWidget {
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
-    final DovahThemeTokens activeTokens = context.dovahTokens;
-    final DovahThemeTokens previewTokens = dovahThemeDataFor(
-      preset,
-    ).extension<DovahThemeTokens>()!;
+    final ThemeData previewTheme = dovahThemeDataFor(preset);
+    final DovahThemeTokens previewTokens = previewTheme
+        .extension<DovahThemeTokens>()!;
 
     return Semantics(
       button: true,
@@ -47,75 +45,93 @@ class AppearancePresetCard extends StatelessWidget {
           builder: (BuildContext context) {
             final bool focused = Focus.of(context).hasPrimaryFocus;
 
-            return Container(
-              key: focused
-                  ? const Key('appearance-preset-card-focus-outline')
-                  : null,
-              foregroundDecoration: focused
-                  ? BoxDecoration(
-                      border: Border.all(color: activeTokens.signal, width: 2),
-                      borderRadius: BorderRadius.circular(
-                        activeTokens.cornerRadius,
-                      ),
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: activeTokens.focusRingTint,
-                          blurRadius: 8,
+            return Theme(
+              data: previewTheme,
+              child: Container(
+                key: focused
+                    ? const Key('appearance-preset-card-focus-outline')
+                    : null,
+                foregroundDecoration: focused
+                    ? BoxDecoration(
+                        border: Border.all(
+                          color: previewTokens.signal,
+                          width: 2,
                         ),
-                      ],
-                    )
-                  : null,
-              child: DovahSurface(
-                raised: selected,
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      height: 48,
-                      decoration: BoxDecoration(
-                        gradient: previewTokens.materialGradient,
-                        border: Border.all(color: previewTokens.lineStrong),
-                      ),
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: SizedBox(
-                          height: 6,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: ColoredBox(color: previewTokens.signal),
-                              ),
-                              Expanded(
-                                child: ColoredBox(color: previewTokens.ember),
-                              ),
-                            ],
+                        borderRadius: BorderRadius.circular(
+                          previewTokens.cornerRadius,
+                        ),
+                        boxShadow: <BoxShadow>[
+                          BoxShadow(
+                            color: previewTokens.focusRingTint,
+                            blurRadius: 8,
                           ),
+                        ],
+                      )
+                    : null,
+                child: DovahSurface(
+                  key: const Key('appearance-preset-card-surface'),
+                  raised: selected,
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        key: const Key('appearance-preset-card-preview'),
+                        height: 48,
+                        decoration: BoxDecoration(
+                          gradient: previewTokens.materialGradient,
+                          image: preset == DovahThemePreset.dovah
+                              ? const DecorationImage(
+                                  image: AssetImage(
+                                    'assets/themes/dovah/dovahlink-connection-hero.png',
+                                  ),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                          border: Border.all(color: previewTokens.lineStrong),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            preset.label,
-                            style: TextStyle(
-                              color: activeTokens.textPrimary,
-                              fontWeight: FontWeight.w700,
+                        child: Align(
+                          alignment: Alignment.bottomCenter,
+                          child: SizedBox(
+                            height: 6,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: ColoredBox(
+                                    color: previewTokens.signal,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: ColoredBox(color: previewTokens.ember),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                        if (selected)
-                          Icon(
-                            Icons.check_circle,
-                            color: activeTokens.signal,
-                            size: 20,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              preset.label,
+                              style: TextStyle(
+                                color: previewTokens.textPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
-                      ],
-                    ),
-                  ],
+                          if (selected)
+                            Icon(
+                              Icons.check_circle,
+                              color: previewTokens.signal,
+                              size: 20,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
