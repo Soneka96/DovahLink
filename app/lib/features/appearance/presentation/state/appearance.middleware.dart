@@ -37,7 +37,7 @@ class AppearanceMiddleware extends MiddlewareClass<AppState> {
             SetThemePresetParams(preset: action.preset),
           );
         })
-        .catchError((Object _, StackTrace __) {
+        .catchError((Object _, StackTrace _) {
           // Keep a failed write from preventing later selections from persisting.
         });
   }
