@@ -29,6 +29,164 @@ void main() {
     );
   });
 
+  group('Behavior prototype color token mappings behave correctly', () {
+    test('Behavior prototype color token mappings match Frostbound values', () {
+      final DovahThemeTokens tokens = buildFrostboundTheme()
+          .extension<DovahThemeTokens>()!;
+
+      expect(
+        <Color>[
+          tokens.background,
+          tokens.surface,
+          tokens.surfaceRaised,
+          tokens.surface3,
+          tokens.lineSubtle,
+          tokens.lineStrong,
+          tokens.textPrimary,
+          tokens.textMuted,
+          tokens.textFaint,
+          tokens.accentPrimary,
+          tokens.accentSecondary,
+          tokens.signal,
+          tokens.ember,
+          tokens.success,
+          tokens.warning,
+          tokens.danger,
+          tokens.soft,
+          tokens.health,
+          tokens.magicka,
+          tokens.stamina,
+        ],
+        <Color>[
+          const Color(0xFF020405),
+          const Color(0xFF070B0D),
+          const Color(0xFF0B1115),
+          const Color(0xFF11191E),
+          const Color(0xFF344048),
+          const Color(0xFF71808A),
+          const Color(0xFFEDF1F2),
+          const Color(0xFFB0B9BD),
+          const Color(0xFF879399),
+          const Color(0xFFA9C7D1),
+          const Color(0xFF7FA5B3),
+          const Color(0xFFA9C7D1),
+          const Color(0xFFA43B40),
+          const Color(0xFF9AC9DC),
+          const Color(0xFFC0575B),
+          const Color(0xFFD36A6E),
+          const Color(0x1F9AC9DC),
+          const Color(0xFFB65256),
+          const Color(0xFF83B9D1),
+          const Color(0xFF789779),
+        ],
+      );
+    });
+
+    test('Behavior prototype color token mappings match Dovah values', () {
+      final DovahThemeTokens tokens = buildDovahPresetTheme()
+          .extension<DovahThemeTokens>()!;
+
+      expect(
+        <Color>[
+          tokens.background,
+          tokens.surface,
+          tokens.surfaceRaised,
+          tokens.surface3,
+          tokens.lineSubtle,
+          tokens.lineStrong,
+          tokens.textPrimary,
+          tokens.textMuted,
+          tokens.textFaint,
+          tokens.accentPrimary,
+          tokens.accentSecondary,
+          tokens.signal,
+          tokens.ember,
+          tokens.success,
+          tokens.warning,
+          tokens.danger,
+          tokens.soft,
+          tokens.health,
+          tokens.magicka,
+          tokens.stamina,
+        ],
+        <Color>[
+          const Color(0xFF05090E),
+          const Color(0xFF0B141D),
+          const Color(0xFF101D28),
+          const Color(0xFF162735),
+          const Color(0xFF294052),
+          const Color(0xFF4A6B84),
+          const Color(0xFFF1F6F9),
+          const Color(0xFF9AABB7),
+          const Color(0xFF667C8B),
+          const Color(0xFF8ED6FF),
+          const Color(0xFF54AEE0),
+          const Color(0xFF74BDE8),
+          const Color(0xFFE2A55E),
+          const Color(0xFF8ED6FF),
+          const Color(0xFFE2A55E),
+          const Color(0xFFE18080),
+          const Color(0x2174BDE8),
+          const Color(0xFFD16F62),
+          const Color(0xFF65B8E7),
+          const Color(0xFF78A984),
+        ],
+      );
+    });
+
+    test('Behavior prototype color token mappings match Hearth values', () {
+      final DovahThemeTokens tokens = buildHearthTheme()
+          .extension<DovahThemeTokens>()!;
+
+      expect(
+        <Color>[
+          tokens.background,
+          tokens.surface,
+          tokens.surfaceRaised,
+          tokens.surface3,
+          tokens.lineSubtle,
+          tokens.lineStrong,
+          tokens.textPrimary,
+          tokens.textMuted,
+          tokens.textFaint,
+          tokens.accentPrimary,
+          tokens.accentSecondary,
+          tokens.signal,
+          tokens.ember,
+          tokens.success,
+          tokens.warning,
+          tokens.danger,
+          tokens.soft,
+          tokens.health,
+          tokens.magicka,
+          tokens.stamina,
+        ],
+        <Color>[
+          const Color(0xFFD8C09A),
+          const Color(0xFFEEDBBB),
+          const Color(0xFFDFC399),
+          const Color(0xFFCFAA76),
+          const Color(0xFF9B7344),
+          const Color(0xFF79542F),
+          const Color(0xFF271B12),
+          const Color(0xFF594431),
+          const Color(0xFF765B3E),
+          const Color(0xFF965923),
+          const Color(0xFFB87230),
+          const Color(0xFFA96328),
+          const Color(0xFFA96328),
+          const Color(0xFF35684C),
+          const Color(0xFF99541F),
+          const Color(0xFF913B34),
+          const Color(0x24965923),
+          const Color(0xFFA74F3E),
+          const Color(0xFF557B98),
+          const Color(0xFF58785B),
+        ],
+      );
+    });
+  });
+
   group('Method buildDovahPresetTheme behaves correctly', () {
     test(
       'Method buildDovahPresetTheme attaches DovahThemeTokens with doubleBevel geometry',

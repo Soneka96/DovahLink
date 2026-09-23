@@ -19,6 +19,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- The shared theme tokens preserve every prototype surface color and the approved focus halo color.
 - Themed buttons respect reduced-motion settings.
 
 ## [0.4.0] - 2026-09-23

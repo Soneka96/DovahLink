@@ -114,6 +114,10 @@ void main() {
 
       expect(tokens.background, isA<Color>());
       expect(tokens.background, const Color(0xFF05090E));
+      expect(tokens.surface3, isA<Color>());
+      expect(tokens.surface3, const Color(0xFF162735));
+      expect(tokens.soft, isA<Color>());
+      expect(tokens.soft, const Color(0x2174BDE8));
       expect(tokens.signal, isA<Color>());
       expect(tokens.signal, const Color(0xFF74BDE8));
       expect(tokens.primaryActionForeground, isA<Color>());
@@ -136,6 +140,8 @@ void main() {
     test('Method buildDovahThemeTokens preserves named overrides', () {
       final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
         background: const Color(0xFF000000),
+        surface3: const Color(0xFF010203),
+        soft: const Color(0x04050607),
         cornerStyle: DovahPanelCornerStyle.rounded,
         cornerRadius: 13,
         densityScale: 1.15,
@@ -144,6 +150,10 @@ void main() {
 
       expect(tokens.background, isA<Color>());
       expect(tokens.background, const Color(0xFF000000));
+      expect(tokens.surface3, isA<Color>());
+      expect(tokens.surface3, const Color(0xFF010203));
+      expect(tokens.soft, isA<Color>());
+      expect(tokens.soft, const Color(0x04050607));
       expect(tokens.cornerStyle, isA<DovahPanelCornerStyle>());
       expect(tokens.cornerStyle, DovahPanelCornerStyle.rounded);
       expect(tokens.cornerRadius, isA<double>());

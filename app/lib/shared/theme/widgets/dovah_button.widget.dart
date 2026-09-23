@@ -165,7 +165,7 @@ class _DovahButtonState extends State<DovahButton> {
                             ),
                             boxShadow: <BoxShadow>[
                               BoxShadow(
-                                color: tokens.focusRingTint,
+                                color: tokens.soft,
                                 blurRadius:
                                     DovahThemeTokens.focusGlowBlurRadius,
                               ),

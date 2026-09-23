@@ -62,7 +62,7 @@ class AppearancePresetCard extends StatelessWidget {
                         ),
                         boxShadow: <BoxShadow>[
                           BoxShadow(
-                            color: previewTokens.focusRingTint,
+                            color: previewTokens.soft,
                             blurRadius: DovahThemeTokens.focusGlowBlurRadius,
                           ),
                         ],

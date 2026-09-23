@@ -101,6 +101,8 @@ void main() {
 
       final DovahThemeTokens copy = original.copyWith(
         background: const Color(0xFF000000),
+        surface3: const Color(0xFFFFFFFF),
+        soft: const Color(0xFF123456),
         cornerStyle: DovahPanelCornerStyle.rounded,
         primaryActionGradient: const LinearGradient(
           colors: [Color(0xFF123456), Color(0xFF654321)],
@@ -109,6 +111,8 @@ void main() {
       );
 
       expect(copy.background, const Color(0xFF000000));
+      expect(copy.surface3, const Color(0xFFFFFFFF));
+      expect(copy.soft, const Color(0xFF123456));
       expect(copy.cornerStyle, DovahPanelCornerStyle.rounded);
       expect((copy.primaryActionGradient as LinearGradient).colors, const [
         Color(0xFF123456),
@@ -116,6 +120,7 @@ void main() {
       ]);
       expect(copy.primaryActionForeground, const Color(0xFFFFFFFF));
       expect(copy.surface, original.surface);
+      expect(copy.surfaceRaised, original.surfaceRaised);
       expect(copy.signal, original.signal);
       expect(copy.cornerRadius, original.cornerRadius);
     });
@@ -168,6 +173,8 @@ void main() {
       final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
       final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
         background: const Color(0xFFFFFFFF),
+        surface3: const Color(0xFF000000),
+        soft: const Color(0xFFFFFFFF),
         cornerStyle: DovahPanelCornerStyle.rounded,
         cornerRadius: 13,
         densityScale: 1.15,
@@ -208,6 +215,8 @@ void main() {
 
       expect(result.cornerRadius, isA<double>());
       expect(result.cornerRadius, 5);
+      expect(result.surface3, Color.lerp(tokens.surface3, other.surface3, 0.5));
+      expect(result.soft, Color.lerp(tokens.soft, other.soft, 0.5));
       expect(result.cornerCutSize, isA<double>());
       expect(result.cornerCutSize, 10);
       expect(result.densityScale, isA<double>());
@@ -282,6 +291,26 @@ void main() {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
       final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
         cornerStyle: DovahPanelCornerStyle.rounded,
+      );
+
+      expect(first, isNot(second));
+      expect(first.hashCode, isNot(second.hashCode));
+    });
+
+    test('Behavior equality fails when surface3 differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
+        surface3: const Color(0xFF000000),
+      );
+
+      expect(first, isNot(second));
+      expect(first.hashCode, isNot(second.hashCode));
+    });
+
+    test('Behavior equality fails when soft differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
+        soft: const Color(0xFF000000),
       );
 
       expect(first, isNot(second));

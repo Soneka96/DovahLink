@@ -114,6 +114,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.background,
     required this.surface,
     required this.surfaceRaised,
+    required this.surface3,
     required this.lineSubtle,
     required this.lineStrong,
     required this.textPrimary,
@@ -128,7 +129,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.danger,
     required this.primaryActionGradient,
     required this.primaryActionForeground,
-    required this.focusRingTint,
+    required this.soft,
     required this.health,
     required this.magicka,
     required this.stamina,
@@ -152,6 +153,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
   /// The raised/hover flat surface tone.
   final Color surfaceRaised;
+
+  /// The strongest flat surface tone.
+  final Color surface3;
 
   /// The ordinary border/divider tone.
   final Color lineSubtle;
@@ -196,8 +200,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// The approved primary-button label color for this theme.
   final Color primaryActionForeground;
 
-  /// A soft, low-opacity tint of the accent color used behind a focus ring.
-  final Color focusRingTint;
+  /// The theme's low-opacity color for focus halos.
+  final Color soft;
 
   /// The stat-bar tone for health.
   final Color health;
@@ -250,6 +254,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     Color? background,
     Color? surface,
     Color? surfaceRaised,
+
+    /// Replacement strongest flat surface tone.
+    Color? surface3,
     Color? lineSubtle,
     Color? lineStrong,
     Color? textPrimary,
@@ -268,7 +275,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
     /// Replacement primary-button label color.
     Color? primaryActionForeground,
-    Color? focusRingTint,
+
+    /// Replacement low-opacity focus halo color.
+    Color? soft,
     Color? health,
     Color? magicka,
     Color? stamina,
@@ -285,6 +294,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     background: background ?? this.background,
     surface: surface ?? this.surface,
     surfaceRaised: surfaceRaised ?? this.surfaceRaised,
+    surface3: surface3 ?? this.surface3,
     lineSubtle: lineSubtle ?? this.lineSubtle,
     lineStrong: lineStrong ?? this.lineStrong,
     textPrimary: textPrimary ?? this.textPrimary,
@@ -300,7 +310,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     primaryActionGradient: primaryActionGradient ?? this.primaryActionGradient,
     primaryActionForeground:
         primaryActionForeground ?? this.primaryActionForeground,
-    focusRingTint: focusRingTint ?? this.focusRingTint,
+    soft: soft ?? this.soft,
     health: health ?? this.health,
     magicka: magicka ?? this.magicka,
     stamina: stamina ?? this.stamina,
@@ -330,6 +340,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       background: Color.lerp(background, other.background, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
       surfaceRaised: Color.lerp(surfaceRaised, other.surfaceRaised, t)!,
+      surface3: Color.lerp(surface3, other.surface3, t)!,
       lineSubtle: Color.lerp(lineSubtle, other.lineSubtle, t)!,
       lineStrong: Color.lerp(lineStrong, other.lineStrong, t)!,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
@@ -350,7 +361,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         other.primaryActionForeground,
         t,
       )!,
-      focusRingTint: Color.lerp(focusRingTint, other.focusRingTint, t)!,
+      soft: Color.lerp(soft, other.soft, t)!,
       health: Color.lerp(health, other.health, t)!,
       magicka: Color.lerp(magicka, other.magicka, t)!,
       stamina: Color.lerp(stamina, other.stamina, t)!,
@@ -376,6 +387,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     background,
     surface,
     surfaceRaised,
+    surface3,
     lineSubtle,
     lineStrong,
     textPrimary,
@@ -390,7 +402,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     danger,
     primaryActionGradient,
     primaryActionForeground,
-    focusRingTint,
+    soft,
     health,
     magicka,
     stamina,

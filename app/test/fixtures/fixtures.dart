@@ -45,6 +45,9 @@ abstract final class Fixtures {
     Color background = const Color(0xFF05090E),
     Color surface = const Color(0xFF0B141D),
     Color surfaceRaised = const Color(0xFF101D28),
+
+    /// The strongest flat surface tone.
+    Color surface3 = const Color(0xFF162735),
     Color lineSubtle = const Color(0xFF294052),
     Color lineStrong = const Color(0xFF4A6B84),
     Color textPrimary = const Color(0xFFF1F6F9),
@@ -63,7 +66,9 @@ abstract final class Fixtures {
       colors: [Color(0xFFF0BD73), Color(0xFFC77D38)],
     ),
     Color primaryActionForeground = const Color(0xFF1A0E04),
-    Color focusRingTint = const Color(0x2174BDE8),
+
+    /// The low-opacity focus halo color.
+    Color soft = const Color(0x2174BDE8),
     Color health = const Color(0xFFD16F62),
     Color magicka = const Color(0xFF65B8E7),
     Color stamina = const Color(0xFF78A984),
@@ -80,6 +85,7 @@ abstract final class Fixtures {
     background: background,
     surface: surface,
     surfaceRaised: surfaceRaised,
+    surface3: surface3,
     lineSubtle: lineSubtle,
     lineStrong: lineStrong,
     textPrimary: textPrimary,
@@ -94,7 +100,7 @@ abstract final class Fixtures {
     danger: danger,
     primaryActionGradient: primaryActionGradient,
     primaryActionForeground: primaryActionForeground,
-    focusRingTint: focusRingTint,
+    soft: soft,
     health: health,
     magicka: magicka,
     stamina: stamina,

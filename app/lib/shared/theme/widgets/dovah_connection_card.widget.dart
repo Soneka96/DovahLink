@@ -71,7 +71,7 @@ class DovahConnectionCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(tokens.cornerRadius),
                       boxShadow: <BoxShadow>[
                         BoxShadow(
-                          color: tokens.focusRingTint,
+                          color: tokens.soft,
                           blurRadius: DovahThemeTokens.focusGlowBlurRadius,
                         ),
                       ],
