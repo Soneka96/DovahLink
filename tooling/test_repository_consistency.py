@@ -1840,10 +1840,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 ):
                     self.assertIn(transport_import, source, str(source_path))
 
-    def test_shared_dart_conventions_are_split_from_flutter_only_ones(self) -> None:
-        """Guard the ai/context/dart/ extraction and its Flutter-side pointer."""
+    def test_shared_dart_documentation_conventions_are_linked_by_each_dart_area(
+        self,
+    ) -> None:
+        """Guard the shared Dartdoc rule and the SDK/Flutter pointers to it."""
         dart_style = self._read("ai/context/dart/dart-style.md")
         flutter_dart_style = self._read("ai/context/flutter/dart-style.md")
+        sdk_api_design = self._read("ai/context/sdk/api-design.md")
 
         for required_phrase in (
             "Shared Dart-language conventions that apply to every Dart package in this "
@@ -1851,8 +1854,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Do not use `dynamic` or `any`-style escape hatches to avoid modelling a type.",
             "Use the null assertion operator (`!`) only when an immediately visible check or "
             "constructor",
-            "Use Dart doc links such as `[SymbolName]` when referring to another documented "
-            "symbol",
+            "Link Dart declarations with unadorned Dartdoc references such as `[Type]` and "
+            "`[Type.member]`.",
+            "Do not wrap symbol names in backticks or quotes, or add Markdown "
+            "emphasis around links.",
+            "Import the declaring library even when a Dartdoc link is its only reference",
             "Missing implementation uses `// TODO: ...` immediately above the declaration.",
             "Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.",
             "Use lowercase_with_underscores for packages, directories, source files, and import "
@@ -1862,6 +1868,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertIn(required_phrase, dart_style)
 
+        normalized_dart_style = self._normalize_whitespace(dart_style)
+        self.assertIn(
+            "For unchanged overrides, use a concise link to the inherited member instead of "
+            "repeating its contract",
+            normalized_dart_style,
+        )
+        self.assertIn(
+            "do not pad API comments with an `Implements ... per architecture "
+            "document` statement",
+            normalized_dart_style,
+        )
+
         self.assertIn(
             "Shared Dart-language conventions (type safety, naming case, formatting, async, "
             "dartdoc mechanics)\nlive in [`ai/context/dart/dart-style.md`](../dart/dart-style.md)",
@@ -1870,6 +1888,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn(
             "follow `ai/context/dart/dart-style.md`'s baseline naming rules",
             flutter_dart_style,
+        )
+        self.assertIn(
+            "Dartdoc symbol-link and\nbrevity rules in [`ai/context/dart/dart-style.md`]",
+            flutter_dart_style,
+        )
+        self.assertIn(
+            "for\nDartdoc symbol links and concise inherited-contract references.",
+            sdk_api_design,
         )
         # The moved sections and their content must not be duplicated in the Flutter-only file.
         for retired_phrase in (

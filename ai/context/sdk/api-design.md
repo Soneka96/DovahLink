@@ -1,7 +1,9 @@
 # SDK API design
 
 Public-API conventions for the Dart Client SDK. Read `ai/context/sdk/architecture.md` first for the
-one-engine/multiple-views rule this API surface sits on top of.
+one-engine/multiple-views rule this API surface sits on top of. Follow
+[`ai/context/dart/dart-style.md`'s documentation rules](../dart/dart-style.md#documentation) for
+Dartdoc symbol links and concise inherited-contract references.
 
 ## Simple-first API
 

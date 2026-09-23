@@ -119,11 +119,14 @@ Follow the shared documentation rules in `ai/context/common.md`.
 - Add concise `///` documentation directly above every handwritten class, extension, enum and enum
   member, typedef, constructor, property, field, parameter field, factory, method, and function,
   regardless of visibility. This includes private helpers and test helpers.
-- Use Dart doc links such as `[SymbolName]` when referring to another documented symbol, and fully
-  qualify member links such as `[SymbolName.member]`. Add the declaring import even when the link is
-  its only reference.
-- When an override keeps the inherited contract unchanged, use a short doc reference to the
-  overridden member instead of copying its documentation.
+- Link Dart declarations with unadorned Dartdoc references such as `[Type]` and `[Type.member]`.
+  Do not wrap symbol names in backticks or quotes, or add Markdown emphasis around links. Reserve
+  code spans for literal values, wire names, and repository paths.
+- Import the declaring library even when a Dartdoc link is its only reference, so the symbol link
+  resolves correctly.
+- Describe each type's current responsibility and contract directly. For unchanged overrides, use a
+  concise link to the inherited member instead of repeating its contract; do not pad API comments
+  with an `Implements ... per architecture document` statement that adds no current behavior.
 - Missing implementation uses `// TODO: ...` immediately above the declaration. Explanatory
   implementation comments remain inside the method beside the decision they explain.
 
