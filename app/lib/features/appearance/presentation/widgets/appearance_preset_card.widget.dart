@@ -35,67 +35,91 @@ class AppearancePresetCard extends StatelessWidget {
       preset,
     ).extension<DovahThemeTokens>()!;
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
+    return Semantics(
+      button: true,
+      enabled: true,
+      selected: selected,
+      label: preset.label,
+      child: InkWell(
         onTap: onTap,
-        child: Semantics(
-          button: true,
-          selected: selected,
-          label: preset.label,
-          child: DovahSurface(
-            raised: selected,
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: previewTokens.materialGradient,
-                    border: Border.all(color: previewTokens.lineStrong),
-                  ),
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    child: SizedBox(
-                      height: 6,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: ColoredBox(color: previewTokens.signal),
-                          ),
-                          Expanded(
-                            child: ColoredBox(color: previewTokens.ember),
-                          ),
-                        ],
+        mouseCursor: SystemMouseCursors.click,
+        child: Builder(
+          builder: (BuildContext context) {
+            final bool focused = Focus.of(context).hasPrimaryFocus;
+
+            return Container(
+              key: focused
+                  ? const Key('appearance-preset-card-focus-outline')
+                  : null,
+              foregroundDecoration: focused
+                  ? BoxDecoration(
+                      border: Border.all(color: activeTokens.signal, width: 2),
+                      borderRadius: BorderRadius.circular(
+                        activeTokens.cornerRadius,
                       ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: activeTokens.focusRingTint,
+                          blurRadius: 8,
+                        ),
+                      ],
+                    )
+                  : null,
+              child: DovahSurface(
+                raised: selected,
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        preset.label,
-                        style: TextStyle(
-                          color: activeTokens.textPrimary,
-                          fontWeight: FontWeight.w700,
+                    Container(
+                      height: 48,
+                      decoration: BoxDecoration(
+                        gradient: previewTokens.materialGradient,
+                        border: Border.all(color: previewTokens.lineStrong),
+                      ),
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: SizedBox(
+                          height: 6,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: ColoredBox(color: previewTokens.signal),
+                              ),
+                              Expanded(
+                                child: ColoredBox(color: previewTokens.ember),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                    if (selected)
-                      Icon(
-                        Icons.check_circle,
-                        color: activeTokens.signal,
-                        size: 20,
-                      ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            preset.label,
+                            style: TextStyle(
+                              color: activeTokens.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (selected)
+                          Icon(
+                            Icons.check_circle,
+                            color: activeTokens.signal,
+                            size: 20,
+                          ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );

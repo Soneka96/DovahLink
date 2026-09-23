@@ -44,87 +44,117 @@ class DovahConnectionCard extends StatelessWidget {
       DovahConnectionCardState.repair => tokens.warning,
     };
 
-    return MouseRegion(
-      cursor: onTap != null
-          ? SystemMouseCursors.click
-          : SystemMouseCursors.basic,
-      child: GestureDetector(
+    final bool enabled = onTap != null;
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: '$title, $subtitle, $detail, ${state.label}',
+      child: InkWell(
         onTap: onTap,
-        child: DovahSurface(
-          padding: EdgeInsets.symmetric(
-            vertical: 16 * tokens.densityScale,
-            horizontal: 18 * tokens.densityScale,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 43 * tokens.densityScale,
-                height: 43 * tokens.densityScale,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: tokens.surfaceRaised,
-                  border: Border.all(color: tokens.lineStrong),
-                  borderRadius: BorderRadius.circular(9 * tokens.densityScale),
+        mouseCursor: enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        child: Builder(
+          builder: (BuildContext context) {
+            final bool focused = Focus.of(context).hasPrimaryFocus;
+
+            return Container(
+              key: focused
+                  ? const Key('dovah-connection-card-focus-outline')
+                  : null,
+              foregroundDecoration: focused
+                  ? BoxDecoration(
+                      border: Border.all(color: tokens.signal, width: 2),
+                      borderRadius: BorderRadius.circular(tokens.cornerRadius),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(color: tokens.focusRingTint, blurRadius: 8),
+                      ],
+                    )
+                  : null,
+              child: DovahSurface(
+                padding: EdgeInsets.symmetric(
+                  vertical: 16 * tokens.densityScale,
+                  horizontal: 18 * tokens.densityScale,
                 ),
-                child: Icon(
-                  Icons.desktop_windows_outlined,
-                  color: tokens.accentPrimary,
-                  size: 21 * tokens.densityScale,
-                ),
-              ),
-              SizedBox(width: 16 * tokens.densityScale),
-              Expanded(
-                flex: 3,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+                child: Row(
                   children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: tokens.textPrimary,
-                        fontWeight: FontWeight.w600,
+                    Container(
+                      width: 43 * tokens.densityScale,
+                      height: 43 * tokens.densityScale,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceRaised,
+                        border: Border.all(color: tokens.lineStrong),
+                        borderRadius: BorderRadius.circular(
+                          9 * tokens.densityScale,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.desktop_windows_outlined,
+                        color: tokens.accentPrimary,
+                        size: 21 * tokens.densityScale,
                       ),
                     ),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: tokens.textMuted, fontSize: 13),
+                    SizedBox(width: 16 * tokens.densityScale),
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: tokens.textMuted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        detail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: tokens.textMuted, fontSize: 13),
+                      ),
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.circle, size: 8, color: statusColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          state.label,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (state != DovahConnectionCardState.offline)
+                      Icon(Icons.chevron_right, color: tokens.accentPrimary),
                   ],
                 ),
               ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  detail,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: tokens.textMuted, fontSize: 13),
-                ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.circle, size: 8, color: statusColor),
-                  const SizedBox(width: 8),
-                  Text(
-                    state.label,
-                    style: TextStyle(
-                      color: statusColor,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-              if (state != DovahConnectionCardState.offline)
-                Icon(Icons.chevron_right, color: tokens.accentPrimary),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

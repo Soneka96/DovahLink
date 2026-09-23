@@ -1,4 +1,8 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -137,6 +141,143 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('DovahConnectionCard supports keyboard activation', () {
+    for (final LogicalKeyboardKey key in <LogicalKeyboardKey>[
+      LogicalKeyboardKey.enter,
+      LogicalKeyboardKey.space,
+    ]) {
+      testWidgets('DovahConnectionCard activates on $key when focused', (
+        WidgetTester tester,
+      ) async {
+        int activationCount = 0;
+        await pumpDovahThemedWidget(
+          tester,
+          DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'Skyrim Special Edition',
+            detail: 'Level 43 · Whiterun',
+            state: DovahConnectionCardState.available,
+            onTap: () => activationCount++,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.sendKeyEvent(key);
+        await tester.pump();
+
+        expect(activationCount, 1);
+      });
+    }
+
+    testWidgets('DovahConnectionCard displays its focus outline after Tab', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        Column(
+          children: [
+            DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+              onTap: () {},
+            ),
+            TextButton(onPressed: () {}, child: const Text('Next')),
+          ],
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        find.byKey(const Key('dovah-connection-card-focus-outline')),
+        findsOneWidget,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        find.byKey(const Key('dovah-connection-card-focus-outline')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('DovahConnectionCard exposes button semantics', () {
+    testWidgets('DovahConnectionCard exposes enabled state when tappable', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      addTearDown(semantics.dispose);
+      await pumpDovahThemedWidget(
+        tester,
+        DovahConnectionCard(
+          title: 'Gaming PC',
+          subtitle: 'Skyrim Special Edition',
+          detail: 'Level 43 · Whiterun',
+          state: DovahConnectionCardState.available,
+          onTap: () {},
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      final SemanticsNode node = tester.getSemantics(
+        find.bySemanticsLabel(
+          'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
+          '${DovahConnectionCardState.available.label}',
+        ),
+      );
+      final SemanticsData data = node.getSemanticsData();
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.isTrue);
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+    });
+
+    testWidgets('DovahConnectionCard exposes its label and enabled state', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      addTearDown(semantics.dispose);
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahConnectionCard(
+          title: 'Gaming PC',
+          subtitle: 'Skyrim Special Edition',
+          detail: 'Level 43 · Whiterun',
+          state: DovahConnectionCardState.available,
+          onTap: null,
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      final SemanticsNode node = tester.getSemantics(
+        find.bySemanticsLabel(
+          'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
+          '${DovahConnectionCardState.available.label}',
+        ),
+      );
+      final SemanticsData data = node.getSemanticsData();
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+      expect(data.hasAction(SemanticsAction.tap), isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      expect(
+        find.byKey(const Key('dovah-connection-card-focus-outline')),
+        findsNothing,
+      );
     });
   });
 }
