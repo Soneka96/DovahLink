@@ -417,6 +417,47 @@ void main() {
 
   group('DovahButton applies the shared primary hover treatment', () {
     testWidgets(
+      'DovahButton completes its hover treatment immediately with reduced motion enabled',
+      (WidgetTester tester) async {
+        await tester.binding.setSurfaceSize(dovahTestSizes.first);
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dovahThemeDataFor(DovahThemePreset.dovah),
+            home: MediaQuery(
+              data: const MediaQueryData(disableAnimations: true),
+              child: Scaffold(
+                body: DovahButton(label: 'Confirm', onPressed: () {}),
+              ),
+            ),
+          ),
+        );
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: const Offset(899, 559));
+        await tester.pump();
+        await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
+        await tester.pump();
+
+        final TweenAnimationBuilder<double> animation = tester.widget(
+          find.byKey(const Key('dovah-button-hover-effect')),
+        );
+
+        expect(animation.duration, Duration.zero);
+        await tester.pump();
+        final Transform transform = tester.widget(
+          find.descendant(
+            of: find.byKey(const Key('dovah-button-hover-effect')),
+            matching: find.byType(Transform),
+          ),
+        );
+        expect(transform.transform.storage[13], closeTo(-1, 0.001));
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets(
       'DovahButton brightens by seven percent and lifts one pixel while hovered',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(

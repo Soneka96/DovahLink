@@ -95,7 +95,9 @@ class _DovahButtonState extends State<DovahButton> {
               ? 1 + _hoverBrightnessIncrease
               : 1,
         ),
-        duration: const Duration(milliseconds: 160),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 160),
         curve: Curves.ease,
         builder: (BuildContext context, double brightness, Widget? child) {
           final Widget button = brightness == 1

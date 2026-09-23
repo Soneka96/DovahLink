@@ -16,6 +16,10 @@ No new entries are added here. Keep the historical release sections below unchan
 - In-app theme selection, applied immediately and persisted locally so the chosen theme survives
   a relaunch.
 
+### Fixed
+
+- Themed buttons respect reduced-motion settings, and failed appearance writes are reported as errors.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

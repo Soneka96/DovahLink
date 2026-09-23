@@ -63,7 +63,13 @@ class AppearanceLocalDataSource implements IAppearanceLocalDataSource {
   @override
   Future<Either<Failure, Unit>> savePreset(DovahThemePreset preset) async {
     try {
-      await _preferences.setString(_themePresetPreferenceKey, preset.name);
+      final bool saved = await _preferences.setString(
+        _themePresetPreferenceKey,
+        preset.name,
+      );
+      if (!saved) {
+        return const Left(DatabaseFailure('Could not save the appearance.'));
+      }
       return const Right(unit);
     } on PlatformException catch (error) {
       return Left(

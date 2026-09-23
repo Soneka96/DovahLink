@@ -18,11 +18,11 @@ Future<void> initDependencies() async {
   if (sl.isRegistered<GoRouter>()) {
     return;
   }
+  final SharedPreferences preferences = await SharedPreferences.getInstance();
   sl.registerLazySingleton<GoRouter>(createRouter);
   sl.registerLazySingleton<NavigatorService>(
     () => NavigatorService(sl<GoRouter>()),
   );
-  final SharedPreferences preferences = await SharedPreferences.getInstance();
   sl.registerLazySingleton<SharedPreferences>(() => preferences);
   initConnectionDependencies();
   initPairingDependencies();
