@@ -468,10 +468,10 @@ removed merely because they are not real Skyrim data.
 
 #### Real capture and host integration
 
-**Status:** Implementation complete on Host and Adapter. Every acceptance criterion below is met
-by the code except the last, which requires the maintainer's own live Skyrim session to verify --
-this environment cannot run Skyrim, so that check has not happened yet. Do not mark this slice
-Complete until it has.
+**Status:** Complete
+
+The maintainer completed live Skyrim runtime validation on 2026-09-23, covering the manual
+checklist below.
 
 Connect the real adapter capture stream and play-context lifecycle to the host state pipeline. Add
 the first production state flow through the host/adapter boundary, including current-state
@@ -536,8 +536,8 @@ resynchronization, domain-handler dispatch, and shared application authority.
   `Actor::GetLevel()` -- each returning `std::nullopt` rather than a fabricated value on any
   failure. `GetActorValue` (the current-value accessor, not `GetPermanentActorValue`/
   `GetBaseActorValue`) was a deliberate choice for "current" `character_health`/`character_magicka`/
-  `character_stamina` semantics; it has not been verified in a running Skyrim session, particularly
-  around death, essential/downed actors, and negative health. `CommonLibAdapterNativeCaptureRouter`
+  `character_stamina` semantics; live validation confirmed current-value behavior through gameplay
+  damage/recovery, player death, and a negative-health capture. `CommonLibAdapterNativeCaptureRouter`
   maps each `CharacterSampleToken` to its read and encodes the little-endian wire payload
   `LiveCaptureSink.cs` decodes, and owns the `RE::LevelIncrease::Event` sink for
   `CharacterEventKey::kCharacterLevelChanged` (registration is idempotent because
@@ -584,16 +584,27 @@ in place of Skyrim:
 This is deterministic automated process-level E2E coverage of the real Adapter/Host/public-client
 pipeline. It is not live Skyrim validation, real gameplay validation, or CommonLib runtime proof
 inside Skyrim: the native capture source in these tests is synthetic, not a running Skyrim process.
-Live Skyrim runtime validation by the maintainer remains a separate, outstanding requirement that
-this automated proof does not satisfy.
+The maintainer's separate live Skyrim runtime validation is recorded below.
 
-**Manual Skyrim runtime validation checklist (outstanding).** None of the following has been run
-against a real Skyrim `1.6.1170` session; this list is what "live Skyrim runtime validation" in the
-acceptance criteria above still requires before this slice can be marked Complete:
+**Manual Skyrim runtime validation record (2026-09-23).** The maintainer exercised the live capture
+and lifecycle path in Skyrim Special Edition `1.7.104` using the Adapter log and Windows process
+observation:
 
-- health/magicka/stamina ordinary current values, and drain/regeneration behavior;
-- death/downed/essential-actor behavior, including negative-health edge cases;
-- XP gain behavior and the native level-up event;
-- load save A; transition to and load save B; reload of the same save; new game;
-- Host restart while a save is loaded; Adapter/private IPC reconnect;
-- main menu / no active context; shutdown / quit.
+- Health, magicka, and stamina captures followed current-value changes, damage, and recovery during
+  gameplay. A natural death run captured health down to `0.01651001`; a separate console damage test
+  captured negative health at `-7.571594` across repeated samples.
+- XP capture changed during skill progression. The native level-up event delivered levels 2 through
+  5, and the New Game baseline reported level 1.
+- Loading and switching between saves produced fresh baselines with the values of the loaded save;
+  reloading returned to the earlier save's values.
+- Returning to the main menu produced the final default-valued captures, then periodic captures
+  stopped until New Game established a fresh baseline.
+- Stopping the Host while Skyrim remained open was followed by a fresh baseline and resumed captures
+  after Host/Adapter reconnection. On normal Skyrim exit, the Host process also closed.
+- The instrumented run reported occasional capture-queue `lock_contended` rejections; later Snapshot
+  captures resumed. No queue-full rejection was observed in the instrumented logs.
+
+The manual session verified the native capture and process-lifecycle behavior from the Adapter log
+and Windows process state. The Host's public state and client presentation were not directly
+observable during this session; the separate deterministic process-level E2E test remains the
+evidence for the Host/Adapter/public-client path, using synthetic native captures.
