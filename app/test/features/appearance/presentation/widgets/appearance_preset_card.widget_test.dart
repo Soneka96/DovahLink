@@ -7,6 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_card.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
 
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -74,6 +78,171 @@ void main() {
         expect(find.byIcon(Icons.check_circle), findsNothing);
       },
     );
+  });
+
+  group('AppearancePresetCard previews its own theme geometry', () {
+    for (final DovahThemePreset activeTheme in DovahThemePreset.values) {
+      for (final DovahThemePreset previewedPreset in DovahThemePreset.values) {
+        testWidgets('AppearancePresetCard uses $previewedPreset geometry while '
+            '$activeTheme is active', (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            AppearancePresetCard(
+              preset: previewedPreset,
+              selected: previewedPreset == activeTheme,
+              onTap: () {},
+            ),
+            preset: activeTheme,
+            size: dovahTestSizes.first,
+          );
+
+          final BuildContext surfaceContext = tester.element(
+            find.byKey(const Key('appearance-preset-card-surface')),
+          );
+          final DovahThemeTokens actualTokens = Theme.of(
+            surfaceContext,
+          ).extension<DovahThemeTokens>()!;
+          final DovahThemeTokens expectedTokens = dovahThemeDataFor(
+            previewedPreset,
+          ).extension<DovahThemeTokens>()!;
+          final Finder surfaceFinder = find.byKey(
+            const Key('appearance-preset-card-surface'),
+          );
+          final Gradient expectedSurfaceGradient =
+              previewedPreset == activeTheme
+              ? expectedTokens.materialRaisedGradient
+              : expectedTokens.materialGradient;
+
+          expect(actualTokens.cornerStyle, expectedTokens.cornerStyle);
+          expect(actualTokens.cornerRadius, expectedTokens.cornerRadius);
+          expect(actualTokens.cornerCutSize, expectedTokens.cornerCutSize);
+
+          if (expectedTokens.cornerStyle == DovahPanelCornerStyle.rounded) {
+            final Container paintedSurface = tester.widget(
+              find
+                  .descendant(
+                    of: surfaceFinder,
+                    matching: find.byType(Container),
+                  )
+                  .first,
+            );
+            final BoxDecoration decoration =
+                paintedSurface.decoration! as BoxDecoration;
+
+            expect(
+              decoration.borderRadius,
+              BorderRadius.circular(expectedTokens.cornerRadius),
+            );
+            expect(
+              (decoration.gradient! as LinearGradient).colors,
+              (expectedSurfaceGradient as LinearGradient).colors,
+            );
+            expect(decoration.border?.top.color, expectedTokens.lineStrong);
+          } else {
+            final CustomPaint paintedSurface = tester.widget(
+              find
+                  .descendant(
+                    of: surfaceFinder,
+                    matching: find.byType(CustomPaint),
+                  )
+                  .first,
+            );
+            final DovahMaterialPainter painter =
+                paintedSurface.painter! as DovahMaterialPainter;
+            final ClipPath clippedSurface = tester.widget(
+              find
+                  .descendant(
+                    of: surfaceFinder,
+                    matching: find.byType(ClipPath),
+                  )
+                  .first,
+            );
+            final DovahPanelClipper clipper =
+                clippedSurface.clipper! as DovahPanelClipper;
+
+            expect(painter.cornerStyle, expectedTokens.cornerStyle);
+            expect(painter.cornerRadius, expectedTokens.cornerRadius);
+            expect(painter.cutSize, expectedTokens.cornerCutSize);
+            expect(
+              (painter.gradient as LinearGradient).colors,
+              (expectedSurfaceGradient as LinearGradient).colors,
+            );
+            expect(painter.borderColor, expectedTokens.lineStrong);
+            expect(clipper.cornerStyle, expectedTokens.cornerStyle);
+            expect(clipper.cornerRadius, expectedTokens.cornerRadius);
+            expect(clipper.cutSize, expectedTokens.cornerCutSize);
+          }
+
+          final Container preview = tester.widget(
+            find.byKey(const Key('appearance-preset-card-preview')),
+          );
+          final BoxDecoration previewDecoration =
+              preview.decoration! as BoxDecoration;
+          expect(
+            (previewDecoration.gradient! as LinearGradient).colors,
+            (expectedTokens.materialGradient as LinearGradient).colors,
+          );
+          expect(
+            previewDecoration.border?.top.color,
+            expectedTokens.lineStrong,
+          );
+        });
+      }
+    }
+  });
+
+  group('AppearancePresetCard uses the Dovah preview asset', () {
+    testWidgets(
+      'AppearancePresetCard shows the approved hero image in the Dovah preview',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          AppearancePresetCard(
+            preset: DovahThemePreset.dovah,
+            selected: false,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        final Container preview = tester.widget(
+          find.byKey(const Key('appearance-preset-card-preview')),
+        );
+        final BoxDecoration decoration = preview.decoration! as BoxDecoration;
+        final AssetImage image = decoration.image!.image as AssetImage;
+
+        expect(
+          image.assetName,
+          'assets/themes/dovah/dovahlink-connection-hero.png',
+        );
+        expect(decoration.image!.fit, BoxFit.cover);
+      },
+    );
+
+    for (final DovahThemePreset preset in <DovahThemePreset>[
+      DovahThemePreset.frostbound,
+      DovahThemePreset.hearth,
+    ]) {
+      testWidgets(
+        'AppearancePresetCard does not use the Dovah image for $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            AppearancePresetCard(preset: preset, selected: false, onTap: () {}),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+
+          final Container preview = tester.widget(
+            find.byKey(const Key('appearance-preset-card-preview')),
+          );
+          final BoxDecoration decoration = preview.decoration! as BoxDecoration;
+
+          expect(decoration.image, isNull);
+        },
+      );
+    }
   });
 
   group('AppearancePresetCard calls onTap', () {
