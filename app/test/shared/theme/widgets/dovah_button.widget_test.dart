@@ -1,11 +1,15 @@
 import 'dart:ui' show Tristate;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
@@ -131,47 +135,56 @@ void main() {
       WidgetTester tester,
     ) async {
       final SemanticsHandle semantics = tester.ensureSemantics();
-      addTearDown(semantics.dispose);
-      await pumpDovahThemedWidget(
-        tester,
-        DovahButton(label: 'Confirm', onPressed: () {}),
-        preset: DovahThemePreset.dovah,
-        size: dovahTestSizes.first,
-      );
+      try {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Confirm', onPressed: () {}),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
 
-      final SemanticsNode node = tester.getSemantics(
-        find.bySemanticsLabel('Confirm'),
-      );
-      final SemanticsData data = node.getSemanticsData();
-      expect(data.flagsCollection.isButton, isTrue);
-      expect(data.flagsCollection.isEnabled, Tristate.isTrue);
-      expect(data.hasAction(SemanticsAction.tap), isTrue);
+        final SemanticsNode node = tester.getSemantics(
+          find.byKey(const Key('dovah-button-semantics')),
+        );
+        final SemanticsData data = node.getSemanticsData();
+        expect(data.flagsCollection.isButton, isTrue);
+        expect(data.flagsCollection.isEnabled, Tristate.isTrue);
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+      } finally {
+        semantics.dispose();
+      }
     });
 
     testWidgets('DovahButton exposes disabled state without keyboard focus', (
       WidgetTester tester,
     ) async {
       final SemanticsHandle semantics = tester.ensureSemantics();
-      addTearDown(semantics.dispose);
-      await pumpDovahThemedWidget(
-        tester,
-        const DovahButton(label: 'Confirm', onPressed: null),
-        preset: DovahThemePreset.dovah,
-        size: dovahTestSizes.first,
-      );
+      try {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahButton(label: 'Confirm', onPressed: null),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
 
-      final SemanticsNode node = tester.getSemantics(
-        find.bySemanticsLabel('Confirm'),
-      );
-      final SemanticsData data = node.getSemanticsData();
-      expect(data.flagsCollection.isButton, isTrue);
-      expect(data.flagsCollection.isEnabled, Tristate.isFalse);
-      expect(data.hasAction(SemanticsAction.tap), isFalse);
+        final SemanticsNode node = tester.getSemantics(
+          find.byKey(const Key('dovah-button-semantics')),
+        );
+        final SemanticsData data = node.getSemanticsData();
+        expect(data.flagsCollection.isButton, isTrue);
+        expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+        expect(data.hasAction(SemanticsAction.tap), isFalse);
 
-      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyEvent(LogicalKeyboardKey.space);
-      expect(find.byKey(const Key('dovah-button-focus-outline')), findsNothing);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        expect(
+          find.byKey(const Key('dovah-button-focus-outline')),
+          findsNothing,
+        );
+      } finally {
+        semantics.dispose();
+      }
     });
   });
 
@@ -244,10 +257,10 @@ void main() {
     );
   });
 
-  group('DovahButton displays contrasting label text', () {
+  group('DovahButton uses approved primary action colors', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
-        'DovahButton displays a readable label color for the primary variant under $preset',
+        'DovahButton preserves the approved gradient and label color under $preset',
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
@@ -257,14 +270,272 @@ void main() {
           );
 
           final Text text = tester.widget<Text>(find.text('Confirm'));
-
-          expect(text.style?.color, isNotNull);
-          expect(
-            text.style!.color,
-            anyOf(equals(Colors.white), equals(Colors.black87)),
+          final DovahSurface surface = tester.widget(
+            find
+                .descendant(
+                  of: find.byType(DovahButton),
+                  matching: find.byType(DovahSurface),
+                )
+                .first,
           );
+          final LinearGradient gradient = surface.gradient! as LinearGradient;
+          final Color foreground = text.style!.color!;
+          final List<Color> expectedStops = switch (preset) {
+            DovahThemePreset.frostbound => const [
+              Color(0xFF263239),
+              Color(0xFF11191D),
+            ],
+            DovahThemePreset.dovah => const [
+              Color(0xFFF0BD73),
+              Color(0xFFC77D38),
+            ],
+            DovahThemePreset.hearth => const [
+              Color(0xFFA96932),
+              Color(0xFF82491E),
+            ],
+          };
+          final Alignment expectedBegin = preset == DovahThemePreset.hearth
+              ? Alignment.topCenter
+              : Alignment.topLeft;
+          final Alignment expectedEnd = preset == DovahThemePreset.hearth
+              ? Alignment.bottomCenter
+              : Alignment.bottomRight;
+          final Color expectedForeground = switch (preset) {
+            DovahThemePreset.frostbound => const Color(0xFFE9F0F2),
+            DovahThemePreset.dovah => const Color(0xFF1A0E04),
+            DovahThemePreset.hearth => const Color(0xFFFFF9EE),
+          };
+
+          expect(gradient.colors, expectedStops);
+          expect(gradient.stops, isNull);
+          expect(gradient.begin, expectedBegin);
+          expect(gradient.end, expectedEnd);
+          expect(foreground, expectedForeground);
+
+          final double foregroundLuminance = foreground.computeLuminance();
+          for (int index = 0; index < gradient.colors.length; index++) {
+            final double backgroundLuminance = gradient.colors[index]
+                .computeLuminance();
+            final double lighterLuminance =
+                foregroundLuminance > backgroundLuminance
+                ? foregroundLuminance
+                : backgroundLuminance;
+            final double darkerLuminance =
+                foregroundLuminance > backgroundLuminance
+                ? backgroundLuminance
+                : foregroundLuminance;
+            final double contrastRatio =
+                (lighterLuminance + 0.05) / (darkerLuminance + 0.05);
+
+            if (preset == DovahThemePreset.hearth) {
+              // The approved Hearth foreground and bright gradient endpoint intentionally
+              // preserve the prototype's 4.22:1 contrast for visual fidelity.
+              expect(contrastRatio, closeTo(index == 0 ? 4.22 : 6.86, 0.01));
+            } else {
+              expect(contrastRatio, greaterThanOrEqualTo(4.5));
+            }
+          }
         },
       );
     }
+  });
+
+  group('DovahButton uses raised material for secondary actions', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton uses $preset raised material for the secondary variant',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahButton(
+              label: 'Cancel',
+              onPressed: null,
+              variant: DovahButtonVariant.secondary,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          final DovahSurface surface = tester.widget(
+            find
+                .descendant(
+                  of: find.byType(DovahButton),
+                  matching: find.byType(DovahSurface),
+                )
+                .first,
+          );
+          final Text text = tester.widget<Text>(find.text('Cancel'));
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final Finder surfaceFinder = find
+              .descendant(
+                of: find.byType(DovahButton),
+                matching: find.byType(DovahSurface),
+              )
+              .first;
+
+          expect(surface.raised, isTrue);
+          if (preset == DovahThemePreset.hearth) {
+            final Container material = tester.widget(
+              find
+                  .descendant(
+                    of: surfaceFinder,
+                    matching: find.byType(Container),
+                  )
+                  .first,
+            );
+
+            expect(
+              (material.decoration! as BoxDecoration).gradient,
+              tokens.materialRaisedGradient,
+            );
+            expect(
+              (material.decoration! as BoxDecoration).border?.top.color,
+              tokens.lineStrong,
+            );
+          } else {
+            final CustomPaint material = tester.widget(
+              find
+                  .descendant(
+                    of: surfaceFinder,
+                    matching: find.byType(CustomPaint),
+                  )
+                  .first,
+            );
+            final DovahMaterialPainter painter =
+                material.painter! as DovahMaterialPainter;
+
+            expect(painter.gradient, tokens.materialRaisedGradient);
+            expect(painter.borderColor, tokens.lineStrong);
+          }
+          expect(text.style?.color, tokens.textPrimary);
+        },
+      );
+    }
+  });
+
+  group('DovahButton applies the shared primary hover treatment', () {
+    testWidgets(
+      'DovahButton brightens by seven percent and lifts one pixel while hovered',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          Column(
+            children: [
+              DovahButton(label: 'Confirm', onPressed: () {}),
+              TextButton(onPressed: () {}, child: const Text('Next')),
+            ],
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: const Offset(899, 559));
+        await tester.pump();
+        await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 160));
+
+        final TweenAnimationBuilder<double> animation = tester.widget(
+          find.byKey(const Key('dovah-button-hover-effect')),
+        );
+        final Transform transform = tester.widget(
+          find.descendant(
+            of: find.byKey(const Key('dovah-button-hover-effect')),
+            matching: find.byType(Transform),
+          ),
+        );
+
+        expect(animation.tween.end, 1.07);
+        expect(transform.transform.storage[13], closeTo(-1, 0.001));
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('dovah-button-hover-effect')),
+            matching: find.byType(ColorFiltered),
+          ),
+          findsOneWidget,
+        );
+
+        await pointer.moveTo(tester.getCenter(find.text('Next')));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('dovah-button-hover-effect')),
+            matching: find.byType(ColorFiltered),
+          ),
+          findsNothing,
+        );
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets('DovahButton leaves secondary actions unbrightened on hover', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(
+          label: 'Cancel',
+          onPressed: () {},
+          variant: DovahButtonVariant.secondary,
+        ),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+      final TestGesture pointer = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await pointer.addPointer(location: const Offset(899, 559));
+      await tester.pump();
+      await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
+      await tester.pump(const Duration(milliseconds: 160));
+
+      final TweenAnimationBuilder<double> animation = tester.widget(
+        find.byKey(const Key('dovah-button-hover-effect')),
+      );
+      expect(animation.tween.end, 1);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('dovah-button-hover-effect')),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsNothing,
+      );
+      await pointer.removePointer();
+    });
+
+    testWidgets('DovahButton keeps disabled primary actions unbrightened', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(label: 'Confirm', onPressed: null),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+      final TestGesture pointer = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await pointer.addPointer(location: const Offset(899, 559));
+      await tester.pump();
+      await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
+      await tester.pump(const Duration(milliseconds: 160));
+
+      final TweenAnimationBuilder<double> animation = tester.widget(
+        find.byKey(const Key('dovah-button-hover-effect')),
+      );
+      expect(animation.tween.end, 1);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('dovah-button-hover-effect')),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsNothing,
+      );
+      await pointer.removePointer();
+    });
   });
 }

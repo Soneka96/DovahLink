@@ -22,6 +22,12 @@ ThemeData buildHearthTheme() {
     success: Color(0xFF35684C),
     warning: Color(0xFF99541F),
     danger: Color(0xFF913B34),
+    primaryActionGradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0xFFA96932), Color(0xFF82491E)],
+    ),
+    primaryActionForeground: Color(0xFFFFF9EE),
     focusRingTint: Color(0x24965923),
     health: Color(0xFFA74F3E),
     magicka: Color(0xFF557B98),

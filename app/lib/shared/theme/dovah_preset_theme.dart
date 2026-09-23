@@ -23,6 +23,12 @@ ThemeData buildDovahPresetTheme() {
     success: Color(0xFF8ED6FF),
     warning: Color(0xFFE2A55E),
     danger: Color(0xFFE18080),
+    primaryActionGradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFFF0BD73), Color(0xFFC77D38)],
+    ),
+    primaryActionForeground: Color(0xFF1A0E04),
     focusRingTint: Color(0x2174BDE8),
     health: Color(0xFFD16F62),
     magicka: Color(0xFF65B8E7),
