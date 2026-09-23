@@ -64,21 +64,25 @@ void main() {
     test(
       'ThemePresetSelectedAction persists the selected preset through SetThemePresetUseCase',
       () {
-        when(
-          () => mockSetThemePreset(any()),
-        ).thenAnswer((_) async => const Right(unit));
+        fakeAsync((FakeAsync async) {
+          middleware = AppearanceMiddleware();
+          when(
+            () => mockSetThemePreset(any()),
+          ).thenAnswer((_) async => const Right(unit));
 
-        middleware.call(
-          store,
-          const ThemePresetSelectedAction(DovahThemePreset.hearth),
-          next,
-        );
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.hearth),
+            next,
+          );
+          async.flushMicrotasks();
 
-        verify(
-          () => mockSetThemePreset(
-            const SetThemePresetParams(preset: DovahThemePreset.hearth),
-          ),
-        ).called(1);
+          verify(
+            () => mockSetThemePreset(
+              const SetThemePresetParams(preset: DovahThemePreset.hearth),
+            ),
+          ).called(1);
+        });
       },
     );
 
@@ -86,6 +90,7 @@ void main() {
       'ThemePresetSelectedAction persists rapid selections in selection order',
       () {
         fakeAsync((FakeAsync async) {
+          middleware = AppearanceMiddleware();
           final Completer<Either<Failure, Unit>> hearthPersistence =
               Completer<Either<Failure, Unit>>();
           final Completer<Either<Failure, Unit>> dovahPersistence =
@@ -137,6 +142,7 @@ void main() {
       () {
         const DatabaseFailure failure = DatabaseFailure('unavailable');
         fakeAsync((FakeAsync async) {
+          middleware = AppearanceMiddleware();
           final Completer<Either<Failure, Unit>> hearthPersistence =
               Completer<Either<Failure, Unit>>();
           final List<DovahThemePreset> persistenceStarts = [];
@@ -178,6 +184,7 @@ void main() {
       'ThemePresetSelectedAction persists the next preset after a write throws',
       () {
         fakeAsync((FakeAsync async) {
+          middleware = AppearanceMiddleware();
           final Completer<Either<Failure, Unit>> hearthPersistence =
               Completer<Either<Failure, Unit>>();
           final List<DovahThemePreset> persistenceStarts = [];
