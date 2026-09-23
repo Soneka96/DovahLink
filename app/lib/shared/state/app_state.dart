@@ -5,10 +5,8 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 
 /// The root immutable state held by the DovahLink Redux store.
 class AppState {
-  /// Creates the root state from feature states. [appearance] defaults to the app's default
-  /// theme preset so existing call sites that only care about [connection]/[pairing] (most
-  /// pre-appearance tests) are unaffected; production startup always supplies the persisted
-  /// preset explicitly instead, through [AppState.initial] or directly.
+  /// Creates the root state from feature states. When [appearance] is omitted, its active preset
+  /// defaults to [defaultThemePreset]. Production startup supplies the persisted preset.
   const AppState({
     required this.connection,
     required this.pairing,

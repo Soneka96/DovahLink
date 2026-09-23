@@ -4,10 +4,8 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
-/// A DovahLink connection entry, styled per its [DovahConnectionCardState]. Presentation-only:
-/// it takes display data and a callback as props and does not read connection/host domain state
-/// itself -- see the class's own Stage 10/11 note on [DovahConnectionCardState] for why all three
-/// visual states exist here even though only `available` can be produced by the live app today.
+/// A DovahLink connection entry styled by [DovahConnectionCardState]. It takes display data and a
+/// callback as props without reading connection or host state.
 class DovahConnectionCard extends StatelessWidget {
   /// Creates a themed connection card.
   const DovahConnectionCard({

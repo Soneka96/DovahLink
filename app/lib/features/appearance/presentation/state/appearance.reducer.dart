@@ -10,9 +10,7 @@ Reducer<AppearanceState> appearanceReducer = combineReducers<AppearanceState>([
   ).call,
 ]);
 
-/// Handles [ThemePresetSelectedAction].
-/// Updates [AppearanceState.activePreset] immediately; persistence is a middleware side effect
-/// of the same action, per `ai/context/flutter/architecture.md`'s Redux flow.
+/// Handles [ThemePresetSelectedAction] by immediately updating [AppearanceState.activePreset].
 AppearanceState themePresetSelectedReducer(
   AppearanceState state,
   ThemePresetSelectedAction action,

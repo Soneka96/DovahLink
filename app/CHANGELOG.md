@@ -20,7 +20,6 @@ Repository releases share root `VERSION`. When an app change is included in a re
 ### Fixed
 
 - Themed buttons respect reduced-motion settings.
-- Failed appearance writes are reported as errors.
 
 ## [0.4.0] - 2026-09-23
 

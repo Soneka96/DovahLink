@@ -21,14 +21,9 @@ class AppearanceMiddleware extends MiddlewareClass<AppState> {
     }
   }
 
-  /// Persists [ThemePresetSelectedAction.preset]. The reducer already applied the preset to
-  /// [AppState] before this handler runs, so a persistence failure here is a background
-  /// concern -- it affects only whether the choice survives the next launch, not what the user
-  /// sees now -- and is left silent rather than dispatching a failure action, per
-  /// `ai/context/flutter/error-handling.md`'s "Background failures that should not interrupt the
-  /// user remain silent". No UI in this application surface currently reacts to a persistence
-  /// outcome for this action; a future one that needs to should dispatch its own result action
-  /// from this handler instead of this comment being treated as documentation of that behavior.
+  /// Persists [ThemePresetSelectedAction.preset]. The reducer applies the preset immediately, so a
+  /// persistence failure affects whether it survives the next launch but does not undo the active
+  /// appearance.
   Future<void> _themePresetSelected(
     Store<AppState> store,
     ThemePresetSelectedAction action,

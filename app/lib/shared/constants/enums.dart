@@ -10,8 +10,8 @@ enum PairingPhase {
   connecting,
 
   /// The client could not reach the host (a transport-level failure, not a
-  /// rejected pairing attempt). Distinct from [failed] per
-  /// `ai/context/flutter/architecture.md`'s "Connection and recovery state".
+  /// rejected pairing attempt). A rejected pairing attempt is represented by
+  /// [failed].
   disconnected,
 
   /// The session authenticated without a trusted credential; pairing has not
@@ -64,9 +64,7 @@ enum PairingConnectionStatus {
   invalidated,
 }
 
-/// One of DovahLink's three first-class visual themes. Every value fully determines a concrete
-/// theme, so the type always resolves to one of these and carries no unselected sentinel; see
-/// `ai/context/flutter/dart-style.md`'s "Enums".
+/// One of DovahLink's three visual themes. Every value fully determines a concrete theme.
 enum DovahThemePreset {
   /// Cold, severe, and compact: fractured stone and scratched iron.
   frostbound,
@@ -85,11 +83,8 @@ enum DovahThemePreset {
   };
 }
 
-/// The visual state a `DovahConnectionCard` renders. Presentation-only: it does not derive from
-/// real SDK/discovery/recovery state today (mapping that state onto these visuals remains future
-/// roadmap work), so it stays distinct from any domain connection-status type. Every card that
-/// exists shows exactly one of these, so the type carries no unselected sentinel; see
-/// `ai/context/flutter/dart-style.md`'s "Enums".
+/// A presentation-only connection-card state supplied independently of the SDK's connection
+/// state.
 enum DovahConnectionCardState {
   /// The connection is reachable and ready to enter.
   available,
@@ -109,8 +104,6 @@ enum DovahConnectionCardState {
 }
 
 /// The corner treatment a DovahLink theme applies to panels, surfaces, buttons, and cards.
-/// Every theme resolves to exactly one style, so the type carries no unselected sentinel; see
-/// `ai/context/flutter/dart-style.md`'s "Enums".
 enum DovahPanelCornerStyle {
   /// One bevelled corner (top-right), sharp elsewhere, no rounding. Frostbound.
   singleBevel,
@@ -129,8 +122,7 @@ enum DovahPanelCornerStyle {
   };
 }
 
-/// A [DovahButton]'s visual emphasis. Every button renders as exactly one of these, so the type
-/// carries no unselected sentinel; see `ai/context/flutter/dart-style.md`'s "Enums".
+/// The visual emphasis used by shared themed buttons.
 enum DovahButtonVariant {
   /// The theme's high-emphasis action gradient (the approved prototype's `.primary`).
   primary,

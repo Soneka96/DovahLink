@@ -6,10 +6,7 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Applies a Redux action to [state] and returns the next root state.
 ///
-/// [AppState.connection] never changes here -- no action reduces it, per
-/// `connection.state.dart`'s current scope (a static Host list only; see
-/// `ai/context/flutter/architecture.md`'s "Connection and recovery state" for the fuller model a
-/// future Stage 4/10 delivery will need).
+/// [AppState.connection] is preserved because no current action reduces it.
 AppState appReducer(AppState state, Object? action) {
   final PairingState pairing = pairingReducer(state.pairing, action);
   final AppearanceState appearance = appearanceReducer(

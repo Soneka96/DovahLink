@@ -10,10 +10,7 @@ class AppearanceState extends Equatable {
   /// Creates appearance state with an explicit active preset.
   const AppearanceState({required this.activePreset});
 
-  /// Returns the state before a persisted preset has been loaded, using [defaultThemePreset].
-  /// The application composition root normally supersedes this with the persisted preset,
-  /// resolved before the store is created; this factory exists for contexts (such as tests) that
-  /// need a starting state without going through that async bootstrap.
+  /// Returns the initial appearance state with [defaultThemePreset] active.
   factory AppearanceState.initial() =>
       const AppearanceState(activePreset: defaultThemePreset);
 
