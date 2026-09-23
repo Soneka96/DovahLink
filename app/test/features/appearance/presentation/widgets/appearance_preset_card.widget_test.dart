@@ -1,4 +1,8 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_card.widget.dart';
@@ -93,5 +97,97 @@ void main() {
 
       expect(tapCount, 1);
     });
+  });
+
+  group('AppearancePresetCard supports keyboard activation', () {
+    for (final LogicalKeyboardKey key in <LogicalKeyboardKey>[
+      LogicalKeyboardKey.enter,
+      LogicalKeyboardKey.space,
+    ]) {
+      testWidgets('AppearancePresetCard activates on $key when focused', (
+        WidgetTester tester,
+      ) async {
+        int activationCount = 0;
+        await pumpDovahThemedWidget(
+          tester,
+          AppearancePresetCard(
+            preset: DovahThemePreset.hearth,
+            selected: false,
+            onTap: () => activationCount++,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.sendKeyEvent(key);
+        await tester.pump();
+
+        expect(activationCount, 1);
+      });
+    }
+
+    testWidgets('AppearancePresetCard displays its focus outline after Tab', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        Column(
+          children: [
+            AppearancePresetCard(
+              preset: DovahThemePreset.hearth,
+              selected: false,
+              onTap: () {},
+            ),
+            TextButton(onPressed: () {}, child: const Text('Next')),
+          ],
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        find.byKey(const Key('appearance-preset-card-focus-outline')),
+        findsOneWidget,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        find.byKey(const Key('appearance-preset-card-focus-outline')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('AppearancePresetCard exposes button semantics', () {
+    testWidgets(
+      'AppearancePresetCard exposes its label, enabled, and selected state',
+      (WidgetTester tester) async {
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        addTearDown(semantics.dispose);
+        await pumpDovahThemedWidget(
+          tester,
+          AppearancePresetCard(
+            preset: DovahThemePreset.hearth,
+            selected: true,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final SemanticsNode node = tester.getSemantics(
+          find.bySemanticsLabel(DovahThemePreset.hearth.label),
+        );
+        final SemanticsData data = node.getSemanticsData();
+        expect(data.flagsCollection.isButton, isTrue);
+        expect(data.flagsCollection.isEnabled, Tristate.isTrue);
+        expect(data.flagsCollection.isSelected, Tristate.isTrue);
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+      },
+    );
   });
 }

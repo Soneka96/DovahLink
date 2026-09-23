@@ -78,14 +78,41 @@ class DovahButton extends StatelessWidget {
 
     return Opacity(
       opacity: enabled ? 1 : 0.46,
-      child: MouseRegion(
-        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: label,
+        child: InkWell(
           onTap: onPressed,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-            child: Center(child: surface),
+          mouseCursor: enabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          child: Builder(
+            builder: (BuildContext context) {
+              final bool focused = Focus.of(context).hasPrimaryFocus;
+
+              return Container(
+                key: focused ? const Key('dovah-button-focus-outline') : null,
+                foregroundDecoration: focused
+                    ? BoxDecoration(
+                        border: Border.all(color: tokens.signal, width: 2),
+                        borderRadius: BorderRadius.circular(
+                          tokens.cornerRadius,
+                        ),
+                        boxShadow: <BoxShadow>[
+                          BoxShadow(color: tokens.focusRingTint, blurRadius: 8),
+                        ],
+                      )
+                    : null,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
+                  child: Center(child: surface),
+                ),
+              );
+            },
           ),
         ),
       ),

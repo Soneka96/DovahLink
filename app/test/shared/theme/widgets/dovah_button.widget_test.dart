@@ -1,4 +1,8 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -67,6 +71,107 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('DovahButton supports keyboard activation', () {
+    for (final LogicalKeyboardKey key in <LogicalKeyboardKey>[
+      LogicalKeyboardKey.enter,
+      LogicalKeyboardKey.space,
+    ]) {
+      testWidgets('DovahButton activates on $key when focused', (
+        WidgetTester tester,
+      ) async {
+        int activationCount = 0;
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Confirm', onPressed: () => activationCount++),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.sendKeyEvent(key);
+        await tester.pump();
+
+        expect(activationCount, 1);
+      });
+    }
+
+    testWidgets('DovahButton displays its focus outline after Tab', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        Column(
+          children: [
+            DovahButton(label: 'Confirm', onPressed: () {}),
+            TextButton(onPressed: () {}, child: const Text('Next')),
+          ],
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        find.byKey(const Key('dovah-button-focus-outline')),
+        findsOneWidget,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(find.byKey(const Key('dovah-button-focus-outline')), findsNothing);
+    });
+  });
+
+  group('DovahButton exposes button semantics', () {
+    testWidgets('DovahButton exposes its label and enabled state', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      addTearDown(semantics.dispose);
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(label: 'Confirm', onPressed: () {}),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      final SemanticsNode node = tester.getSemantics(
+        find.bySemanticsLabel('Confirm'),
+      );
+      final SemanticsData data = node.getSemanticsData();
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.isTrue);
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+    });
+
+    testWidgets('DovahButton exposes disabled state without keyboard focus', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      addTearDown(semantics.dispose);
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(label: 'Confirm', onPressed: null),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      final SemanticsNode node = tester.getSemantics(
+        find.bySemanticsLabel('Confirm'),
+      );
+      final SemanticsData data = node.getSemanticsData();
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+      expect(data.hasAction(SemanticsAction.tap), isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      expect(find.byKey(const Key('dovah-button-focus-outline')), findsNothing);
     });
   });
 
