@@ -11,13 +11,11 @@ import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.da
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Mock session service used to control connection state and count recovery attempts, per
-/// `ai/context/sdk/testing.md`'s "Service test boundaries".
+/// Mocks session lifecycle to control connection state and count recovery attempts.
 class MockSessionService extends Mock implements ISessionService {}
 
-/// Mock authentication service -- its own `hello`/recovery logic is
-/// `authentication_service_test.dart`'s responsibility; this file only proves
-/// [ReconnectService] reacts correctly to each classification `hello()` can produce.
+/// Mocks authentication so these tests can verify [ReconnectService]'s response to
+/// [IAuthenticationService.hello] outcomes.
 class MockAuthenticationService extends Mock
     implements IAuthenticationService {}
 

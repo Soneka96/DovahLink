@@ -1,9 +1,6 @@
 /// Public API for the DovahLink Dart Client SDK. Internal codec and transport-wiring classes stay
-/// in `src/` and are not exported here -- see `ai/context/sdk/api-design.md`'s "curated public
-/// exports". Persistence is a partial exception: [IClientStorage], the value types it stores, and
-/// the real Windows implementation are exported because a consumer must be able to name, inject,
-/// or construct them directly, even though [DovahLinkClient.windows] wires the default choice
-/// automatically; the in-memory test fake stays internal since no real consumer needs it yet.
+/// in `src/`. Public storage types support explicit injection and state inspection; the in-memory
+/// test fake remains internal.
 library;
 
 export 'src/dovahlink_client.dart' show DovahLinkClient;

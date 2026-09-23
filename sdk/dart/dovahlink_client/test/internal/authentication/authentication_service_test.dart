@@ -18,33 +18,27 @@ import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
 
-/// Mock session service used to isolate authentication service tests, per
-/// `ai/context/sdk/testing.md`'s "Service test boundaries".
+/// Mocks session lifecycle so these tests can inspect authentication's delegated calls.
 class MockSessionService extends Mock implements ISessionService {}
 
-/// Mock session admission service -- its own admit/retry logic is
-/// `session_admission_service_test.dart`'s responsibility; this file only proves
-/// [AuthenticationService] calls it with the right arguments.
+/// Mocks session admission so these tests can verify [AuthenticationService]'s arguments.
 class MockSessionAdmissionService extends Mock
     implements ISessionAdmissionService {}
 
-/// Mock request service used to isolate authentication service tests.
+/// Mocks request transmission so these tests can isolate [AuthenticationService].
 class MockRequestService extends Mock implements IRequestService {}
 
-/// Mock client storage -- its own persistence mechanics are covered by its own implementation's
-/// test file; this file only proves [AuthenticationService] reads and writes the right state.
+/// Mocks persistence so these tests can verify which state [AuthenticationService] reads and
+/// writes.
 class MockClientStorage extends Mock implements IClientStorage {}
 
-/// Mock client ID resolver -- its own generate/persist logic is
-/// `client_id_resolver_test.dart`'s responsibility; this file only proves
-/// [AuthenticationService] uses its resolved value.
+/// Mocks client ID resolution so these tests can verify [AuthenticationService] uses its result.
 class MockClientIdResolver extends Mock implements ClientIdResolver {}
 
-/// Mock client ID cache -- its own get/set behavior is `client_id_cache_test.dart`'s
-/// responsibility; this file only proves [AuthenticationService] writes and reads through it.
+/// Mocks shared identity state so these tests can verify [AuthenticationService]'s cache calls.
 class MockClientIdCache extends Mock implements ClientIdCache {}
 
-/// Builds a decoded `hello_ack` reply envelope from the shared envelope fixture.
+/// Builds a decoded `hello_ack` reply [Envelope] from the shared envelope fixture.
 Envelope buildHelloAckEnvelope({
   String? sessionId = 'session-1',
   String hostVersion = '0.4.0',
@@ -62,7 +56,7 @@ Envelope buildHelloAckEnvelope({
   },
 );
 
-/// Stubs `sendAndAwait` to answer with [envelope], matching any call.
+/// Stubs [IRequestService.sendAndAwait] to answer with [envelope], matching any call.
 void stubSendAndAwait(MockRequestService requestService, Envelope envelope) {
   when(
     () => requestService.sendAndAwait(
