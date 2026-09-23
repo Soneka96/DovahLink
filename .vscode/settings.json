@@ -29,5 +29,6 @@
         "${workspaceFolder}/app/linux/flutter/ephemeral",
         "${workspaceFolder}/app/windows/flutter/ephemeral",
         "${workspaceFolder}/app/macos/Flutter/ephemeral"
-    ]
+    ],
+    "dotnet.preferCSharpExtension": true
 }

@@ -30,6 +30,26 @@ void main() {
     });
 
     test(
+      'Method fromJson accepts the registered Event area with generic domain data',
+      () {
+        final StateEventPayload payload = StateEventPayload.fromJson(
+          <String, dynamic>{
+            'stateArea': 'character_level',
+            'baseRevision': 4,
+            'revision': 5,
+            'occurredAt': '2026-08-11T12:00:02Z',
+            'data': <String, dynamic>{'value': 11},
+          },
+        );
+
+        expect(payload.stateArea, 'character_level');
+        expect(payload.baseRevision, 4);
+        expect(payload.revision, 5);
+        expect(payload.data, <String, dynamic>{'value': 11});
+      },
+    );
+
+    test(
       'Method fromJson composes with timestamp validation for fractional UTC values',
       () {
         final StateEventPayload payload = StateEventPayload.fromJson(

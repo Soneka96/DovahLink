@@ -60,27 +60,19 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 
 ## Current position
 
-- **Current stage:** Stage 3 — Local Device Pairing and Reconnection is complete. Stage 3A —
-  Host/Adapter Production Migration is complete: `host/` and `adapter/` are the production
-  implementation, and the native Bridge (`bridge/`) has been deleted. Stage 4 — Live State
-  Synchronization Foundation continues on Host + Adapter.
-- **Current phase:** Phase 4.1 — Typed Protocol Contract Redesign and Migration (**Complete**)
-  delivered the typed per-message protocol contract (connection, pairing, state, error,
-  invalidation, and control families), canonical cross-side fixtures, and the matching Bridge/SDK/
-  .NET adapter updates, retiring the old aggregate `character` state area. Phase 4.2 — Bridge Live
-  Publication and Bounded Transport, and the remaining Bridge-authored Stage 4 phases after it, are
-  permanently superseded rather than continued: their specifications remain in
-  [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md)
-  as retained engineering evidence, but the Bridge implementation path they describe was not
-  continued once Stage 3A completed. Stage 4 continues exclusively on Host + Adapter, per that
-  document's "Host/Adapter continuation (post-3A)" section.
-- **Host/Adapter continuation status:** both "Host-owned state, publication, and bounded delivery"
-  and "Real capture and host integration" are complete on Host + Adapter, including the
-  maintainer's live Skyrim runtime validation on 2026-09-23. Real native capture
-  (health/magicka/stamina/XP/level baseline, plus the level-up native event) is wired end to end,
-  and a deterministic automated process-level test proves the Host/Adapter/public-client path using
-  synthetic native captures. Stage 4 remains Active pending the phase-close/version-impact audit
-  work in Phase 4.5.
+- **Current stage:** Stage 5 — Dart Client SDK Foundation is the next development target. Stages
+  3 and 3A are complete. Stage 4 — Live State Synchronization Foundation is complete on Host +
+  Adapter, including Phase 4.5's version-impact audit.
+- **Current phase:** Phase 5.1 — SDK Typed Protocol and Host Compatibility Boundary (**Planned**).
+  Stage 4 delivered the typed Host/client contract, Host-owned bounded live-state publication, and
+  real Skyrim capture for health, magicka, stamina, XP, and level. The maintainer recorded live
+  runtime validation on 2026-09-23, and a deterministic process-level test proves the
+  Host/Adapter/public-client path using synthetic native captures. Phase 4.5 audited the complete
+  Stage 4 range from the 0.3.2 baseline and recommends `0.4.0` for the incompatible Host/client
+  contract changes. The release bump remains a later dedicated release-branch task.
+- The Bridge-authored Stage 4.2–4.4 implementation path was permanently superseded after Stage 3A;
+  its specifications remain as historical engineering evidence in
+  [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md).
 
 Activating the replacement in production and removing `bridge/` were governed by
 [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md),
@@ -97,8 +89,8 @@ Stage 4+ development continues only on Host + Adapter.
 | 2 | Complete | [Stage 2 — Bridge Identity and Authoritative State](roadmap/02-bridge-identity-and-authoritative-state.md) |
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
-| 4 | Active. Phase 4.1 and both Host/Adapter continuation slices (state/publication/bounded-delivery, and real capture and host integration) are complete, with deterministic automated process-level E2E proof and live Skyrim runtime validation; Phase 4.5's version-impact audit and phase closeout remain outstanding. Phase 4.2 (Bridge live publication and bounded transport) and the remaining Bridge-authored phases are permanently superseded, not next. Stage 4 continues on Host + Adapter. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
-| 5 | Planned. The package scaffold, protocol/transport layer, and persistence boundary are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
+| 4 | Complete. Host/Adapter live-state delivery, real Skyrim capture, automated process-level proof, runtime validation, and the Phase 4.5 version-impact audit are complete. The next release is recommended as 0.4.0; its version bump belongs to a later release branch. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
+| 5 | Current target. Planned. The package scaffold, protocol/transport layer, pairing persistence, and bounded reconnect are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |

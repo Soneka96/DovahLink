@@ -1133,6 +1133,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "[Unreleased]",
             "[Unreleased] must be the first section in CHANGELOG.md.",
         )
+        self.assertNotIn("## [0.4.0]", changelog)
 
         self.assertNotIn("versioned ZIP", changelog)
         self.assertIn("versioned package", changelog)
@@ -1150,6 +1151,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Host-owned public client boundary",
             "Private, bounded IPC channel between the Adapter and Host",
             "Host-owned state subscriptions with baseline snapshots",
+            "bounded delivery, play-context recovery",
+            "validated real Skyrim capture for health, magicka, stamina, XP, and level",
             "Reserved control and data outbound lanes",
             "Trust-admin list-scope vocabulary is now known/trusted/blocked",
             "packages the Host/Adapter distribution instead of the retired",
@@ -1236,11 +1239,25 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 15)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 17)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
         )
+        root_roadmap = self._read("ROADMAP.md")
+        current_position = root_roadmap.split("## Current position", 1)[1].split(
+            "## Ordered stages", 1
+        )[0]
+        self.assertIn(
+            "**Current stage:** Stage 5 — Dart Client SDK Foundation is the next development target.",
+            current_position,
+        )
+        self.assertIn(
+            "Stage 4 — Live State Synchronization Foundation is complete",
+            current_position,
+        )
+        self.assertIn("recommends `0.4.0`", current_position)
+        self.assertNotIn("Stage 4 remains Active", current_position)
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
         # "Status" section records the same decision); its status line carries that explanation
         # instead of the plain "Planned" every other undone phase uses.
@@ -1258,17 +1275,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertEqual(roadmap.count(phase_3a_status), 1)
 
-        # Stage 4 is Active with Phase 4.1 complete and the old Bridge-authored phases below
-        # permanently superseded now that Stage 3A has completed; its status line records that
-        # instead of the plain "Active" an ordinary in-progress stage would carry.
-        phase_4_status = (
-            "**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining "
-            "Bridge-authored phases below are permanently superseded, per "
-            "`roadmap/03a-host-adapter-production-migration.md`; they are not next. Stage 4 "
-            "continues exclusively on Host + Adapter, per this document's \"Host/Adapter "
-            'continuation (post-3A)" section below.'
-        )
-        self.assertEqual(roadmap.count(phase_4_status), 1)
+        # Stage 4 is complete, including Phase 4.5's full-range version-impact audit.
+        phase_4_status = "**Status:** Complete"
 
         for heading in expected_headings:
             phase = self._roadmap_section(heading)
@@ -1277,13 +1285,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
-                # Stage 4's span also carries Phase 4.1's own "**Status:** Complete" line, the
-                # Host/Adapter continuation's "Host-owned state, publication, and bounded delivery"
-                # subsection's own, and the "Real capture and host integration" subsection's own
-                # status line, since these are subsections of this stage rather than independent
-                # headings the way 3.1-3.3 are.
+                # Stage 4's span also carries Phase 4.1, Phase 4.5, Host-owned state/publication,
+                # and real-capture subsection status lines.
                 expected_statuses = [
                     phase_4_status,
+                    "**Status:** Complete",
                     "**Status:** Complete",
                     "**Status:** Complete",
                     "**Status:** Complete",
@@ -1782,17 +1788,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Device Pairing and Reconnection), documented in `roadmap/03-local-device-pairing-and-reconnection.md`, needed\nthe SDK's persistence boundary to avoid a "
             "larger later migration.",
             "sdk/\n  dart/\n    dovahlink_client/",
-            "It currently provides the connect/hello/pairing/disconnect protocol client, proven "
-            "against the real\nHost harness, plus SDK-owned `clientId`, credential, and "
-            "`CONFIRMING` pairing-recovery persistence",
-            "Phase 5's remaining scope -- Host-version\ncompatibility detection, reconnect, "
-            "revisions, subscriptions, snapshots, and retiring the app's\nseparate "
-            "`features/connection/` Redux protocol code -- is undone, so this pull-forward does "
-            "not\nclose Phase 5.",
-            "the app-side Redux `features/connection/` code\ndocumented in "
-            "[`ai/context/flutter/`](../ai/context/flutter/) remains a separate, not-yet-retired\n"
-            "implementation for the identity and live-synchronization foundations already in "
-            "progress",
+            "It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic\nreconnection after ordinary transport loss",
+            "The official\nFlutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public\nclient for pairing and authentication through `PairingRemoteDataSource`.",
+            "The pulled-forward client returns `hostVersion` but does not enforce a supported Host-version\nrange.",
+            "Stage 5 still owns the SDK's typed state\nmodels, revisions, subscriptions, snapshot/recovery lifecycle",
+            "The app's `features/connection/` code currently handles Host selection and\nnavigation",
         ):
             self.assertIn(required_phrase, sdk_readme)
 
@@ -2060,26 +2060,21 @@ class RepositoryConsistencyTests(unittest.TestCase):
         app_readme = self._read("app/README.md")
         protocol_readme = self._read("protocol/README.md")
 
-        self.assertIn("## SDK migration", app_readme)
+        self.assertIn("## SDK integration", app_readme)
         self.assertIn(
-            'Before `roadmap/05-dart-client-sdk-foundation.md`\'s Phase 5 ("Dart Client SDK Foundation"), this directory owns '
-            "its protocol and\nclient adapters directly",
+            "The pairing feature already uses [`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API",
             app_readme,
         )
         self.assertIn(
-            "After that phase, this app consumes\n"
-            "[`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for normal DovahLink "
-            "communication",
+            "`features/connection/` area currently owns Host selection and navigation",
             app_readme,
         )
         self.assertIn(
-            "instead: transport, Host-version compatibility, authentication, pairing, "
-            "reconnect, and revision\nlogic move to the SDK boundary.",
-            app_readme,
+            "Stage 5 completes the SDK's Host-version compatibility checks", app_readme
         )
         self.assertIn(
-            "Flutter conventions point to\n[`ai/context/sdk/`](../ai/context/sdk/) for that "
-            "SDK-owned behavior rather than duplicating it here.",
+            "Flutter\nconventions point to [`ai/context/sdk/`](../ai/context/sdk/) for "
+            "SDK-owned protocol behavior rather\nthan duplicating it in the app.",
             app_readme,
         )
 

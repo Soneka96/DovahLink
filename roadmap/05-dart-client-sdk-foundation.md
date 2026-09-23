@@ -10,9 +10,10 @@
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
-Host-version compatibility detection, revisions, subscriptions, snapshots, recovery, and retiring
-the app's separate `features/connection/` Redux protocol code remain undone, so this phase is not
-complete. The single inbound SDK receiver/router and initial per-operation retry-safety/session-
+Host-version compatibility detection, state revisions, subscriptions, snapshots, recovery, and
+completing the app's SDK integration remain undone, so this phase is not complete. The app's current
+`features/connection/` area owns Host selection and navigation rather than a separate protocol
+client. The single inbound SDK receiver/router and initial per-operation retry-safety/session-
 requirement/timeout-class policy were similarly pulled forward by Phase 3.3 (`roadmap/03`), per
 `ai/context/sdk/architecture.md` and `ai/context/sdk/api-design.md`.
 
