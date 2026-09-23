@@ -71,6 +71,14 @@ jobs:
         with:
           arch: x64
 
+      - name: Record MSVC toolset version
+        id: msvc-toolset
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VCToolsVersion)) {
+            throw "MSVC setup did not expose VCToolsVersion."
+          }
+          "version=$($env:VCToolsVersion.Trim())" >> $env:GITHUB_OUTPUT
+
       - name: Verify pinned Ninja is available in the build environment
         # Check after the MSVC setup because CMake runs with this step's resulting PATH.
         run: |
@@ -109,10 +117,17 @@ jobs:
           & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
       - name: Restore vcpkg binary cache
+        id: vcpkg-binary-cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}
+          # vcpkg ABI includes MSVC; fallback archives are reused only when their package ABI matches.
+          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}-msvc-${{ steps.msvc-toolset.outputs.version }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}-
+
+      - name: Report vcpkg cache hit
+        run: Write-Host "Exact vcpkg cache hit: ${{ steps.vcpkg-binary-cache.outputs.cache-hit }}"
 
       - name: Build headless host executable (Debug)
         # Only the buildable project, not DovahLink.Host.Tests: host-ci.yml already covers the
