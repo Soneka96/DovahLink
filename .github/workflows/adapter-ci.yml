@@ -124,7 +124,7 @@ jobs:
           # vcpkg ABI includes MSVC; fallback archives are reused only when their package ABI matches.
           key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}-msvc-${{ steps.msvc-toolset.outputs.version }}
           restore-keys: |
-            ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}-
+            ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}
 
       - name: Report vcpkg cache hit
         run: |
