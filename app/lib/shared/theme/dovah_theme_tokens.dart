@@ -30,6 +30,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.success,
     required this.warning,
     required this.danger,
+    required this.primaryActionGradient,
+    required this.primaryActionForeground,
     required this.focusRingTint,
     required this.health,
     required this.magicka,
@@ -91,6 +93,12 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
   /// The status tone for an error or failed state.
   final Color danger;
+
+  /// The approved primary-button fill for this theme.
+  final Gradient primaryActionGradient;
+
+  /// The approved primary-button label color for this theme.
+  final Color primaryActionForeground;
 
   /// A soft, low-opacity tint of the accent color used behind a focus ring.
   final Color focusRingTint;
@@ -158,6 +166,12 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     Color? success,
     Color? warning,
     Color? danger,
+
+    /// Replacement primary-button fill.
+    Gradient? primaryActionGradient,
+
+    /// Replacement primary-button label color.
+    Color? primaryActionForeground,
     Color? focusRingTint,
     Color? health,
     Color? magicka,
@@ -187,6 +201,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     success: success ?? this.success,
     warning: warning ?? this.warning,
     danger: danger ?? this.danger,
+    primaryActionGradient: primaryActionGradient ?? this.primaryActionGradient,
+    primaryActionForeground:
+        primaryActionForeground ?? this.primaryActionForeground,
     focusRingTint: focusRingTint ?? this.focusRingTint,
     health: health ?? this.health,
     magicka: magicka ?? this.magicka,
@@ -229,6 +246,14 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       success: Color.lerp(success, other.success, t)!,
       warning: Color.lerp(warning, other.warning, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
+      primaryActionGradient: t < 0.5
+          ? primaryActionGradient
+          : other.primaryActionGradient,
+      primaryActionForeground: Color.lerp(
+        primaryActionForeground,
+        other.primaryActionForeground,
+        t,
+      )!,
       focusRingTint: Color.lerp(focusRingTint, other.focusRingTint, t)!,
       health: Color.lerp(health, other.health, t)!,
       magicka: Color.lerp(magicka, other.magicka, t)!,
@@ -267,6 +292,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     success,
     warning,
     danger,
+    primaryActionGradient,
+    primaryActionForeground,
     focusRingTint,
     health,
     magicka,

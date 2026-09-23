@@ -19,6 +19,11 @@ void main() {
 
         expect(tokens, isA<DovahThemeTokens>());
         expect(tokens!.cornerStyle, DovahPanelCornerStyle.singleBevel);
+        expect(tokens.primaryActionForeground, const Color(0xFFE9F0F2));
+        expect((tokens.primaryActionGradient as LinearGradient).colors, const [
+          Color(0xFF263239),
+          Color(0xFF11191D),
+        ]);
         expect(theme.brightness, Brightness.dark);
       },
     );
@@ -33,6 +38,11 @@ void main() {
 
         expect(tokens, isA<DovahThemeTokens>());
         expect(tokens!.cornerStyle, DovahPanelCornerStyle.doubleBevel);
+        expect(tokens.primaryActionForeground, const Color(0xFF1A0E04));
+        expect((tokens.primaryActionGradient as LinearGradient).colors, const [
+          Color(0xFFF0BD73),
+          Color(0xFFC77D38),
+        ]);
         expect(tokens.environmentAssetPath, isNull);
         expect(theme.brightness, Brightness.dark);
       },
@@ -48,6 +58,11 @@ void main() {
 
         expect(tokens, isA<DovahThemeTokens>());
         expect(tokens!.cornerStyle, DovahPanelCornerStyle.rounded);
+        expect(tokens.primaryActionForeground, const Color(0xFFFFF9EE));
+        expect((tokens.primaryActionGradient as LinearGradient).colors, const [
+          Color(0xFFA96932),
+          Color(0xFF82491E),
+        ]);
         expect(theme.brightness, Brightness.light);
       },
     );

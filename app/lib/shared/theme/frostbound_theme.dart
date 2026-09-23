@@ -22,6 +22,12 @@ ThemeData buildFrostboundTheme() {
     success: Color(0xFF9AC9DC),
     warning: Color(0xFFC0575B),
     danger: Color(0xFFD36A6E),
+    primaryActionGradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFF263239), Color(0xFF11191D)],
+    ),
+    primaryActionForeground: Color(0xFFE9F0F2),
     focusRingTint: Color(0x1FA9C9DC),
     health: Color(0xFFB65256),
     magicka: Color(0xFF83B9D1),
