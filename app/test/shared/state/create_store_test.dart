@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -8,39 +9,28 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 
 /// Exercises Redux store creation and dispatch wiring.
 void main() {
-  group('CreateStore — initial', () {
-    test('creates a distinct Redux store with the initial state', () {
-      final Store<AppState> store = const CreateStore()();
-      final AppState initialState = store.state;
+  group('Method call behaves correctly', () {
+    test(
+      'Method call creates a distinct Redux store with the initial state',
+      () {
+        final Store<AppState> store = const CreateStore()();
+        final AppState initialState = store.state;
 
-      expect(store.state, isA<AppState>());
-      store.dispatch(Object());
-      expect(identical(store.state, initialState), isTrue);
-    });
-  });
+        expect(store.state, isA<AppState>());
+        store.dispatch(Object());
+        expect(identical(store.state, initialState), isTrue);
+      },
+    );
 
-  group('CreateStore — dispatch', () {
-    test('updates pairing state for a handled action', () {
+    test('Method call reduces a handled pairing action', () {
       final Store<AppState> store = const CreateStore()();
 
       store.dispatch(const PairingStartedAction());
 
       expect(store.state.pairing.phase, PairingPhase.connecting);
     });
-  });
 
-  group('CreateStore — middleware', () {
-    test('defaults to no middleware', () {
-      final List<String> calls = [];
-      final Store<AppState> store = const CreateStore()();
-
-      store.dispatch(const PairingStartedAction());
-
-      expect(calls, isEmpty);
-      expect(store.state.pairing.phase, PairingPhase.connecting);
-    });
-
-    test('wires provided middleware into the store', () {
+    test('Method call invokes the supplied middleware', () {
       final List<String> calls = [];
       final Middleware<AppState> middleware =
           TypedMiddleware<AppState, PairingStartedAction>((
@@ -59,6 +49,27 @@ void main() {
 
       expect(calls, ['called']);
       expect(store.state.pairing.phase, PairingPhase.connecting);
+    });
+
+    test('Method call starts from the provided initial state', () {
+      final AppState given = AppState.initial(
+        appearance: const AppearanceState(
+          activePreset: DovahThemePreset.hearth,
+        ),
+      );
+
+      final Store<AppState> store = const CreateStore()(initialState: given);
+
+      expect(store.state, given);
+    });
+
+    test('Method call uses AppState.initial when initialState is omitted', () {
+      final Store<AppState> store = const CreateStore()();
+      final AppState expected = AppState.initial();
+
+      expect(store.state.pairing, expected.pairing);
+      expect(store.state.appearance, expected.appearance);
+      expect(store.state.connection.hosts, expected.connection.hosts);
     });
   });
 }
