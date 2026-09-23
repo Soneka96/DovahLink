@@ -19,6 +19,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Dialogs dismiss when the user taps their backdrop.
 - Appearance storage failures no longer prevent startup; the default theme is used when
   preferences are unavailable.
 - Interactive theme, connection, and action controls expose a single, exact screen-reader label.

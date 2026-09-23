@@ -139,5 +139,35 @@ void main() {
 
       expect(find.text('Pick a theme'), findsNothing);
     });
+
+    testWidgets('DovahDialog.show closes when the backdrop is tapped', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        Builder(
+          builder: (BuildContext context) => ElevatedButton(
+            onPressed: () => DovahDialog.show<void>(
+              context,
+              title: 'Appearance',
+              child: const Text('Pick a theme'),
+            ),
+            child: const Text('Open'),
+          ),
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick a theme'), findsOneWidget);
+
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pick a theme'), findsNothing);
+      expect(find.text('Open'), findsOneWidget);
+    });
   });
 }

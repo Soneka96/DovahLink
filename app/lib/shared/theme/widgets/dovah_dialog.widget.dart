@@ -26,19 +26,19 @@ class DovahDialog extends StatelessWidget {
     required Widget child,
   }) => showDialog<T>(
     context: context,
-    barrierColor: Colors.transparent,
+    barrierColor: DovahThemeTokens.dialogBackdropColor.withValues(
+      alpha: DovahThemeTokens.dialogBackdropOpacity,
+    ),
     builder: (BuildContext dialogContext) => BackdropFilter(
       filter: ImageFilter.blur(
         sigmaX: DovahThemeTokens.dialogBackdropBlurSigma,
         sigmaY: DovahThemeTokens.dialogBackdropBlurSigma,
       ),
-      child: Container(
-        alignment: Alignment.center,
-        color: DovahThemeTokens.dialogBackdropColor.withValues(
-          alpha: DovahThemeTokens.dialogBackdropOpacity,
-        ),
+      child: Padding(
         padding: const EdgeInsets.all(DovahThemeTokens.spacing24),
-        child: DovahDialog(title: title, child: child),
+        child: Center(
+          child: DovahDialog(title: title, child: child),
+        ),
       ),
     ),
   );
