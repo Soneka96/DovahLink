@@ -251,6 +251,7 @@ void main() {
     ) async {
       final SemanticsHandle semantics = tester.ensureSemantics();
       try {
+        int tapCount = 0;
         await pumpDovahThemedWidget(
           tester,
           DovahConnectionCard(
@@ -258,7 +259,7 @@ void main() {
             subtitle: 'Skyrim Special Edition',
             detail: 'Level 43 · Whiterun',
             state: DovahConnectionCardState.available,
-            onTap: () {},
+            onTap: () => tapCount++,
           ),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
@@ -268,12 +269,18 @@ void main() {
             'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
             '${DovahConnectionCardState.available.label}';
         final SemanticsNode node = tester.getSemantics(
-          find.bySemanticsLabel(RegExp('^${RegExp.escape(label)}')),
+          find.bySemanticsLabel(label),
         );
         final SemanticsData data = node.getSemanticsData();
+        expect(data.label, label);
         expect(data.flagsCollection.isButton, isTrue);
         expect(data.flagsCollection.isEnabled, Tristate.isTrue);
         expect(data.hasAction(SemanticsAction.tap), isTrue);
+        tester.binding.pipelineOwner.semanticsOwner!.performAction(
+          node.id,
+          SemanticsAction.tap,
+        );
+        expect(tapCount, 1);
       } finally {
         semantics.dispose();
       }
@@ -301,9 +308,10 @@ void main() {
             'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
             '${DovahConnectionCardState.available.label}';
         final SemanticsNode node = tester.getSemantics(
-          find.bySemanticsLabel(RegExp('^${RegExp.escape(label)}')),
+          find.bySemanticsLabel(label),
         );
         final SemanticsData data = node.getSemanticsData();
+        expect(data.label, label);
         expect(data.flagsCollection.isButton, isTrue);
         expect(data.flagsCollection.isEnabled, Tristate.isFalse);
         expect(data.hasAction(SemanticsAction.tap), isFalse);

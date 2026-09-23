@@ -46,9 +46,11 @@ class DovahConnectionCard extends StatelessWidget {
     final bool enabled = onTap != null;
 
     return Semantics(
+      excludeSemantics: true,
       button: true,
       enabled: enabled,
       label: '$title, $subtitle, $detail, ${state.label}',
+      onTap: onTap,
       child: InkWell(
         onTap: onTap,
         mouseCursor: enabled

@@ -136,9 +136,10 @@ void main() {
     ) async {
       final SemanticsHandle semantics = tester.ensureSemantics();
       try {
+        int tapCount = 0;
         await pumpDovahThemedWidget(
           tester,
-          DovahButton(label: 'Confirm', onPressed: () {}),
+          DovahButton(label: 'Confirm', onPressed: () => tapCount++),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
         );
@@ -147,9 +148,16 @@ void main() {
           find.byKey(const Key('dovah-button-semantics')),
         );
         final SemanticsData data = node.getSemanticsData();
+        expect(data.label, 'Confirm');
+        expect(find.bySemanticsLabel('Confirm'), findsOneWidget);
         expect(data.flagsCollection.isButton, isTrue);
         expect(data.flagsCollection.isEnabled, Tristate.isTrue);
         expect(data.hasAction(SemanticsAction.tap), isTrue);
+        tester.binding.pipelineOwner.semanticsOwner!.performAction(
+          node.id,
+          SemanticsAction.tap,
+        );
+        expect(tapCount, 1);
       } finally {
         semantics.dispose();
       }
@@ -171,6 +179,8 @@ void main() {
           find.byKey(const Key('dovah-button-semantics')),
         );
         final SemanticsData data = node.getSemanticsData();
+        expect(data.label, 'Confirm');
+        expect(find.bySemanticsLabel('Confirm'), findsOneWidget);
         expect(data.flagsCollection.isButton, isTrue);
         expect(data.flagsCollection.isEnabled, Tristate.isFalse);
         expect(data.hasAction(SemanticsAction.tap), isFalse);

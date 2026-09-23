@@ -34,10 +34,12 @@ class AppearancePresetCard extends StatelessWidget {
         .extension<DovahThemeTokens>()!;
 
     return Semantics(
+      excludeSemantics: true,
       button: true,
       enabled: true,
       selected: selected,
       label: preset.label,
+      onTap: onTap,
       child: InkWell(
         onTap: onTap,
         mouseCursor: SystemMouseCursors.click,

@@ -365,31 +365,64 @@ void main() {
       (WidgetTester tester) async {
         final SemanticsHandle semantics = tester.ensureSemantics();
         try {
+          int tapCount = 0;
           await pumpDovahThemedWidget(
             tester,
             AppearancePresetCard(
               preset: DovahThemePreset.hearth,
               selected: true,
-              onTap: () {},
+              onTap: () => tapCount++,
             ),
             preset: DovahThemePreset.dovah,
             size: dovahTestSizes.first,
           );
 
           final SemanticsNode node = tester.getSemantics(
-            find.bySemanticsLabel(
-              RegExp('^${RegExp.escape(DovahThemePreset.hearth.label)}'),
-            ),
+            find.bySemanticsLabel(DovahThemePreset.hearth.label),
           );
           final SemanticsData data = node.getSemanticsData();
+          expect(data.label, DovahThemePreset.hearth.label);
           expect(data.flagsCollection.isButton, isTrue);
           expect(data.flagsCollection.isEnabled, Tristate.isTrue);
           expect(data.flagsCollection.isSelected, Tristate.isTrue);
           expect(data.hasAction(SemanticsAction.tap), isTrue);
+          tester.binding.pipelineOwner.semanticsOwner!.performAction(
+            node.id,
+            SemanticsAction.tap,
+          );
+          expect(tapCount, 1);
         } finally {
           semantics.dispose();
         }
       },
     );
+
+    testWidgets('AppearancePresetCard exposes its unselected state', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      try {
+        await pumpDovahThemedWidget(
+          tester,
+          AppearancePresetCard(
+            preset: DovahThemePreset.hearth,
+            selected: false,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final SemanticsNode node = tester.getSemantics(
+          find.bySemanticsLabel(DovahThemePreset.hearth.label),
+        );
+        expect(
+          node.getSemanticsData().flagsCollection.isSelected,
+          Tristate.isFalse,
+        );
+      } finally {
+        semantics.dispose();
+      }
+    });
   });
 }

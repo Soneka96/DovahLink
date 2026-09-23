@@ -138,9 +138,11 @@ class _DovahButtonState extends State<DovahButton> {
           opacity: enabled ? 1 : DovahThemeTokens.disabledControlOpacity,
           child: Semantics(
             key: const Key('dovah-button-semantics'),
+            excludeSemantics: true,
             button: true,
             enabled: enabled,
             label: widget.label,
+            onTap: widget.onPressed,
             child: InkWell(
               onTap: widget.onPressed,
               mouseCursor: enabled
