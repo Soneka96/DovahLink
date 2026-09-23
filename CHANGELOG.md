@@ -38,6 +38,7 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Changed
 
+- The Host/Adapter real-capture slice now includes completed live Skyrim validation; Stage 4 remains open for its Phase 4.5 version-impact audit.
 - Local CI uses its selected Python and exact pinned clang-format executable, and reports incompatible Visual Studio copies.
 - Trust-admin list-scope vocabulary is now known/trusted/blocked consistently across console admin,
   Host, and Adapter.
