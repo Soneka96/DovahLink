@@ -33,7 +33,7 @@ buildStateSynchronizationStream(StateSynchronization<int?> initialState) {
   when(() => stream.value).thenAnswer((_) => currentState);
   when(
     () => stream.stream,
-  ).thenReturn(const Stream<StateSynchronization<int?>>.empty());
+  ).thenAnswer((_) => const Stream<StateSynchronization<int?>>.empty());
   when(() => stream.update(any())).thenAnswer((Invocation invocation) {
     currentState =
         invocation.positionalArguments.single as StateSynchronization<int?>;
@@ -63,9 +63,9 @@ void main() {
           Fixtures.buildStateSynchronization<int?>();
       final MockCurrentValueStream<StateSynchronization<int?>> state =
           buildStateSynchronizationStream(initialState);
-      final Stream<StateSynchronization<int?>> changes =
-          const Stream<StateSynchronization<int?>>.empty();
-      when(() => state.stream).thenReturn(changes);
+      const Stream<StateSynchronization<int?>> changes =
+          Stream<StateSynchronization<int?>>.empty();
+      when(() => state.stream).thenAnswer((_) => changes);
       final IStateRevisionTracker<int?> tracker = StateRevisionTracker<int?>(
         state: state,
       );
@@ -75,6 +75,28 @@ void main() {
   });
 
   group('Method applySnapshot behaves correctly', () {
+    test('Method applySnapshot reports whether a baseline was accepted', () {
+      final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+
+      final bool accepted = tracker.applySnapshot(
+        stateAuthorityId: 'authority-1',
+        playContextId: null,
+        revision: 1,
+        value: 10,
+        isUnavailable: false,
+      );
+      final bool stale = tracker.applySnapshot(
+        stateAuthorityId: 'authority-1',
+        playContextId: null,
+        revision: 0,
+        value: 0,
+        isUnavailable: false,
+      );
+
+      expect(accepted, isTrue);
+      expect(stale, isFalse);
+    });
+
     test('Method applySnapshot establishes an available baseline', () {
       final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
 
@@ -539,6 +561,55 @@ void main() {
         expect(tracker.current.status, DovahLinkStateStatus.recovering);
         expect(tracker.current.revision, isNull);
         verifyNever(() => state.update(any()));
+      },
+    );
+  });
+
+  group('Method beginRecovery behaves correctly', () {
+    test(
+      'Method beginRecovery marks the baseline recovering and preserves it',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker(
+          initialState: Fixtures.buildStateSynchronization<int?>(
+            status: DovahLinkStateStatus.stale,
+            value: 10,
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+            revision: 1,
+          ),
+        );
+
+        tracker.beginRecovery();
+
+        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(tracker.current.value, 10);
+        expect(tracker.current.stateAuthorityId, 'authority-1');
+        expect(tracker.current.revision, 1);
+      },
+    );
+  });
+
+  group('Method failRecovery behaves correctly', () {
+    test(
+      'Method failRecovery marks failure and preserves the last known state',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker(
+          initialState: Fixtures.buildStateSynchronization<int?>(
+            status: DovahLinkStateStatus.recovering,
+            value: 10,
+            stateAuthorityId: 'authority-1',
+            playContextId: 'context-1',
+            revision: 1,
+          ),
+        );
+
+        tracker.failRecovery();
+
+        expect(tracker.current.status, DovahLinkStateStatus.failed);
+        expect(tracker.current.value, 10);
+        expect(tracker.current.stateAuthorityId, 'authority-1');
+        expect(tracker.current.playContextId, 'context-1');
+        expect(tracker.current.revision, 1);
       },
     );
   });

@@ -12,13 +12,20 @@ abstract interface class IStateRevisionTracker<T> {
   /// @return The current-state stream for this domain.
   Stream<StateSynchronization<T>> get changes;
 
+  /// Marks the domain as waiting for an authoritative Snapshot.
+  void beginRecovery();
+
+  /// Marks recovery as failed while retaining the last known state as diagnostics.
+  void failRecovery();
+
   /// Accepts a Snapshot baseline, replacing state from a different authority or play context.
   /// @param stateAuthorityId The Host continuity epoch from the envelope.
   /// @param playContextId The active play-context identity from the envelope.
   /// @param revision The non-negative baseline revision.
   /// @param value The typed state-area value, including an explicit unavailable value.
   /// @param isUnavailable Whether the typed value represents legitimate unavailability.
-  void applySnapshot({
+  /// @return Whether this Snapshot established a baseline or resolved recovery.
+  bool applySnapshot({
     required String stateAuthorityId,
     required String? playContextId,
     required int revision,
@@ -63,9 +70,45 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
   @override
   Stream<StateSynchronization<T>> get changes => _state.stream;
 
+  /// See [IStateRevisionTracker.beginRecovery].
+  @override
+  void beginRecovery() {
+    final StateSynchronization<T> previous = current;
+    if (previous.status == DovahLinkStateStatus.recovering) {
+      return;
+    }
+    _state.update(
+      StateSynchronization<T>(
+        status: DovahLinkStateStatus.recovering,
+        value: previous.value,
+        stateAuthorityId: previous.stateAuthorityId,
+        playContextId: previous.playContextId,
+        revision: previous.revision,
+      ),
+    );
+  }
+
+  /// See [IStateRevisionTracker.failRecovery].
+  @override
+  void failRecovery() {
+    final StateSynchronization<T> previous = current;
+    if (previous.status == DovahLinkStateStatus.failed) {
+      return;
+    }
+    _state.update(
+      StateSynchronization<T>(
+        status: DovahLinkStateStatus.failed,
+        value: previous.value,
+        stateAuthorityId: previous.stateAuthorityId,
+        playContextId: previous.playContextId,
+        revision: previous.revision,
+      ),
+    );
+  }
+
   /// See [IStateRevisionTracker.applySnapshot].
   @override
-  void applySnapshot({
+  bool applySnapshot({
     required String stateAuthorityId,
     required String? playContextId,
     required int revision,
@@ -79,13 +122,13 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
     final int? previousRevision = previous.revision;
     if (sameIdentity && previousRevision != null) {
       if (revision < previousRevision) {
-        return;
+        return false;
       }
       if (revision == previousRevision &&
           previous.status != DovahLinkStateStatus.stale &&
           previous.status != DovahLinkStateStatus.recovering &&
           previous.status != DovahLinkStateStatus.failed) {
-        return;
+        return false;
       }
     }
 
@@ -100,6 +143,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
         revision: revision,
       ),
     );
+    return true;
   }
 
   /// See [IStateRevisionTracker.applyEvent].

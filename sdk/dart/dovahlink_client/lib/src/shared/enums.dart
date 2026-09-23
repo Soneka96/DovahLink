@@ -393,6 +393,10 @@ enum ProtocolErrorCode {
   /// The host could not complete an operation safely.
   @JsonValue('internal_error')
   internalError,
+
+  /// A registered state baseline is temporarily unavailable.
+  @JsonValue('temporarily_unavailable')
+  temporarilyUnavailable,
 }
 
 /// The canonical wire value of the `hello.endpoint` field.
@@ -470,6 +474,9 @@ enum DovahLinkStateStatus {
 enum StateEventApplyResult {
   /// The Event extended the current revision and value.
   applied,
+
+  /// The Event is held until an authoritative recovery Snapshot establishes its baseline.
+  buffered,
 
   /// The Event was duplicate, stale, or unusable while recovery is already required.
   ignored,

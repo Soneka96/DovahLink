@@ -152,6 +152,7 @@ void main() {
     test('Property values in StateEventApplyResult includes every result', () {
       expect(StateEventApplyResult.values, <StateEventApplyResult>[
         StateEventApplyResult.applied,
+        StateEventApplyResult.buffered,
         StateEventApplyResult.ignored,
         StateEventApplyResult.recoveryRequired,
       ]);
