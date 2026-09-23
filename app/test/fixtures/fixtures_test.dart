@@ -1,8 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 import 'fixtures.dart';
 
@@ -103,5 +106,74 @@ void main() {
         expect(identical(first, second), isFalse);
       },
     );
+  });
+
+  group('Method buildDovahThemeTokens behaves correctly', () {
+    test('Method buildDovahThemeTokens builds representative defaults', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+
+      expect(tokens.background, isA<Color>());
+      expect(tokens.background, const Color(0xFF05090E));
+      expect(tokens.surface3, isA<Color>());
+      expect(tokens.surface3, const Color(0xFF162735));
+      expect(tokens.soft, isA<Color>());
+      expect(tokens.soft, const Color(0x2174BDE8));
+      expect(tokens.signal, isA<Color>());
+      expect(tokens.signal, const Color(0xFF74BDE8));
+      expect(tokens.primaryActionForeground, isA<Color>());
+      expect(tokens.primaryActionForeground, const Color(0xFF1A0E04));
+      expect((tokens.primaryActionGradient as LinearGradient).colors, const [
+        Color(0xFFF0BD73),
+        Color(0xFFC77D38),
+      ]);
+      expect(tokens.cornerStyle, isA<DovahPanelCornerStyle>());
+      expect(tokens.cornerStyle, DovahPanelCornerStyle.doubleBevel);
+      expect(tokens.cornerRadius, isA<double>());
+      expect(tokens.cornerRadius, 3);
+      expect(tokens.densityScale, isA<double>());
+      expect(tokens.densityScale, 1);
+      expect(tokens.displayFontFamily, isA<String>());
+      expect(tokens.displayFontFamily, 'Georgia');
+      expect(tokens.environmentAssetPath, isNull);
+    });
+
+    test('Method buildDovahThemeTokens preserves named overrides', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
+        background: const Color(0xFF000000),
+        surface3: const Color(0xFF010203),
+        soft: const Color(0x04050607),
+        cornerStyle: DovahPanelCornerStyle.rounded,
+        cornerRadius: 13,
+        densityScale: 1.15,
+        environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
+      );
+
+      expect(tokens.background, isA<Color>());
+      expect(tokens.background, const Color(0xFF000000));
+      expect(tokens.surface3, isA<Color>());
+      expect(tokens.surface3, const Color(0xFF010203));
+      expect(tokens.soft, isA<Color>());
+      expect(tokens.soft, const Color(0x04050607));
+      expect(tokens.cornerStyle, isA<DovahPanelCornerStyle>());
+      expect(tokens.cornerStyle, DovahPanelCornerStyle.rounded);
+      expect(tokens.cornerRadius, isA<double>());
+      expect(tokens.cornerRadius, 13);
+      expect(tokens.densityScale, isA<double>());
+      expect(tokens.densityScale, 1.15);
+      expect(tokens.environmentAssetPath, isA<String>());
+      expect(
+        tokens.environmentAssetPath,
+        'assets/themes/hearth/hearth-environment.png',
+      );
+    });
+
+    test('Method buildDovahThemeTokens returns a fresh value per call', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens();
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+      expect(identical(first, second), isFalse);
+    });
   });
 }

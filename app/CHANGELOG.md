@@ -11,6 +11,22 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
+### Added
+
+- The app's shared interface now renders in the Frostbound, Dovah, or Hearth style; theme selection
+  is not yet reachable through normal navigation.
+- The selected theme is saved locally and restored after relaunch.
+
+### Fixed
+
+- Rapid theme changes persist in selection order so an older preset cannot replace the latest one.
+- Dialogs dismiss when the user taps their backdrop.
+- Appearance storage failures no longer prevent startup; the default theme is used when
+  preferences are unavailable.
+- Interactive theme, connection, and action controls expose a single, exact screen-reader label.
+- The shared theme tokens preserve every prototype surface color and the approved focus halo color.
+- Themed buttons respect reduced-motion settings.
+
 ## [0.4.0] - 2026-09-23
 
 ### Fixed

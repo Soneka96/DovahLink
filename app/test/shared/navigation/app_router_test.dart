@@ -13,7 +13,9 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 
 /// Exercises the real router built by [createRouter] rather than mocking navigation.
 void main() {
-  setUp(initDependencies);
+  setUp(() {
+    return initDependencies();
+  });
 
   group('createRouter', () {
     testWidgets('createRouter resolves the home route to HostListScreen', (
