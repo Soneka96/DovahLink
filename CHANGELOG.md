@@ -28,6 +28,10 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   themed components and locally persisted appearance state; the picker is not yet exposed through
   normal app navigation.
 
+### Fixed
+
+- Themed buttons respect reduced-motion settings, and failed appearance writes are reported as errors.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

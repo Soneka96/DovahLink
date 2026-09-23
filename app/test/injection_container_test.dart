@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,10 +26,40 @@ import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 void main() {
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
-    SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
   group('injection_container — shared registrations', () {
+    test(
+      'initDependencies leaves shared services unregistered when SharedPreferences fails and can retry',
+      () async {
+        const MethodChannel channel = MethodChannel(
+          'plugins.flutter.io/shared_preferences',
+        );
+        final TestDefaultBinaryMessenger messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+          throw PlatformException(code: 'read-failed');
+        });
+
+        try {
+          await expectLater(
+            initDependencies(),
+            throwsA(isA<PlatformException>()),
+          );
+          expect(sl.isRegistered<GoRouter>(), isFalse);
+          expect(sl.isRegistered<NavigatorService>(), isFalse);
+          expect(sl.isRegistered<SharedPreferences>(), isFalse);
+        } finally {
+          messenger.setMockMethodCallHandler(channel, null);
+          SharedPreferences.setMockInitialValues(<String, Object>{});
+        }
+        await initDependencies();
+
+        expect(sl.isRegistered<GoRouter>(), isTrue);
+        expect(sl.isRegistered<NavigatorService>(), isTrue);
+      },
+    );
+
     test('initDependencies registers the router', () async {
       await initDependencies();
 
