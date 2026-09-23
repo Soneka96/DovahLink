@@ -277,7 +277,7 @@ compatibility information a client needs before trusting the rest of the exchang
 
 ```json
 {
-  "hostVersion": "0.3.3",
+  "hostVersion": "0.4.0",
   "clientIdentityKind": "paired"
 }
 ```

@@ -480,7 +480,7 @@ public static class Constants
     /// <c>ai/context/protocol/compatibility.md</c>. See <c>ai/context/host/architecture.md</c>'s
     /// "Public contract ownership".
     /// </summary>
-    public const string PublicProtocolHostVersion = "0.3.3";
+    public const string PublicProtocolHostVersion = "0.4.0";
 
     /// <summary>
     /// How long a connection may remain unadmitted after completing its WebSocket upgrade before it
