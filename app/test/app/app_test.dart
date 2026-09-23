@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dovahlink_client/app/app.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/navigation/app_routes.dart';
@@ -72,33 +75,31 @@ void main() {
   });
 
   group('DovahLinkApp theme', () {
-    testWidgets(
-      'DovahLinkApp renders with the store\'s active preset\'s ThemeData',
-      (WidgetTester tester) async {
-        await initDependencies();
-        final store = const CreateStore()(
-          initialState: AppState.initial(
-            appearance: const AppearanceState(
-              activePreset: DovahThemePreset.hearth,
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahLinkApp renders the active $preset preset\'s ThemeData',
+        (WidgetTester tester) async {
+          await initDependencies();
+          final store = const CreateStore()(
+            initialState: AppState.initial(
+              appearance: AppearanceState(activePreset: preset),
             ),
-          ),
-        );
+          );
 
-        await tester.pumpWidget(DovahLinkApp(store: store));
+          await tester.pumpWidget(DovahLinkApp(store: store));
 
-        final MaterialApp app = tester.widget(find.byType(MaterialApp));
-        final DovahThemeTokens? tokens = app.theme
-            ?.extension<DovahThemeTokens>();
+          final MaterialApp app = tester.widget(find.byType(MaterialApp));
+          final DovahThemeTokens? tokens = app.theme
+              ?.extension<DovahThemeTokens>();
 
-        expect(tokens, isA<DovahThemeTokens>());
-        expect(
-          tokens,
-          dovahThemeDataFor(
-            DovahThemePreset.hearth,
-          ).extension<DovahThemeTokens>(),
-        );
-      },
-    );
+          expect(tokens, isA<DovahThemeTokens>());
+          expect(
+            tokens,
+            dovahThemeDataFor(preset).extension<DovahThemeTokens>(),
+          );
+        },
+      );
+    }
 
     testWidgets(
       'DovahLinkApp updates ThemeData reactively when the active preset changes',
@@ -123,6 +124,42 @@ void main() {
             DovahThemePreset.frostbound,
           ).extension<DovahThemeTokens>(),
         );
+      },
+    );
+
+    testWidgets(
+      'DovahLinkApp keeps ThemeData when unrelated Redux state changes',
+      (WidgetTester tester) async {
+        await initDependencies();
+        final store = const CreateStore()(
+          initialState: AppState.initial(
+            appearance: const AppearanceState(
+              activePreset: DovahThemePreset.hearth,
+            ),
+          ),
+        );
+        await tester.pumpWidget(DovahLinkApp(store: store));
+
+        final StoreConnector<AppState, DovahThemePreset> connector = tester
+            .widget(find.byType(StoreConnector<AppState, DovahThemePreset>));
+        final ThemeData initialTheme = tester
+            .widget<MaterialApp>(find.byType(MaterialApp))
+            .theme!;
+
+        expect(connector.distinct, isTrue);
+        expect(connector.converter(store), DovahThemePreset.hearth);
+
+        store.dispatch(const PairingStartedAction());
+        expect(
+          PairingSelectors.phaseSelector(store.state),
+          PairingPhase.connecting,
+        );
+        await tester.pump();
+
+        final ThemeData updatedTheme = tester
+            .widget<MaterialApp>(find.byType(MaterialApp))
+            .theme!;
+        expect(identical(updatedTheme, initialTheme), isTrue);
       },
     );
   });
