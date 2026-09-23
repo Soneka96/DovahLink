@@ -20,7 +20,10 @@ void main() {
         expect(error.failure, HostVersionCompatibilityFailure.hostTooNew);
         expect(
           error.toString(),
-          contains('DovahLinkCompatibilityException(hostTooNew'),
+          contains(
+            'DovahLinkCompatibilityException('
+            'HostVersionCompatibilityFailure.hostTooNew',
+          ),
         );
       },
     );

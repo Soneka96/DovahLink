@@ -14,10 +14,11 @@ import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 /// Defines request/reply operations for one [IDovahLinkTransport] connection, including correlated
 /// replies, unsolicited messages, and protocol violations.
 abstract interface class IRequestService {
-  /// Sends [messageType] with [payload] under [policy] and awaits [expectedType]. Fails
-  /// immediately with a [DovahLinkConnectionException] -- without registering or transmitting
-  /// anything -- unless the connection is currently
-  /// [DovahLinkConnectionState.connected].
+  /// Sends [messageType] with [payload] under [policy] and awaits [expectedType]. The connection
+  /// state guard accepts requests while [DovahLinkConnectionState.connected], or only
+  /// [ProtocolMessageType.hello] while [DovahLinkConnectionState.reauthenticating]. All other
+  /// states fail before registering or transmitting. The request's
+  /// [RequestPolicy.requiredTrustState] is checked separately.
   Future<Envelope> sendAndAwait({
     required ProtocolMessageType messageType,
     required JsonMap payload,
