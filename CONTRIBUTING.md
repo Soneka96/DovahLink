@@ -61,7 +61,7 @@ Branch names:
   `feature/3.1-live-pairing-challenge-ux`.
 - For a fix or a change with no corresponding roadmap phase, use a short kebab-case description
   instead.
-- For a release (the version bump, its `CHANGELOG.md` entry, and every synced version literal --
+- For a release (the version bump, its `host/CHANGELOG.md` entry, and every synced version literal --
   see `ai/context/common.md`'s "Versioning"), name it `release/<version-string>`, cut from `main`,
   as its own dedicated pull request separate from any feature/phase branch.
 

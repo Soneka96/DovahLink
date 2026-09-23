@@ -1,29 +1,11 @@
-# Changelog
+# Historical project changelog
 
-All notable changes to DovahLink are documented here, most recent first. This is the
-developer-facing record of what changed and why; the shorter, player-facing summary posted with
-each Nexus Mods file upload is derived from these entries but is not identical to them.
+This frozen combined project history is preserved through release `0.4.0`. New changes are recorded in
+the component changelogs: [Flutter app](app/CHANGELOG.md), [Dart SDK](sdk/CHANGELOG.md), and
+[Host/Adapter](host/CHANGELOG.md). The Host/Adapter changelog is the source for the shorter,
+player-facing summary posted with each Nexus Mods file upload.
 
-Notable developer- or user-visible changes are added to the `[Unreleased]` section below as part of
-the pull request that makes them, grouped under `Added`/`Changed`/`Fixed`/`Removed`/`Security`
-(omit an unused subsection). A changelog bullet states the outcome in one concise sentence, not how
-it was implemented; split unrelated changes into separate bullets. Flipping a completed roadmap
-phase's `**Status:**` line to Complete stays part of that same feature pull request, not the later
-release PR below.
-
-A release promotes `[Unreleased]`'s accumulated entries into a new dated `## [x.y.z] - YYYY-MM-DD`
-section and leaves a fresh empty `[Unreleased]` section at the top, in the same change that bumps
-and synchronizes root `VERSION`; see `ai/context/common.md`'s "Versioning" for the full release
-workflow and its separation from feature-PR responsibilities. A release is cut by building the
-versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods manually; see
-[`tooling/DovahLinkBuilder/README.md`](tooling/DovahLinkBuilder/README.md).
-
-## [Unreleased]
-
-### Added
-
-- The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
-  admitting a session.
+No new entries are added here. Keep the historical release sections below unchanged.
 
 ## [0.4.0] - 2026-09-23
 

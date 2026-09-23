@@ -375,6 +375,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- ".vscode/**"',
             '- "ai/context/**"',
             '- "app/**"',
+            '- "host/CHANGELOG.md"',
             '- "integration/**"',
             '- "protocol/**"',
             '- "sdk/**"',
@@ -1104,80 +1105,116 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 current_example,
             )
 
-    def test_changelog_matches_the_published_version(self) -> None:
-        """Keep CHANGELOG.md's newest entry synchronized with the published version."""
+    def test_component_changelogs_match_the_published_version(self) -> None:
+        """Keep Host/Adapter release history aligned with the packaged version."""
         version = self._read("VERSION").strip()
-        changelog = self._read("CHANGELOG.md")
-        entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
+        changelogs = {
+            "app/CHANGELOG.md": self._read("app/CHANGELOG.md"),
+            "sdk/CHANGELOG.md": self._read("sdk/CHANGELOG.md"),
+            "host/CHANGELOG.md": self._read("host/CHANGELOG.md"),
+        }
 
-        self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
-        self.assertEqual(entry_versions[0], version)
-        for known_version in (
-            "0.1.0",
-            "0.2.0",
-            "0.3.0",
-            "0.3.1",
-            "0.3.2",
-            "0.3.3",
-            "0.4.0",
-        ):
-            self.assertIn(known_version, entry_versions)
-        self.assertEqual(
-            len(set(entry_versions)),
-            len(entry_versions),
-            "CHANGELOG.md has duplicate versions.",
+        for path, changelog in changelogs.items():
+            with self.subTest(changelog=path):
+                section_headings = re.findall(r"(?m)^## (.+)$", changelog)
+                self.assertTrue(section_headings, f"{path} has no ## sections.")
+                self.assertEqual(
+                    section_headings[0],
+                    "[Unreleased]",
+                    f"[Unreleased] must be the first section in {path}.",
+                )
+                entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
+                self.assertEqual(
+                    len(set(entry_versions)),
+                    len(entry_versions),
+                    f"{path} has duplicate versions.",
+                )
+                self.assertEqual(
+                    entry_versions,
+                    sorted(
+                        entry_versions,
+                        key=lambda entry: tuple(map(int, entry.split("."))),
+                        reverse=True,
+                    ),
+                    f"{path} release sections must be newest first.",
+                )
+
+        host_versions = re.findall(
+            r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelogs["host/CHANGELOG.md"]
         )
-
-    def test_changelog_unreleased_section_is_first_and_backfilled(self) -> None:
-        """Keep `[Unreleased]` the first changelog section, release-ownership prose free
-        of the feature-PR/release-PR contradiction, and the backfill's key outcomes
-        present -- via structural/short-identity checks, not pinned full sentences."""
-        changelog = self._read("CHANGELOG.md")
-
-        section_headings = re.findall(r"(?m)^## (.+)$", changelog)
-        self.assertTrue(section_headings, "CHANGELOG.md has no ## sections.")
-        self.assertEqual(
-            section_headings[0],
-            "[Unreleased]",
-            "[Unreleased] must be the first section in CHANGELOG.md.",
+        self.assertTrue(host_versions, "host/CHANGELOG.md has no version entries.")
+        self.assertEqual(host_versions[0], version)
+        published_versions = set(host_versions)
+        published_versions.update(
+            re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", self._read("CHANGELOG.md"))
         )
-        self.assertIn("## [0.4.0] - 2026-09-23", changelog)
+        for path in ("app/CHANGELOG.md", "sdk/CHANGELOG.md"):
+            component_versions = re.findall(
+                r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelogs[path]
+            )
+            self.assertTrue(
+                set(component_versions).issubset(published_versions),
+                f"{path} contains a version with no repository release.",
+            )
 
-        self.assertNotIn("versioned ZIP", changelog)
-        self.assertIn("versioned package", changelog)
+    def test_component_changelog_ownership_and_historical_archive(self) -> None:
+        """Keep component entries local and preserve the combined history verbatim."""
+        app_changelog = self._read("app/CHANGELOG.md")
+        sdk_changelog = self._read("sdk/CHANGELOG.md")
+        host_changelog = self._read("host/CHANGELOG.md")
+        archive = self._read("CHANGELOG.md")
+        sdk_unreleased = sdk_changelog.split("## [Unreleased]", 1)[1].split("\n## ", 1)[
+            0
+        ]
 
-        # Regression guard for the release-ownership contradiction found in review: the
-        # release PR must not be described as also flipping the ROADMAP phase to
-        # Complete -- that stays the feature PR's job, per common.md's Versioning.
-        self.assertNotIn(
-            "flips the corresponding `ROADMAP.md` phase to Complete", changelog
+        self.assertIn(
+            "The app no longer keeps observing a stale connection status", app_changelog
         )
-        self.assertIn("stays part of that same feature pull request", changelog)
-
-        for backfilled_outcome in (
+        self.assertIn(
+            "rejects Host versions outside its declared `0.4.x` compatibility range",
+            sdk_unreleased,
+        )
+        self.assertIn(
+            "rejects Host versions outside its declared `0.4.x` compatibility range",
+            sdk_changelog,
+        )
+        self.assertIn(
+            "stamps outgoing envelopes with the resolved `clientId`", sdk_changelog
+        )
+        for host_outcome in (
             "Standalone C# Host process and thin native Adapter",
             "Host-owned public client boundary",
             "Private, bounded IPC channel between the Adapter and Host",
             "Host-owned state subscriptions with baseline snapshots",
-            "bounded delivery, play-context recovery",
             "validated real Skyrim capture for health, magicka, stamina, XP, and level",
             "Reserved control and data outbound lanes",
-            "Trust-admin list-scope vocabulary is now known/trusted/blocked",
-            "packages the Host/Adapter distribution instead of the retired",
-            "stamps outgoing envelopes with the resolved `clientId`",
-            "stale connection status after its session is invalidated",
             "The native Bridge (`bridge/`) and its CI/tooling wiring",
         ):
-            self.assertIn(backfilled_outcome, changelog)
+            self.assertIn(host_outcome, host_changelog)
 
-        # Regression guard: the pre-3A.3 versioned entries (0.1.0-0.3.0) describe the Bridge
-        # accurately for the architecture that existed at each of those releases and must not be
-        # rewritten -- only the header/workflow prose and [Unreleased] describe current
-        # terminology. This guards that those historical entries were left untouched.
+        self.assertNotIn("## [Unreleased]", archive)
         self.assertIn(
-            "cached character state from a previous bridge lifetime", changelog
+            "frozen combined project history is preserved through release `0.4.0`",
+            archive,
         )
-        self.assertIn("survives Skyrim/Bridge/Windows restarts", changelog)
+        archive_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", archive)
+        self.assertEqual(
+            archive_versions,
+            ["0.4.0", "0.3.3", "0.3.2", "0.3.1", "0.3.0", "0.2.0", "0.1.0"],
+        )
+        for historical_outcome in (
+            "## [0.4.0] - 2026-09-23",
+            "## [0.3.3] - 2026-08-24",
+            "## [0.3.2] - 2026-08-20",
+            "## [0.3.1] - 2026-08-19",
+            "## [0.3.0] - 2026-08-18",
+            "## [0.2.0] - 2026-08-15",
+            "## [0.1.0] - 2026-08-12",
+            "cached character state from a previous bridge lifetime",
+            "survives Skyrim/Bridge/Windows restarts",
+            "The native Bridge (`bridge/`) and its CI/tooling wiring",
+        ):
+            self.assertIn(historical_outcome, archive)
 
     def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
         """Guard the datasource file-count exception and one shared term for the compatibility
@@ -1196,8 +1233,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             testing,
         )
 
-        changelog = self._read("CHANGELOG.md")
-        self.assertIn("revision continuity across a reconnect", changelog)
+        archive = self._read("CHANGELOG.md")
+        self.assertIn("revision continuity across a reconnect", archive)
 
     def test_foundation_first_roadmap_order_and_boundaries_are_explicit(self) -> None:
         """Preserve the approved phase order and deferred-control boundary."""

@@ -13,28 +13,32 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
   tied directly to what that PR did. Fix any repository-consistency check
   (`tooling/test_repository_consistency.py`) that a hardcoded expectation now needs updating for as
   part of that same PR.
-- Any pull request with a notable developer- or user-visible change updates `CHANGELOG.md`'s
-  `[Unreleased]` section as part of that same PR -- see that file's own header for the section's
-  exact shape and its bullet-writing rules. This is ongoing, continuous bookkeeping done by feature
+- Any pull request with a notable developer- or user-visible change updates the owning component's
+  changelog `[Unreleased]` section as part of that same PR: `app/CHANGELOG.md` for the Flutter app,
+  `sdk/CHANGELOG.md` for client SDK behavior, and `host/CHANGELOG.md` for Host/Adapter behavior.
+  For a change that affects more than one component, record each component's distinct outcome in
+  its own file. Follow each file's bullet-writing rules. This is ongoing bookkeeping done by feature
   work itself, not deferred to release time.
 - The version bump and syncing every hand-maintained version literal (`VERSION`, the literals and
   fixtures `tooling/test_repository_consistency.py`'s `test_version_literals_match_the_published_release`
-  enumerates, and that same file's `CHANGELOG.md`-version bookkeeping) are their own dedicated
-  release branch and release-only pull request, never bundled into a feature/phase branch: that sync
-  already touches over a dozen files across every language in the repo on its own, and folding it
+  enumerates, and that same file's Host/Adapter changelog version bookkeeping) are their own
+  dedicated release branch and release-only pull request, never bundled into a feature/phase branch.
+  That sync already touches over a dozen files across every language in the repo on its own, and folding it
   into an already-large feature PR makes that PR harder to review for no benefit. Cut the release
   branch from `main` once the phase(s) it covers are merged; it can cover one phase's completion or
-  several unreleased ones at once. This release PR promotes `CHANGELOG.md`'s accumulated
-  `[Unreleased]` entries into a new dated `## [x.y.z] - YYYY-MM-DD` section and leaves a fresh empty
-  `[Unreleased]` section at the top -- it does not author new entries from scratch, since the feature
-  PRs before it already did.
+  several unreleased ones at once. This release PR promotes each affected component changelog's
+  accumulated `[Unreleased]` entries into a new dated `## [x.y.z] - YYYY-MM-DD` section and leaves a
+  fresh empty `[Unreleased]` section there. App and SDK histories add a versioned section only when
+  that release includes changes for them. The Host/Adapter changelog records every packaged release
+  and its newest version must match root `VERSION`; use it to prepare the player-facing Nexus summary.
+  `CHANGELOG.md` is a frozen archive through `0.4.0`, not an active changelog.
 - Cutting a release is a distinct, later, manual step performed after a version-bumped release
   branch has merged into `main`: building the versioned package with `tooling/DovahLinkBuilder` and
   uploading it to Nexus Mods (see that tool's own README). A merged, version-bumped change can sit
   unreleased for an arbitrary time -- for example while `main` is blocked from publishing at all, per
   "Pre-release compatibility" below -- without that blocking further phase or version-bump merges.
-- Do not add any other changelog, release artifact, or release automation beyond this without a
-  maintainer decision.
+- Do not add other changelogs, release artifacts, or release automation beyond the three component
+  changelogs documented above without a maintainer decision.
 
 ## Repository boundaries
 
@@ -162,10 +166,10 @@ every ordered collection to grow by appending to its end -- that would force a r
 collection like the changelog into a stable-but-backwards order it was never meant to have. Apply
 each collection's own natural order instead:
 
-- Changelog entries: reverse-chronological. The newest versioned release stays the first `##
-  [x.y.z]` section, with an `[Unreleased]` section above every versioned release (see
-  `CHANGELOG.md`'s own header for that workflow). A new release is added above the previous one,
-  never appended after it.
+- Changelog entries: reverse-chronological within each component file. The newest versioned
+  release stays the first `## [x.y.z]` section, with an `[Unreleased]` section above it. A new
+  release is added above the previous one, never appended after it. `CHANGELOG.md` is the frozen
+  combined history through `0.4.0` and is not updated with new entries.
 - Class/struct members: semantic ordering by role, not insertion order -- see
   `ai/context/dotnet/csharp-style.md` and `ai/context/skse/cpp-style.md` for the exact per-language
   grouping. A newly added member goes where its role belongs, not automatically at the end of the
@@ -259,9 +263,9 @@ style guide.
   implementation reason belongs in an inline comment; cross-component or state-machine design
   belongs in the relevant architecture/design document; future work belongs in the roadmap, a
   GitHub issue, or a narrow `TODO`, never a repository-wide `TODO.md`; an unreleased behavior change
-  belongs in `CHANGELOG.md`'s `[Unreleased]` section; a released change belongs in that file's
-  versioned section once promoted; and implementation history belongs in Git/PR history, not
-  permanently transcribed into source comments.
+  belongs in the owning component changelog's `[Unreleased]` section; a released change belongs in
+  that component file's versioned section once promoted; and implementation history belongs in
+  Git/PR history, not permanently transcribed into source comments.
 
 ## Quality floor
 
