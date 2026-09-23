@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/screens/host_list.screen.dart';
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
@@ -13,7 +14,10 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 
 /// Exercises the real router built by [createRouter] rather than mocking navigation.
 void main() {
-  setUp(initDependencies);
+  setUp(() {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    return initDependencies();
+  });
 
   group('createRouter', () {
     testWidgets('createRouter resolves the home route to HostListScreen', (

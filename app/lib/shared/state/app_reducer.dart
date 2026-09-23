@@ -1,3 +1,5 @@
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.reducer.dart';
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.reducer.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -10,8 +12,17 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// future Stage 4/10 delivery will need).
 AppState appReducer(AppState state, Object? action) {
   final PairingState pairing = pairingReducer(state.pairing, action);
-  if (identical(pairing, state.pairing)) {
+  final AppearanceState appearance = appearanceReducer(
+    state.appearance,
+    action,
+  );
+  if (identical(pairing, state.pairing) &&
+      identical(appearance, state.appearance)) {
     return state;
   }
-  return AppState(connection: state.connection, pairing: pairing);
+  return AppState(
+    connection: state.connection,
+    pairing: pairing,
+    appearance: appearance,
+  );
 }
