@@ -39,3 +39,9 @@ tidy_imports:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/branding/dovahlink-sigil.svg
+    - assets/branding/character-environment.png
+    - assets/themes/frostbound/frostbound-environment.png
+    - assets/themes/dovah/dovahlink-connection-hero.png
+    - assets/themes/hearth/hearth-environment.png
