@@ -9,8 +9,9 @@
 //  skips the report entirely, to exercise the never-reported path.
 //  DOVAHLINK_TEST_HOST_SPAM instead writes endless non-newline bytes, to
 //  exercise the bounded-buffer path.
-//  DOVAHLINK_TEST_HOST_UNRELATED_HANDLE makes PROOF report whether the
-//  supplied parent handle leaked into the child.
+//  DOVAHLINK_TEST_HOST_UNRELATED_HANDLE makes the fixture signal the supplied
+//  event handle if it can, letting the parent detect inheritance by object
+//  state rather than by reusing a process-local numeric handle value.
 
 #include <chrono>
 #include <cstdint>
@@ -24,36 +25,36 @@
 #include <windows.h>
 
 int main() {
-  if (std::getenv("DOVAHLINK_TEST_HOST_SPAM") != nullptr) {
-    while (true) {
-      std::cout << "X" << std::flush;
+    if (std::getenv("DOVAHLINK_TEST_HOST_SPAM") != nullptr) {
+        while (true) {
+            std::cout << "X" << std::flush;
+        }
     }
-  }
 
-  if (std::getenv("DOVAHLINK_TEST_HOST_SILENT") == nullptr) {
-    //  Plain "\n", not an explicit "\r\n": Windows stdio text mode already
-    //  translates every "\n" written to a non-binary stream into "\r\n", so
-    //  writing "\r\n" literally here would double the "\r" on the wire.
-    const char *unrelatedHandle =
-        std::getenv("DOVAHLINK_TEST_HOST_UNRELATED_HANDLE");
-    if (unrelatedHandle != nullptr) {
-      auto rawHandle = static_cast<std::uintptr_t>(
-          std::strtoull(unrelatedHandle, nullptr, 10));
-      HANDLE handle = reinterpret_cast<HANDLE>(rawHandle);
-      DWORD flags = 0;
-      const bool inherited = GetHandleInformation(handle, &flags) != 0;
-      std::cout << "PORT 4242\nPROOF " << (inherited ? "00" : "ab")
-                << "\nHOSTPROOF cd\n"
-                << std::flush;
-    } else {
-      std::cout << "PORT 4242\nPROOF ab\nHOSTPROOF cd\n" << std::flush;
+    if (std::getenv("DOVAHLINK_TEST_HOST_SILENT") == nullptr) {
+        //  Plain "\n", not an explicit "\r\n": Windows stdio text mode already
+        //  translates every "\n" written to a non-binary stream into "\r\n", so
+        //  writing "\r\n" literally here would double the "\r" on the wire.
+        const char* unrelatedHandle =
+            std::getenv("DOVAHLINK_TEST_HOST_UNRELATED_HANDLE");
+        if (unrelatedHandle != nullptr) {
+            auto rawHandle = static_cast<std::uintptr_t>(
+                std::strtoull(unrelatedHandle, nullptr, 10));
+            HANDLE handle = reinterpret_cast<HANDLE>(rawHandle);
+            const bool signalSucceeded = SetEvent(handle) != FALSE;
+            std::cout << "PORT 4242\nPROOF " << (signalSucceeded ? "00" : "ab")
+                      << "\nHOSTPROOF ef\n"
+                      << std::flush;
+        } else {
+            std::cout << "PORT 4242\nPROOF ab\nHOSTPROOF cd\n"
+                      << std::flush;
+        }
     }
-  }
 
-  long sleepMilliseconds = 60000;
-  if (const char *envValue = std::getenv("DOVAHLINK_TEST_HOST_SLEEP_MS")) {
-    sleepMilliseconds = std::strtol(envValue, nullptr, 10);
-  }
-  std::this_thread::sleep_for(std::chrono::milliseconds(sleepMilliseconds));
-  return 0;
+    long sleepMilliseconds = 60000;
+    if (const char* envValue = std::getenv("DOVAHLINK_TEST_HOST_SLEEP_MS")) {
+        sleepMilliseconds = std::strtol(envValue, nullptr, 10);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMilliseconds));
+    return 0;
 }
