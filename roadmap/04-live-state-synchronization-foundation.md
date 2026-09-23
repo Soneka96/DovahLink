@@ -45,7 +45,7 @@ Stage 4 treats capture, authoritative state, and client publication as related b
   area. Capture units, state areas, and publication units may be different sizes: several captured
   values may contribute to a future composed view, while one captured event may update one focused
   state area.
-- `CapturePolicy`, `RateClass`, and `UpdateMode` are Bridge-side policy metadata and are not new
+- `CapturePolicy`, `RateClass`, and `UpdateMode` are Host-side policy metadata and are not new
   wire fields by themselves. The wire exposes registered `stateArea` contracts through the existing
   typed state messages.
 
@@ -87,7 +87,7 @@ value is a Snapshot domain.
   and publishes the typed state-area data carried by those messages.
 - Prefer native events for values that require reliable occurrence delivery, and sample only where no
   trustworthy event exists or where the product only needs current state.
-- The Bridge must publish unsolicited replaceable state only on authoritative change.
+- The Host must publish unsolicited replaceable state only on authoritative change.
 - Always deliver initial, recovery, and explicitly requested snapshots, even when the state is unchanged;
   these snapshots reuse the current authoritative revision.
 - A subscriber receives complete post-change state rather than a patch; unchanged unsolicited
@@ -112,9 +112,9 @@ release-branch change.
 
 Reliable-event delivery is scoped to one authenticated session. Reconnection establishes fresh
 state snapshots and does not replay the previous session's queued events. Durable cross-session
-replay requires a separately approved acknowledgement and persistence contract. The Bridge only
-advertises its `bridgeVersion` in `hello_ack`; the SDK owns compatibility comparison and user-facing
-incompatibility explanation. The Bridge does not reject SDK versions.
+replay requires a separately approved acknowledgement and persistence contract. The Host only
+advertises its `hostVersion` in `hello_ack`; the SDK owns compatibility comparison and user-facing
+incompatibility explanation. The Host does not reject SDK versions.
 
 The 4.2 implementation must use a multi-client-compatible ownership shape without implementing
 concurrent clients yet. Capture policy, cadence, authoritative state, and revisions are shared at
@@ -167,7 +167,7 @@ structural JSON serialization, and handwritten semantic validation. Unknown opti
 forward-compatible; missing or invalid required fields fail closed.
 
 Temporary old/new boundary readers are allowed only for this migration. The phase does not add a
-permanent protocol-generation field: the Bridge's `bridgeVersion` remains the compatibility signal,
+permanent protocol-generation field: the Host's `hostVersion` remains the compatibility signal,
 and the SDK performs the comparison before capabilities or state traffic.
 
 Completion requires canonical fixtures for every redesigned message family, updated Bridge/SDK/.NET
@@ -503,7 +503,7 @@ requirement, per the "Host/Adapter continuation (post-3A)" section below.
 ### Host/Adapter continuation (post-3A)
 
 The `character_xp`/`character_health`/`character_magicka`/`character_stamina`/`character_level`
-scope above is the Bridge implementation of Stage 4. Now that
+scope above was originally specified for the Bridge implementation of Stage 4. Now that
 [Stage 3A — Host/Adapter Production Migration](./03a-host-adapter-production-migration.md)
 has completed, this same functional scope continues exclusively on `host/`/`adapter/`; it was not a
 3A cutover prerequisite. The engineering already specified for the host/adapter replacement's own
