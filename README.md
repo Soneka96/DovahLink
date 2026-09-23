@@ -70,6 +70,9 @@ system boundaries.
 - [ARCHITECTURE.md](ARCHITECTURE.md) defines the system boundaries and technical direction.
 - [ROADMAP.md](ROADMAP.md) is the source of truth for phase status, order, and dependencies.
 - [CONTRIBUTING.md](CONTRIBUTING.md) defines the development and proposal workflow.
+- [Flutter app changelog](app/CHANGELOG.md), [Dart SDK changelog](sdk/CHANGELOG.md), and
+  [Host/Adapter changelog](host/CHANGELOG.md) track changes by component. [CHANGELOG.md](CHANGELOG.md)
+  preserves the combined history through release `0.4.0`.
 - [DEVELOPMENT.md](DEVELOPMENT.md) explains how to install and verify local development prerequisites.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) addresses known issues and solutions.
 

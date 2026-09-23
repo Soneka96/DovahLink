@@ -129,7 +129,7 @@ lifetime.
   adapter policy, an adapter restart means a new Skyrim process and creates a new identity; live
   plugin unload/reload is not a supported lifecycle boundary. The host's OS process lifetime is
   separate and has no public identity. The retired predecessor identifier's name is retained only
-  in CHANGELOG.md/PLAN.md's frozen-reference compatibility records.
+  in the archived CHANGELOG.md/PLAN.md frozen-reference compatibility records.
 - `playContextId` identifies the currently loaded authoritative play context. It changes whenever
   state from the previous loaded game must no longer be accepted as current.
 - `clientId` identifies one paired client or device independently of any connection it opens.

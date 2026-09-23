@@ -16,6 +16,7 @@ on:
       - ".vscode/**"
       - "ai/context/**"
       - "app/**"
+      - "host/CHANGELOG.md"
       - "integration/**"
       - "protocol/**"
       - "sdk/**"
